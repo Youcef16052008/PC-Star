@@ -370,16 +370,16 @@ export default function BuilderPage({ t, products, build, setBuild, liveStock, o
                 <div className="alert alert-danger py-2">
                   <strong>{t('socketMismatch')}</strong>
                   <div className="small">
-                    {cpu.name} is {cpu.compat.socket}. {board.name} is {board.compat.socket}.
+                    {t('compatSocketShort', { cpu: cpu.name, cpuSocket: cpu.compat.socket, board: board.name, boardSocket: board.compat.socket })}
                   </div>
                 </div>
               )}
               {blocks.length > 0 && (
                 <div className="alert alert-danger py-2">
                   <strong>{t('willNotRun')}</strong>
-                  {blocks.map((w) => (
-                    <div key={w} className="small">
-                      {w}
+                  {blocks.map((w, i) => (
+                    <div key={`${w.key}-${i}`} className="small">
+                      {t(w.key, w.vars)}
                     </div>
                   ))}
                 </div>
@@ -387,9 +387,9 @@ export default function BuilderPage({ t, products, build, setBuild, liveStock, o
               {socketOk && notes.length > 0 && (
                 <div className="alert alert-warning py-2">
                   <strong>{t('watchThis')}</strong>
-                  {notes.map((w) => (
-                    <div key={w} className="small">
-                      {w}
+                  {notes.map((w, i) => (
+                    <div key={`${w.key}-${i}`} className="small">
+                      {t(w.key, w.vars)}
                     </div>
                   ))}
                 </div>

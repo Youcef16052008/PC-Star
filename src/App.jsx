@@ -83,18 +83,25 @@ function stockLabel(n, t) {
   return { text: `${n} ${t('inStore')}`, cls: 'stock-ok' }
 }
 
-function cartMessage(cart, total, pickup) {
+function cartMessage(cart, total, pickup, t) {
   const lines = cart.map((i) => `${i.qty} x ${i.name} (${i.sku})`).join('\n')
-  const who = pickup.name ? `\nName: ${pickup.name}` : ''
-  const tel = pickup.phone ? `\nPhone: ${pickup.phone}` : ''
-  const when = pickup.slot ? `\nPickup slot: ${pickup.slot}` : ''
-  return `Salam PC Star Informatique, please prepare this for pickup at El Makari Les Castors, Oran:${who}${tel}${when}\n\n${lines}\n\nTotal ${money(total)}`
+  const who = pickup.name ? `${t('waName')}: ${pickup.name}\n` : ''
+  const tel = pickup.phone ? `${t('waPhone')}: ${pickup.phone}\n` : ''
+  const when = pickup.slot ? `${t('waSlot')}: ${pickup.slot}\n` : ''
+  return t('waMessage', {
+    address: STORE.address,
+    who,
+    tel,
+    when,
+    items: lines,
+    total: money(total)
+  })
 }
 
-function Stars({ product }) {
+function Stars({ product, t }) {
   if (!product || !product.rating) return null
   return (
-    <div className="stars" title={`${product.rating} from ${product.reviews} reviews`}>
+    <div className="stars" title={`${product.rating} ${t('xReviews', { n: product.reviews })}`}>
       <span>{starText(product.rating)}</span>
       <em>{product.rating.toFixed(1)}</em>
       <span className="rev">({product.reviews})</span>
@@ -635,7 +642,7 @@ export default function App() {
     setToast(t('ordersLocalOnly'))
   }
 
-  const msg = cartMessage(cart, total, pickup)
+  const msg = cartMessage(cart, total, pickup, t)
   const waHref = `https://wa.me/${STORE.whatsapp}?text=${encodeURIComponent(msg)}`
   const carrier = phoneCarrier(pickup.phone)
 
@@ -832,7 +839,7 @@ export default function App() {
                           </button>
                         </h3>
                         <div className="fw-bold text-success">{money(p.price)}</div>
-                        <p className="card-text small text-secondary mb-0">{d.note}</p>
+                        <p className="card-text small text-secondary mb-0">{t(d.noteKey)}</p>
                       </div>
                     </div>
                   </div>
@@ -877,8 +884,8 @@ export default function App() {
                 <div className="col-md-6 col-lg-4" key={g.id}>
                   <div className="card h-100 border-0 shadow-sm">
                     <div className="card-body">
-                      <h3 className="h6 card-title">{g.title}</h3>
-                      <p className="card-text small text-secondary mb-0">{g.body}</p>
+                      <h3 className="h6 card-title">{t(g.titleKey)}</h3>
+                      <p className="card-text small text-secondary mb-0">{t(g.bodyKey)}</p>
                     </div>
                   </div>
                 </div>
@@ -940,7 +947,7 @@ export default function App() {
                       <div className="card-body d-flex flex-column">
                         <div className="small text-secondary">{p.sku}</div>
                         <h3 className="h6 card-title">{p.name}</h3>
-                        <Stars product={p} />
+                        <Stars product={p} t={t} />
                         <div className="small text-secondary mb-2">{p.short}</div>
                         {(p.tags || []).length > 0 && (
                           <div className="d-flex flex-wrap gap-1 mb-2">
@@ -1006,16 +1013,16 @@ export default function App() {
           <div className="row g-4">
             <div className="col-lg-7">
               <h1 className="h3 mb-3">{t('aboutTitle')}</h1>
-              <p className="lead fs-6 text-secondary">{STORE.about}</p>
-              <p>{STORE.services}</p>
-              <p className="text-secondary">{STORE.buyNote}</p>
+              <p className="lead fs-6 text-secondary">{t('storeAbout')}</p>
+              <p>{t('storeServices')}</p>
+              <p className="text-secondary">{t('storeBuyNote')}</p>
               <div className="row g-3 my-3">
                 {SHOP_SERVICES.map((s) => (
                   <div className="col-sm-6" key={s.id}>
                     <article className="card h-100 shadow-sm border-0">
                       <div className="card-body">
-                        <h3 className="h6">{s.title}</h3>
-                        <p className="small text-secondary mb-0">{s.body}</p>
+                        <h3 className="h6">{t(s.titleKey)}</h3>
+                        <p className="small text-secondary mb-0">{t(s.bodyKey)}</p>
                       </div>
                     </article>
                   </div>
@@ -1025,9 +1032,9 @@ export default function App() {
                 <li className="list-group-item px-0">
                   <strong>{STORE.address}</strong>
                 </li>
-                <li className="list-group-item px-0 text-secondary">{STORE.hours}</li>
-                <li className="list-group-item px-0 text-secondary">{STORE.ready}</li>
-                <li className="list-group-item px-0 text-secondary">{STORE.warranty}</li>
+                <li className="list-group-item px-0 text-secondary">{t('storeHours')}</li>
+                <li className="list-group-item px-0 text-secondary">{t('storeReady')}</li>
+                <li className="list-group-item px-0 text-secondary">{t('storeWarranty')}</li>
                 <li className="list-group-item px-0">
                   <a href={`mailto:${STORE.email}`}>{STORE.email}</a>
                 </li>
@@ -1315,16 +1322,16 @@ export default function App() {
               {blocks.length > 0 && (
                 <div className="alert alert-danger py-2">
                   <strong>{t('willNotRun')}</strong>
-                  {blocks.map((w) => (
-                    <div key={w} className="small">{w}</div>
+                  {blocks.map((w, i) => (
+                    <div key={`${w.key}-${i}`} className="small">{t(w.key, w.vars)}</div>
                   ))}
                 </div>
               )}
               {notes.length > 0 && (
                 <div className="alert alert-warning py-2">
                   <strong>{t('watchThis')}</strong>
-                  {notes.map((w) => (
-                    <div key={w} className="small">{w}</div>
+                  {notes.map((w, i) => (
+                    <div key={`${w.key}-${i}`} className="small">{t(w.key, w.vars)}</div>
                   ))}
                 </div>
               )}
@@ -1385,7 +1392,7 @@ export default function App() {
                   <a className="btn btn-outline-secondary btn-sm" href={waHref} target="_blank" rel="noreferrer">{t('whatsappCart')}</a>
                   <a className="btn btn-outline-secondary btn-sm" href={STORE.phoneHref}>{t('call')} {STORE.phone}</a>
                 </div>
-                <p className="small text-secondary mt-2 mb-0">{STORE.ready}</p>
+                <p className="small text-secondary mt-2 mb-0">{t('storeReady')}</p>
               </form>
             </>
           )}

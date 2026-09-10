@@ -89,12 +89,12 @@ les identifiants localStorage : si le même email existe localement avec le bon 
 passer local, l'utilisateur **passe le contrôle du serveur**. Le repli local ne doit se
 faire que sur erreur réseau (offline), jamais sur rejet d'authentification.
 
-**B7. Avertissements de compatibilité en anglais durci (mélangé au français)** — `src/data.js:684-830` (`checkCompatibility`)
+**B7. Avertissements de compatibilité en anglais durci (mélangé au français)** — `src/data.js:684-830` (`checkCompatibility`) — ✅ CORRIGÉ (P3)
 Exemples : `“Risk of surchauffe under load.”` (L706), `“too high gamme”`, `“Pick a higher-end board.”`
 → affichés dans le panier (`src/App.jsx:~1210`, alertes danger/warning) et dans le builder,
 pour les utilisateurs **AR et FR**. ~15 messages, aucun ne passe par i18n.
 
-**B8. Textes de contenu durcis hors i18n (AR/FR concernés)**
+**B8. Textes de contenu durcis hors i18n (AR/FR concernés)** — ✅ CORRIGÉ (P3)
 - `src/data.js:11-34` : `STORE` (about/services/buyNote/hours/note/warranty/ready) + `SHOP_SERVICES` → **anglais**, page À-propos (`src/App.jsx:1060-1080`).
 - `src/data.js:228-262` : `REVIEWS` → **anglais**, affichées sur la fiche produit (`src/ProductPage.jsx:149`).
 - `src/data.js:160-186` : `GUIDES` → **français**, accueil (`src/App.jsx:864-870`).
@@ -264,5 +264,12 @@ testable indépendamment.
   `npm test` **53/53**, `npm run build` OK, smoke e2e OK, render jsdom OK (produit serveur
   affiché / produit masqué absent en mode API ; fallback statique intact en offline),
   vérification multi-device live (création visible, masquage disparaît, master voit `hidden:true`).
-- **P3 → P5 — À faire** : B7, B8 (i18n) ; B10, B17 (Vercel) ; B11, B12, B14, B15, B16, B19,
-  B20, B21 (mineurs & nettoyage).
+- **P3 — Fait** : B7, B8 (i18n complet). `checkCompatibility` → objets `{key, vars, block}`
+  rendus par `t(key, vars)` ; STORE/SHOP_SERVICES/DEALS/GUIDES/REVIEWS/`needs`/message
+  WhatsApp/tooltip étoiles → clés i18n (**89 clés × ar/fr/en**). `npm test` **57/57**
+  (dont 2 nouveaux fichiers : `i18n.coverage.test.js` = 0 clé manquante sur tout le scan
+  `t('…')` statique + dynamique, `compat.i18n.test.js` = 17 avertissements rendus sans
+  variable résiduelle dans les 3 langues), build OK, smoke OK, render jsdom **ar/fr/en**
+  33/33 checks (accueil, about, PDP, avis, needs, panier — aucun résidu anglais).
+- **P4 → P5 — À faire** : B10, B17 (Vercel) ; B11, B12, B14, B15, B16, B19, B20, B21
+  (mineurs & nettoyage).

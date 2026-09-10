@@ -9,10 +9,10 @@ function stockLabel(n, t) {
   return { text: `${n} ${t('inStore')}`, cls: 'stock-ok' }
 }
 
-function Stars({ product }) {
+function Stars({ product, t }) {
   if (!product || !product.rating) return null
   return (
-    <div className="stars" title={`${product.rating} from ${product.reviews} reviews`}>
+    <div className="stars" title={`${product.rating} ${t('xReviews', { n: product.reviews })}`}>
       <span>{starText(product.rating)}</span>
       <em>{product.rating.toFixed(1)}</em>
       <span className="rev">({product.reviews})</span>
@@ -99,7 +99,7 @@ export default function ProductPage({ t, product, photoIndex, setPhotoIndex, lef
             {product.sku} · {product.brand}
           </div>
           <h1 className="h3 mb-2">{product.name}</h1>
-          <Stars product={product} />
+          <Stars product={product} t={t} />
           <p className="text-secondary">{product.short}</p>
           <div className="fs-4 fw-bold text-success mb-2">{money(product.price)}</div>
           <SpecBadges product={product} t={t} />
@@ -117,7 +117,11 @@ export default function ProductPage({ t, product, photoIndex, setPhotoIndex, lef
               </table>
             </div>
           )}
-          {product.needs && <div className={`alert py-2 ${left <= 0 ? 'alert-danger' : 'alert-secondary'}`}>{product.needs}</div>}
+          {(product.needsKey || product.needs) && (
+            <div className={`alert py-2 ${left <= 0 ? 'alert-danger' : 'alert-secondary'}`}>
+              {product.needsKey ? t(product.needsKey) : product.needs}
+            </div>
+          )}
 
           <div className="d-none d-md-flex flex-wrap gap-2 mt-3">
             <button className="btn btn-success btn-lg" type="button" disabled={left <= 0} onClick={onAdd}>
@@ -159,7 +163,7 @@ export default function ProductPage({ t, product, photoIndex, setPhotoIndex, lef
                       <strong>{r.name}</strong>
                       <span className="text-secondary">{r.city}</span>
                     </div>
-                    <p className="mb-0 small">{r.text}</p>
+                    <p className="mb-0 small">{r.textKey ? t(r.textKey) : r.text}</p>
                   </div>
                 </article>
               </div>
@@ -188,7 +192,7 @@ export default function ProductPage({ t, product, photoIndex, setPhotoIndex, lef
                           {p.name}
                         </button>
                       </h3>
-                      <Stars product={p} />
+                      <Stars product={p} t={t} />
                       <div className="fw-bold text-success mb-2">{money(p.price)}</div>
                       <button className="btn btn-sm btn-success mt-auto" type="button" disabled={l <= 0} onClick={() => onAddRelated(p)}>
                         {l <= 0 ? t('soldOut') : t('add')}

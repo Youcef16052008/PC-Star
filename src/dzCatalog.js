@@ -20,7 +20,7 @@ function p(id, sku, name, brand, kind, category, price, stock, short, extra = {}
     related: extra.related || [],
     photos: extra.photos || [],
     short,
-    needs: extra.needs || 'Disponible au comptoir PC Star · Oran. Demandez la compatibilité.',
+    needsKey: extra.needsKey || 'needsDz',
     compat: extra.compat || {},
     origin: 'dz',
     tags: extra.tags || []

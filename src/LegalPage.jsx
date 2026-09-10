@@ -20,7 +20,7 @@ export default function LegalPage({ t, kind, onBack }) {
                 <li>{t('legalWarrantyL2')}</li>
                 <li>{t('legalWarrantyL3')}</li>
               </ul>
-              <p className="text-secondary small mb-0">{STORE.warranty}</p>
+              <p className="text-secondary small mb-0">{t('storeWarranty')}</p>
             </>
           )}
           {kind === 'privacy' && (

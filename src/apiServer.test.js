@@ -45,7 +45,7 @@ async function call(method, pathname, { body, token } = {}) {
 }
 
 describe('routes (P2) — handler HTTP réel', () => {
-  it('GET /api/catalog : objets complets (compat/needs/rating) + stock live', async () => {
+  it('GET /api/catalog : objets complets (compat/needsKey/rating) + stock live', async () => {
     const { status, data } = await call('GET', '/api/catalog')
     assert.equal(status, 200)
     assert.ok(data.ok)
@@ -53,7 +53,8 @@ describe('routes (P2) — handler HTTP réel', () => {
     const cpu = data.products.find((p) => p.id === 'cpu-7800x3d')
     assert.ok(cpu, 'cpu-7800x3d présent')
     assert.equal(cpu.compat.socket, 'AM5')
-    assert.ok(cpu.needs, 'needs présent (plus de sous-ensemble de champs)')
+    // P3 : needs → clé i18n (needsKey), servie complète au client
+    assert.ok(cpu.needsKey, 'needsKey présent (plus de sous-ensemble de champs)')
     assert.ok(cpu.rating > 0)
     assert.ok(Array.isArray(cpu.photos) && cpu.photos.length > 0)
   })

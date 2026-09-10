@@ -13,7 +13,7 @@ function x(id, sku, name, brand, kind, category, price, stock, short, compat = {
     related: [],
     photos: [],
     short,
-    needs: 'Name and price at the desk. Ask if you need a matching part.',
+    needsKey: 'needsExtra',
     compat
   }
 }

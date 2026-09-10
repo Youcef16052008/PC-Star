@@ -16,23 +16,19 @@ export const STORE = {
   instagram: 'pcstar31',
   instagramUrl: 'https://www.instagram.com/pcstar31/',
   facebookUrl: 'https://www.facebook.com/pcstar31',
-  hours: 'Call or WhatsApp before you come',
   address: 'Rue Mimoune Bouadjimi, El Makari Les Castors, Oran',
   mapUrl: 'https://www.google.com/maps/search/?api=1&query=Rue+Mimoune+Bouadjimi+El+Makari+Les+Castors+Oran',
   mapEmbed: 'https://maps.google.com/maps?q=Rue%20Mimoune%20Bouadjimi%20El%20Makari%20Les%20Castors%20Oran&z=16&output=embed',
-  note: 'Reserve in store. Pay in dinars at pickup.',
-  warranty: '1-year shop warranty on new parts. 7-day exchange if unused with receipt.',
-  ready: 'Reserved orders are prepared at the desk. WhatsApp us if you need a time.',
-  about: 'PC Star Informatique is a pickup shop in El Makari Les Castors, Oran. We sell PC parts, laptops, ready PCs, USB sticks, manettes and console gear — and we repair almost anything that plugs into a PC, laptop or console. Prices in dinars, pay at the desk.',
-  services: 'We fix PCs and laptops: no power, overheating, screens, keyboards, fans. We install Windows 10/11 with drivers, format, clean dust and paste, clone HDD to SSD, remove malware, and save your files. Consoles and manettes too — analog drift, HDMI, dust. Bring it in; we quote before we work. Labour stays cheap. Parts are extra if needed.',
-  buyNote: 'We buy used laptops, ready PCs, flash USB, manettes and console kits in fair condition. WhatsApp photos and the price you want. Cash at the desk if we take it.'
+  // Textes (about/services/hours/warranty…) → clés i18n P3 :
+  // storeAbout, storeServices, storeBuyNote, storeHours, storeReady,
+  // storeWarranty, storeNote. STORE ne garde que les données (tél, adresse, URLs).
 }
 
 export const SHOP_SERVICES = [
-  { id: 'parts', title: 'PC parts', body: 'CPU, GPU, boards, RAM, SSD, cases. Price in DA, bag at the desk.' },
-  { id: 'machines', title: 'Laptops & PC pret', body: 'We buy and sell laptops and ready PCs — office boxes and gamer builds. Ask for the week’s stock.' },
-  { id: 'repair', title: 'Reparations', body: 'PC, laptop, console, manette. Windows install, format, dust, paste, screen, fan, no-power diagnostic. If it is a computer problem, we usually can fix it.' },
-  { id: 'usb', title: 'USB, flash & console', body: 'Flash disques, USB hubs, HDMI, manettes, PS / Xbox / Switch. Honest prices, in store now.' }
+  { id: 'parts', titleKey: 'svcPartsTitle', bodyKey: 'svcPartsBody' },
+  { id: 'machines', titleKey: 'svcMachinesTitle', bodyKey: 'svcMachinesBody' },
+  { id: 'repair', titleKey: 'svcRepairTitle', bodyKey: 'svcRepairBody' },
+  { id: 'usb', titleKey: 'svcUsbTitle', bodyKey: 'svcUsbBody' }
 ]
 
 export const STORE_LINKS = [
@@ -149,40 +145,20 @@ export const PRICE_PRESETS = [
 ]
 
 export const DEALS = [
-  { id: 'hav-combo4', tag: '-10%', note: 'Rentrée · Havit 4en1' },
-  { id: 'sog-mkh5', tag: 'Pack SoG', note: 'En magasin Oran' },
-  { id: 'cpu-5600', tag: 'Hit DZ', note: 'AM4 encore roi' },
-  { id: 'ram-32', tag: '-12%', note: 'DDR5 semaine' },
-  { id: 'ssd-1t', tag: 'Hot', note: 'NVMe en stock' },
-  { id: 'tw-ssd-512', tag: 'Budget', note: 'Twinmos 512' }
+  { id: 'hav-combo4', tag: '-10%', noteKey: 'dealNoteHavCombo' },
+  { id: 'sog-mkh5', tag: 'Pack SoG', noteKey: 'dealNoteSogPack' },
+  { id: 'cpu-5600', tag: 'Hit DZ', noteKey: 'dealNoteCpu5600' },
+  { id: 'ram-32', tag: '-12%', noteKey: 'dealNoteRam32' },
+  { id: 'ssd-1t', tag: 'Hot', noteKey: 'dealNoteSsd1t' },
+  { id: 'tw-ssd-512', tag: 'Budget', noteKey: 'dealNoteTwSsd512' }
 ]
 
 export const GUIDES = [
-  {
-    id: 'dz-budget',
-    title: 'Budget étudiant DZ',
-    body: 'Ryzen 5 5600 + B450 + 16 Go Magma + SSD Twinmos 512. Spirit of Gamer Ghost 5 ou Havit combo pour le desk. On vérifie au comptoir avant paiement.'
-  },
-  {
-    id: 'dz-sog',
-    title: 'Spirit of Gamer & Havit',
-    body: 'Marques très présentes en Algérie (LICB+, Campus, Digitec…). Packs 4en1, boîtiers Ghost, casques Elite — bon rapport DA / perf pour Oran.'
-  },
-  {
-    id: 'am5',
-    title: 'AM5 starter',
-    body: '7800X3D + B650 + 32 Go DDR5. Le desk vérifie le socket avant paiement.'
-  },
-  {
-    id: 'fix',
-    title: 'Réparation PC & laptop',
-    body: 'Windows, poussière, pâte, écran, ventilo, no-power. Console et manette aussi. Devis au comptoir — main-d’œuvre légère.'
-  },
-  {
-    id: 'desk',
-    title: 'Retrait El Makari',
-    body: 'Panier → créneau → code PS au comptoir Les Castors, Oran. Paiement en espèces au retrait.'
-  }
+  { id: 'dz-budget', titleKey: 'guideHomeBudgetTitle', bodyKey: 'guideHomeBudgetBody' },
+  { id: 'dz-sog', titleKey: 'guideHomeSogTitle', bodyKey: 'guideHomeSogBody' },
+  { id: 'am5', titleKey: 'guideHomeAm5Title', bodyKey: 'guideHomeAm5Body' },
+  { id: 'fix', titleKey: 'guideHomeFixTitle', bodyKey: 'guideHomeFixBody' },
+  { id: 'desk', titleKey: 'guideHomeDeskTitle', bodyKey: 'guideHomeDeskBody' }
 ]
 
 export const BRANDS_DZ_PRIORITY = [
@@ -205,32 +181,32 @@ export const BRANDS_DZ_PRIORITY = [
 
 export const REVIEWS = {
   'cpu-7800x3d': [
-    { name: 'Yacine M.', city: 'Oran', stars: 5, text: 'Picked up same day. Runs cool with the NH-D15 we took with it.' },
-    { name: 'Lina B.', city: 'Oran', stars: 5, text: 'Best CPU here for 1440p. Desk confirmed the AM5 board.' }
+    { name: 'Yacine M.', city: 'Oran', stars: 5, textKey: 'rev7800x3d1' },
+    { name: 'Lina B.', city: 'Oran', stars: 5, textKey: 'rev7800x3d2' }
   ],
   'cpu-14700k': [
-    { name: 'Karim T.', city: 'Blida', stars: 5, text: 'Unlocked and fast. Needed the Z790 — they had it in the next aisle.' },
-    { name: 'Sofia R.', city: 'Oran', stars: 4, text: 'Warm under load. The Noctua cooler they suggested fixed it.' }
+    { name: 'Karim T.', city: 'Blida', stars: 5, textKey: 'rev14700k1' },
+    { name: 'Sofia R.', city: 'Oran', stars: 4, textKey: 'rev14700k2' }
   ],
   'gpu-4070s': [
-    { name: 'Nabil H.', city: 'Oran', stars: 5, text: '1440p ultra in store demo. Paid cash at the desk.' },
-    { name: 'Amira K.', city: 'Tizi Ouzou', stars: 4, text: 'Card is long. Lancool 216 fits. Ask them to measure.' }
+    { name: 'Nabil H.', city: 'Oran', stars: 5, textKey: 'rev4070s1' },
+    { name: 'Amira K.', city: 'Tizi Ouzou', stars: 4, textKey: 'rev4070s2' }
   ],
   'gpu-7800xt': [
-    { name: 'Riad S.', city: 'Constantine', stars: 5, text: '16 GB helps. Cheaper than the 4070 Super this month.' },
-    { name: 'Ines D.', city: 'Oran', stars: 4, text: 'Needs the 750W. They would not sell it with a weaker PSU.' }
+    { name: 'Riad S.', city: 'Constantine', stars: 5, textKey: 'rev7800xt1' },
+    { name: 'Ines D.', city: 'Oran', stars: 4, textKey: 'rev7800xt2' }
   ],
   'mb-b650': [
-    { name: 'Mehdi A.', city: 'Oran', stars: 5, text: 'Wi-Fi worked out of the box. BIOS already AM5-ready.' }
+    { name: 'Mehdi A.', city: 'Oran', stars: 5, textKey: 'revB650' }
   ],
   'ram-32': [
-    { name: 'Yanis C.', city: 'Oran', stars: 5, text: 'Deal of the week. EXPO 6000 on the B650, no drama.' }
+    { name: 'Yanis C.', city: 'Oran', stars: 5, textKey: 'revRam32' }
   ],
   'headset': [
-    { name: 'Sara M.', city: 'Oran', stars: 4, text: 'Casque is comfortable. Mic is fine for Discord.' }
+    { name: 'Sara M.', city: 'Oran', stars: 4, textKey: 'revHeadset' }
   ],
   'mouse': [
-    { name: 'Anis B.', city: 'Setif', stars: 5, text: 'Light and clean. Took the G640 pad with it.' }
+    { name: 'Anis B.', city: 'Setif', stars: 5, textKey: 'revMouse' }
   ]
 }
 
@@ -254,7 +230,7 @@ const PRODUCTS_CORE = [
     photos: shots('cpu.jpg', 'cpu-7800x3d.jpg', 'cpu-14700k.jpg'),
     short: '8 cores / 16 threads · 5.0 GHz',
     socket: 'AM5',
-    needs: 'Needs an AM5 motherboard and DDR5 RAM.',
+    needsKey: 'needsCpu7800x3d',
     compat: { socket: 'AM5', memory: 'DDR5' }
   },
   {
@@ -272,7 +248,7 @@ const PRODUCTS_CORE = [
     photos: shots('cpu-14700k.jpg', 'cpu.jpg', 'cpu-7800x3d.jpg'),
     short: '20 cores · unlocked · LGA1700',
     socket: 'LGA1700',
-    needs: 'Needs an LGA1700 motherboard (Z790 / B760) and DDR5 RAM.',
+    needsKey: 'needsCpu14700k',
     compat: { socket: 'LGA1700', memory: 'DDR5' }
   },
   {
@@ -289,7 +265,7 @@ const PRODUCTS_CORE = [
     related: ['psu-750', 'case-atx', 'monitor'],
     photos: shots('gpu.jpg', 'gpu-4070.jpg', 'gpu-7800xt.jpg'),
     short: '12 GB GDDR6X · 1440p',
-    needs: 'Needs a 700W+ PSU and an ATX case with room for a 3-slot card.',
+    needsKey: 'needsGpu4070s',
     compat: { psuMin: 700, form: 'ATX' }
   },
   {
@@ -306,7 +282,7 @@ const PRODUCTS_CORE = [
     related: ['psu-750', 'case-atx', 'monitor'],
     photos: shots('gpu-7800xt.jpg', 'gpu.jpg', 'gpu-4070.jpg'),
     short: '16 GB GDDR6 · 1440p',
-    needs: 'Needs a 700W+ PSU and an ATX case.',
+    needsKey: 'needsGpu7800xt',
     compat: { psuMin: 700, form: 'ATX' }
   },
   {
@@ -324,7 +300,7 @@ const PRODUCTS_CORE = [
     photos: shots('mb.jpg', 'mb-b650.jpg', 'mb-z790.jpg'),
     short: 'AM5 · DDR5 · ATX · Wi-Fi 6E',
     socket: 'AM5',
-    needs: 'Works with AM5 CPUs (Ryzen 7000/9000) and DDR5 RAM only.',
+    needsKey: 'needsMbB650',
     compat: { socket: 'AM5', memory: 'DDR5', form: 'ATX' }
   },
   {
@@ -342,7 +318,7 @@ const PRODUCTS_CORE = [
     photos: shots('mb-b650.jpg', 'mb.jpg', 'mb-z790.jpg'),
     short: 'LGA1700 · DDR5 · ATX',
     socket: 'LGA1700',
-    needs: 'Works with 12th/13th/14th-gen Intel CPUs and DDR5 RAM only.',
+    needsKey: 'needsMbZ790',
     compat: { socket: 'LGA1700', memory: 'DDR5', form: 'ATX' }
   },
   {
@@ -359,7 +335,7 @@ const PRODUCTS_CORE = [
     related: ['cpu-7800x3d', 'mb-b650', 'ssd-1t'],
     photos: shots('ram.jpg', 'ram-32.jpg', 'ssd.jpg'),
     short: '2x16 GB · CL30 · DDR5',
-    needs: 'DDR5 kit. Will not work on DDR4 motherboards.',
+    needsKey: 'needsRam32',
     compat: { memory: 'DDR5' }
   },
   {
@@ -376,7 +352,7 @@ const PRODUCTS_CORE = [
     related: ['ram-32', 'mb-b650', 'case-atx'],
     photos: shots('ssd.jpg', 'ssd-1t.jpg', 'ram.jpg'),
     short: 'PCIe 4.0 · M.2 2280',
-    needs: 'Fits any M.2 2280 slot (AMD or Intel).',
+    needsKey: 'needsSsd1t',
     compat: {}
   },
   {
@@ -393,7 +369,7 @@ const PRODUCTS_CORE = [
     related: ['psu-750', 'cooler', 'gpu-4070s'],
     photos: shots('case.jpg', 'case-atx.jpg', 'psu.jpg'),
     short: 'ATX mid-tower · mesh · 2 fans',
-    needs: 'Fits ATX / mATX motherboards and long GPUs.',
+    needsKey: 'needsCaseAtx',
     compat: { form: 'ATX' }
   },
   {
@@ -410,7 +386,7 @@ const PRODUCTS_CORE = [
     related: ['gpu-4070s', 'case-atx', 'cooler'],
     photos: shots('psu.jpg', 'psu-750.jpg', 'case.jpg'),
     short: 'Fully modular · 80+ Gold',
-    needs: '750W is enough for a 4070 Super or 7800 XT build.',
+    needsKey: 'needsPsu750',
     compat: { psuWatts: 750 }
   },
   {
@@ -427,7 +403,7 @@ const PRODUCTS_CORE = [
     related: ['cpu-7800x3d', 'case-atx', 'mb-b650'],
     photos: shots('cooler.jpg', 'case.jpg', 'cpu.jpg'),
     short: 'Dual-tower · AM5 & LGA1700',
-    needs: 'Fits AM5 and LGA1700. Check case height (165 mm).',
+    needsKey: 'needsCooler',
     compat: { socket: ['AM5', 'LGA1700'] }
   },
   {
@@ -444,7 +420,7 @@ const PRODUCTS_CORE = [
     related: ['mic', 'mouse', 'keyboard'],
     photos: shots('headset.jpg', 'mic.jpg', 'speakers.jpg'),
     short: 'Casque · USB / 3.5 mm · mic',
-    needs: 'Works on PC out of the box. No extra parts needed.',
+    needsKey: 'needsHeadset',
     compat: {}
   },
   {
@@ -461,7 +437,7 @@ const PRODUCTS_CORE = [
     related: ['headset', 'mouse', 'keyboard'],
     photos: shots('controller.jpg', 'keyboard.jpg', 'mouse.jpg'),
     short: 'Manette · PC & Xbox',
-    needs: 'Plug-and-play on Windows via USB-C or Bluetooth.',
+    needsKey: 'needsController',
     compat: {}
   },
   {
@@ -478,7 +454,7 @@ const PRODUCTS_CORE = [
     related: ['mouse', 'mousepad', 'headset'],
     photos: shots('keyboard.jpg', 'mouse.jpg', 'mousepad.jpg'),
     short: 'Wireless · low-profile mechanical',
-    needs: 'PC accessory. No compatibility with CPU/motherboard.',
+    needsKey: 'needsKeyboard',
     compat: {}
   },
   {
@@ -495,7 +471,7 @@ const PRODUCTS_CORE = [
     related: ['mousepad', 'keyboard', 'headset'],
     photos: shots('mouse.jpg', 'mousepad.jpg', 'keyboard.jpg'),
     short: 'Wireless · 60 g · 8K polling',
-    needs: 'PC accessory. Pairs with the XL mousepad we stock.',
+    needsKey: 'needsMouse',
     compat: {}
   },
   {
@@ -512,7 +488,7 @@ const PRODUCTS_CORE = [
     related: ['gpu-4070s', 'webcam', 'speakers'],
     photos: shots('monitor.jpg', 'webcam.jpg', 'speakers.jpg'),
     short: '27" IPS · 2560×1440 · HDMI & DP',
-    needs: 'Needs HDMI or DisplayPort from the GPU.',
+    needsKey: 'needsMonitor',
     compat: {}
   },
   {
@@ -529,7 +505,7 @@ const PRODUCTS_CORE = [
     related: ['mic', 'headset', 'monitor'],
     photos: shots('webcam.jpg', 'mic.jpg', 'headset.jpg'),
     short: '1080p · stereo mics',
-    needs: 'USB webcam. Works on any PC.',
+    needsKey: 'needsWebcam',
     compat: {}
   },
   {
@@ -546,7 +522,7 @@ const PRODUCTS_CORE = [
     related: ['webcam', 'headset', 'speakers'],
     photos: shots('mic.jpg', 'headset.jpg', 'webcam.jpg'),
     short: 'USB · cardioid / omni',
-    needs: 'USB microphone. No extra interface needed.',
+    needsKey: 'needsMic',
     compat: {}
   },
   {
@@ -563,7 +539,7 @@ const PRODUCTS_CORE = [
     related: ['mouse', 'keyboard', 'headset'],
     photos: shots('mousepad.jpg', 'mouse.jpg', 'keyboard.jpg'),
     short: '460 × 400 mm · cloth',
-    needs: 'Desk accessory. In stock.',
+    needsKey: 'needsMousepad',
     compat: {}
   },
   {
@@ -580,7 +556,7 @@ const PRODUCTS_CORE = [
     related: ['headset', 'mic', 'monitor'],
     photos: shots('speakers.jpg', 'headset.jpg', 'monitor.jpg'),
     short: 'Stereo + sub · 3.5 mm',
-    needs: 'Currently out of stock. Ask the desk for the next lot.',
+    needsKey: 'needsSpeakers',
     compat: {}
   }
 ]
@@ -675,14 +651,17 @@ export function splitWarnings(warnings) {
   const blocks = []
   const notes = []
   warnings.forEach((w) => {
-    if (w.startsWith('BLOCK:')) blocks.push(w.replace(/^BLOCK:\s*/, ''))
+    if (w.block) blocks.push(w)
     else notes.push(w)
   })
   return { blocks, notes }
 }
 
+// P3 i18n : chaque avertissement est un objet { key, vars, block? } rendu
+// par t(key, vars) — plus de texte anglais durci dans le code.
 export function checkCompatibility(items) {
   const warnings = []
+  const W = (key, vars, block = false) => warnings.push({ key, vars, block })
   const list = (items || []).filter(Boolean)
   const cpus = list.filter((i) => i.category === 'cpu')
   const boards = list.filter((i) => i.category === 'motherboard')
@@ -696,14 +675,14 @@ export function checkCompatibility(items) {
     cpus.forEach((cpu) => {
       boards.forEach((board) => {
         if (cpu.compat.socket && board.compat.socket && cpu.compat.socket !== board.compat.socket) {
-          warnings.push(`BLOCK: ${cpu.name} needs ${cpu.compat.socket}. ${board.name} is ${board.compat.socket}. They will not work together.`)
+          W('compatSocketMismatch', { cpu: cpu.name, cpuSocket: cpu.compat.socket, board: board.name, boardSocket: board.compat.socket }, true)
         }
         const cs = specOf(cpu)
         const bs = specOf(board)
         if (cs.tdp && bs.vrm && cs.tdp > bs.vrm) {
-          warnings.push(`BLOCK: ${cpu.name} (${cs.tdp}W) will overheat the VRM on ${board.name}. Pick a higher-end board.`)
+          W('compatVrmOverheat', { cpu: cpu.name, tdp: cs.tdp, board: board.name }, true)
         } else if (cs.tdp && bs.vrm && cs.tdp > bs.vrm * 0.85) {
-          warnings.push(`${cpu.name} pushes the VRM on ${board.name}. Risk of surchauffe under load.`)
+          W('compatVrmHot', { cpu: cpu.name, board: board.name })
         }
       })
     })
@@ -711,7 +690,7 @@ export function checkCompatibility(items) {
 
   if (cpus.length && !boards.length) {
     cpus.forEach((cpu) => {
-      warnings.push(`${cpu.name} needs a ${cpu.compat.socket} motherboard.`)
+      W('compatNeedsBoard', { cpu: cpu.name, socket: cpu.compat.socket })
     })
   }
 
@@ -719,7 +698,7 @@ export function checkCompatibility(items) {
     boards.forEach((board) => {
       rams.forEach((ram) => {
         if (board.compat.memory && ram.compat.memory && board.compat.memory !== ram.compat.memory) {
-          warnings.push(`BLOCK: ${ram.name} is ${ram.compat.memory}. ${board.name} only takes ${board.compat.memory}.`)
+          W('compatRamMismatch', { ram: ram.name, ramMem: ram.compat.memory, board: board.name, boardMem: board.compat.memory }, true)
         }
       })
     })
@@ -729,7 +708,7 @@ export function checkCompatibility(items) {
     gpus.forEach((gpu) => {
       psus.forEach((psu) => {
         if (gpu.compat.psuMin && psu.compat.psuWatts < gpu.compat.psuMin) {
-          warnings.push(`BLOCK: ${gpu.name} wants ${gpu.compat.psuMin}W+. ${psu.name} is ${psu.compat.psuWatts}W.`)
+          W('compatPsuWeak', { gpu: gpu.name, min: gpu.compat.psuMin, psu: psu.name, watts: psu.compat.psuWatts }, true)
         }
       })
     })
@@ -737,7 +716,7 @@ export function checkCompatibility(items) {
 
   if (gpus.length && !psus.length) {
     gpus.forEach((gpu) => {
-      if (gpu.compat.psuMin) warnings.push(`${gpu.name} needs a ${gpu.compat.psuMin}W+ power supply.`)
+      if (gpu.compat.psuMin) W('compatNeedsPsu', { gpu: gpu.name, min: gpu.compat.psuMin })
     })
   }
 
@@ -748,9 +727,9 @@ export function checkCompatibility(items) {
         const gs = specOf(gpu)
         const gap = (gs.tier || 0) - (cs.tier || 0)
         if (gap >= 3) {
-          warnings.push(`BLOCK: ${gpu.name} is too high gamme for ${cpu.name}. The CPU will bottleneck hard and the GPU will run hot for nothing.`)
+          W('compatGapHigh', { gpu: gpu.name, cpu: cpu.name }, true)
         } else if (gap >= 2) {
-          warnings.push(`${gpu.name} is a class above ${cpu.name}. Expect a CPU bottleneck in games.`)
+          W('compatGapOne', { gpu: gpu.name, cpu: cpu.name })
         }
       })
     })
@@ -762,12 +741,12 @@ export function checkCompatibility(items) {
         const bs = specOf(board)
         const gs = specOf(gpu)
         if ((bs.tier || 0) <= 3 && (gs.tier || 0) >= 7) {
-          warnings.push(`BLOCK: ${board.name} is an entry board. ${gpu.name} is too high gamme — VRM heat, tight PCIe clearance, and extra surchauffe.`)
+          W('compatEntryBoard', { board: board.name, gpu: gpu.name }, true)
         } else if ((bs.tier || 0) <= 3 && (gs.tier || 0) >= 6) {
-          warnings.push(`${gpu.name} is heavy for ${board.name}. Prefer a B650 / Z790 ATX board.`)
+          W('compatHeavyForBoard', { gpu: gpu.name, board: board.name })
         }
         if (gs.pcie === 16 && bs.pcie === 8) {
-          warnings.push(`${gpu.name} wants x16. ${board.name} runs x8 — slower, more heat.`)
+          W('compatPcieDowngrade', { gpu: gpu.name, board: board.name })
         }
       })
     })
@@ -779,12 +758,12 @@ export function checkCompatibility(items) {
         const cs = specOf(cpu)
         const cl = specOf(cooler)
         if (cs.tdp && cl.cool && cs.tdp > cl.cool) {
-          warnings.push(`BLOCK: ${cpu.name} (${cs.tdp}W) will surchauffe with ${cooler.name}. Need a dual-tower or 240 AIO.`)
+          W('compatCoolerWeak', { cpu: cpu.name, tdp: cs.tdp, cooler: cooler.name }, true)
         }
       })
     })
   } else if (cpus.length && specOf(cpus[0]).tdp >= 125) {
-    warnings.push(`${cpus[0].name} needs a proper cooler. Stock / small air will surchauffe.`)
+    W('compatNeedsCooler', { cpu: cpus[0].name })
   }
 
   if (gpus.length && cases.length) {
@@ -793,12 +772,12 @@ export function checkCompatibility(items) {
         const gs = specOf(gpu)
         const air = specOf(box).airflow || 2
         if ((gs.tdp || 0) >= 280 && air <= 1) {
-          warnings.push(`BLOCK: ${gpu.name} in ${box.name} will overheat. Need a mesh ATX case.`)
+          W('compatCaseOverheat', { gpu: gpu.name, box: box.name }, true)
         } else if ((gs.tdp || 0) >= 220 && air <= 1) {
-          warnings.push(`${gpu.name} has little airflow in ${box.name}. Risk of surchauffe.`)
+          W('compatCaseAirflow', { gpu: gpu.name, box: box.name })
         }
         if ((gs.slots || 0) >= 3 && box.compat?.form === 'mATX' && air <= 1) {
-          warnings.push(`BLOCK: ${gpu.name} is a thick card. ${box.name} is too tight.`)
+          W('compatCaseTight', { gpu: gpu.name, box: box.name }, true)
         }
       })
     })
@@ -810,7 +789,7 @@ export function checkCompatibility(items) {
   if (load >= 400) {
     const air = cases[0] ? specOf(cases[0]).airflow || 2 : 0
     if (!cases.length || air <= 2) {
-      warnings.push(`CPU+GPU ~${load}W. This setup can surchauffe. Mesh case + dual-tower or 240 AIO.`)
+      W('compatTotalLoad', { load })
     }
   }
 
