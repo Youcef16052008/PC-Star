@@ -24,7 +24,7 @@ Audit ligne par ligne, fichier par fichier : `src/*` (21 fichiers), `server/*` (
 
 ### 🔴 Critique
 
-**B1. Perte totale de la base de données (silencieuse)** — `server/db.js:136-139`
+**B1. Perte totale de la base de données (silencieuse)** — `server/db.js:136-139` — ✅ CORRIGÉ (P1)
 ```js
 } catch {
   const db = emptyDb()
@@ -40,7 +40,7 @@ commandes, stocks, sessions sont perdus, sans log ni backup. Double mode de déf
 
 ### 🟠 Haute
 
-**B2. En mode API, la boutique affiche le catalogue statique (pas le catalogue serveur)** — `src/App.jsx:166` + `src/App.jsx:270-277`
+**B2. En mode API, la boutique affiche le catalogue statique (pas le catalogue serveur)** — `src/App.jsx:166` + `src/App.jsx:270-277` — ✅ CORRIGÉ (P2)
 `buildShopView(PRODUCTS, …)` = catalogue statique ; la réponse de `GET /api/catalog`
 n'est exploitée que pour `map[pr.id] = pr.stock` (stockMap). Conséquences en production
 (Vercel) :
@@ -49,27 +49,41 @@ n'est exploitée que pour `map[pr.id] = pr.stock` (stockMap). Conséquences en p
 - `MasterPage` reçoit aussi `products={catalog}` (`src/App.jsx:1164`) → le master ne voit
   ni ses créations ni ses masquages. La promesse « multi-device : master add/hide » est rompue côté client.
 
-**B3. Le serveur fait confiance au total et aux prix envoyés par le client** — `server/catalog.js:52-80` (`placeOrder`)
+**B3. Le serveur fait confiance au total et aux prix envoyés par le client** — `server/catalog.js:52-80` (`placeOrder`) — ✅ CORRIGÉ (P1)
 `price: Math.max(0, Number(i.price) || 0)` et `total: body.total != null ? Number(body.total) : …`.
 Rien n'est recalculé depuis le catalogue : un client peut envoyer un total inférieur
 (ex: 1 DA) et le desk affichera ce total. (Paiement espèces au comptoir → impact limité
 mais réel : le desk est la source de vérité affichée.)
 
+**B24. Le masquage des produits CRÉÉS PAR LE MASTER est ignoré** — `server/masterApi.js:95-110` (`updateProduct`, branche extra) + `server/catalog.js:92-97` (`publicCatalog`) — ✅ CORRIGÉ (P2, découvert pendant sa validation)
+Découvert en testant B2 en live : `hideProductMaster(db, extraId, true)` renvoie `ok` mais
+le produit reste visible. Triple faille :
+- `updateProduct` (branche `extra`) ne gère pas `patch.hidden` (seule la branche catalogue
+  alimente `db.meta.hiddenProductIds`) ;
+- `publicCatalog` ne filtre PAS les `extraProducts` avec `hiddenProductIds` (même si le
+  masquage était enregistré, le produit serait servi) ;
+- `listMasterProducts` hardcode `hidden: false` pour les extras → le master ne voit jamais
+  l'état réel.
+Conséquence : un produit master masqué restait visible (et achetables) sur toutes les
+autres sessions. Fix : `patch.hidden` géré dans la branche extra, `publicCatalog` filtre
+les extras, `listMasterProducts` rapporte `hidden` réel. (B23 bis : sans B2 — catalogue
+statique côté client — ce bug était invisible sur le site.)
+
 ### 🟡 Moyenne
 
-**B4. Aucune gestion d'erreur réseau côté client** — `src/api.js:24-44` (`req()`)
+**B4. Aucune gestion d'erreur réseau côté client** — `src/api.js:24-44` (`req()`) — ✅ CORRIGÉ (P2)
 `fetch` n'est pas enveloppé dans un try/catch : toute erreur réseau (proxy, timeout,
 backend en redémarrage) → Promise rejetée **non gérée** aux ~20 appels :
 - `src/App.jsx:267-288` (effet initial), `:381` (**polling desk toutes les 20 s** → spam de rejets), `:575` (checkout → pas de fallback local, échec silencieux), `:452` (logout → échec silencieux, resté connecté) ;
 - `src/AuthPanel.jsx:77, 94, 115` (login/register/OAuth → échec silencieux) ;
 - `src/MasterPage.jsx:76, 125, 128, 148, 198`, `src/DeskPage.jsx:105` (CSV), `src/ProfilePage.jsx:25, 96, 101`.
 
-**B5. Toast mensonger « commandes synchronisées » après échec API** — `src/App.jsx:623`
+**B5. Toast mensonger « commandes synchronisées » après échec API** — `src/App.jsx:623` — ✅ CORRIGÉ (P2)
 Dans `reserve()`, si `api.postOrder` échoue (5xx, ou 4xx ≠ 409), on bascule en commande
 locale puis : `setToast(apiOnline ? t('ordersSynced') : t('ordersLocalOnly'))` → le client
 croit que le desk a sa commande alors qu'elle est **locale uniquement**.
 
-**B6. Échec d'auth serveur → repli sur le login local** — `src/AuthPanel.jsx:94-100` (login), `:115-120` (register)
+**B6. Échec d'auth serveur → repli sur le login local** — `src/AuthPanel.jsx:94-100` (login), `:115-120` (register) — ✅ CORRIGÉ (P2)
 En mode API, un 401 (mauvais mot de passe) fait retomber sur `loginEmail(users, …)` avec
 les identifiants localStorage : si le même email existe localement avec le bon mot de
 passer local, l'utilisateur **passe le contrôle du serveur**. Le repli local ne doit se
@@ -89,7 +103,7 @@ pour les utilisateurs **AR et FR**. ~15 messages, aucun ne passe par i18n.
 - `src/App.jsx:99-105` : `cartMessage` → message WhatsApp **anglais** (`“please prepare this for pickup…”`).
 - `src/App.jsx:92` : tooltip Stars `“from X reviews”` → anglais.
 
-**B9. MasterPage en mode API : 3 trous** — `src/MasterPage.jsx`
+**B9. MasterPage en mode API : 3 trous** — `src/MasterPage.jsx` — ✅ CORRIGÉ (P2)
 - L82 : toast `t('authErrorPassword')` à l'échec de **création produit** (message sans rapport) ; L150 : `t('masterForbidden')` à l'échec du masquage.
 - L161-162 : `doDeleteCustomer` → **local uniquement** (`deleteCustomer(users, …)`), aucun appel serveur — alors que l'endpoint existe (`DELETE /api/customers/:id`, `server/index.js:604`). Le client « supprimé » reste dans l'API (et dans les autres onglets du master).
 - L172, L177 : panneaux (`togglePanel`/`addPanel`) → **local uniquement**, aucun endpoint serveur → les panneaux custom sont perdus en mode API (silencieusement).
@@ -104,7 +118,7 @@ sur Vercel, alors que ça passe en local (node pur, sans limite). À vérifier/d
 
 - **B11.** Sessions qui n'expireront jamais : `db.sessions` croît sans limite (`server/oauth.js:117`, `server/db.js`) ; `db.oauthPending` orphelin si l'utilisateur abandonne l'écran de consentement (`server/oauth.js:37`, suppression seulement à L118).
 - **B12.** Fichiers photo orphelins `tmp-*` : `server/index.js:486-499` — les photos sont d'abord enregistrées sous l'id `tmp`, puis ré-enregistrées sous le vrai id ; les fichiers `tmp-*` ne sont jamais supprimés (fuite disque à chaque création de produit avec photos).
-- **B13.** `DELETE /api/customers/:id` (`server/index.js:604-617`) : supprime l'utilisateur sans nettoyer ses sessions (tokens restant valides) ni réinitialiser `userId` dans ses commandes.
+- **B13.** `DELETE /api/customers/:id` (`server/index.js:604-617`) : supprime l'utilisateur sans nettoyer ses sessions (tokens restant valides) ni réinitialiser `userId` dans ses commandes. — ✅ CORRIGÉ (P1)
 - **B14.** Code mort : `src/icons.jsx` (jamais importé) ; `COMPARE_FIELDS` (`src/data.js:~840`, feature compare supprimée) ; `photoSkeletonClass` (`src/media.js:70`, non utilisée) ; `startSms`/`verifySms`/`loginGoogle`/`ACCENTS`/`AVATARS` (`src/shopStore.js`, features retirées de l'UI mais encore testées dans `src/shopStore.test.js`) ; variable `left` inutile dans `reserve()` (`src/App.jsx:~590`).
 - **B15.** `src/ProfilePage.jsx` : carte « commandes » toujours vide en mode local (seul l'API fetch `/api/me/orders`) ; le formulaire n'est pas re-synchronisé au changement d'utilisateur (masqué par la navigation login→boutique).
 - **B16.** `src/index.css:2-24` : `:root` = thème sombre appliqué avant le JS → **flash sombre** au premier rendu pour les utilisateurs en thème clair.
@@ -136,6 +150,14 @@ sur Vercel, alors que ça passe en local (node pur, sans limite). À vérifier/d
   → Boutique + SearchPage + BuilderPage + MasterPage deviennent tous dynamiques (masquage,
   créations, stock live, overrides de prix master) et MasterPage reçoit le bon `products`.
 - Garder le fallback statique si l'API est offline (comportement actuel).
+
+### B24 — Masquage des produits extra (master)
+- `server/masterApi.js` `updateProduct` (branche `extra`) : traiter `patch.hidden === true/false`
+  en écrivant `db.meta.hiddenProductIds` (comme la branche catalogue).
+- `server/catalog.js` `publicCatalog` : `.filter((p) => !hidden.has(p.id))` sur `extraProducts`.
+- `server/masterApi.js` `listMasterProducts` : `hidden: hidden.has(p.id)` au lieu de `false`.
+- Tests : unitaire (hide/unhide extra → `publicCatalog` + `listMasterProducts`) et
+  intégration HTTP (masquage via route → disparaît de `/api/catalog`).
 
 ### B3 — Recalcul serveur des prix
 - Dans `placeOrder` : pour chaque ligne, `price = priceOf(db, id)` où `priceOf` lit le prix du
@@ -235,5 +257,12 @@ multi-device (feature centrale), puis la qualité i18n (visible par l'utilisateu
 durcissement prod, et enfin le polish. Chaque phase = commit séparé sur la branche,
 testable indépendamment.
 
-**Aucune correction n'a été appliquée** — ce rapport est l'attendu ; en attente de validation
-du plan avant toute modification.
+**Statut des corrections :**
+- **P1 — Fait** (commit `2cda64c`) : B1, B3, B13. `npm test` 45/45, smoke OK, preuves live
+  (total trafiqué recalculé, token post-suppression 401, base tronquée → quarantaine + service continu).
+- **P2 — Fait** : B4, B5, B6, B2, B9 + **B24** (découvert pendant la validation de B2).
+  `npm test` **53/53**, `npm run build` OK, smoke e2e OK, render jsdom OK (produit serveur
+  affiché / produit masqué absent en mode API ; fallback statique intact en offline),
+  vérification multi-device live (création visible, masquage disparaît, master voit `hidden:true`).
+- **P3 → P5 — À faire** : B7, B8 (i18n) ; B10, B17 (Vercel) ; B11, B12, B14, B15, B16, B19,
+  B20, B21 (mineurs & nettoyage).

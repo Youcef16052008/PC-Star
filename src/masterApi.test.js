@@ -54,6 +54,25 @@ describe('master CRUD', () => {
     assert.ok(!pub.some((p) => p.id === id))
   })
 
+  it('masque/unmasque un produit créé par le master (extra)', () => {
+    const db = emptyDb()
+    const r = createProduct(db, { name: 'Masquable', price: 500, stock: 2, category: 'usb' })
+    assert.equal(r.ok, true)
+    assert.ok(publicCatalog(db).some((p) => p.id === r.product.id), 'visible avant masquage')
+
+    const h = hideProductMaster(db, r.product.id, true)
+    assert.equal(h.ok, true)
+    assert.ok(db.meta.hiddenProductIds.includes(r.product.id))
+    assert.ok(!publicCatalog(db).some((p) => p.id === r.product.id), 'masqué du catalogue public')
+    const listed = listMasterProducts(db).find((p) => p.id === r.product.id)
+    assert.equal(listed.hidden, true, 'listMasterProducts signale hidden')
+
+    const u = hideProductMaster(db, r.product.id, false)
+    assert.equal(u.ok, true)
+    assert.ok(publicCatalog(db).some((p) => p.id === r.product.id), 'revisible après unmasquage')
+    assert.equal(listMasterProducts(db).find((p) => p.id === r.product.id).hidden, false)
+  })
+
   it('exports CSV with headers', () => {
     const csv = ordersToCsv([
       {

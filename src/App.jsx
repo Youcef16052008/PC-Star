@@ -19,6 +19,7 @@ import {
   starText
 } from './data'
 import * as api from './api.js'
+import { ensureProductPhotos } from './productPhotos.js'
 import SearchPage from './SearchPage.jsx'
 import BuilderPage from './BuilderPage.jsx'
 import PartThumb from './PartThumb.jsx'
@@ -134,6 +135,7 @@ export default function App() {
   const [authMode, setAuthMode] = useState('local')
   const [brandFilter, setBrandFilter] = useState(null)
   const [stockMap, setStockMap] = useState({}) // id -> live server stock
+  const [serverCatalog, setServerCatalog] = useState([]) // produits complets servis par l'API (mode API)
   const [cartStep, setCartStep] = useState(0) // 0 cart, 1 info (when items)
   const cartElRef = useRef(null)
   const cartOcRef = useRef(null)
@@ -163,7 +165,13 @@ export default function App() {
   }
 
   const shopView = useMemo(() => buildShopView(PRODUCTS, PART_LINES, BASE_PANELS, meta), [meta])
-  const catalog = shopView.products
+  // Mode API : le catalogue serveur est la source de vérité (masquages et
+  // créations du master, stock live, overrides de prix). Offline : repli
+  // sur le catalogue statique + meta local.
+  const catalog = useMemo(() => {
+    if (apiOnline && serverCatalog.length) return serverCatalog.map(ensureProductPhotos)
+    return shopView.products
+  }, [apiOnline, serverCatalog, shopView.products])
   const selected = catalog.find((p) => p.id === selectedId)
 
   useEffect(() => {
@@ -270,6 +278,7 @@ export default function App() {
       if (h?.ok) {
         const cat = await api.getCatalog()
         if (!cancelled && cat.ok && Array.isArray(cat.data?.products)) {
+          setServerCatalog(cat.data.products)
           const map = {}
           for (const pr of cat.data.products) map[pr.id] = pr.stock
           setStockMap(map)
@@ -322,6 +331,7 @@ export default function App() {
     try {
       const cat = await api.getCatalog()
       if (cat.ok && Array.isArray(cat.data?.products)) {
+        setServerCatalog(cat.data.products)
         const map = {}
         for (const pr of cat.data.products) map[pr.id] = pr.stock
         setStockMap(map)
@@ -620,7 +630,9 @@ export default function App() {
     setReserved(order)
     setCart([])
     setCartStep(0)
-    setToast(apiOnline ? t('ordersSynced') : t('ordersLocalOnly'))
+    // On n'arrive ici QUE si la commande n'a pas été acceptée par l'API
+    // (échec ou offline) : le toast doit le dire, jamais « synchronisée ».
+    setToast(t('ordersLocalOnly'))
   }
 
   const msg = cartMessage(cart, total, pickup)

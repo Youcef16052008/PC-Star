@@ -364,22 +364,12 @@ export async function handler(req, res) {
       return res.end(buf)
     }
 
-    // Catalog with live stock
+    // Catalog with live stock — objets complets (rating/needs/related/compat…)
+    // : le front consomme directement cette liste (mode API), il ne lit plus
+    // seulement le stock.
     if (req.method === 'GET' && pathname === '/api/catalog') {
       const db = readDb()
-      const products = publicCatalog(db).map((p) => ({
-        id: p.id,
-        sku: p.sku,
-        name: p.name,
-        brand: p.brand,
-        category: p.category,
-        price: p.price,
-        stock: p.stock,
-        photos: p.photos,
-        short: p.short,
-        tags: p.tags,
-        compat: p.compat
-      }))
+      const products = publicCatalog(db)
       return send(res, 200, { ok: true, products, count: products.length })
     }
 

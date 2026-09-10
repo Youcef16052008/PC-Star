@@ -198,9 +198,11 @@ export function publicCatalog(db) {
       stock: liveStockOf(db, p.id)
     }
   })
-  const extras = (db.meta?.extraProducts || []).map((p) => ({
-    ...p,
-    stock: liveStockOf(db, p.id)
-  }))
+  const extras = (db.meta?.extraProducts || [])
+    .filter((p) => !hidden.has(p.id))
+    .map((p) => ({
+      ...p,
+      stock: liveStockOf(db, p.id)
+    }))
   return [...base, ...extras]
 }

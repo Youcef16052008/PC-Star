@@ -24,11 +24,18 @@ async function req(path, { method = 'GET', body, token } = {}) {
   if (body !== undefined) headers['Content-Type'] = 'application/json'
   const t = token ?? getToken()
   if (t) headers.Authorization = `Bearer ${t}`
-  const res = await fetch(path, {
-    method,
-    headers,
-    body: body !== undefined ? JSON.stringify(body) : undefined
-  })
+  let res
+  try {
+    res = await fetch(path, {
+      method,
+      headers,
+      body: body !== undefined ? JSON.stringify(body) : undefined
+    })
+  } catch {
+    // Erreur réseau (backend down, proxy, timeout) : on signale offline au
+    // lieu de rejeter — chaque appelant gère alors son repli local.
+    return { ok: false, status: 0, data: null, offline: true }
+  }
   let data = null
   try {
     data = await res.json()
@@ -41,7 +48,7 @@ async function req(path, { method = 'GET', body, token } = {}) {
 export async function health() {
   try {
     const r = await req('/api/health')
-    return r.ok ? r.data : { ok: false }
+    return r.ok ? r.data : { ok: false, offline: Boolean(r.offline) }
   } catch {
     return { ok: false, offline: true }
   }
@@ -146,9 +153,14 @@ export function ordersExportUrl(day) {
 
 export async function downloadOrdersCsv(day) {
   const token = getToken()
-  const res = await fetch(ordersExportUrl(day), {
-    headers: token ? { Authorization: `Bearer ${token}` } : {}
-  })
+  let res
+  try {
+    res = await fetch(ordersExportUrl(day), {
+      headers: token ? { Authorization: `Bearer ${token}` } : {}
+    })
+  } catch {
+    return { ok: false, status: 0, offline: true }
+  }
   if (!res.ok) return { ok: false, status: res.status }
   const blob = await res.blob()
   const url = URL.createObjectURL(blob)

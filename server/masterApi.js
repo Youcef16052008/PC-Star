@@ -34,7 +34,7 @@ export function listMasterProducts(db) {
   const extras = (db.meta?.extraProducts || []).map((p) => ({
     ...p,
     stock: liveStockOf(db, p.id),
-    hidden: false,
+    hidden: hidden.has(p.id),
     source: 'extra'
   }))
   return [...base, ...extras]
@@ -91,6 +91,14 @@ export function updateProduct(db, id, patch) {
     if (patch.stock != null) {
       cur.stock = Math.max(0, Math.floor(Number(patch.stock) || 0))
       setStock(db, id, cur.stock)
+    }
+    if (patch.hidden === true) {
+      const set = new Set(db.meta.hiddenProductIds || [])
+      set.add(id)
+      db.meta.hiddenProductIds = [...set]
+    }
+    if (patch.hidden === false) {
+      db.meta.hiddenProductIds = (db.meta.hiddenProductIds || []).filter((x) => x !== id)
     }
     extras[ei] = cur
     db.meta.extraProducts = extras

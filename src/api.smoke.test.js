@@ -23,6 +23,17 @@ describe('DZ catalog fill', () => {
   })
 })
 
+describe('api client (B4)', () => {
+  it('req : erreur réseau → flag offline, aucune promesse rejetée', async () => {
+    // En node, fetch('/api/health') (URL relative) lève une TypeError :
+    // req() doit la convertir en { ok:false, offline:true }.
+    const { health } = await import('./api.js')
+    const h = await health()
+    assert.equal(h.ok, false)
+    assert.equal(h.offline, true)
+  })
+})
+
 describe('checkout phone DZ', () => {
   it('only accepts mobilis ooredoo djezzy', () => {
     assert.equal(phoneCarrier('0550123456'), 'ooredoo')

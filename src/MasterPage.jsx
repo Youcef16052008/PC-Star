@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { CATEGORIES, money } from './data.js'
 import { addPanel, addProduct, deleteCustomer, hideProduct, setProductPhotos, togglePanel } from './shopStore.js'
 import PartThumb from './PartThumb.jsx'
@@ -36,8 +36,25 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, me
   const [panelCat, setPanelCat] = useState('accessories')
   const [editId, setEditId] = useState(null)
   const [editPhotos, setEditPhotos] = useState([])
+  const [apiCustomers, setApiCustomers] = useState([])
 
-  const customers = useMemo(() => users.filter((u) => u.role !== 'master'), [users])
+  // Mode API : la liste des clients vient du serveur (les clients créés via
+  // l'API n'existent pas dans le store local).
+  useEffect(() => {
+    if (!apiOnline) return undefined
+    let cancelled = false
+    api.listCustomers().then((r) => {
+      if (!cancelled && r.ok && Array.isArray(r.data?.customers)) setApiCustomers(r.data.customers)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [apiOnline])
+
+  const customers = useMemo(
+    () => (apiOnline ? apiCustomers : users.filter((u) => u.role !== 'master')),
+    [apiOnline, apiCustomers, users]
+  )
 
   if (!user || user.role !== 'master') {
     return (
@@ -83,7 +100,7 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, me
         photoDataUrls: form.photos
       })
       if (!r.ok) {
-        setToast(t('authErrorPassword'))
+        setToast(t('masterCreateFail'))
         return
       }
       setForm({ name: '', price: '', stock: '1', category: form.category, brand: 'PC Star', short: '', photos: [] })
@@ -147,7 +164,7 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, me
     if (apiOnline) {
       const r = await api.masterHideProduct(id, true)
       if (!r.ok) {
-        setToast(t('masterForbidden'))
+        setToast(t('masterActionFail'))
         return
       }
       setToast(t('masterHidden'))
@@ -159,6 +176,18 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, me
   }
 
   function doDeleteCustomer(id) {
+    if (apiOnline) {
+      // Suppression côté serveur (sessions purgées, commandes détachées).
+      api.deleteCustomer(id).then((r) => {
+        if (r.ok) {
+          setApiCustomers((prev) => prev.filter((c) => c.id !== id))
+          setToast(t('masterCustomerGone'))
+        } else {
+          setToast(t('masterActionFail'))
+        }
+      })
+      return
+    }
     const res = deleteCustomer(users, user, id)
     if (!res.ok) {
       setToast(t(res.error === 'master' ? 'masterCannotDelete' : 'masterForbidden'))
@@ -169,11 +198,19 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, me
   }
 
   function doTogglePanel(id, on) {
+    if (apiOnline) {
+      setToast(t('panelsLocalOnly'))
+      return
+    }
     onMeta(togglePanel(meta, id, on))
   }
 
   function submitPanel(e) {
     e.preventDefault()
+    if (apiOnline) {
+      setToast(t('panelsLocalOnly'))
+      return
+    }
     const res = addPanel(meta, { titles: panelTitle, categories: [panelCat] })
     if (!res.ok) return
     onMeta(res.meta)
@@ -375,6 +412,10 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, me
       )}
 
       {tab === 'panels' && (
+        <>
+        {apiOnline && (
+          <div className="alert alert-info py-2">{t('panelsLocalOnlyNote')}</div>
+        )}
         <div className="row g-4">
           <div className="col-lg-4">
             <form className="card shadow-sm border-0" onSubmit={submitPanel}>
@@ -439,6 +480,7 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, me
             </div>
           </div>
         </div>
+        </>
       )}
     </main>
   )
