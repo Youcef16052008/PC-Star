@@ -276,6 +276,12 @@ const dict = {
     loginWithMeta: "دخول عبر Meta",
     ordersSynced: "الطلب أُرسل للمكتب",
     ordersLocalOnly: "محفوظ محلياً (الخادم غير متاح)",
+    authSimpleNote: "حساب بسيط: بريد + كلمة مرور. جرّب حساباً تجريبياً بضغطة.",
+    demoHowTitle: "حسابات تجريبية — اضغط للدخول",
+    demoHowBody: "المتجر (master) يرى قائمة المكتب ويضيف/يحذف منتجات. الزبون يحجز فقط.",
+    demoClickHint: "اضغط على صف للدخول مباشرة.",
+    navHelp: "دليل",
+    helpTitle: "دليل الاستخدام",
     searchSlot: 'ابحث {slot}…'
   },
   fr: {
@@ -550,6 +556,12 @@ const dict = {
     loginWithMeta: "Continuer avec Meta",
     ordersSynced: "Commande envoyée au comptoir",
     ordersLocalOnly: "Sauvé en local (serveur indisponible)",
+    authSimpleNote: "Compte simple : e-mail + mot de passe. Un clic sur un compte démo suffit.",
+    demoHowTitle: "Comptes démo — cliquer pour entrer",
+    demoHowBody: "Le master voit le comptoir et gère le catalogue. Le client réserve seulement.",
+    demoClickHint: "Cliquez une ligne pour vous connecter tout de suite.",
+    navHelp: "Guide",
+    helpTitle: "Guide d’utilisation",
     searchSlot: 'Chercher {slot}…'
   },
   en: {
@@ -824,6 +836,12 @@ const dict = {
     loginWithMeta: "Continue with Meta",
     ordersSynced: "Order sent to the desk",
     ordersLocalOnly: "Saved locally (server offline)",
+    authSimpleNote: "Simple account: email + password. Click a demo row to sign in.",
+    demoHowTitle: "Demo accounts — click to enter",
+    demoHowBody: "Master sees the desk and manages products. Customers only reserve.",
+    demoClickHint: "Click a row to sign in immediately.",
+    navHelp: "Guide",
+    helpTitle: "How to use",
     searchSlot: 'Search {slot}…'
   }
 }

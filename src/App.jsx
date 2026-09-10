@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from 'react'
 import {
   BRANDS_DZ_PRIORITY,
   CATEGORIES,
-  COMPARE_FIELDS,
   DEALS,
   GUIDES,
   PART_LINES,
@@ -23,7 +22,6 @@ import {
 import * as api from './api.js'
 import SearchPage from './SearchPage.jsx'
 import BuilderPage from './BuilderPage.jsx'
-import Orbit from './Orbit.jsx'
 import PartThumb from './PartThumb.jsx'
 import AuthPanel from './AuthPanel.jsx'
 import ProfilePage from './ProfilePage.jsx'
@@ -40,8 +38,6 @@ import {
   saveTheme
 } from './prefs.js'
 import {
-  ACCENTS,
-  AVATARS,
   buildShopView,
   isDzPhone,
   loadMeta,
@@ -88,12 +84,6 @@ function Stars({ product }) {
   )
 }
 
-function AvatarBadge({ user, size = '' }) {
-  if (!user) return null
-  const mark = AVATARS.find((a) => a.id === user.avatar)?.mark || 'PS'
-  return <span className={`av ${size} av-${user.avatar || 'star'} accent-${user.accent || 'green'}`}>{mark}</span>
-}
-
 export default function App() {
   const [lang, setLang] = useState(() => loadLang(storage))
   const [themePref, setThemePref] = useState(() => loadTheme(storage))
@@ -118,13 +108,12 @@ export default function App() {
   const [phoneErr, setPhoneErr] = useState('')
   const [reservations, setReservations] = useState(() => loadOrders(storage))
   const [reserved, setReserved] = useState(null)
-  const [compareIds, setCompareIds] = useState([])
   const [build, setBuild] = useState({})
   const [authOpen, setAuthOpen] = useState(false)
   const [navOpen, setNavOpen] = useState(false)
   const [apiOnline, setApiOnline] = useState(false)
   const [apiUser, setApiUser] = useState(null)
-  const [authMode, setAuthMode] = useState('local') // local | api
+  const [authMode, setAuthMode] = useState('local')
   const [brandFilter, setBrandFilter] = useState(null)
 
   const t = (key, vars) => translate(lang, key, vars)
@@ -165,25 +154,6 @@ export default function App() {
       const h = await api.health()
       if (cancelled) return
       setApiOnline(Boolean(h?.ok))
-      // OAuth return
-      if (typeof window !== 'undefined') {
-        const params = new URLSearchParams(window.location.search)
-        const oauthToken = params.get('oauth_token')
-        if (oauthToken) {
-          api.setToken(oauthToken)
-          const me = await api.me()
-          if (me.ok && me.data?.user) {
-            setApiUser(me.data.user)
-            setAuthMode('api')
-            setToast(t('authOk'))
-          }
-          params.delete('oauth_token')
-          params.delete('oauth_provider')
-          const clean = `${window.location.pathname}${params.toString() ? `?${params}` : ''}`
-          window.history.replaceState({}, '', clean)
-          return
-        }
-      }
       const token = api.getToken()
       if (token) {
         const me = await api.me()
@@ -198,16 +168,7 @@ export default function App() {
     return () => {
       cancelled = true
     }
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
-
-  useEffect(() => {
-    if (!user) return
-    const accent = ACCENTS.find((a) => a.id === user.accent)
-    if (accent && typeof document !== 'undefined') {
-      document.documentElement.style.setProperty('--blue', accent.hex)
-      document.documentElement.style.setProperty('--blue-on', accent.on)
-    }
-  }, [user])
+  }, [])
 
   useEffect(() => {
     if (user?.name && !pickup.name) setPickup((p) => ({ ...p, name: user.name }))
@@ -271,7 +232,7 @@ export default function App() {
     setAuthMode('local')
     persistSession(null)
     setToast(t('navLogout'))
-    if (page === 'desk' || page === 'master' || page === 'profile') {
+    if (page === 'desk' || page === 'master' || page === 'profile' || page === 'help') {
       setPage('shop')
       window.scrollTo({ top: 0 })
     }
@@ -282,7 +243,6 @@ export default function App() {
   const total = cart.reduce((s, i) => s + i.qty * i.price, 0)
   const warnings = useMemo(() => checkCompatibility(cart), [cart])
   const { blocks, notes } = useMemo(() => splitWarnings(warnings), [warnings])
-  const compareItems = compareIds.map((id) => catalog.find((p) => p.id === id)).filter(Boolean)
 
   const list = useMemo(() => {
     const q = query.trim().toLowerCase()
@@ -299,10 +259,7 @@ export default function App() {
     })
   }, [category, query, catalog, brandFilter])
 
-  const dzHits = useMemo(
-    () => catalog.filter((p) => (p.tags || []).includes('dz-hit')).slice(0, 8),
-    [catalog]
-  )
+  const dzHits = useMemo(() => catalog.filter((p) => (p.tags || []).includes('dz-hit')).slice(0, 8), [catalog])
 
   function liveStock(product) {
     const inCart = cart.find((i) => i.id === product.id)
@@ -363,17 +320,6 @@ export default function App() {
     setPage(next)
     setNavOpen(false)
     window.scrollTo({ top: 0 })
-  }
-
-  function toggleCompare(id) {
-    setCompareIds((prev) => {
-      if (prev.includes(id)) return prev.filter((x) => x !== id)
-      if (prev.length >= 3) {
-        setToast(t('compareUpTo'))
-        return prev
-      }
-      return [...prev, id]
-    })
   }
 
   async function reserve(e) {
@@ -437,7 +383,7 @@ export default function App() {
   const carrier = phoneCarrier(pickup.phone)
 
   return (
-    <div className={`app theme-${theme} ${user ? `accent-${user.accent || 'green'}` : ''}`}>
+    <div className={`app theme-${theme}`}>
       <header className="wrap nav">
         <button className="logo" type="button" onClick={() => go('shop')}>
           PC <span>Star</span>
@@ -456,6 +402,9 @@ export default function App() {
           <button type="button" className={page === 'about' ? 'on' : ''} onClick={() => go('about')}>
             {t('navAbout')}
           </button>
+          <button type="button" className={page === 'help' ? 'on' : ''} onClick={() => go('help')}>
+            {t('navHelp')}
+          </button>
           {isMaster && (
             <button type="button" className={page === 'desk' ? 'on' : ''} onClick={() => go('desk')}>
               {t('navDesk')}
@@ -472,7 +421,6 @@ export default function App() {
           {user ? (
             <>
               <button type="button" className={`account-btn ${page === 'profile' ? 'on' : ''}`} onClick={() => go('profile')}>
-                <AvatarBadge user={user} />
                 <span>{user.name}</span>
               </button>
               <button type="button" className="ghost tiny" onClick={logout}>
@@ -480,7 +428,14 @@ export default function App() {
               </button>
             </>
           ) : (
-            <button type="button" className="ghost tiny" onClick={() => { setAuthOpen(true); setNavOpen(false) }}>
+            <button
+              type="button"
+              className="ghost tiny"
+              onClick={() => {
+                setAuthOpen(true)
+                setNavOpen(false)
+              }}
+            >
               {t('navLogin')}
             </button>
           )}
@@ -513,7 +468,7 @@ export default function App() {
 
       {page === 'shop' && (
         <main className="wrap page">
-          <section className="hero">
+          <section className="hero hero-simple">
             <div>
               <h1>{t('heroTitle')}</h1>
               <p>{t('heroBody')}</p>
@@ -527,10 +482,10 @@ export default function App() {
                 <button className="ghost" type="button" onClick={() => go('builder')}>
                   {t('pcBuilder')}
                 </button>
+                <button className="ghost" type="button" onClick={() => go('help')}>
+                  {t('navHelp')}
+                </button>
               </div>
-            </div>
-            <div className="hero-orbit">
-              <Orbit onOpen={openProduct} />
             </div>
           </section>
 
@@ -629,7 +584,6 @@ export default function App() {
               {list.map((p) => {
                 const left = liveStock(p)
                 const st = stockLabel(left, t)
-                const inCmp = compareIds.includes(p.id)
                 return (
                   <article className="card" key={p.id}>
                     <button className="thumb" type="button" onClick={() => openProduct(p.id)} aria-label={p.name}>
@@ -648,7 +602,6 @@ export default function App() {
                               {t(`tag_${tag}`) !== `tag_${tag}` ? t(`tag_${tag}`) : tag}
                             </span>
                           ))}
-                          {p.origin === 'dz' && <span className="mini-tag tag-dz">{t('originDz')}</span>}
                         </div>
                       )}
                       {p.price >= 30000 && <div className="pay3x">3x {third(p.price)}</div>}
@@ -658,9 +611,6 @@ export default function App() {
                           {left <= 0 ? t('soldOut') : t('add')}
                         </button>
                       </div>
-                      <button type="button" className={`ghost tiny ${inCmp ? 'on' : ''}`} onClick={() => toggleCompare(p.id)}>
-                        {inCmp ? t('inCompare') : t('compare')}
-                      </button>
                     </div>
                   </article>
                 )
@@ -671,18 +621,7 @@ export default function App() {
       )}
 
       {page === 'search' && (
-        <SearchPage
-          t={t}
-          products={catalog}
-          lines={shopView.lines}
-          panels={shopView.panels}
-          lang={lang}
-          liveStock={liveStock}
-          onAdd={add}
-          onOpen={openProduct}
-          compareIds={compareIds}
-          onToggleCompare={toggleCompare}
-        />
+        <SearchPage t={t} products={catalog} lines={shopView.lines} panels={shopView.panels} lang={lang} liveStock={liveStock} onAdd={add} onOpen={openProduct} />
       )}
 
       {page === 'product' && selected && (
@@ -692,27 +631,12 @@ export default function App() {
           photoIndex={photoIndex}
           setPhotoIndex={setPhotoIndex}
           left={liveStock(selected)}
-          compared={compareIds.includes(selected.id)}
-          onToggleCompare={() => toggleCompare(selected.id)}
           onBack={() => go('shop')}
           onAdd={() => add(selected)}
           onOpen={openProduct}
           liveStock={liveStock}
           onAddRelated={add}
           catalog={catalog}
-        />
-      )}
-
-      {page === 'compare' && (
-        <ComparePage
-          t={t}
-          items={compareItems}
-          liveStock={liveStock}
-          onOpen={openProduct}
-          onAdd={add}
-          onRemove={toggleCompare}
-          onClear={() => setCompareIds([])}
-          onBack={() => go('shop')}
         />
       )}
 
@@ -819,13 +743,7 @@ export default function App() {
                   </div>
                   {total >= 30000 && <p className="pay3x">{t('or3x', { amount: third(total) })}</p>}
                   <label htmlFor="name">{t('yourName')}</label>
-                  <input
-                    id="name"
-                    className="field"
-                    value={pickup.name}
-                    onChange={(e) => setPickup({ ...pickup, name: e.target.value })}
-                    required
-                  />
+                  <input id="name" className="field" value={pickup.name} onChange={(e) => setPickup({ ...pickup, name: e.target.value })} required />
                   <label htmlFor="phone">{t('phone')}</label>
                   <input
                     id="phone"
@@ -921,43 +839,8 @@ export default function App() {
               <div className="social-grid">
                 {STORE_LINKS.map((l) => (
                   <a key={l.id} className={`social-btn social-${l.id}`} href={l.href} target="_blank" rel="noreferrer">
-                    <span className="social-ico" aria-hidden>
-                      {l.id === 'instagram' && (
-                        <svg viewBox="0 0 24 24" width="22" height="22">
-                          <rect x="3" y="3" width="18" height="18" rx="5" fill="none" stroke="currentColor" strokeWidth="1.8" />
-                          <circle cx="12" cy="12" r="4" fill="none" stroke="currentColor" strokeWidth="1.8" />
-                          <circle cx="17.5" cy="6.5" r="1.1" fill="currentColor" />
-                        </svg>
-                      )}
-                      {l.id === 'facebook' && (
-                        <svg viewBox="0 0 24 24" width="22" height="22">
-                          <path
-                            fill="currentColor"
-                            d="M14.5 8.5V6.8c0-.7.5-1.1 1.2-1.1H17V3.2h-2.1C12.4 3.2 11 4.7 11 7v1.5H9v2.6h2V21h3.5v-9.9h2.4l.3-2.6h-2.7z"
-                          />
-                        </svg>
-                      )}
-                      {l.id === 'whatsapp' && (
-                        <svg viewBox="0 0 24 24" width="22" height="22">
-                          <path
-                            fill="currentColor"
-                            d="M12 3.2A8.7 8.7 0 0 0 4.4 16.4L3.2 21l4.7-1.2A8.8 8.8 0 1 0 12 3.2zm4.9 12.4c-.2.6-1.2 1.1-1.7 1.1-.4 0-.9.2-3-.8-2.5-1.2-4.1-3.9-4.2-4.1-.1-.2-1-1.3-1-2.5s.6-1.8.9-2c.2-.2.5-.3.7-.3h.5c.2 0 .4 0 .6.5.2.6.7 2 .8 2.1.1.2.1.3 0 .5l-.3.5c-.1.2-.3.4-.1.7.1.3.6 1 1.3 1.6.9.8 1.6 1 1.9 1.1.3.1.4.1.6-.1l.8-1.1c.2-.2.3-.2.6-.1l1.7.8c.3.1.4.2.5.3.1.3 0 .9-.2 1.5z"
-                          />
-                        </svg>
-                      )}
-                      {l.id === 'maps' && (
-                        <svg viewBox="0 0 24 24" width="22" height="22">
-                          <path
-                            fill="currentColor"
-                            d="M12 3.2c-3.3 0-6 2.5-6 6.1 0 4.5 6 11.5 6 11.5s6-7 6-11.5c0-3.6-2.7-6.1-6-6.1zm0 8.3a2.2 2.2 0 1 1 0-4.4 2.2 2.2 0 0 1 0 4.4z"
-                          />
-                        </svg>
-                      )}
-                    </span>
-                    <span>
-                      <strong>{l.label}</strong>
-                      <em>{l.sub}</em>
-                    </span>
+                    <strong>{l.label}</strong>
+                    <em style={{ display: 'block', fontStyle: 'normal', opacity: 0.9, fontSize: 12 }}>{l.sub}</em>
                   </a>
                 ))}
               </div>
@@ -968,6 +851,75 @@ export default function App() {
                 Google Maps
               </a>
             </div>
+          </div>
+        </main>
+      )}
+
+      {page === 'help' && (
+        <main className="wrap page">
+          <h1 style={{ marginBottom: 12 }}>{t('helpTitle')}</h1>
+          <div className="help-grid">
+            <article className="callbox">
+              <h2>1. {t('demoHowTitle')}</h2>
+              <p>{t('demoHowBody')}</p>
+              <ul className="help-list">
+                <li>
+                  <strong>{t('roleMaster')}</strong>
+                  <code>pcstar.info31@gmail.com</code> / <code>star31</code>
+                </li>
+                <li>
+                  <strong>Karim</strong>
+                  <code>karim.oran@demo.dz</code> / <code>karim31</code>
+                </li>
+                <li>
+                  <strong>Amina</strong>
+                  <code>amina.castors@demo.dz</code> / <code>amina31</code>
+                </li>
+                <li>
+                  <strong>Yacine</strong>
+                  <code>yacine.pc@demo.dz</code> / <code>yacine31</code>
+                </li>
+              </ul>
+              <button type="button" className="add" onClick={() => setAuthOpen(true)}>
+                {t('navLogin')}
+              </button>
+              <p className="short" style={{ marginTop: 10 }}>
+                {t('demoClickHint')}
+              </p>
+            </article>
+            <article className="callbox">
+              <h2>2. {t('roleMaster')}</h2>
+              <ol className="help-list numbered">
+                <li>{t('navLogin')} → master</li>
+                <li>
+                  {t('navMaster')} → {t('masterAddProduct')} / {t('masterHide')}
+                </li>
+                <li>
+                  {t('navDesk')} → {t('deskHint')}
+                </li>
+              </ol>
+              <p className="short">API multi-device: <code>npm run start:api</code> + <code>npm run dev</code></p>
+            </article>
+            <article className="callbox">
+              <h2>3. {t('roleCustomer')}</h2>
+              <ol className="help-list numbered">
+                <li>
+                  {t('navShop')} / {t('navSearch')} / {t('navBuilder')}
+                </li>
+                <li>
+                  {t('navCart')} → tél 05/06/07 → {t('reservePickup')}
+                </li>
+                <li>Code PS-xxxxxx au comptoir Oran</li>
+              </ol>
+            </article>
+            <article className="callbox">
+              <h2>4. {t('navBuilder')}</h2>
+              <p>{t('builderBody', { address: STORE.address })}</p>
+              <p className="short">{t('willNotRun')} · {t('watchThis')}</p>
+              <button type="button" className="ghost" onClick={() => go('builder')}>
+                {t('pcBuilder')}
+              </button>
+            </article>
           </div>
         </main>
       )}
@@ -1046,28 +998,6 @@ export default function App() {
         />
       )}
 
-      {compareIds.length > 0 && page !== 'compare' && (
-        <div className="compare-tray">
-          <div className="wrap tray-inner">
-            <div className="tray-items">
-              {compareItems.map((p) => (
-                <button key={p.id} type="button" className="tray-chip" onClick={() => toggleCompare(p.id)}>
-                  {p.name} ×
-                </button>
-              ))}
-            </div>
-            <div className="tray-actions">
-              <button className="add" type="button" disabled={compareIds.length < 2} onClick={() => go('compare')}>
-                {t('compareN', { n: compareIds.length })}
-              </button>
-              <button className="ghost tiny" type="button" onClick={() => setCompareIds([])}>
-                {t('clear')}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
       <footer className="footer">
         <div className="wrap">
           {STORE.name} · {STORE.address} · {STORE.phone} · {t('pricesInDa')}
@@ -1098,7 +1028,7 @@ export default function App() {
   )
 }
 
-function ProductPage({ t, product, photoIndex, setPhotoIndex, left, compared, onToggleCompare, onBack, onAdd, onOpen, liveStock, onAddRelated, catalog }) {
+function ProductPage({ t, product, photoIndex, setPhotoIndex, left, onBack, onAdd, onOpen, liveStock, onAddRelated, catalog }) {
   const st = stockLabel(left, t)
   const photos = product.photos || []
   const also = (product.related || []).map((id) => catalog.find((p) => p.id === id)).filter(Boolean)
@@ -1136,9 +1066,6 @@ function ProductPage({ t, product, photoIndex, setPhotoIndex, left, compared, on
           <div className="alt-row">
             <button className="add" type="button" disabled={left <= 0} onClick={onAdd}>
               {left <= 0 ? t('soldOut') : t('addToCart')}
-            </button>
-            <button type="button" className={`ghost ${compared ? 'on' : ''}`} onClick={onToggleCompare}>
-              {compared ? t('inCompare') : t('addToCompare')}
             </button>
             <a
               className="ghost"
@@ -1196,65 +1123,6 @@ function ProductPage({ t, product, photoIndex, setPhotoIndex, left, compared, on
             })}
           </div>
         </section>
-      )}
-    </main>
-  )
-}
-
-function ComparePage({ t, items, liveStock, onOpen, onAdd, onRemove, onClear, onBack }) {
-  return (
-    <main className="wrap page">
-      <button className="back" type="button" onClick={onBack}>
-        {t('continueShopping')}
-      </button>
-      <div className="compare-head">
-        <h1>{t('compareTitle')}</h1>
-        <button className="ghost tiny" type="button" onClick={onClear} disabled={items.length === 0}>
-          {t('clearAll')}
-        </button>
-      </div>
-      {items.length < 2 ? (
-        <p className="empty">{t('compareNeed')}</p>
-      ) : (
-        <div className="compare-table-wrap">
-          <table className="compare-table">
-            <thead>
-              <tr>
-                <th>Spec</th>
-                {items.map((p) => (
-                  <th key={p.id}>
-                    <button type="button" className="cmp-photo" onClick={() => onOpen(p.id)}>
-                      <PartThumb product={p} />
-                    </button>
-                    <button type="button" className="cmp-name" onClick={() => onOpen(p.id)}>
-                      {p.name}
-                    </button>
-                    <div className="price">{money(p.price)}</div>
-                    <Stars product={p} />
-                    <div className="alt-row">
-                      <button className="add" type="button" disabled={liveStock(p) <= 0} onClick={() => onAdd(p)}>
-                        {liveStock(p) <= 0 ? t('soldOut') : t('add')}
-                      </button>
-                      <button className="ghost tiny" type="button" onClick={() => onRemove(p.id)}>
-                        {t('remove')}
-                      </button>
-                    </div>
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {COMPARE_FIELDS.map((f) => (
-                <tr key={f.key}>
-                  <th>{f.label}</th>
-                  {items.map((p) => (
-                    <td key={p.id}>{f.value(p)}</td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
       )}
     </main>
   )

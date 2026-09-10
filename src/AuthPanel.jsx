@@ -1,16 +1,5 @@
 import { useState } from 'react'
-import {
-  DEMO_CUSTOMERS,
-  MASTER,
-  isDzPhone,
-  loginEmail,
-  loginGoogle,
-  normalizePhone,
-  phoneCarrier,
-  registerEmail,
-  startSms,
-  verifySms
-} from './shopStore.js'
+import { DEMO_CUSTOMERS, MASTER, isDzPhone, loginEmail, registerEmail } from './shopStore.js'
 import * as api from './api.js'
 
 const ERR = {
@@ -18,29 +7,15 @@ const ERR = {
   password: 'authErrorPassword',
   exists: 'authErrorExists',
   auth: 'authErrorAuth',
-  phone: 'authErrorPhone',
-  code: 'authErrorCode'
+  phone: 'authErrorPhone'
 }
 
-export default function AuthPanel({
-  t,
-  users,
-  onUsers,
-  onSession,
-  onClose,
-  setToast,
-  apiOnline,
-  onApiUser
-}) {
+export default function AuthPanel({ t, users, onUsers, onSession, onClose, setToast, apiOnline, onApiUser }) {
   const [tab, setTab] = useState('login')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [name, setName] = useState('')
   const [phone, setPhone] = useState('')
-  const [smsPhone, setSmsPhone] = useState('')
-  const [smsCode, setSmsCode] = useState('')
-  const [pending, setPending] = useState(null)
-  const [shownCode, setShownCode] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
 
@@ -104,63 +79,31 @@ export default function AuthPanel({
     }
   }
 
-  function sendSms(e) {
-    e.preventDefault()
-    const res = startSms(users, { phone: smsPhone })
-    if (!res.ok) return fail(res.error)
-    setPending(res.pending)
-    setShownCode(res.code)
+  function fill(emailVal, passVal) {
+    setEmail(emailVal)
+    setPassword(passVal)
+    setTab('login')
     setError('')
-    setToast(`${t('authCodeShown')} ${res.code}`)
   }
 
-  function checkSms(e) {
-    e.preventDefault()
-    const res = verifySms(users, { phone: smsPhone, code: smsCode, pending })
-    if (!res.ok) return fail(res.error)
-    succeedLocal(res.user, res.users, 'authOk')
-  }
-
-  function doGoogleLocal() {
-    const res = loginGoogle(users)
-    succeedLocal(res.user, res.users, 'authOk')
-  }
-
-  async function doOAuth(provider) {
+  async function quickLogin(emailVal, passVal) {
     setBusy(true)
     setError('')
     try {
-      if (!apiOnline) {
-        if (provider === 'google') doGoogleLocal()
-        else setError(t('backendOffline'))
-        return
+      if (apiOnline) {
+        const r = await api.login(emailVal, passVal)
+        if (r.ok && r.data?.user) {
+          succeedApi(r.data.user, r.data.token, 'authOk')
+          return
+        }
       }
-      const r = await api.startOAuth(provider, 'login')
-      if (!r.ok || !r.data?.authorizeUrl) {
-        setError(t('authErrorAuth'))
-        return
-      }
-      window.location.href = r.data.authorizeUrl
+      const res = loginEmail(users, { email: emailVal, password: passVal })
+      if (!res.ok) return fail('auth')
+      succeedLocal(res.user, null, 'authOk')
     } finally {
       setBusy(false)
     }
   }
-
-  function quickDemo(seed) {
-    const res = loginEmail(users, { email: seed.email, password: seed.passwordPlain })
-    if (res.ok) succeedLocal(res.user, null, 'authOk')
-    else fail('auth')
-  }
-
-  function quickMaster() {
-    const res = loginEmail(users, { email: MASTER.email, password: MASTER.password })
-    if (!res.ok) return fail('auth')
-    succeedLocal(res.user, null, 'authOk')
-  }
-
-  const carrier = phoneCarrier(smsPhone || phone)
-  const carrierLabel =
-    carrier === 'mobilis' ? t('carrierMobilis') : carrier === 'ooredoo' ? t('carrierOoredoo') : carrier === 'djezzy' ? t('carrierDjezzy') : null
 
   return (
     <div className="modal-backdrop" role="presentation" onClick={onClose}>
@@ -171,23 +114,16 @@ export default function AuthPanel({
             ×
           </button>
         </header>
-        <p className="short">{t('authDemoNote')}</p>
+        <p className="short">{t('authSimpleNote')}</p>
         <p className={`api-pill ${apiOnline ? 'on' : 'off'}`}>{apiOnline ? t('backendOnline') : t('backendOffline')}</p>
 
         <div className="auth-tabs">
-          {['login', 'register', 'sms'].map((id) => (
-            <button
-              key={id}
-              type="button"
-              className={`chip ${tab === id ? 'on' : ''}`}
-              onClick={() => {
-                setTab(id)
-                setError('')
-              }}
-            >
-              {id === 'login' ? t('authLogin') : id === 'register' ? t('authRegister') : t('authSms')}
-            </button>
-          ))}
+          <button type="button" className={`chip ${tab === 'login' ? 'on' : ''}`} onClick={() => { setTab('login'); setError('') }}>
+            {t('authLogin')}
+          </button>
+          <button type="button" className={`chip ${tab === 'register' ? 'on' : ''}`} onClick={() => { setTab('register'); setError('') }}>
+            {t('authRegister')}
+          </button>
         </div>
 
         {error && <p className="form-error">{error}</p>}
@@ -214,75 +150,45 @@ export default function AuthPanel({
             <input id="reg-pass" className="field" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={6} />
             <label htmlFor="reg-phone">{t('phone')}</label>
             <input id="reg-phone" className="field" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="05 / 06 / 07…" inputMode="tel" />
-            <p className="short">
-              {t('phoneHint')}
-              {carrierLabel ? ` · ${carrierLabel}` : ''}
-            </p>
+            <p className="short">{t('phoneHint')}</p>
             <button className="add wide" type="submit" disabled={busy}>
               {t('authSubmitRegister')}
             </button>
           </form>
         )}
 
-        {tab === 'sms' && (
-          <div className="auth-form">
-            <form onSubmit={sendSms}>
-              <label htmlFor="sms-phone">{t('phone')}</label>
-              <input id="sms-phone" className="field" value={smsPhone} onChange={(e) => setSmsPhone(e.target.value)} placeholder="0669…" inputMode="tel" required />
-              <p className="short">
-                {t('phoneHint')}
-                {carrierLabel ? ` · ${carrierLabel}` : ''}
-              </p>
-              <button className="add wide" type="submit">
-                {t('authSendCode')}
-              </button>
-            </form>
-            {pending && (
-              <form onSubmit={checkSms}>
-                <label htmlFor="sms-code">{t('authCode')}</label>
-                <input id="sms-code" className="field" value={smsCode} onChange={(e) => setSmsCode(e.target.value)} inputMode="numeric" maxLength={6} required />
-                {shownCode && (
-                  <p className="demo-code">
-                    {t('authCodeShown')} <strong>{shownCode}</strong>
-                  </p>
-                )}
-                <button className="add wide" type="submit">
-                  {t('authVerify')}
-                </button>
-              </form>
-            )}
-          </div>
-        )}
-
-        <div className="oauth-row">
-          <button type="button" className="oauth-btn google" disabled={busy} onClick={() => doOAuth('google')}>
-            {t('loginWithGoogle')}
-          </button>
-          <button type="button" className="oauth-btn meta" disabled={busy} onClick={() => doOAuth('meta')}>
-            {t('loginWithMeta')}
-          </button>
-        </div>
-
         <div className="demo-profiles">
-          <h3>{t('masterDemoProfiles')}</h3>
-          <button type="button" className="demo-chip master" onClick={quickMaster}>
-            <span className="av av-star">PS</span>
+          <h3>{t('demoHowTitle')}</h3>
+          <p className="short">{t('demoHowBody')}</p>
+          <button type="button" className="demo-chip master" disabled={busy} onClick={() => quickLogin(MASTER.email, MASTER.password)}>
             <span>
-              <strong>{MASTER.name}</strong>
-              <em>{MASTER.email}</em>
+              <strong>{t('roleMaster')}</strong>
+              <em>
+                {MASTER.email} · {MASTER.password}
+              </em>
             </span>
           </button>
           {DEMO_CUSTOMERS.map((d) => (
-            <button key={d.id} type="button" className={`demo-chip accent-${d.accent}`} onClick={() => quickDemo(d)}>
-              <span className={`av av-${d.avatar}`}>{d.avatar.slice(0, 3).toUpperCase()}</span>
+            <button
+              key={d.id}
+              type="button"
+              className="demo-chip"
+              disabled={busy}
+              onClick={() => quickLogin(d.email, d.passwordPlain)}
+              onContextMenu={(e) => {
+                e.preventDefault()
+                fill(d.email, d.passwordPlain)
+              }}
+            >
               <span>
                 <strong>{d.name}</strong>
                 <em>
-                  {d.email} · {normalizePhone(d.phone)}
+                  {d.email} · {d.passwordPlain}
                 </em>
               </span>
             </button>
           ))}
+          <p className="short">{t('demoClickHint')}</p>
         </div>
       </div>
     </div>

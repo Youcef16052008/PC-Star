@@ -27,7 +27,7 @@ const PRICE_KEYS = {
   '100+': 'price_100p'
 }
 
-export default function SearchPage({ t, products, lines, panels, lang, liveStock, onAdd, onOpen, compareIds, onToggleCompare }) {
+export default function SearchPage({ t, products, lines, panels, lang, liveStock, onAdd, onOpen }) {
   const [filters, setFilters] = useState(EMPTY)
   const [view, setView] = useState('grid')
   const [saved, setSaved] = useState([])
@@ -121,15 +121,6 @@ export default function SearchPage({ t, products, lines, panels, lang, liveStock
     )
   }
 
-  function CompareToggle({ product }) {
-    const on = compareIds.includes(product.id)
-    const full = !on && compareIds.length >= 3
-    return (
-      <button type="button" className={`ghost tiny ${on ? 'on' : ''}`} disabled={full} onClick={() => onToggleCompare(product.id)}>
-        {on ? t('inCompare') : full ? t('compareUpTo') : t('compare')}
-      </button>
-    )
-  }
 
   function panelTitle(panel) {
     if (panel.titles) return panel.titles[lang] || panel.titles.en || panel.id
@@ -305,7 +296,6 @@ export default function SearchPage({ t, products, lines, panels, lang, liveStock
                           {left <= 0 ? t('soldOut') : t('add')}
                         </button>
                       </div>
-                      <CompareToggle product={p} />
                     </div>
                   </article>
                 )
@@ -340,7 +330,6 @@ export default function SearchPage({ t, products, lines, panels, lang, liveStock
                       <button className="add" type="button" disabled={left <= 0} onClick={() => onAdd(p)}>
                         {left <= 0 ? t('soldOut') : t('add')}
                       </button>
-                      <CompareToggle product={p} />
                     </div>
                   </article>
                 )

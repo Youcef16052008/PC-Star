@@ -1,6 +1,6 @@
 /**
- * API client — talks to /api (Vite proxy → server on :8787).
- * Falls back to local-only mode if the backend is down.
+ * API client — /api via Vite proxy → server :8787
+ * Falls back to local mode if backend is down.
  */
 
 const TOKEN_KEY = 'pcstar-api-token'
@@ -71,15 +71,6 @@ export async function updateMe(patch) {
   return req('/api/me', { method: 'PUT', body: patch })
 }
 
-export async function startOAuth(provider, intent = 'login') {
-  const returnUrl = typeof window !== 'undefined' ? window.location.origin : null
-  return req('/api/oauth/start', { method: 'POST', body: { provider, intent, returnUrl } })
-}
-
-export async function unlinkOAuth(provider) {
-  return req('/api/oauth/unlink', { method: 'POST', body: { provider } })
-}
-
 export async function postOrder(order) {
   return req('/api/orders', { method: 'POST', body: order })
 }
@@ -102,8 +93,4 @@ export async function getMeta() {
 
 export async function putMeta(meta) {
   return req('/api/meta', { method: 'PUT', body: { meta } })
-}
-
-export async function getConfig() {
-  return req('/api/config')
 }
