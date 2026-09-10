@@ -108,7 +108,7 @@ pour les utilisateurs **AR et FR**. ~15 messages, aucun ne passe par i18n.
 - L161-162 : `doDeleteCustomer` → **local uniquement** (`deleteCustomer(users, …)`), aucun appel serveur — alors que l'endpoint existe (`DELETE /api/customers/:id`, `server/index.js:604`). Le client « supprimé » reste dans l'API (et dans les autres onglets du master).
 - L172, L177 : panneaux (`togglePanel`/`addPanel`) → **local uniquement**, aucun endpoint serveur → les panneaux custom sont perdus en mode API (silencieusement).
 
-**B10. Limites de taille de body sur Vercel (risque production)** — `api/index.js:20-23`
+**B10. Limites de taille de body sur Vercel (risque production)** — `api/index.js:20-23` — ✅ CORRIGÉ (P4)
 `config.api.bodyParser.sizeLimit: '4mb'` : forme héritée, risque d'être ignorée par le
 runtime Vercel moderne (défaut ~4,5 MB). Les uploads photos master vont jusqu'à
 **6 × 2,5 Mo en base64 ≈ 20 Mo de JSON** (`server/masterApi.js:15-16`) → 413 probable
@@ -122,7 +122,7 @@ sur Vercel, alors que ça passe en local (node pur, sans limite). À vérifier/d
 - **B14.** Code mort : `src/icons.jsx` (jamais importé) ; `COMPARE_FIELDS` (`src/data.js:~840`, feature compare supprimée) ; `photoSkeletonClass` (`src/media.js:70`, non utilisée) ; `startSms`/`verifySms`/`loginGoogle`/`ACCENTS`/`AVATARS` (`src/shopStore.js`, features retirées de l'UI mais encore testées dans `src/shopStore.test.js`) ; variable `left` inutile dans `reserve()` (`src/App.jsx:~590`).
 - **B15.** `src/ProfilePage.jsx` : carte « commandes » toujours vide en mode local (seul l'API fetch `/api/me/orders`) ; le formulaire n'est pas re-synchronisé au changement d'utilisateur (masqué par la navigation login→boutique).
 - **B16.** `src/index.css:2-24` : `:root` = thème sombre appliqué avant le JS → **flash sombre** au premier rendu pour les utilisateurs en thème clair.
-- **B17.** `index.html:22-24` : Bootstrap CSS + Google Fonts servis par CDN (jsdelivr) → site **sans style** si le CDN est bloqué (prod) ; SRI présent mais la dépendance externe reste.
+- **B17.** `index.html:22-24` : Bootstrap CSS + Google Fonts servis par CDN (jsdelivr) → site **sans style** si le CDN est bloqué (prod) ; SRI présent mais la dépendance externe reste. — ✅ CORRIGÉ (P4)
 - **B18.** Mode local : les décrets de stock sont en mémoire uniquement (`stockMap`) → perdus au rechargement (les réservations locales sont persistées, pas le stock). Contrainte de conception — à documenter.
 - **B19.** Téléphone du master = téléphone du démo yacine (`0770650387`, `src/shopStore.js:2,120`) → un login SMS local sur ce numéro retombe sur le **master** (premier match dans la liste des users).
 - **B20.** `src/App.jsx:~545` `setQty` : le max est `product.stock` (statique) ; en mode API si le stock serveur a baissé, le client peut mettre plus dans le panier que le disponible réel (le serveur bloque ensuite au 409 — gardé, mais UX confuse).
@@ -199,9 +199,12 @@ sur Vercel, alors que ça passe en local (node pur, sans limite). À vérifier/d
 - Panneaux : en mode API, désactiver l'UI « panneaux custom » + note (`panelsLocalOnly`) — le serveur n'a pas d'endpoint. (Option phase 2 : ajouter `/api/master/panels` qui persiste `db.meta.extraPanels/hiddenPanelIds`, déjà présents dans le schéma du serveur.)
 
 ### B10 — Vercel body limit
-- Vérifier en prod (upload d'une photo ~2 Mo). Solutions par ordre de préférence :
-  1. compresser côté client avant envoi (canvas → JPEG ~800 px, q0.8 ⇒ ~150-300 Ko/photo) — ça règle aussi la latence ;
-  2. et/ou garder `config.api.bodyParser.sizeLimit` (forme encore supportée par le runtime Node de Vercel) avec `sizeLimit: '10mb'` minimum.
+- ✅ Fait (P4) : les deux mesures.
+  1. `src/photoCompress.js` (canvas → JPEG 800 px / q0.8, factories injectables) appelé
+     par `MasterPage.readFilesAsDataUrls` (création **et** édition) ; limite d'entrée
+     relevée 2,5 → 10 Mo puisque la sortie compressée reste ~150-300 Ko.
+  2. `api/index.js` `sizeLimit: '10mb'` (réponse inchangée, aucun endpoint > ~1 Mo).
+- 7 tests unitaires (scaleToMaxDim, downscale, passthrough, options, erreurs, non-image).
 
 ### B11 — Expiration
 - Dans `readDb()` (ou `updateDb`) : purger `db.sessions` avec `at < now - 7 j` et `db.oauthPending` avec `createdAt < now - 15 min`. Coût nul, borne la croissance.
@@ -226,7 +229,10 @@ sur Vercel, alors que ça passe en local (node pur, sans limite). À vérifier/d
 - Script inline dans `<head>` d'`index.html` (1 ligne) : lire `pcstar-theme` de localStorage et poser `data-theme` avant le premier paint.
 
 ### B17 — Bootstrap local
-- `import 'bootstrap/dist/css/bootstrap.min.css'` dans `src/main.jsx` (bundle, plus de CDN) ; les Google Fonts restent en CDN avec fallback système (toléré) ou self-hosting plus tard.
+- ✅ Fait (P4) : `import 'bootstrap/dist/css/bootstrap.min.css'` dans `src/main.jsx`
+  (avant `index.css` pour l'ordre de cascade), `<link>` jsdelivr retiré de `index.html`.
+  Google Fonts reste en CDN avec fallback système (toléré par l'audit). Le build sort
+  `dist/assets/index-*.css` (bootstrap + thème) ; 0 ref jsdelivr dans le HTML.
 
 ### B19 — Téléphones démo
 - Rendre les 4 numéros uniques (ex: yacine → `0770650388` — vérifier les tests qui hardcodent le numéro : `shopStore.test.js` utilise `0770650387` pour le carrier djezzy → garder un numéro qui passe le test ou l'ajuster).
@@ -271,5 +277,7 @@ testable indépendamment.
   `t('…')` statique + dynamique, `compat.i18n.test.js` = 17 avertissements rendus sans
   variable résiduelle dans les 3 langues), build OK, smoke OK, render jsdom **ar/fr/en**
   33/33 checks (accueil, about, PDP, avis, needs, panier — aucun résidu anglais).
-- **P4 → P5 — À faire** : B10, B17 (Vercel) ; B11, B12, B14, B15, B16, B19, B20, B21
-  (mineurs & nettoyage).
+- **P4 — Fait** : B10, B17 (durcissement Vercel). `npm test` **64/64** (7 nouveaux :
+  photoCompress), build OK (CSS en bundle `dist/assets/index-*.css`, 0 ref jsdelivr),
+  smoke OK, upload live via API (2 photos JPEG → 201, fichiers servis).
+- **P5 — À faire** : B11, B12, B14, B15, B16, B19, B20, B21 (mineurs & nettoyage).

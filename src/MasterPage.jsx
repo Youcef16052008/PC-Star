@@ -3,6 +3,12 @@ import { CATEGORIES, money } from './data.js'
 import { addPanel, addProduct, deleteCustomer, hideProduct, setProductPhotos, togglePanel } from './shopStore.js'
 import PartThumb from './PartThumb.jsx'
 import * as api from './api.js'
+import { compressDataUrl } from './photoCompress.js'
+
+// P4 (B10) : compression canvas avant envoi (800 px / JPEG q0.8) → le body
+// d'upload passe de ~20 Mo max à ~2 Mo (Vercel 413 évité, latence réduite).
+// Limite d'entrée relevée à 10 Mo : la sortie compressée reste bien plus petite.
+const MAX_INPUT_BYTES = 10 * 1024 * 1024
 
 function readFilesAsDataUrls(fileList) {
   const files = [...(fileList || [])].slice(0, 6)
@@ -11,9 +17,9 @@ function readFilesAsDataUrls(fileList) {
       (file) =>
         new Promise((resolve, reject) => {
           if (!file.type.startsWith('image/')) return resolve(null)
-          if (file.size > 2.5 * 1024 * 1024) return reject(new Error('big'))
+          if (file.size > MAX_INPUT_BYTES) return reject(new Error('big'))
           const reader = new FileReader()
-          reader.onload = () => resolve(reader.result)
+          reader.onload = () => resolve(compressDataUrl(reader.result))
           reader.onerror = () => reject(reader.error)
           reader.readAsDataURL(file)
         })
