@@ -80,57 +80,80 @@ export default function AuthPanel({ t, users, onUsers, onSession, onClose, setTo
   }
 
   return (
-    <div className="modal-backdrop" role="presentation" onClick={onClose}>
-      <div className="modal auth-modal" role="dialog" aria-modal="true" aria-label={t('authTitle')} onClick={(e) => e.stopPropagation()}>
-        <header className="modal-head">
-          <h2>{t('authTitle')}</h2>
-          <button type="button" className="ghost tiny" onClick={onClose} aria-label={t('close')}>
-            ×
-          </button>
-        </header>
-        <p className="short">{t('authSimpleNote')}</p>
-        <p className={`api-pill ${apiOnline ? 'on' : 'off'}`}>{apiOnline ? t('backendOnline') : t('backendOffline')}</p>
+    <>
+      <div className="modal-backdrop fade show" onClick={onClose} />
+      <div className="modal fade show d-block" tabIndex={-1} role="dialog" aria-modal="true" aria-label={t('authTitle')}>
+        <div className="modal-dialog modal-dialog-centered">
+          <div className="modal-content border-0 shadow" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2 className="modal-title h5 mb-0">{t('authTitle')}</h2>
+              <button type="button" className="btn-close" aria-label={t('close')} onClick={onClose} />
+            </div>
+            <div className="modal-body">
+              <p className="small text-secondary">{t('authSimpleNote')}</p>
+              <span className={`badge mb-3 ${apiOnline ? 'text-bg-success' : 'text-bg-secondary'}`}>
+                {apiOnline ? t('backendOnline') : t('backendOffline')}
+              </span>
 
-        <div className="auth-tabs">
-          <button type="button" className={`chip ${tab === 'login' ? 'on' : ''}`} onClick={() => { setTab('login'); setError('') }}>
-            {t('authLogin')}
-          </button>
-          <button type="button" className={`chip ${tab === 'register' ? 'on' : ''}`} onClick={() => { setTab('register'); setError('') }}>
-            {t('authRegister')}
-          </button>
+              <ul className="nav nav-pills mb-3 gap-2">
+                <li className="nav-item">
+                  <button type="button" className={`nav-link ${tab === 'login' ? 'active' : ''}`} onClick={() => { setTab('login'); setError('') }}>
+                    {t('authLogin')}
+                  </button>
+                </li>
+                <li className="nav-item">
+                  <button type="button" className={`nav-link ${tab === 'register' ? 'active' : ''}`} onClick={() => { setTab('register'); setError('') }}>
+                    {t('authRegister')}
+                  </button>
+                </li>
+              </ul>
+
+              {error && <div className="alert alert-danger py-2">{error}</div>}
+
+              {tab === 'login' && (
+                <form onSubmit={submitLogin}>
+                  <div className="mb-3">
+                    <label className="form-label" htmlFor="auth-email">{t('authEmail')}</label>
+                    <input id="auth-email" className="form-control" type="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} required />
+                  </div>
+                  <div className="mb-3">
+                    <label className="form-label" htmlFor="auth-pass">{t('authPassword')}</label>
+                    <input id="auth-pass" className="form-control" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} required />
+                  </div>
+                  <button className="btn btn-success w-100" type="submit" disabled={busy}>
+                    {t('authSubmitLogin')}
+                  </button>
+                </form>
+              )}
+
+              {tab === 'register' && (
+                <form onSubmit={submitRegister}>
+                  <div className="mb-3">
+                    <label className="form-label" htmlFor="reg-name">{t('authName')}</label>
+                    <input id="reg-name" className="form-control" value={name} onChange={(e) => setName(e.target.value)} />
+                  </div>
+                  <div className="mb-3">
+                    <label className="form-label" htmlFor="reg-email">{t('authEmail')}</label>
+                    <input id="reg-email" className="form-control" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+                  </div>
+                  <div className="mb-3">
+                    <label className="form-label" htmlFor="reg-pass">{t('authPassword')}</label>
+                    <input id="reg-pass" className="form-control" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={6} />
+                  </div>
+                  <div className="mb-3">
+                    <label className="form-label" htmlFor="reg-phone">{t('phone')}</label>
+                    <input id="reg-phone" className="form-control" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="05 / 06 / 07…" inputMode="tel" />
+                    <div className="form-text">{t('phoneHint')}</div>
+                  </div>
+                  <button className="btn btn-success w-100" type="submit" disabled={busy}>
+                    {t('authSubmitRegister')}
+                  </button>
+                </form>
+              )}
+            </div>
+          </div>
         </div>
-
-        {error && <p className="form-error">{error}</p>}
-
-        {tab === 'login' && (
-          <form className="auth-form" onSubmit={submitLogin}>
-            <label htmlFor="auth-email">{t('authEmail')}</label>
-            <input id="auth-email" className="field" type="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} required />
-            <label htmlFor="auth-pass">{t('authPassword')}</label>
-            <input id="auth-pass" className="field" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} required />
-            <button className="add wide" type="submit" disabled={busy}>
-              {t('authSubmitLogin')}
-            </button>
-          </form>
-        )}
-
-        {tab === 'register' && (
-          <form className="auth-form" onSubmit={submitRegister}>
-            <label htmlFor="reg-name">{t('authName')}</label>
-            <input id="reg-name" className="field" value={name} onChange={(e) => setName(e.target.value)} />
-            <label htmlFor="reg-email">{t('authEmail')}</label>
-            <input id="reg-email" className="field" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
-            <label htmlFor="reg-pass">{t('authPassword')}</label>
-            <input id="reg-pass" className="field" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={6} />
-            <label htmlFor="reg-phone">{t('phone')}</label>
-            <input id="reg-phone" className="field" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="05 / 06 / 07…" inputMode="tel" />
-            <p className="short">{t('phoneHint')}</p>
-            <button className="add wide" type="submit" disabled={busy}>
-              {t('authSubmitRegister')}
-            </button>
-          </form>
-        )}
       </div>
-    </div>
+    </>
   )
 }

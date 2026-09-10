@@ -109,6 +109,7 @@ export default function App() {
   const [build, setBuild] = useState({})
   const [authOpen, setAuthOpen] = useState(false)
   const [navOpen, setNavOpen] = useState(false)
+  const [cartOpen, setCartOpen] = useState(false)
   const [apiOnline, setApiOnline] = useState(false)
   const [apiUser, setApiUser] = useState(null)
   const [authMode, setAuthMode] = useState('local')
@@ -276,6 +277,7 @@ export default function App() {
       return [...prev, { ...product, qty: 1 }]
     })
     setToast(`${product.name} ${t('added')}`)
+    setCartOpen(true)
   }
 
   function setQty(id, qty) {
@@ -301,13 +303,8 @@ export default function App() {
   }
 
   function go(next) {
-    if (next === 'desk' && !isMaster) {
-      setToast(t('masterOnlyDesk'))
-      setAuthOpen(true)
-      return
-    }
-    if (next === 'master' && !isMaster) {
-      setToast(t('masterForbidden'))
+    if ((next === 'desk' || next === 'master' || next === 'help') && !isMaster) {
+      setToast(t(next === 'help' ? 'masterOnlyGuide' : next === 'desk' ? 'masterOnlyDesk' : 'masterForbidden'))
       setAuthOpen(true)
       return
     }
@@ -315,8 +312,14 @@ export default function App() {
       setAuthOpen(true)
       return
     }
+    if (next === 'cart') {
+      setCartOpen(true)
+      setNavOpen(false)
+      return
+    }
     setPage(next)
     setNavOpen(false)
+    setCartOpen(false)
     window.scrollTo({ top: 0 })
   }
 
@@ -382,192 +385,231 @@ export default function App() {
 
   return (
     <div className={`app theme-${theme}`}>
-      <header className="wrap nav">
-        <button className="logo" type="button" onClick={() => go('shop')}>
-          PC <span>Star</span>
-        </button>
-
-        <nav className={`nav-links ${navOpen ? 'open' : ''}`}>
-          <button type="button" className={page === 'shop' || page === 'product' ? 'on' : ''} onClick={() => go('shop')}>
-            {t('navShop')}
-          </button>
-          <button type="button" className={page === 'search' ? 'on' : ''} onClick={() => go('search')}>
-            {t('navSearch')}
-          </button>
-          <button type="button" className={page === 'builder' ? 'on' : ''} onClick={() => go('builder')}>
-            {t('navBuilder')}
-          </button>
-          <button type="button" className={page === 'about' ? 'on' : ''} onClick={() => go('about')}>
-            {t('navAbout')}
-          </button>
-          <button type="button" className={page === 'help' ? 'on' : ''} onClick={() => go('help')}>
-            {t('navHelp')}
-          </button>
-          {isMaster && (
-            <button type="button" className={page === 'desk' ? 'on' : ''} onClick={() => go('desk')}>
-              {t('navDesk')}
-            </button>
-          )}
-          {isMaster && (
-            <button type="button" className={page === 'master' ? 'on' : ''} onClick={() => go('master')}>
-              {t('navMaster')}
-            </button>
-          )}
-          <button type="button" className="cart-btn" onClick={() => go('cart')}>
-            {t('navCart')} {count}
-          </button>
-          {user ? (
-            <>
-              <button type="button" className={`account-btn ${page === 'profile' ? 'on' : ''}`} onClick={() => go('profile')}>
-                <span>{user.name}</span>
-              </button>
-              <button type="button" className="ghost tiny" onClick={logout}>
-                {t('navLogout')}
-              </button>
-            </>
-          ) : (
-            <button
-              type="button"
-              className="ghost tiny"
-              onClick={() => {
-                setAuthOpen(true)
-                setNavOpen(false)
-              }}
-            >
-              {t('navLogin')}
-            </button>
-          )}
-        </nav>
-
-        <div className="nav-tools">
-          <div className="lang-switch" role="group" aria-label={t('lang')}>
-            {LANGS.map((l) => (
-              <button key={l.id} type="button" className={lang === l.id ? 'on' : ''} onClick={() => changeLang(l.id)}>
-                {l.short}
-              </button>
-            ))}
-          </div>
-          <div className="theme-switch" role="group" aria-label="theme">
-            {[
-              ['system', t('themeSystem')],
-              ['light', t('themeLight')],
-              ['dark', t('themeDark')]
-            ].map(([id, label]) => (
-              <button key={id} type="button" className={themePref === id ? 'on' : ''} onClick={() => changeTheme(id)} title={label}>
-                {id === 'light' ? '☀' : id === 'dark' ? '☾' : '◐'}
-              </button>
-            ))}
-          </div>
-          <button type="button" className="nav-burger" aria-label={t('navMenu')} aria-expanded={navOpen} onClick={() => setNavOpen((v) => !v)}>
-            ☰
-          </button>
+      <div className="topbar text-white small py-2">
+        <div className="container d-flex flex-wrap justify-content-between gap-2">
+          <span>{STORE.address}</span>
+          <span>
+            <a className="link-light text-decoration-none fw-semibold" href={STORE.phoneHref}>
+              {STORE.phone}
+            </a>
+            {' · '}
+            {t('payCash')}
+          </span>
         </div>
-      </header>
+      </div>
+
+      <nav className="navbar navbar-expand-lg sticky-top border-bottom shop-navbar">
+        <div className="container">
+          <button type="button" className="navbar-brand btn btn-link text-decoration-none p-0 logo" onClick={() => go('shop')}>
+            PC <span>Star</span>
+          </button>
+          <div className="d-flex align-items-center gap-2 order-lg-last ms-auto ms-lg-0">
+            <button type="button" className="btn btn-success position-relative" onClick={() => setCartOpen(true)}>
+              {t('navCart')}
+              {count > 0 && (
+                <span className="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger">{count}</span>
+              )}
+            </button>
+            <button
+              className="navbar-toggler"
+              type="button"
+              aria-label={t('navMenu')}
+              aria-expanded={navOpen}
+              onClick={() => setNavOpen((v) => !v)}
+            >
+              <span className="navbar-toggler-icon" />
+            </button>
+          </div>
+          <div className={`collapse navbar-collapse ${navOpen ? 'show' : ''}`}>
+            <ul className="navbar-nav me-auto mb-2 mb-lg-0 align-items-lg-center gap-lg-1">
+              {[
+                ['shop', t('navShop'), page === 'shop' || page === 'product'],
+                ['search', t('navSearch'), page === 'search'],
+                ['builder', t('navBuilder'), page === 'builder'],
+                ['about', t('navAbout'), page === 'about']
+              ].map(([id, label, on]) => (
+                <li className="nav-item" key={id}>
+                  <button type="button" className={`nav-link btn btn-link ${on ? 'active fw-semibold' : ''}`} onClick={() => go(id)}>
+                    {label}
+                  </button>
+                </li>
+              ))}
+              {isMaster && (
+                <li className="nav-item">
+                  <button type="button" className={`nav-link btn btn-link ${page === 'help' ? 'active fw-semibold' : ''}`} onClick={() => go('help')}>
+                    {t('navHelp')}
+                  </button>
+                </li>
+              )}
+              {isMaster && (
+                <li className="nav-item">
+                  <button type="button" className={`nav-link btn btn-link ${page === 'desk' ? 'active fw-semibold' : ''}`} onClick={() => go('desk')}>
+                    {t('navDesk')}
+                  </button>
+                </li>
+              )}
+              {isMaster && (
+                <li className="nav-item">
+                  <button type="button" className={`nav-link btn btn-link ${page === 'master' ? 'active fw-semibold' : ''}`} onClick={() => go('master')}>
+                    {t('navMaster')}
+                  </button>
+                </li>
+              )}
+            </ul>
+            <div className="d-flex flex-wrap align-items-center gap-2 py-2 py-lg-0">
+              <div className="btn-group btn-group-sm" role="group" aria-label={t('lang')}>
+                {LANGS.map((l) => (
+                  <button key={l.id} type="button" className={`btn ${lang === l.id ? 'btn-success' : 'btn-outline-secondary'}`} onClick={() => changeLang(l.id)}>
+                    {l.short}
+                  </button>
+                ))}
+              </div>
+              <div className="btn-group btn-group-sm" role="group" aria-label="theme">
+                {[
+                  ['system', '◐'],
+                  ['light', '☀'],
+                  ['dark', '☾']
+                ].map(([id, mark]) => (
+                  <button key={id} type="button" className={`btn ${themePref === id ? 'btn-success' : 'btn-outline-secondary'}`} onClick={() => changeTheme(id)}>
+                    {mark}
+                  </button>
+                ))}
+              </div>
+              {user ? (
+                <>
+                  <button type="button" className={`btn btn-sm ${page === 'profile' ? 'btn-success' : 'btn-outline-secondary'}`} onClick={() => go('profile')}>
+                    {user.name}
+                  </button>
+                  <button type="button" className="btn btn-sm btn-outline-secondary" onClick={logout}>
+                    {t('navLogout')}
+                  </button>
+                </>
+              ) : (
+                <button type="button" className="btn btn-sm btn-outline-success" onClick={() => { setAuthOpen(true); setNavOpen(false) }}>
+                  {t('navLogin')}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      </nav>
 
       {page === 'shop' && (
-        <main className="wrap page">
-          <section className="hero hero-simple">
-            <div>
-              <h1>{t('heroTitle')}</h1>
-              <p>{t('heroBody')}</p>
-              <div className="trust-row">
-                <span className="pickup">{STORE.address}</span>
-                <span className="pickup">{t('payCash')}</span>
-                <span className="pickup">{t('warrantyBadge')}</span>
-                <button className="add" type="button" onClick={() => go('search')}>
-                  {t('advancedSearch')}
-                </button>
-                <button className="ghost" type="button" onClick={() => go('builder')}>
-                  {t('pcBuilder')}
-                </button>
-                <button className="ghost" type="button" onClick={() => go('help')}>
-                  {t('navHelp')}
-                </button>
-              </div>
+        <main className="container page py-4">
+          <section className="hero hero-simple p-4 p-md-5 mb-4 rounded-4 border">
+            <h1 className="display-5 fw-bold mb-2">{t('heroTitle')}</h1>
+            <p className="lead text-secondary mb-3">{t('heroBody')}</p>
+            <div className="d-flex flex-wrap gap-2 align-items-center">
+              <span className="badge text-bg-light border">{STORE.address}</span>
+              <span className="badge text-bg-success-subtle border border-success-subtle text-success-emphasis">{t('payCash')}</span>
+              <span className="badge text-bg-light border">{t('warrantyBadge')}</span>
+            </div>
+            <div className="d-flex flex-wrap gap-2 mt-3">
+              <button className="btn btn-success" type="button" onClick={() => go('search')}>{t('advancedSearch')}</button>
+              <button className="btn btn-outline-secondary" type="button" onClick={() => go('builder')}>{t('pcBuilder')}</button>
+              {isMaster && (
+                <button className="btn btn-outline-secondary" type="button" onClick={() => go('help')}>{t('navHelp')}</button>
+              )}
             </div>
           </section>
 
-          <section className="deals">
-            <h2>{t('thisWeek')}</h2>
-            <div className="deal-row deal-row-wide">
+          <section className="mb-4">
+            <h2 className="h4 mb-3">{t('thisWeek')}</h2>
+            <div className="row g-3">
               {DEALS.map((d) => {
                 const p = catalog.find((x) => x.id === d.id)
                 if (!p) return null
                 return (
-                  <article className="deal-card" key={d.id}>
-                    <span className="deal-tag">{d.tag}</span>
-                    <button type="button" className="deal-thumb" onClick={() => openProduct(p.id)}>
-                      <PartThumb product={p} />
-                    </button>
-                    <h3>
-                      <button type="button" onClick={() => openProduct(p.id)}>
-                        {p.name}
+                  <div className="col-12 col-sm-6 col-lg-3" key={d.id}>
+                    <div className="card h-100 shadow-sm product-bs-card">
+                      <span className="badge text-bg-danger position-absolute m-2 z-1">{d.tag}</span>
+                      <button type="button" className="btn p-0 border-0 bg-transparent" onClick={() => openProduct(p.id)}>
+                        <div className="ratio ratio-1x1 bg-body-secondary rounded-top overflow-hidden">
+                          <PartThumb product={p} />
+                        </div>
                       </button>
-                    </h3>
-                    <div className="price">{money(p.price)}</div>
-                    <p className="short">{d.note}</p>
-                  </article>
+                      <div className="card-body">
+                        <h3 className="h6 card-title">
+                          <button type="button" className="btn btn-link p-0 text-start text-decoration-none text-body" onClick={() => openProduct(p.id)}>
+                            {p.name}
+                          </button>
+                        </h3>
+                        <div className="fw-bold text-success">{money(p.price)}</div>
+                        <p className="card-text small text-secondary mb-0">{d.note}</p>
+                      </div>
+                    </div>
+                  </div>
                 )
               })}
             </div>
           </section>
 
           {dzHits.length > 0 && (
-            <section className="deals">
-              <h2>{t('dzHits')}</h2>
-              <div className="deal-row deal-row-wide">
+            <section className="mb-4">
+              <h2 className="h4 mb-3">{t('dzHits')}</h2>
+              <div className="row g-3">
                 {dzHits.map((p) => (
-                  <article className="deal-card" key={p.id}>
-                    <span className="deal-tag dz">{t('tag_dz-hit')}</span>
-                    <button type="button" className="deal-thumb" onClick={() => openProduct(p.id)}>
-                      <PartThumb product={p} />
-                    </button>
-                    <h3>
-                      <button type="button" onClick={() => openProduct(p.id)}>
-                        {p.name}
+                  <div className="col-6 col-md-4 col-lg-3" key={p.id}>
+                    <div className="card h-100 shadow-sm product-bs-card">
+                      <span className="badge text-bg-success position-absolute m-2 z-1">{t('tag_dz-hit')}</span>
+                      <button type="button" className="btn p-0 border-0" onClick={() => openProduct(p.id)}>
+                        <div className="ratio ratio-1x1 bg-body-secondary overflow-hidden">
+                          <PartThumb product={p} />
+                        </div>
                       </button>
-                    </h3>
-                    <div className="sku">{p.brand}</div>
-                    <div className="price">{money(p.price)}</div>
-                    <p className="short">{p.short}</p>
-                  </article>
+                      <div className="card-body p-3">
+                        <div className="small text-secondary">{p.brand}</div>
+                        <h3 className="h6">
+                          <button type="button" className="btn btn-link p-0 text-start text-decoration-none text-body" onClick={() => openProduct(p.id)}>
+                            {p.name}
+                          </button>
+                        </h3>
+                        <div className="fw-bold text-success">{money(p.price)}</div>
+                      </div>
+                    </div>
+                  </div>
                 ))}
               </div>
             </section>
           )}
 
-          <section className="guides">
-            <h2>{t('starConfigs')}</h2>
-            <div className="guide-row guide-row-wide">
+          <section className="mb-4">
+            <h2 className="h4 mb-3">{t('starConfigs')}</h2>
+            <div className="row g-3">
               {GUIDES.map((g) => (
-                <article className="guide-card" key={g.id}>
-                  <h3>{g.title}</h3>
-                  <p>{g.body}</p>
-                </article>
+                <div className="col-md-6 col-lg-4" key={g.id}>
+                  <div className="card h-100 border-0 shadow-sm">
+                    <div className="card-body">
+                      <h3 className="h6 card-title">{g.title}</h3>
+                      <p className="card-text small text-secondary mb-0">{g.body}</p>
+                    </div>
+                  </div>
+                </div>
               ))}
             </div>
           </section>
 
-          <div className="brand-strip">
-            <span className="brand-label">{t('dzBrands')}</span>
-            <button type="button" className={`chip ${!brandFilter ? 'on' : ''}`} onClick={() => setBrandFilter(null)}>
+          <div className="d-flex flex-wrap gap-2 align-items-center mb-3">
+            <span className="small fw-semibold text-secondary">{t('dzBrands')}</span>
+            <button type="button" className={`btn btn-sm ${!brandFilter ? 'btn-success' : 'btn-outline-secondary'}`} onClick={() => setBrandFilter(null)}>
               {t('cat_all')}
             </button>
             {BRANDS_DZ_PRIORITY.map((b) => (
-              <button key={b} type="button" className={`chip ${brandFilter === b ? 'on' : ''}`} onClick={() => setBrandFilter(brandFilter === b ? null : b)}>
+              <button key={b} type="button" className={`btn btn-sm ${brandFilter === b ? 'btn-success' : 'btn-outline-secondary'}`} onClick={() => setBrandFilter(brandFilter === b ? null : b)}>
                 {b}
               </button>
             ))}
           </div>
 
-          <div className="toolbar">
+          <div className="d-flex flex-wrap gap-2 align-items-center mb-4">
             {CATEGORIES.map((c) => (
-              <button key={c.id} type="button" className={`chip ${category === c.id ? 'on' : ''}`} onClick={() => setCategory(c.id)}>
+              <button key={c.id} type="button" className={`btn btn-sm rounded-pill ${category === c.id ? 'btn-success' : 'btn-outline-secondary'}`} onClick={() => setCategory(c.id)}>
                 {t(`cat_${c.id}`)}
               </button>
             ))}
             <input
-              className="search"
+              className="form-control form-control-sm ms-lg-auto"
+              style={{ maxWidth: 280 }}
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder={t('searchPlaceholder')}
@@ -576,40 +618,46 @@ export default function App() {
           </div>
 
           {list.length === 0 ? (
-            <p className="empty">{t('noProducts')}</p>
+            <p className="text-secondary">{t('noProducts')}</p>
           ) : (
-            <div className="grid">
+            <div className="row g-3">
               {list.map((p) => {
                 const left = liveStock(p)
                 const st = stockLabel(left, t)
                 return (
-                  <article className="card" key={p.id}>
-                    <button className="thumb" type="button" onClick={() => openProduct(p.id)} aria-label={p.name}>
-                      <PartThumb product={p} />
-                      <span className={`badge ${st.cls}`}>{st.text}</span>
-                    </button>
-                    <div className="card-body">
-                      <div className="sku">{p.sku}</div>
-                      <h3>{p.name}</h3>
-                      <Stars product={p} />
-                      <div className="short">{p.short}</div>
-                      {(p.tags || []).length > 0 && (
-                        <div className="tag-row">
-                          {(p.tags || []).slice(0, 2).map((tag) => (
-                            <span className={`mini-tag tag-${tag}`} key={tag}>
-                              {t(`tag_${tag}`) !== `tag_${tag}` ? t(`tag_${tag}`) : tag}
-                            </span>
-                          ))}
+                  <div className="col-6 col-md-4 col-xl-3" key={p.id}>
+                    <div className="card h-100 shadow-sm product-bs-card">
+                      <button className="btn p-0 border-0 position-relative" type="button" onClick={() => openProduct(p.id)} aria-label={p.name}>
+                        <div className="ratio ratio-1x1 bg-body-secondary overflow-hidden">
+                          <PartThumb product={p} />
                         </div>
-                      )}
-                      <div className="row">
-                        <div className="price">{money(p.price)}</div>
-                        <button className="add" type="button" disabled={left <= 0} onClick={() => add(p)}>
-                          {left <= 0 ? t('soldOut') : t('add')}
-                        </button>
+                        <span className={`badge position-absolute top-0 end-0 m-2 ${st.cls === 'stock-ok' ? 'text-bg-success' : st.cls === 'stock-low' ? 'text-bg-warning' : 'text-bg-danger'}`}>
+                          {st.text}
+                        </span>
+                      </button>
+                      <div className="card-body d-flex flex-column">
+                        <div className="small text-secondary">{p.sku}</div>
+                        <h3 className="h6 card-title">{p.name}</h3>
+                        <Stars product={p} />
+                        <div className="small text-secondary mb-2">{p.short}</div>
+                        {(p.tags || []).length > 0 && (
+                          <div className="d-flex flex-wrap gap-1 mb-2">
+                            {(p.tags || []).slice(0, 2).map((tag) => (
+                              <span className="badge text-bg-light border" key={tag}>
+                                {t(`tag_${tag}`) !== `tag_${tag}` ? t(`tag_${tag}`) : tag}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                        <div className="mt-auto d-flex justify-content-between align-items-center gap-2">
+                          <div className="fw-bold text-success">{money(p.price)}</div>
+                          <button className="btn btn-sm btn-success" type="button" disabled={left <= 0} onClick={() => add(p)}>
+                            {left <= 0 ? t('soldOut') : t('add')}
+                          </button>
+                        </div>
                       </div>
                     </div>
-                  </article>
+                  </div>
                 )
               })}
             </div>
@@ -651,158 +699,8 @@ export default function App() {
         />
       )}
 
-      {page === 'cart' && (
-        <main className="wrap page">
-          <button className="back" type="button" onClick={() => go('shop')}>
-            {t('continueShopping')}
-          </button>
-          <h1 style={{ marginBottom: 16 }}>{t('cartTitle')}</h1>
-          {reserved ? (
-            <div className="ok-box">
-              <h2>{t('reservedTitle', { code: reserved.code })}</h2>
-              <p>
-                {t('reservedBody', {
-                  name: reserved.name,
-                  slot: reserved.slot,
-                  address: STORE.address
-                })}
-              </p>
-              <p className="short">
-                {t('showCode')} <strong>{reserved.code}</strong>
-              </p>
-              <button
-                className="add"
-                type="button"
-                onClick={() => {
-                  setReserved(null)
-                  go('shop')
-                }}
-              >
-                {t('backToShop')}
-              </button>
-            </div>
-          ) : cart.length === 0 ? (
-            <p className="empty">{t('cartEmpty')}</p>
-          ) : (
-            <div className="cart-grid">
-              <div className="cart-list">
-                {cart.map((i) => (
-                  <div className="item" key={i.id}>
-                    <div className="item-thumb">
-                      <PartThumb product={i} />
-                    </div>
-                    <div>
-                      <div className="sku">{i.sku}</div>
-                      <h3>{i.name}</h3>
-                      <div className="qty">
-                        <button type="button" onClick={() => setQty(i.id, i.qty - 1)}>
-                          -
-                        </button>
-                        <span>{i.qty}</span>
-                        <button type="button" onClick={() => setQty(i.id, i.qty + 1)}>
-                          +
-                        </button>
-                        <button className="remove" type="button" onClick={() => remove(i.id)}>
-                          {t('remove')}
-                        </button>
-                      </div>
-                    </div>
-                    <strong>{money(i.qty * i.price)}</strong>
-                  </div>
-                ))}
-              </div>
-
-              <div>
-                {blocks.length > 0 && (
-                  <div className="warn danger">
-                    <h3>{t('willNotRun')}</h3>
-                    {blocks.map((w) => (
-                      <p key={w}>{w}</p>
-                    ))}
-                    <p className="short">{t('fixMix')}</p>
-                  </div>
-                )}
-                {notes.length > 0 && (
-                  <div className="warn">
-                    <h3>{t('watchThis')}</h3>
-                    {notes.map((w) => (
-                      <p key={w}>{w}</p>
-                    ))}
-                    <p className="short">{t('canStillReserve')}</p>
-                  </div>
-                )}
-
-                <form className="callbox" onSubmit={reserve}>
-                  <h2>{t('reserveTitle')}</h2>
-                  <p>{t('reserveBody')}</p>
-                  <div className="total">
-                    {t('total')} {money(total)}
-                  </div>
-                  <label htmlFor="name">{t('yourName')}</label>
-                  <input id="name" className="field" value={pickup.name} onChange={(e) => setPickup({ ...pickup, name: e.target.value })} required />
-                  <label htmlFor="phone">{t('phone')}</label>
-                  <input
-                    id="phone"
-                    className="field"
-                    value={pickup.phone}
-                    onChange={(e) => {
-                      setPickup({ ...pickup, phone: e.target.value })
-                      setPhoneErr('')
-                    }}
-                    required
-                    inputMode="tel"
-                    placeholder="05xx / 06xx / 07xx"
-                    aria-invalid={!!phoneErr}
-                  />
-                  <p className="short">
-                    {t('carrierNote')}
-                    {carrier === 'mobilis' && ` · ${t('carrierMobilis')}`}
-                    {carrier === 'ooredoo' && ` · ${t('carrierOoredoo')}`}
-                    {carrier === 'djezzy' && ` · ${t('carrierDjezzy')}`}
-                  </p>
-                  {phoneErr && <p className="form-error">{phoneErr}</p>}
-                  <label htmlFor="wilaya">{t('wilaya')}</label>
-                  <select id="wilaya" className="field" value={pickup.wilaya} onChange={(e) => setPickup({ ...pickup, wilaya: e.target.value })}>
-                    {WILAYAS_NEAR.map((w) => (
-                      <option key={w} value={w}>
-                        {w}
-                      </option>
-                    ))}
-                  </select>
-                  <label htmlFor="pay">{t('paymentMethod')}</label>
-                  <div id="pay" className="field field-static" role="note">
-                    {t('payCash')}
-                  </div>
-                  <input type="hidden" value="cash" readOnly />
-                  <label htmlFor="slot">{t('timeSlot')}</label>
-                  <select id="slot" className="field" value={pickup.slot} onChange={(e) => setPickup({ ...pickup, slot: e.target.value })}>
-                    {SLOTS.map((s) => (
-                      <option key={s} value={s}>
-                        {s}
-                      </option>
-                    ))}
-                  </select>
-                  <button className="add wide" type="submit">
-                    {t('reservePickup')}
-                  </button>
-                  <div className="alt-row">
-                    <a className="ghost" href={waHref} target="_blank" rel="noreferrer">
-                      {t('whatsappCart')}
-                    </a>
-                    <a className="ghost" href={STORE.phoneHref}>
-                      {t('call')} {STORE.phone}
-                    </a>
-                  </div>
-                  <p className="short">{STORE.ready}</p>
-                </form>
-              </div>
-            </div>
-          )}
-        </main>
-      )}
-
       {page === 'about' && (
-        <main className="wrap page">
+        <main className="container page py-4">
           <div className="store-grid">
             <div className="store">
               <h1>{t('aboutTitle')}</h1>
@@ -848,57 +746,80 @@ export default function App() {
         </main>
       )}
 
-      {page === 'help' && (
-        <main className="wrap page">
-          <h1 style={{ marginBottom: 12 }}>{t('helpTitle')}</h1>
-          <div className="help-grid">
-            <article className="callbox">
-              <h2>1. {t('authTitle')}</h2>
-              <p>{t('authSimpleNote')}</p>
-              <p className="short">{t('helpNoPublicDemo')}</p>
-              <button type="button" className="add" onClick={() => setAuthOpen(true)}>
-                {t('navLogin')}
-              </button>
-            </article>
-            <article className="callbox">
-              <h2>2. {t('roleMaster')}</h2>
-              <ol className="help-list numbered">
-                <li>{t('navLogin')} → master</li>
-                <li>
-                  {t('navMaster')} → {t('masterAddProduct')} / {t('masterHide')}
-                </li>
-                <li>
-                  {t('navDesk')} → {t('deskHint')}
-                </li>
-              </ol>
-              <p className="short">API multi-device: <code>npm run start:api</code> + <code>npm run dev</code></p>
-            </article>
-            <article className="callbox">
-              <h2>3. {t('roleCustomer')}</h2>
-              <ol className="help-list numbered">
-                <li>
-                  {t('navShop')} / {t('navSearch')} / {t('navBuilder')}
-                </li>
-                <li>
-                  {t('navCart')} → tél 05/06/07 → {t('reservePickup')}
-                </li>
-                <li>Code PS-xxxxxx au comptoir Oran</li>
-              </ol>
-            </article>
-            <article className="callbox">
-              <h2>4. {t('navBuilder')}</h2>
-              <p>{t('builderBody', { address: STORE.address })}</p>
-              <p className="short">{t('willNotRun')} · {t('watchThis')}</p>
-              <button type="button" className="ghost" onClick={() => go('builder')}>
-                {t('pcBuilder')}
-              </button>
-            </article>
+      {page === 'help' && isMaster && (
+        <main className="container page py-4">
+          <div className="alert alert-warning border-0 shadow-sm" role="status">
+            {t('masterOnlyGuideNote')}
+          </div>
+          <h1 className="h3 mb-3">{t('helpTitle')}</h1>
+          <div className="row g-3">
+            <div className="col-md-6">
+              <article className="card h-100 shadow-sm">
+                <div className="card-body">
+                  <h2 className="h5">1. {t('authTitle')}</h2>
+                  <p>{t('authSimpleNote')}</p>
+                  <p className="small text-secondary">{t('helpNoPublicDemo')}</p>
+                  <button type="button" className="btn btn-success" onClick={() => setAuthOpen(true)}>
+                    {t('navLogin')}
+                  </button>
+                </div>
+              </article>
+            </div>
+            <div className="col-md-6">
+              <article className="card h-100 shadow-sm">
+                <div className="card-body">
+                  <h2 className="h5">2. {t('roleMaster')}</h2>
+                  <ol className="mb-2 ps-3">
+                    <li>{t('navLogin')} → master</li>
+                    <li>
+                      {t('navMaster')} → {t('masterAddProduct')} / {t('masterHide')}
+                    </li>
+                    <li>
+                      {t('navDesk')} → {t('deskHint')}
+                    </li>
+                  </ol>
+                  <p className="small text-secondary mb-0">
+                    API multi-device: <code>npm run start:api</code> + <code>npm run dev</code>
+                  </p>
+                </div>
+              </article>
+            </div>
+            <div className="col-md-6">
+              <article className="card h-100 shadow-sm">
+                <div className="card-body">
+                  <h2 className="h5">3. {t('roleCustomer')}</h2>
+                  <ol className="mb-0 ps-3">
+                    <li>
+                      {t('navShop')} / {t('navSearch')} / {t('navBuilder')}
+                    </li>
+                    <li>
+                      {t('navCart')} → tél 05/06/07 → {t('reservePickup')}
+                    </li>
+                    <li>Code PS-xxxxxx au comptoir Oran</li>
+                  </ol>
+                </div>
+              </article>
+            </div>
+            <div className="col-md-6">
+              <article className="card h-100 shadow-sm">
+                <div className="card-body">
+                  <h2 className="h5">4. {t('navBuilder')}</h2>
+                  <p>{t('builderBody', { address: STORE.address })}</p>
+                  <p className="small text-secondary">
+                    {t('willNotRun')} · {t('watchThis')}
+                  </p>
+                  <button type="button" className="btn btn-outline-secondary" onClick={() => go('builder')}>
+                    {t('pcBuilder')}
+                  </button>
+                </div>
+              </article>
+            </div>
           </div>
         </main>
       )}
 
       {page === 'desk' && isMaster && (
-        <main className="wrap page">
+        <main className="container page py-4">
           <h1 style={{ marginBottom: 8 }}>{t('deskTitle')}</h1>
           <p className="short" style={{ marginBottom: 18 }}>
             {t('deskHint')}
@@ -972,7 +893,7 @@ export default function App() {
       )}
 
             <footer className="site-footer">
-        <div className="wrap" style={{ display: 'flex', flexWrap: 'wrap', gap: 16, justifyContent: 'space-between', alignItems: 'center' }}>
+        <div className="container d-flex flex-wrap" style={{ display: 'flex', flexWrap: 'wrap', gap: 16, justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
             <strong>PC Star Informatique</strong>
             <div className="short">{STORE.address}</div>
@@ -990,7 +911,164 @@ export default function App() {
         WhatsApp
       </a>
 
-      {toast && <div className="toast">{toast}</div>}
+      {/* Cart offcanvas */}
+      <div
+        className={`offcanvas offcanvas-end ${cartOpen ? 'show' : ''}`}
+        tabIndex={-1}
+        style={{ visibility: cartOpen ? 'visible' : 'hidden' }}
+        aria-labelledby="cartOffcanvasLabel"
+      >
+        <div className="offcanvas-header border-bottom">
+          <h2 className="offcanvas-title h5 mb-0" id="cartOffcanvasLabel">
+            {t('cartTitle')} {count > 0 ? `(${count})` : ''}
+          </h2>
+          <button type="button" className="btn-close" aria-label={t('close')} onClick={() => setCartOpen(false)} />
+        </div>
+        <div className="offcanvas-body d-flex flex-column">
+          {reserved ? (
+            <div className="alert alert-success">
+              <h3 className="h6">{t('reservedTitle', { code: reserved.code })}</h3>
+              <p className="mb-2">
+                {t('reservedBody', { name: reserved.name, slot: reserved.slot, address: STORE.address })}
+              </p>
+              <p className="small mb-3">
+                {t('showCode')} <strong>{reserved.code}</strong>
+              </p>
+              <button
+                className="btn btn-success"
+                type="button"
+                onClick={() => {
+                  setReserved(null)
+                  setCartOpen(false)
+                  go('shop')
+                }}
+              >
+                {t('backToShop')}
+              </button>
+            </div>
+          ) : cart.length === 0 ? (
+            <p className="text-secondary">{t('cartEmpty')}</p>
+          ) : (
+            <>
+              <div className="list-group list-group-flush mb-3 flex-grow-1 overflow-auto">
+                {cart.map((i) => (
+                  <div className="list-group-item px-0" key={i.id}>
+                    <div className="d-flex gap-3">
+                      <div style={{ width: 64, height: 64 }} className="rounded overflow-hidden bg-body-secondary flex-shrink-0">
+                        <PartThumb product={i} />
+                      </div>
+                      <div className="flex-grow-1">
+                        <div className="small text-secondary">{i.sku}</div>
+                        <div className="fw-semibold">{i.name}</div>
+                        <div className="d-flex align-items-center gap-2 mt-1">
+                          <div className="btn-group btn-group-sm">
+                            <button type="button" className="btn btn-outline-secondary" onClick={() => setQty(i.id, i.qty - 1)}>-</button>
+                            <span className="btn btn-outline-secondary disabled">{i.qty}</span>
+                            <button type="button" className="btn btn-outline-secondary" onClick={() => setQty(i.id, i.qty + 1)}>+</button>
+                          </div>
+                          <button type="button" className="btn btn-sm btn-link text-danger" onClick={() => remove(i.id)}>
+                            {t('remove')}
+                          </button>
+                          <strong className="ms-auto">{money(i.qty * i.price)}</strong>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {blocks.length > 0 && (
+                <div className="alert alert-danger py-2">
+                  <strong>{t('willNotRun')}</strong>
+                  {blocks.map((w) => (
+                    <div key={w} className="small">{w}</div>
+                  ))}
+                </div>
+              )}
+              {notes.length > 0 && (
+                <div className="alert alert-warning py-2">
+                  <strong>{t('watchThis')}</strong>
+                  {notes.map((w) => (
+                    <div key={w} className="small">{w}</div>
+                  ))}
+                </div>
+              )}
+
+              <form onSubmit={reserve} className="border-top pt-3 mt-auto">
+                <div className="d-flex justify-content-between align-items-center mb-2">
+                  <span className="fw-semibold">{t('total')}</span>
+                  <span className="fs-5 fw-bold text-success">{money(total)}</span>
+                </div>
+                <div className="mb-2">
+                  <label className="form-label small mb-1" htmlFor="name">{t('yourName')}</label>
+                  <input id="name" className="form-control" value={pickup.name} onChange={(e) => setPickup({ ...pickup, name: e.target.value })} required />
+                </div>
+                <div className="mb-2">
+                  <label className="form-label small mb-1" htmlFor="phone">{t('phone')}</label>
+                  <input
+                    id="phone"
+                    className={`form-control ${phoneErr ? 'is-invalid' : ''}`}
+                    value={pickup.phone}
+                    onChange={(e) => {
+                      setPickup({ ...pickup, phone: e.target.value })
+                      setPhoneErr('')
+                    }}
+                    required
+                    inputMode="tel"
+                    placeholder="05xx / 06xx / 07xx"
+                  />
+                  {phoneErr && <div className="invalid-feedback d-block">{phoneErr}</div>}
+                  <div className="form-text">
+                    {t('carrierNote')}
+                    {carrier === 'mobilis' && ` · ${t('carrierMobilis')}`}
+                    {carrier === 'ooredoo' && ` · ${t('carrierOoredoo')}`}
+                    {carrier === 'djezzy' && ` · ${t('carrierDjezzy')}`}
+                  </div>
+                </div>
+                <div className="mb-2">
+                  <label className="form-label small mb-1" htmlFor="wilaya">{t('wilaya')}</label>
+                  <select id="wilaya" className="form-select" value={pickup.wilaya} onChange={(e) => setPickup({ ...pickup, wilaya: e.target.value })}>
+                    {WILAYAS_NEAR.map((w) => (
+                      <option key={w} value={w}>{w}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="mb-2">
+                  <label className="form-label small mb-1">{t('paymentMethod')}</label>
+                  <div className="form-control bg-success-subtle border-success-subtle fw-semibold">{t('payCash')}</div>
+                </div>
+                <div className="mb-3">
+                  <label className="form-label small mb-1" htmlFor="slot">{t('timeSlot')}</label>
+                  <select id="slot" className="form-select" value={pickup.slot} onChange={(e) => setPickup({ ...pickup, slot: e.target.value })}>
+                    {SLOTS.map((s) => (
+                      <option key={s} value={s}>{s}</option>
+                    ))}
+                  </select>
+                </div>
+                <button className="btn btn-success w-100 mb-2" type="submit">{t('reservePickup')}</button>
+                <div className="d-grid gap-2">
+                  <a className="btn btn-outline-secondary btn-sm" href={waHref} target="_blank" rel="noreferrer">{t('whatsappCart')}</a>
+                  <a className="btn btn-outline-secondary btn-sm" href={STORE.phoneHref}>{t('call')} {STORE.phone}</a>
+                </div>
+                <p className="small text-secondary mt-2 mb-0">{STORE.ready}</p>
+              </form>
+            </>
+          )}
+        </div>
+      </div>
+      {cartOpen && <div className="offcanvas-backdrop fade show" onClick={() => setCartOpen(false)} />}
+
+      {toast && (
+        <div className="position-fixed bottom-0 end-0 p-3" style={{ zIndex: 1100 }}>
+          <div className="toast show align-items-center text-bg-success border-0" role="status">
+            <div className="d-flex">
+              <div className="toast-body">{toast}</div>
+              <button type="button" className="btn-close btn-close-white me-2 m-auto" onClick={() => setToast('')} aria-label={t('close')} />
+            </div>
+          </div>
+        </div>
+      )}
+
 
       {authOpen && (
         <AuthPanel
@@ -1016,15 +1094,15 @@ function ProductPage({ t, product, photoIndex, setPhotoIndex, left, onBack, onAd
   const photos = product.photos || []
   const also = (product.related || []).map((id) => catalog.find((p) => p.id === id)).filter(Boolean)
   return (
-    <main className="wrap page">
-      <button className="back" type="button" onClick={onBack}>
-        {t('continueShopping')}
+    <main className="container page py-4">
+      <button className="btn btn-outline-secondary btn-sm mb-3" type="button" onClick={onBack}>
+        ← {t('continueShopping')}
       </button>
-      <div className="pdp">
-        <div>
-          <div className="pdp-photo">
-            {photos.length > 0 ? <img src={photos[photoIndex]} alt={product.name} /> : <PartThumb product={product} />}
-            <span className={`badge ${st.cls}`}>{st.text}</span>
+      <div className="row g-4 pdp">
+        <div className="col-md-6">
+          <div className="pdp-photo position-relative rounded overflow-hidden border bg-body-secondary">
+            {photos.length > 0 ? <img src={photos[photoIndex]} alt={product.name} className="w-100" /> : <PartThumb product={product} />}
+            <span className={`badge position-absolute top-0 end-0 m-2 ${st.cls === 'stock-ok' ? 'text-bg-success' : st.cls === 'stock-low' ? 'text-bg-warning' : 'text-bg-danger'}`}>{st.text}</span>
           </div>
           {photos.length > 1 && (
             <div className="thumbs">
@@ -1036,7 +1114,7 @@ function ProductPage({ t, product, photoIndex, setPhotoIndex, left, onBack, onAd
             </div>
           )}
         </div>
-        <div className="pdp-info">
+        <div className="col-md-6 pdp-info">
           <div className="sku">
             {product.sku} · {product.brand}
           </div>
@@ -1046,11 +1124,11 @@ function ProductPage({ t, product, photoIndex, setPhotoIndex, left, onBack, onAd
           <div className="price">{money(product.price)}</div>
           <div className={`need ${left <= 0 ? 'out' : ''}`}>{product.needs}</div>
           <div className="alt-row">
-            <button className="add" type="button" disabled={left <= 0} onClick={onAdd}>
+            <button className="btn btn-success" type="button" disabled={left <= 0} onClick={onAdd}>
               {left <= 0 ? t('soldOut') : t('addToCart')}
             </button>
             <a
-              className="ghost"
+              className="btn btn-outline-secondary"
               href={`https://wa.me/${STORE.whatsapp}?text=${encodeURIComponent(`Salam, I want ${product.name} (${product.sku}) — ${money(product.price)}`)}`}
               target="_blank"
               rel="noreferrer"

@@ -41,6 +41,10 @@ Tu peux aussi taper e-mail + mot de passe à la main, ou **Créer un compte**.
 3. Panier → nom + mobile **05 Ooredoo / 06 Mobilis / 07 Djezzy** → réserver.
 4. Montrer le code **PS-…** au comptoir, payer en DA (espèces au retrait).
 
+## Guide (master only)
+
+La page **Guide / Help** n’apparaît et n’est accessible **que** pour le compte master.
+
 ## Thème & langues
 
 - **☀ / ☾ / ◐** : clair / sombre / système.
