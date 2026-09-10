@@ -199,12 +199,12 @@ export const DZ_EXTRA = [
     'USB 3.0', {}),
   p('hdd-1t', 'WD-1T-BLUE', 'HDD WD Blue 1 To 3.5"', 'WD', 'part', 'memory', 9500, 10,
     'Stockage massif', { tags: ['budget'] }),
-  p('hdd-2t', 'WD-2T-BLUE', 'HDD WD Blue 2 To 3.5"', 'WD', 'part', 'memory', 14500, 6,
-    '2 To', {}),
+  p('hdd-2t-wd', 'WD-2T-BLUE', 'HDD WD Blue 2 To 3.5"', 'WD', 'part', 'memory', 14500, 6,
+    '2 To · 3.5"', { tags: ['budget'] }),
 
   // ——— Laptops / PC prêts style magasin Oran ———
-  p('lap-hp15', 'HP-15S-I5', 'Laptop HP 15s i5 16 Go 512 SSD', 'HP', 'machine', 'laptop', 78000, 4,
-    'Bureau / études · 15.6"', { tags: ['dz-hit'] }),
+  p('lap-hp15-16', 'HP-15S-I5-16', 'Laptop HP 15s i5 16 Go 512 SSD', 'HP', 'machine', 'laptop', 78000, 4,
+    'Bureau / études · 15.6" · 16 Go', { tags: ['dz-hit'] }),
   p('lap-len-i3', 'LEN-I3-8-256', 'Laptop Lenovo i3 8 Go 256 SSD', 'Lenovo', 'machine', 'laptop', 52000, 5,
     'Entrée études', { tags: ['budget'] }),
   p('lap-dell-i7', 'DELL-I7-16-512', 'Laptop Dell i7 16 Go 512 SSD', 'Dell', 'machine', 'laptop', 98000, 2,
