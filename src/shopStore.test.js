@@ -1,0 +1,194 @@
+import { describe, it } from 'node:test'
+import assert from 'node:assert/strict'
+import {
+  ACCENTS,
+  AVATARS,
+  MASTER,
+  addPanel,
+  addProduct,
+  buildShopView,
+  createMemoryStorage,
+  deleteCustomer,
+  hashPass,
+  hideProduct,
+  isDzPhone,
+  isEmail,
+  loadMeta,
+  loadUsers,
+  loginEmail,
+  loginGoogle,
+  normalizePhone,
+  registerEmail,
+  saveMeta,
+  saveUsers,
+  startSms,
+  togglePanel,
+  updateUser,
+  verifySms
+} from './shopStore.js'
+
+describe('phones and emails', () => {
+  it('normalizes Algerian mobiles', () => {
+    assert.equal(normalizePhone('0770 65 03 87'), '0770650387')
+    assert.equal(normalizePhone('+213770650387'), '0770650387')
+    assert.equal(normalizePhone('669174617'), '0669174617')
+    assert.equal(isDzPhone('0550123456'), true)
+    assert.equal(isDzPhone('021234567'), false)
+  })
+
+  it('accepts a simple email', () => {
+    assert.equal(isEmail('a@b.dz'), true)
+    assert.equal(isEmail('nope'), false)
+  })
+})
+
+describe('email accounts', () => {
+  it('registers a customer and logs them in', () => {
+    let users = []
+    const reg = registerEmail(users, {
+      email: 'karim@test.dz',
+      password: 'azerty12',
+      name: 'Karim',
+      phone: '0550123456'
+    })
+    assert.equal(reg.ok, true)
+    assert.equal(reg.user.role, 'customer')
+    assert.equal(reg.user.password, hashPass('azerty12'))
+    users = reg.users
+    const login = loginEmail(users, { email: 'karim@test.dz', password: 'azerty12' })
+    assert.equal(login.ok, true)
+    assert.equal(login.user.name, 'Karim')
+  })
+
+  it('rejects a wrong password and duplicate email', () => {
+    const { users } = registerEmail([], {
+      email: 'karim@test.dz',
+      password: 'azerty12',
+      name: 'Karim'
+    })
+    assert.equal(loginEmail(users, { email: 'karim@test.dz', password: 'nope' }).ok, false)
+    assert.equal(registerEmail(users, { email: 'karim@test.dz', password: 'azerty12', name: 'X' }).ok, false)
+  })
+
+  it('logs in the seeded master', () => {
+    const users = loadUsers(createMemoryStorage())
+    const login = loginEmail(users, { email: MASTER.email, password: MASTER.password })
+    assert.equal(login.ok, true)
+    assert.equal(login.user.role, 'master')
+  })
+})
+
+describe('sms and google demo', () => {
+  it('starts an SMS code and verifies it', () => {
+    const started = startSms([], { phone: '0669174617' })
+    assert.equal(started.ok, true)
+    assert.match(started.code, /^\d{6}$/)
+    const done = verifySms(started.users, {
+      phone: '0669174617',
+      code: started.code,
+      pending: started.pending
+    })
+    assert.equal(done.ok, true)
+    assert.equal(done.user.phone, '0669174617')
+    assert.equal(done.user.role, 'customer')
+  })
+
+  it('rejects a wrong SMS code', () => {
+    const started = startSms([], { phone: '0669174617' })
+    const done = verifySms(started.users, { phone: '0669174617', code: '000000', pending: started.pending })
+    assert.equal(done.ok, false)
+  })
+
+  it('creates a google demo customer', () => {
+    const res = loginGoogle([])
+    assert.equal(res.ok, true)
+    assert.equal(res.user.provider, 'google')
+    assert.equal(res.user.role, 'customer')
+  })
+})
+
+describe('master vs customer', () => {
+  it('lets master delete a customer but not itself', () => {
+    const seeded = loadUsers(createMemoryStorage())
+    const { users, user } = registerEmail(seeded, {
+      email: 'a@b.dz',
+      password: 'secret99',
+      name: 'Amina'
+    })
+    const master = users.find((u) => u.role === 'master')
+    const gone = deleteCustomer(users, master, user.id)
+    assert.equal(gone.ok, true)
+    assert.equal(gone.users.some((u) => u.id === user.id), false)
+    assert.equal(deleteCustomer(gone.users, master, master.id).ok, false)
+    assert.equal(deleteCustomer(users, user, user.id).ok, false)
+  })
+
+  it('saves profile avatar and accent', () => {
+    const { users, user } = registerEmail([], { email: 'a@b.dz', password: 'secret99', name: 'Amina' })
+    const next = updateUser(users, user.id, { avatar: AVATARS[1].id, accent: ACCENTS[2].id, name: 'Amina B' })
+    assert.equal(next.ok, true)
+    assert.equal(next.user.avatar, AVATARS[1].id)
+    assert.equal(next.user.accent, ACCENTS[2].id)
+    assert.equal(next.user.name, 'Amina B')
+  })
+})
+
+describe('catalog paneaux', () => {
+  const baseProducts = [
+    { id: 'cpu-1', name: 'i5', category: 'cpu', price: 1000, stock: 2 },
+    { id: 'usb-1', name: 'USB', category: 'usb', price: 500, stock: 4 }
+  ]
+  const baseLines = [
+    { id: 'cpu', label: 'CPU', group: 'parts', match: (p) => p.category === 'cpu' },
+    { id: 'usb', label: 'USB', group: 'desk', match: (p) => p.category === 'usb' }
+  ]
+  const basePanels = [
+    { id: 'parts', titleKey: 'panelParts' },
+    { id: 'desk', titleKey: 'panelDesk' }
+  ]
+
+  it('hides a product and adds a custom SKU', () => {
+    let meta = { extraProducts: [], hiddenProductIds: [], extraPanels: [], hiddenPanelIds: [] }
+    meta = hideProduct(meta, 'cpu-1')
+    const added = addProduct(meta, {
+      name: 'Flash 64 Go',
+      price: 1200,
+      category: 'usb',
+      brand: 'Kingston',
+      stock: 8,
+      short: 'USB 3.2'
+    })
+    assert.equal(added.ok, true)
+    meta = added.meta
+    const view = buildShopView(baseProducts, baseLines, basePanels, meta)
+    assert.equal(view.products.some((p) => p.id === 'cpu-1'), false)
+    assert.equal(view.products.some((p) => p.name === 'Flash 64 Go'), true)
+  })
+
+  it('toggles a panel off and adds a custom panel', () => {
+    let meta = { extraProducts: [], hiddenProductIds: [], extraPanels: [], hiddenPanelIds: [] }
+    meta = togglePanel(meta, 'desk', false)
+    const added = addPanel(meta, {
+      titles: { ar: 'كابلات', fr: 'Cables', en: 'Cables' },
+      categories: ['usb']
+    })
+    assert.equal(added.ok, true)
+    const view = buildShopView(baseProducts, baseLines, basePanels, added.meta)
+    assert.equal(view.panels.some((p) => p.id === 'desk'), false)
+    assert.equal(view.panels.some((p) => p.id === added.panel.id), true)
+    assert.equal(view.lines.some((l) => l.group === added.panel.id && l.match(baseProducts[1])), true)
+  })
+})
+
+describe('storage roundtrip', () => {
+  it('persists users and catalog meta', () => {
+    const storage = createMemoryStorage()
+    const users = loadUsers(storage)
+    const { users: next } = registerEmail(users, { email: 'z@z.dz', password: 'passpass1', name: 'Z' })
+    saveUsers(storage, next)
+    assert.equal(loadUsers(storage).some((u) => u.email === 'z@z.dz'), true)
+    const meta = addProduct(loadMeta(storage), { name: 'X', price: 10, category: 'usb', brand: 'A', stock: 1, short: 's' }).meta
+    saveMeta(storage, meta)
+    assert.equal(loadMeta(storage).extraProducts.length, 1)
+  })
+})
