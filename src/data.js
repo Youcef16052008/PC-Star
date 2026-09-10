@@ -1,4 +1,8 @@
 import { EXTRA } from './extraCatalog.js'
+import { DZ_EXTRA, DZ_DEALS, DZ_GUIDES, PAYMENT_HINTS, WILAYAS_NEAR, DZ_BRANDS } from './dzCatalog.js'
+import { ensureProductPhotos } from './productPhotos.js'
+
+export { DZ_DEALS, DZ_GUIDES, PAYMENT_HINTS, WILAYAS_NEAR, DZ_BRANDS }
 
 export const STORE = {
   name: 'PC Star Informatique',
@@ -128,7 +132,9 @@ export const BRANDS = [
   'TeamGroup', 'Patriot', 'Seagate', 'Fractal', 'Phanteks',
   'Thermaltake', 'DeepCool', 'SilverStone', 'Seasonic', 'EVGA',
   'Arctic', 'TP-Link', 'HP', 'Dell', 'Lenovo', 'Acer', 'Apple', 'PC Star',
-  'SanDisk', 'Sony', 'Nintendo', '8BitDo', 'Generic'
+  'SanDisk', 'Sony', 'Nintendo', '8BitDo', 'Generic',
+  'Spirit of Gamer', 'Havit', 'Gamemax', 'Raidmax', 'Twinmos', 'Magma',
+  'Xigmatek', 'Tenda', '1st Player', 'Ares', 'Hybrok', 'Antec', 'GameNote', 'Ugreen'
 ]
 
 export const SOCKETS = ['AM5', 'LGA1700', 'LGA1851']
@@ -143,15 +149,58 @@ export const PRICE_PRESETS = [
 ]
 
 export const DEALS = [
-  { id: 'ram-32', tag: '-12%', note: 'This week' },
-  { id: 'ssd-1t', tag: 'Hot', note: 'In store now' },
-  { id: 'headset', tag: 'Deal', note: 'While stock lasts' }
+  { id: 'hav-combo4', tag: '-10%', note: 'Rentrée · Havit 4en1' },
+  { id: 'sog-mkh5', tag: 'Pack SoG', note: 'En magasin Oran' },
+  { id: 'cpu-5600', tag: 'Hit DZ', note: 'AM4 encore roi' },
+  { id: 'ram-32', tag: '-12%', note: 'DDR5 semaine' },
+  { id: 'ssd-1t', tag: 'Hot', note: 'NVMe en stock' },
+  { id: 'tw-ssd-512', tag: 'Budget', note: 'Twinmos 512' }
 ]
 
 export const GUIDES = [
-  { id: 'am5', title: 'AM5 starter', body: '7800X3D + B650 + 32 GB DDR5. The desk checks the socket before you pay.' },
-  { id: 'fix', title: 'PC & laptop repair', body: 'Windows, dust, paste, screen, fan, no-power. Console and manette too. Quote at the desk — labour is cheap.' },
-  { id: 'desk', title: 'How pickup works', body: 'Add to cart, pick a slot, show your PS code at El Makari Les Castors, Oran. Pay in DA.' }
+  {
+    id: 'dz-budget',
+    title: 'Budget étudiant DZ',
+    body: 'Ryzen 5 5600 + B450 + 16 Go Magma + SSD Twinmos 512. Spirit of Gamer Ghost 5 ou Havit combo pour le desk. On vérifie au comptoir avant paiement.'
+  },
+  {
+    id: 'dz-sog',
+    title: 'Spirit of Gamer & Havit',
+    body: 'Marques très présentes en Algérie (LICB+, Campus, Digitec…). Packs 4en1, boîtiers Ghost, casques Elite — bon rapport DA / perf pour Oran.'
+  },
+  {
+    id: 'am5',
+    title: 'AM5 starter',
+    body: '7800X3D + B650 + 32 Go DDR5. Le desk vérifie le socket avant paiement.'
+  },
+  {
+    id: 'fix',
+    title: 'Réparation PC & laptop',
+    body: 'Windows, poussière, pâte, écran, ventilo, no-power. Console et manette aussi. Devis au comptoir — main-d’œuvre légère.'
+  },
+  {
+    id: 'desk',
+    title: 'Retrait El Makari',
+    body: 'Panier → créneau → code PS au comptoir Les Castors, Oran. Paiement en espèces au retrait.'
+  }
+]
+
+export const BRANDS_DZ_PRIORITY = [
+  'Spirit of Gamer',
+  'Havit',
+  'Gamemax',
+  'Raidmax',
+  'Twinmos',
+  'Magma',
+  'Xigmatek',
+  'Tenda',
+  '1st Player',
+  'DeepCool',
+  'AMD',
+  'Intel',
+  'MSI',
+  'ASUS',
+  'Gigabyte'
 ]
 
 export const REVIEWS = {
@@ -164,7 +213,7 @@ export const REVIEWS = {
     { name: 'Sofia R.', city: 'Oran', stars: 4, text: 'Warm under load. The Noctua cooler they suggested fixed it.' }
   ],
   'gpu-4070s': [
-    { name: 'Nabil H.', city: 'Oran', stars: 5, text: '1440p ultra in store demo. Paid in 3x at the desk.' },
+    { name: 'Nabil H.', city: 'Oran', stars: 5, text: '1440p ultra in store demo. Paid cash at the desk.' },
     { name: 'Amira K.', city: 'Tizi Ouzou', stars: 4, text: 'Card is long. Lancool 216 fits. Ask them to measure.' }
   ],
   'gpu-7800xt': [
@@ -536,7 +585,7 @@ const PRODUCTS_CORE = [
   }
 ]
 
-export const PRODUCTS = [...PRODUCTS_CORE, ...EXTRA]
+export const PRODUCTS = [...PRODUCTS_CORE, ...EXTRA, ...DZ_EXTRA].map(ensureProductPhotos)
 
 function firstMatch(text, rules, fallback = {}) {
   for (const [re, spec] of rules) {
@@ -806,7 +855,7 @@ export const COMPARE_FIELDS = [
   { key: 'kind', label: 'Type', value: (p) => ({ part: 'PC part', accessory: 'Accessory', machine: 'Laptop / PC', service: 'Repair' }[p.kind] || p.kind) },
   { key: 'category', label: 'Category', value: (p) => CATEGORIES.find((c) => c.id === p.category)?.label || p.category },
   { key: 'price', label: 'Price', value: (p) => money(p.price) },
-  { key: 'pay3x', label: '3x at desk', value: (p) => (p.price >= 30000 ? `${third(p.price)} × 3` : 'Cash / card') },
+  { key: 'pay', label: 'Payment', value: () => 'Cash at desk' },
   { key: 'rating', label: 'Rating', value: (p) => `${p.rating.toFixed(1)} · ${p.reviews} reviews` },
   { key: 'stock', label: 'In store', value: (p) => (p.stock > 0 ? `${p.stock}` : 'Out of stock') },
   { key: 'socket', label: 'Socket', value: (p) => (Array.isArray(p.compat?.socket) ? p.compat.socket.join(' / ') : p.compat?.socket || '—') },

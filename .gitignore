@@ -111,6 +111,9 @@
 *.pem
 *.key
 
+# PC Star API local DB
+server/data/
+
 # Temporary files
 *.tmp
 *.temp
@@ -174,3 +177,12 @@
 *.lz
 *.lzma
 *.iso
+
+# temp image downloads
+image-search/
+
+
+# local API runtime
+server/data/store.json
+server/data/backups/
+public/photos/uploads/
