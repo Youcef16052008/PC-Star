@@ -597,8 +597,8 @@ export default function App() {
 
       <nav className="navbar navbar-expand-lg sticky-top border-bottom shop-navbar">
         <div className="container">
-          <button type="button" className="navbar-brand btn btn-link text-decoration-none p-0 logo" onClick={() => go('shop')}>
-            PC <span>Star</span>
+          <button type="button" className="navbar-brand btn btn-link text-decoration-none p-0 logo" onClick={() => go('shop')} aria-label="PC Star Informatique — accueil">
+            <img src="/logo.png" alt="PC Star Informatique" className="logo-img" width="150" height="101" />
           </button>
           <div className="d-flex align-items-center gap-2 order-lg-last ms-auto ms-lg-0">
             <button

@@ -125,14 +125,19 @@ a:focus-visible {
 
 .shop-navbar .navbar-brand.logo,
 .logo {
-  font-weight: 800;
-  font-size: 1.35rem;
-  color: var(--ink) !important;
-  letter-spacing: -0.03em;
+  line-height: 1;
 }
 
-.logo span {
-  color: var(--blue);
+.logo-img {
+  height: 40px;
+  width: auto;
+  display: block;
+}
+
+@media (max-width: 575.98px) {
+  .logo-img {
+    height: 32px;
+  }
 }
 
 .navbar-toggler {
