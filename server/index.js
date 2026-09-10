@@ -34,7 +34,9 @@ import {
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const PORT = Number(process.env.PORT || 8787)
-const FRONT_ORIGIN = process.env.FRONT_ORIGIN || '*'
+const FRONT_ORIGIN =
+  process.env.FRONT_ORIGIN ||
+  (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : '*')
 
 function send(res, status, body, headers = {}) {
   const payload = typeof body === 'string' ? body : JSON.stringify(body)
@@ -55,6 +57,17 @@ function send(res, status, body, headers = {}) {
 
 function readBody(req) {
   return new Promise((resolve, reject) => {
+    // Vercel / some adapters may already parse JSON
+    if (req.body != null && typeof req.body === 'object' && !Buffer.isBuffer(req.body)) {
+      return resolve(req.body)
+    }
+    if (typeof req.body === 'string' && req.body) {
+      try {
+        return resolve(JSON.parse(req.body))
+      } catch {
+        /* fall through */
+      }
+    }
     const chunks = []
     req.on('data', (c) => chunks.push(c))
     req.on('end', () => {
@@ -123,7 +136,7 @@ function phoneCarrier(value) {
   return null
 }
 
-async function handler(req, res) {
+export async function handler(req, res) {
   const url = new URL(req.url, `http://${req.headers.host || '127.0.0.1'}`)
   const { pathname } = url
 
@@ -327,6 +340,27 @@ async function handler(req, res) {
       const out = unlinkProvider(auth.user.id, body.provider)
       if (!out.ok) return send(res, 400, out)
       return send(res, 200, out)
+    }
+
+    // Serve ephemeral uploads (Vercel /tmp) — not durable; use Blob later for prod photos
+    if (req.method === 'GET' && pathname === '/api/upload-file') {
+      const name = path.basename(String(url.searchParams.get('name') || ''))
+      if (!name || name.includes('..')) return send(res, 400, { ok: false, error: 'name' })
+      const dir = process.env.VERCEL
+        ? path.join('/tmp', 'pcstar-uploads')
+        : path.join(__dirname, '../public/photos/uploads')
+      const file = path.join(dir, name)
+      if (!fs.existsSync(file)) return send(res, 404, { ok: false, error: 'not_found' })
+      const ext = path.extname(name).toLowerCase()
+      const type =
+        ext === '.png' ? 'image/png' : ext === '.webp' ? 'image/webp' : 'image/jpeg'
+      const buf = fs.readFileSync(file)
+      res.writeHead(200, {
+        'Content-Type': type,
+        'Cache-Control': 'public, max-age=3600',
+        'Access-Control-Allow-Origin': FRONT_ORIGIN
+      })
+      return res.end(buf)
     }
 
     // Catalog with live stock
@@ -604,23 +638,36 @@ async function handler(req, res) {
   }
 }
 
-const server = http.createServer(handler)
-server.listen(PORT, '0.0.0.0', () => {
-  console.log(`PC Star API on http://0.0.0.0:${PORT}`)
-  console.log('OAuth:', oauthConfig())
-  try {
-    const dbPath = path.join(__dirname, 'data', 'store.json')
-    const dest = backupStore(dbPath, path.join(__dirname, 'data', 'backups'))
-    if (dest) console.log('Backup:', dest)
-  } catch (e) {
-    console.warn('Backup skipped', e.message)
-  }
-  // rolling backup every 6h
-  setInterval(() => {
+function startLocalServer() {
+  const server = http.createServer(handler)
+  server.listen(PORT, '0.0.0.0', () => {
+    console.log(`PC Star API on http://0.0.0.0:${PORT}`)
+    console.log('OAuth:', oauthConfig())
     try {
-      backupStore(path.join(__dirname, 'data', 'store.json'), path.join(__dirname, 'data', 'backups'))
-    } catch {
-      /* ignore */
+      const dbPath = path.join(__dirname, 'data', 'store.json')
+      const dest = backupStore(dbPath, path.join(__dirname, 'data', 'backups'))
+      if (dest) console.log('Backup:', dest)
+    } catch (e) {
+      console.warn('Backup skipped', e.message)
     }
-  }, 6 * 60 * 60 * 1000).unref?.()
-})
+    setInterval(() => {
+      try {
+        backupStore(path.join(__dirname, 'data', 'store.json'), path.join(__dirname, 'data', 'backups'))
+      } catch {
+        /* ignore */
+      }
+    }, 6 * 60 * 60 * 1000).unref?.()
+  })
+  return server
+}
+
+// Local / long-running only — Vercel imports { handler } without listen
+const isMain =
+  process.argv[1] &&
+  fileURLToPath(import.meta.url) === path.resolve(process.argv[1])
+if (isMain && !process.env.VERCEL) {
+  startLocalServer()
+}
+
+export default handler
+export { startLocalServer }

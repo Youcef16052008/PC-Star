@@ -1,0 +1,5 @@
+image-search
+docs/superpowers
+server/data/backups
+*.log
+.arena

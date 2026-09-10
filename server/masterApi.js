@@ -9,9 +9,14 @@ import { ensureStock, setStock, liveStockOf } from './catalog.js'
 import { PRODUCTS } from '../src/data.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
-const UPLOAD_DIR = path.join(__dirname, '../public/photos/uploads')
+const IS_SERVERLESS = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME)
+const UPLOAD_DIR = IS_SERVERLESS
+  ? path.join('/tmp', 'pcstar-uploads')
+  : path.join(__dirname, '../public/photos/uploads')
 const MAX_BYTES = 2.5 * 1024 * 1024
 const MAX_PHOTOS = 6
+/** Public URL prefix — on serverless uploads are not CDN-stable until Blob is wired. */
+export const UPLOAD_PUBLIC_PREFIX = IS_SERVERLESS ? '/api/upload-file' : '/photos/uploads' 
 
 export function ensureUploadDir() {
   fs.mkdirSync(UPLOAD_DIR, { recursive: true })
@@ -135,7 +140,7 @@ export function savePhotoDataUrls(productId, dataUrls = []) {
     const name = `${productId}-${Date.now().toString(36)}-${i}.${ext}`
     const file = path.join(UPLOAD_DIR, name)
     fs.writeFileSync(file, buf)
-    out.push(`/photos/uploads/${name}`)
+    out.push(IS_SERVERLESS ? `/api/upload-file?name=${encodeURIComponent(name)}` : `/photos/uploads/${name}`)
   }
   return out
 }

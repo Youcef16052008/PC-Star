@@ -4,7 +4,11 @@ import { fileURLToPath } from 'node:url'
 import crypto from 'node:crypto'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
-const DATA_DIR = path.join(__dirname, 'data')
+/** On Vercel serverless the bundle FS is read-only — persist under /tmp (ephemeral per instance). */
+const IS_SERVERLESS = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME)
+const DATA_DIR = IS_SERVERLESS
+  ? path.join('/tmp', 'pcstar-data')
+  : path.join(__dirname, 'data')
 const DB_FILE = path.join(DATA_DIR, 'store.json')
 
 const MASTER = {

@@ -35,3 +35,16 @@ Also in the app menu: **Guide**.
 ## Removed
 
 Avatars, accent colors, product compare, 3D orbit, Google/Meta OAuth, SMS demo.
+
+## Deploy (Vercel, HTTPS, no VPS)
+
+See **[docs/DEPLOY-VERCEL.md](docs/DEPLOY-VERCEL.md)**.
+
+```bash
+# one-shot CLI (optional)
+npx vercel
+npx vercel --prod
+```
+
+Set env: `FRONT_ORIGIN`, `FRONT_URL`, `OAUTH_REDIRECT_BASE` to your `https://….vercel.app`.
+Photos: keep shipping under `public/photos/sku/` — add pro shots later, push, done.

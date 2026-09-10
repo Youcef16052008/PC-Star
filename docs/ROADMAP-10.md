@@ -147,7 +147,7 @@ client trouve un produit → construit un PC compatible → réserve en espèces
 - [x] Rate limit login (20/min) + orders (15/min)
 
 ### 4.2 Persistance
-- [ ] JSON + **backups rotatifs** (SQLite reporté Phase 4.5 / hébergeur)
+- [x] JSON local + backups ; sur Vercel `/tmp` éphémère (KV/Turso optionnel plus tard)
 - [x] Backup au boot + toutes les 6h + `npm run backup` + bouton master
 - [x] ensureStock / meta defaults auto-migrate
 

@@ -15,7 +15,9 @@ import crypto from 'node:crypto'
 import { newId, newToken, readDb, updateDb, publicUser } from './db.js'
 
 const DEMO = process.env.OAUTH_DEMO !== '0'
-const BASE = process.env.OAUTH_REDIRECT_BASE || 'http://127.0.0.1:8787'
+const BASE =
+  process.env.OAUTH_REDIRECT_BASE ||
+  (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://127.0.0.1:8787')
 
 export function oauthConfig() {
   return {
