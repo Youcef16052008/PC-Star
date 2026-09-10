@@ -32,6 +32,7 @@ export default function SearchPage({ t, products, lines, panels, lang, liveStock
   const [view, setView] = useState('grid')
   const [saved, setSaved] = useState([])
   const [saveNote, setSaveNote] = useState('')
+  const [filtersOpen, setFiltersOpen] = useState(false)
 
   const allLines = lines || []
   const allPanels = panels || []
@@ -186,8 +187,14 @@ export default function SearchPage({ t, products, lines, panels, lang, liveStock
         ))}
       </div>
 
+      <div className="d-lg-none mb-3">
+        <button type="button" className="btn btn-outline-success w-100" onClick={() => setFiltersOpen(true)}>
+          {t('filtersMobile')} · {results.length}
+        </button>
+      </div>
+
       <div className="row g-4">
-        <aside className="col-lg-3">
+        <aside className="col-lg-3 d-none d-lg-block">
           <div className="card shadow-sm border-0 sticky-lg-top" style={{ top: 88 }}>
             <div className="card-body">
               <div className="d-flex justify-content-between align-items-center mb-3">
@@ -358,6 +365,56 @@ export default function SearchPage({ t, products, lines, panels, lang, liveStock
           )}
         </section>
       </div>
+
+      {filtersOpen && (
+        <>
+          <div className="offcanvas-backdrop fade show d-lg-none" onClick={() => setFiltersOpen(false)} />
+          <div className="offcanvas offcanvas-start show d-lg-none" tabIndex={-1} style={{ visibility: 'visible' }}>
+            <div className="offcanvas-header border-bottom">
+              <h2 className="offcanvas-title h5">{t('filters')}</h2>
+              <button type="button" className="btn-close" aria-label={t('close')} onClick={() => setFiltersOpen(false)} />
+            </div>
+            <div className="offcanvas-body">
+              <div className="mb-3">
+                <label className="form-label small">{t('sort')}</label>
+                <select className="form-select" value={filters.sort} onChange={(e) => set('sort', e.target.value)}>
+                  <option value="featured">{t('sortFeatured')}</option>
+                  <option value="price-asc">{t('sortPriceAsc')}</option>
+                  <option value="price-desc">{t('sortPriceDesc')}</option>
+                  <option value="rating">{t('sortRating')}</option>
+                  <option value="stock">{t('sortStock')}</option>
+                  <option value="name">{t('sortName')}</option>
+                </select>
+              </div>
+              <div className="mb-3">
+                <label className="form-label small">{t('price')}</label>
+                <select className="form-select" value={filters.price} onChange={(e) => set('price', e.target.value)}>
+                  {Object.keys(PRICE_KEYS).map((id) => (
+                    <option key={id} value={id}>{t(PRICE_KEYS[id])}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="form-check mb-3">
+                <input className="form-check-input" type="checkbox" id="m-stock" checked={filters.inStock} onChange={(e) => set('inStock', e.target.checked)} />
+                <label className="form-check-label" htmlFor="m-stock">{t('inStoreOnly')}</label>
+              </div>
+              <div className="mb-3">
+                <div className="small fw-semibold mb-1">{t('brands')}</div>
+                <div className="d-flex flex-wrap gap-1">
+                  {lineBrands.map((b) => (
+                    <button key={b} type="button" className={`btn btn-sm ${filters.brands.includes(b) ? 'btn-success' : 'btn-outline-secondary'}`} onClick={() => toggleBrand(b)}>
+                      {b}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <button type="button" className="btn btn-success w-100" onClick={() => setFiltersOpen(false)}>
+                {t('results', { n: results.length })}
+              </button>
+            </div>
+          </div>
+        </>
+      )}
     </main>
   )
 }

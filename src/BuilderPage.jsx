@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import { BUILDER_SLOTS, STORE, checkCompatibility, money, specOf, splitWarnings } from './data'
+import { BUILD_PRESETS, applyPreset, buildPowerRecap } from './orderLogic.js'
 import PartThumb from './PartThumb.jsx'
 
 function stockLabel(n, t) {
@@ -25,6 +26,7 @@ export default function BuilderPage({ t, products, build, setBuild, liveStock, o
   const socketOk = !cpu || !board || (cpu.compat?.socket && board.compat?.socket && cpu.compat.socket === board.compat.socket)
   const requiredReady = BUILDER_SLOTS.filter((s) => s.required).every((s) => build[s.key])
   const total = picked.reduce((s, p) => s + p.price, 0)
+  const power = useMemo(() => buildPowerRecap(picked), [picked])
   const locked = slot.needsBoard && !board
   const heatOk = blocks.length === 0
   const slotLabel = t(`line_${slot.key}`) !== `line_${slot.key}` ? t(`line_${slot.key}`) : slot.label
@@ -140,6 +142,28 @@ export default function BuilderPage({ t, products, build, setBuild, liveStock, o
         <div className="progress" role="progressbar" aria-valuenow={progress} aria-valuemin={0} aria-valuemax={100} style={{ height: 8 }}>
           <div className="progress-bar bg-success" style={{ width: `${progress}%` }} />
         </div>
+      </div>
+
+      <div className="row g-2 mb-3">
+        {BUILD_PRESETS.map((pr) => (
+          <div className="col-md-4" key={pr.id}>
+            <button
+              type="button"
+              className="card h-100 border-0 shadow-sm text-start w-100 btn p-0"
+              onClick={() => {
+                const next = applyPreset(catalog, pr)
+                setBuild((prev) => ({ ...prev, ...next }))
+                setToast(t('applyPreset') + ' · ' + t(pr.titleKey))
+                if (next.motherboard) chooseSlot('cpu')
+              }}
+            >
+              <div className="card-body py-3">
+                <div className="fw-semibold text-success">{t(pr.titleKey)}</div>
+                <div className="small text-secondary">{t(pr.bodyKey)}</div>
+              </div>
+            </button>
+          </div>
+        ))}
       </div>
 
       <div className="row g-4">
@@ -295,9 +319,51 @@ export default function BuilderPage({ t, products, build, setBuild, liveStock, o
                 </ul>
               )}
 
-              <div className="d-flex justify-content-between align-items-center mb-3">
+              <div className="d-flex justify-content-between align-items-center mb-2">
                 <span className="fw-semibold">{t('total')}</span>
                 <span className="fs-5 fw-bold text-success">{money(total)}</span>
+              </div>
+              {(power.socket || power.estimateWatts) && (
+                <div className="small border rounded p-2 mb-3 bg-body-tertiary">
+                  <div className="fw-semibold mb-1">{t('buildPower')}</div>
+                  <div className="text-secondary">
+                    {power.socket ? `Socket ${power.socket}` : ''}
+                    {power.memory ? ` · ${power.memory}` : ''}
+                    {power.form ? ` · ${power.form}` : ''}
+                  </div>
+                  <div className={power.psuOk ? 'text-success' : 'text-danger'}>
+                    ~{power.estimateWatts}W
+                    {power.psuWatts ? ` · PSU ${power.psuWatts}W` : ''}
+                    {' · '}
+                    {power.psuOk ? t('buildPsuOk') : t('buildPsuLow', { w: power.psuMinSuggested })}
+                  </div>
+                </div>
+              )}
+              <div className="d-flex flex-wrap gap-1 mb-3">
+                <button
+                  type="button"
+                  className="btn btn-sm btn-outline-secondary"
+                  onClick={() => {
+                    const lines = BUILDER_SLOTS.map((s) => build[s.key]).filter(Boolean).map((p) => `- ${p.name} (${money(p.price)})`).join('\n')
+                    const text = `PC Star build\n${lines}\nTotal ${money(total)}`
+                    navigator.clipboard?.writeText?.(text)
+                    setToast(t('copied'))
+                  }}
+                >
+                  {t('copyBuild')}
+                </button>
+                <a
+                  className="btn btn-sm btn-outline-success"
+                  href={`https://wa.me/${STORE.whatsapp}?text=${encodeURIComponent(
+                    `Salam PC Star, config:\n` +
+                      BUILDER_SLOTS.map((s) => build[s.key]).filter(Boolean).map((p) => `- ${p.name}`).join('\n') +
+                      `\nTotal ${money(total)}`
+                  )}`}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  {t('shareBuild')}
+                </a>
               </div>
 
               {!socketOk && cpu && board && (

@@ -25,6 +25,9 @@ import PartThumb from './PartThumb.jsx'
 import AuthPanel from './AuthPanel.jsx'
 import ProfilePage from './ProfilePage.jsx'
 import MasterPage from './MasterPage.jsx'
+import DeskPage from './DeskPage.jsx'
+import ProductPage from './ProductPage.jsx'
+import { makeOrderCode } from './orderLogic.js'
 import { t as translate, LANGS, langMeta } from './i18n.js'
 import {
   applyDocumentChrome,
@@ -115,6 +118,8 @@ export default function App() {
   const [apiUser, setApiUser] = useState(null)
   const [authMode, setAuthMode] = useState('local')
   const [brandFilter, setBrandFilter] = useState(null)
+  const [stockMap, setStockMap] = useState({}) // id -> live server stock
+  const [cartStep, setCartStep] = useState(0) // 0 cart, 1 info (when items)
   const cartElRef = useRef(null)
   const cartOcRef = useRef(null)
 
@@ -181,6 +186,14 @@ export default function App() {
       const h = await api.health()
       if (cancelled) return
       setApiOnline(Boolean(h?.ok))
+      if (h?.ok) {
+        const cat = await api.getCatalog()
+        if (!cancelled && cat.ok && Array.isArray(cat.data?.products)) {
+          const map = {}
+          for (const pr of cat.data.products) map[pr.id] = pr.stock
+          setStockMap(map)
+        }
+      }
       const token = api.getToken()
       if (token) {
         const me = await api.me()
@@ -196,6 +209,40 @@ export default function App() {
       cancelled = true
     }
   }, [])
+
+  async function refreshStock() {
+    if (!apiOnline) return
+    try {
+      const cat = await api.getCatalog()
+      if (cat.ok && Array.isArray(cat.data?.products)) {
+        const map = {}
+        for (const pr of cat.data.products) map[pr.id] = pr.stock
+        setStockMap(map)
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+
+  async function handleOrderStatus(code, status) {
+    if (apiOnline && authMode === 'api' && isMaster) {
+      const r = await api.patchOrder(code, status)
+      if (!r.ok) return false
+      setReservations((prev) => prev.map((o) => (o.code === code ? { ...o, ...r.data.order } : o)))
+      await refreshStock()
+      return true
+    }
+    // local fallback
+    setReservations((prev) => {
+      const next = prev.map((o) => {
+        if (o.code !== code) return o
+        return { ...o, status }
+      })
+      saveOrders(storage, next)
+      return next
+    })
+    return true
+  }
 
   useEffect(() => {
     if (user?.name && !pickup.name) setPickup((p) => ({ ...p, name: user.name }))
@@ -289,8 +336,9 @@ export default function App() {
   const dzHits = useMemo(() => catalog.filter((p) => (p.tags || []).includes('dz-hit')).slice(0, 8), [catalog])
 
   function liveStock(product) {
+    const base = stockMap[product.id] != null ? stockMap[product.id] : product.stock
     const inCart = cart.find((i) => i.id === product.id)
-    return product.stock - (inCart ? inCart.qty : 0)
+    return Math.max(0, base - (inCart ? inCart.qty : 0))
   }
 
   function add(product) {
@@ -379,30 +427,52 @@ export default function App() {
     if (apiOnline) {
       const r = await api.postOrder(base)
       if (r.ok && r.data?.order) {
-        const order = {
-          ...r.data.order,
-          at: new Date(r.data.order.at || Date.now()).toLocaleString(
-            lang === 'ar' ? 'ar-DZ' : lang === 'fr' ? 'fr-DZ' : 'en-GB'
-          )
-        }
+        const order = { ...r.data.order, status: r.data.order.status || 'new' }
         setReservations((prev) => [order, ...prev])
         setReserved(order)
         setCart([])
+        setCartStep(0)
         setToast(t('ordersSynced'))
+        await refreshStock()
+        return
+      }
+      if (r.status === 409 || r.data?.error === 'stock') {
+        setToast(t('stockShort'))
+        await refreshStock()
         return
       }
     }
 
+    // Local fallback — still decrement local stockMap view
+    for (const line of base.items) {
+      const left = liveStock({ id: line.id, stock: stockMap[line.id] ?? catalog.find((p) => p.id === line.id)?.stock ?? 0 })
+      // liveStock subtracts cart; for final check use raw
+      const raw = stockMap[line.id] != null ? stockMap[line.id] : catalog.find((p) => p.id === line.id)?.stock ?? 0
+      if (raw < line.qty) {
+        setToast(t('stockShort'))
+        return
+      }
+    }
+    setStockMap((prev) => {
+      const next = { ...prev }
+      for (const line of base.items) {
+        const raw = next[line.id] != null ? next[line.id] : catalog.find((p) => p.id === line.id)?.stock ?? 0
+        next[line.id] = Math.max(0, raw - line.qty)
+      }
+      return next
+    })
     const order = {
-      code: `PS-${String(Date.now()).slice(-6)}`,
+      code: makeOrderCode(new Date(), reservations.length + 1),
       ...base,
-      at: new Date().toLocaleString(lang === 'ar' ? 'ar-DZ' : lang === 'fr' ? 'fr-DZ' : 'en-GB')
+      status: 'new',
+      at: new Date().toISOString()
     }
     const next = [order, ...reservations]
     setReservations(next)
     saveOrders(storage, next)
     setReserved(order)
     setCart([])
+    setCartStep(0)
     setToast(apiOnline ? t('ordersSynced') : t('ordersLocalOnly'))
   }
 
@@ -553,6 +623,35 @@ export default function App() {
           </section>
 
           <section className="mb-4">
+            <div className="row g-3">
+              <div className="col-md-4">
+                <button type="button" className="card h-100 shadow-sm border-0 text-start w-100 btn p-0" onClick={() => go('search')}>
+                  <div className="card-body">
+                    <h2 className="h6 text-success">{t('pathParts')}</h2>
+                    <p className="small text-secondary mb-0">{t('pathPartsBody')}</p>
+                  </div>
+                </button>
+              </div>
+              <div className="col-md-4">
+                <button type="button" className="card h-100 shadow-sm border-0 text-start w-100 btn p-0" onClick={() => go('builder')}>
+                  <div className="card-body">
+                    <h2 className="h6 text-success">{t('pathBuilder')}</h2>
+                    <p className="small text-secondary mb-0">{t('pathBuilderBody')}</p>
+                  </div>
+                </button>
+              </div>
+              <div className="col-md-4">
+                <button type="button" className="card h-100 shadow-sm border-0 text-start w-100 btn p-0" onClick={() => { setBrandFilter(null); setCategory('all'); go('shop'); setTimeout(() => document.getElementById('dz-hits')?.scrollIntoView({ behavior: 'smooth' }), 50) }}>
+                  <div className="card-body">
+                    <h2 className="h6 text-success">{t('pathHits')}</h2>
+                    <p className="small text-secondary mb-0">{t('pathHitsBody')}</p>
+                  </div>
+                </button>
+              </div>
+            </div>
+          </section>
+
+          <section className="mb-4">
             <h2 className="h4 mb-3">{t('thisWeek')}</h2>
             <div className="row g-3">
               {DEALS.map((d) => {
@@ -584,7 +683,7 @@ export default function App() {
           </section>
 
           {dzHits.length > 0 && (
-            <section className="mb-4">
+            <section className="mb-4" id="dz-hits">
               <h2 className="h4 mb-3">{t('dzHits')}</h2>
               <div className="row g-3">
                 {dzHits.map((p) => (
@@ -878,60 +977,13 @@ export default function App() {
       )}
 
       {page === 'desk' && isMaster && (
-        <main id="main-content" className="container page py-4" tabIndex={-1}>
-          <div className="d-flex flex-wrap justify-content-between align-items-end gap-2 mb-3">
-            <div>
-              <h1 className="h3 mb-1">{t('deskTitle')}</h1>
-              <p className="text-secondary mb-0">{t('deskHint')}</p>
-            </div>
-            <span className="badge text-bg-success">{reservations.length}</span>
-          </div>
-          {reservations.length === 0 ? (
-            <div className="empty-state">
-              <strong>{t('deskEmpty')}</strong>
-              <p className="mb-0 small">{t('deskHint')}</p>
-            </div>
-          ) : (
-            <div className="row g-3">
-              {reservations.map((r) => (
-                <div className="col-md-6 col-xl-4" key={r.code}>
-                  <article className="card h-100 shadow-sm desk-card border-0">
-                    <div className="card-body">
-                      <div className="d-flex justify-content-between align-items-start gap-2 mb-2">
-                        <span className="badge text-bg-success font-monospace">{r.code}</span>
-                        <span className="small text-secondary">
-                          {r.slot} · {r.at}
-                        </span>
-                      </div>
-                      <h2 className="h6 mb-1">{r.name}</h2>
-                      <p className="small text-secondary mb-3">
-                        {r.phone}
-                        {r.carrier ? ` · ${r.carrier}` : ''}
-                        {r.wilaya ? ` · ${r.wilaya}` : ''}
-                        {' · '}
-                        {t('payCash')}
-                      </p>
-                      <ul className="list-group list-group-flush mb-3">
-                        {r.items.map((i) => (
-                          <li className="list-group-item d-flex justify-content-between gap-2" key={i.id}>
-                            <span>
-                              {i.qty} × {i.name}
-                            </span>
-                            <span className="small text-secondary text-nowrap">{i.sku}</span>
-                          </li>
-                        ))}
-                      </ul>
-                      <div className="d-flex justify-content-between align-items-center">
-                        <span className="small text-secondary">{t('dueInStore')}</span>
-                        <strong className="text-success fs-5">{money(r.total)}</strong>
-                      </div>
-                    </div>
-                  </article>
-                </div>
-              ))}
-            </div>
-          )}
-        </main>
+        <DeskPage
+          t={t}
+          lang={lang}
+          reservations={reservations}
+          onStatus={handleOrderStatus}
+          setToast={setToast}
+        />
       )}
 
       {page === 'profile' && user && (
@@ -1012,25 +1064,35 @@ export default function App() {
         </div>
         <div className="offcanvas-body d-flex flex-column">
           {reserved ? (
-            <div className="alert alert-success">
-              <h3 className="h6">{t('reservedTitle', { code: reserved.code })}</h3>
-              <p className="mb-2">
-                {t('reservedBody', { name: reserved.name, slot: reserved.slot, address: STORE.address })}
-              </p>
-              <p className="small mb-3">
-                {t('showCode')} <strong>{reserved.code}</strong>
-              </p>
-              <button
-                className="btn btn-success"
-                type="button"
-                onClick={() => {
-                  setReserved(null)
-                  setCartOpen(false)
-                  go('shop')
-                }}
-              >
-                {t('backToShop')}
-              </button>
+            <div className="text-center py-2">
+              <div className="text-success mb-2 fw-semibold">{t('successTitle')}</div>
+              <div className="display-6 fw-bold font-monospace mb-2">{reserved.code}</div>
+              <p className="small text-secondary">{t('successShowCode')}</p>
+              <div className="alert alert-success text-start">
+                <div className="fw-semibold mb-1">{reserved.name}</div>
+                <div className="small">{reserved.slot} · {STORE.address}</div>
+                <div className="small mt-2">{t('successCash')}</div>
+                <div className="fs-5 fw-bold text-success mt-2">{money(reserved.total)}</div>
+              </div>
+              <div className="d-grid gap-2">
+                <a className="btn btn-outline-success btn-sm" href={STORE.mapUrl} target="_blank" rel="noreferrer">
+                  {t('openMaps')}
+                </a>
+                <a className="btn btn-outline-secondary btn-sm" href={STORE.phoneHref}>
+                  {t('call')} {STORE.phone}
+                </a>
+                <button
+                  className="btn btn-success"
+                  type="button"
+                  onClick={() => {
+                    setReserved(null)
+                    setCartOpen(false)
+                    go('shop')
+                  }}
+                >
+                  {t('backToShop')}
+                </button>
+              </div>
             </div>
           ) : cart.length === 0 ? (
             <div className="empty-state my-4">
@@ -1042,6 +1104,13 @@ export default function App() {
             </div>
           ) : (
             <>
+              <div className="d-flex justify-content-between small mb-3 px-1">
+                {[t('cartStepCart'), t('cartStepInfo'), t('cartStepDone')].map((label, i) => (
+                  <span key={label} className={i <= (reserved ? 2 : cartStep) ? 'text-success fw-semibold' : 'text-secondary'}>
+                    {i + 1}. {label}
+                  </span>
+                ))}
+              </div>
               <div className="list-group list-group-flush mb-3 flex-grow-1 overflow-auto">
                 {cart.map((i) => (
                   <div className="list-group-item px-0" key={i.id}>
@@ -1086,7 +1155,7 @@ export default function App() {
                 </div>
               )}
 
-              <form onSubmit={reserve} className="border-top pt-3 mt-auto">
+              <form onSubmit={reserve} className="border-top pt-3 mt-auto" onFocus={() => setCartStep(1)}>
                 <div className="d-flex justify-content-between align-items-center mb-2">
                   <span className="fw-semibold">{t('total')}</span>
                   <span className="fs-5 fw-bold text-success">{money(total)}</span>
@@ -1186,140 +1255,5 @@ export default function App() {
         {apiOnline ? '● API' : '○ local'}
       </div>
     </div>
-  )
-}
-
-function ProductPage({ t, product, photoIndex, setPhotoIndex, left, onBack, onAdd, onOpen, liveStock, onAddRelated, catalog }) {
-  const st = stockLabel(left, t)
-  const badge =
-    st.cls === 'stock-ok' ? 'text-bg-success' : st.cls === 'stock-low' ? 'text-bg-warning' : 'text-bg-danger'
-  const photos = product.photos || []
-  const also = (product.related || []).map((id) => catalog.find((p) => p.id === id)).filter(Boolean)
-  return (
-    <main id="main-content" className="container page py-4" tabIndex={-1}>
-      <button className="btn btn-outline-secondary btn-sm mb-3" type="button" onClick={onBack}>
-        ← {t('continueShopping')}
-      </button>
-      <div className="row g-4">
-        <div className="col-md-6">
-          <div className="card border-0 shadow-sm overflow-hidden">
-            <div className="ratio ratio-1x1 photo-frame position-relative">
-              {photos.length > 0 ? (
-                <img
-                  src={photos[photoIndex]}
-                  alt={product.name}
-                  className="w-100 h-100"
-                  style={{ objectFit: 'contain' }}
-                  loading="eager"
-                  decoding="async"
-                  width={800}
-                  height={800}
-                />
-              ) : (
-                <PartThumb product={product} eager />
-              )}
-              <span className={`badge position-absolute top-0 end-0 m-2 ${badge}`}>{st.text}</span>
-            </div>
-          </div>
-          {photos.length > 1 && (
-            <div className="d-flex flex-wrap gap-2 mt-2">
-              {photos.map((src, i) => (
-                <button
-                  key={src + i}
-                  type="button"
-                  className={`btn p-0 border rounded overflow-hidden ${i === photoIndex ? 'border-success border-2' : ''}`}
-                  style={{ width: 72, height: 56 }}
-                  onClick={() => setPhotoIndex(i)}
-                  aria-label={`${product.name} ${i + 1}`}
-                >
-                  <img src={src} alt="" className="w-100 h-100" style={{ objectFit: 'contain', background: 'var(--photo-bg)' }} loading="lazy" />
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-        <div className="col-md-6">
-          <div className="small text-secondary mb-1">
-            {product.sku} · {product.brand}
-          </div>
-          <h1 className="h3 mb-2">{product.name}</h1>
-          <Stars product={product} />
-          <p className="text-secondary">{product.short}</p>
-          <div className="fs-4 fw-bold text-success mb-2">{money(product.price)}</div>
-          {product.needs && (
-            <div className={`alert py-2 ${left <= 0 ? 'alert-danger' : 'alert-secondary'}`}>{product.needs}</div>
-          )}
-          <div className="d-flex flex-wrap gap-2 mt-3">
-            <button className="btn btn-success" type="button" disabled={left <= 0} onClick={onAdd}>
-              {left <= 0 ? t('soldOut') : t('addToCart')}
-            </button>
-            <a
-              className="btn btn-outline-secondary"
-              href={`https://wa.me/${STORE.whatsapp}?text=${encodeURIComponent(`Salam, I want ${product.name} (${product.sku}) — ${money(product.price)}`)}`}
-              target="_blank"
-              rel="noreferrer"
-            >
-              {t('askWhatsapp')}
-            </a>
-          </div>
-        </div>
-      </div>
-
-      {(REVIEWS[product.id] || []).length > 0 && (
-        <section className="mt-5">
-          <h2 className="h5 mb-3">{t('customerReviews')}</h2>
-          <div className="row g-3">
-            {REVIEWS[product.id].map((r, i) => (
-              <div className="col-md-6" key={i}>
-                <article className="card h-100 shadow-sm border-0">
-                  <div className="card-body">
-                    <div className="d-flex flex-wrap gap-2 small mb-2">
-                      <span className="text-warning">{starText(r.stars)}</span>
-                      <strong>{r.name}</strong>
-                      <span className="text-secondary">{r.city}</span>
-                    </div>
-                    <p className="mb-0 small">{r.text}</p>
-                  </div>
-                </article>
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
-
-      {also.length > 0 && (
-        <section className="mt-5">
-          <h2 className="h5 mb-3">{t('alsoBought')}</h2>
-          <div className="row g-3">
-            {also.map((p) => {
-              const l = liveStock(p)
-              return (
-                <div className="col-6 col-md-3" key={p.id}>
-                  <article className="card h-100 shadow-sm product-bs-card">
-                    <button type="button" className="btn p-0 border-0" onClick={() => onOpen(p.id)} aria-label={p.name}>
-                      <div className="ratio ratio-1x1 photo-frame overflow-hidden">
-                        <PartThumb product={p} />
-                      </div>
-                    </button>
-                    <div className="card-body d-flex flex-column">
-                      <h3 className="h6">
-                        <button type="button" className="btn btn-link p-0 text-start text-decoration-none text-body" onClick={() => onOpen(p.id)}>
-                          {p.name}
-                        </button>
-                      </h3>
-                      <Stars product={p} />
-                      <div className="fw-bold text-success mb-2">{money(p.price)}</div>
-                      <button className="btn btn-sm btn-success mt-auto" type="button" disabled={l <= 0} onClick={() => onAddRelated(p)}>
-                        {l <= 0 ? t('soldOut') : t('add')}
-                      </button>
-                    </div>
-                  </article>
-                </div>
-              )
-            })}
-          </div>
-        </section>
-      )}
-    </main>
   )
 }

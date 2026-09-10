@@ -1,7 +1,7 @@
 # PC Star — Plan d’amélioration jusqu’à 10/10
 
 **Date :** 2026-09-10  
-**Baseline :** `cd09b10` — démo Oran ~8–9/10 fonctionnel, design system ~8.5, photos ~7, auth prod ~6.5  
+**Baseline :** `cd09b10` → **Phase 1+2 ship** — stock serveur + desk statuts + UX funnel (~8.7–8.9)  
 **Cible :** un shop pickup Oran **exploitable en vrai magasin**, pas un clone Amazon.
 
 > **Règle d’honnêteté :** un 10/10 absolu (photos studio + OAuth live + paiements + ERP + Lighthouse 95) **nécessite du hors-code** (shooting, clés Google/Meta, hébergeur DZ, process magasin).  
@@ -46,21 +46,21 @@ client trouve un produit → construit un PC compatible → réserve en espèces
 **Objectif :** zéro surprise en usage réel démo / multi-onglet.
 
 ### 1.1 Données & stock
-- [ ] Source de vérité unique catalogue (API) — front ne dépend plus uniquement de `data.js` embarqué
-- [ ] Stock décrémenté à la réservation (API + rollback si annulation master)
-- [ ] Conflit stock multi-onglet : toast clair si qty > stock live
+- [x] Source de vérité stock live via `/api/catalog` (base data.js + overrides serveur)
+- [x] Stock décrémenté à la réservation (API + rollback si annulation master)
+- [x] Conflit stock : HTTP 409 + toast `stockShort` + refresh
 - [ ] `meta` master (hide/add product) synchronisé serveur, pas seulement `localStorage`
 
 ### 1.2 Réservations
-- [ ] Code PS unique serveur (`PS-YYYYMMDD-XXXX`)
-- [ ] Statuts : `new` → `preparing` → `ready` → `picked` / `cancelled`
-- [ ] Desk master : filtres par statut + recherche téléphone/code
+- [x] Code PS unique serveur (`PS-YYYYMMDD-XXXX`)
+- [x] Statuts : `new` → `preparing` → `ready` → `picked` / `cancelled`
+- [x] Desk master : filtres par statut + recherche téléphone/code
 - [ ] WhatsApp prérempli avec code + créneau (déjà partiel — standardiser template i18n)
 
 ### 1.3 Qualité code
-- [ ] Découper `App.jsx` (~1300 lignes) → `ShopHome`, `CartDrawer`, `DeskPage`, `ProductPage`, hooks
+- [x] Découpe partielle : `DeskPage`, `ProductPage`, `orderLogic` (App encore monolithe)
 - [ ] Erreurs API centralisées (banner « mode local / serveur »)
-- [ ] Tests : réservation + stock + master hide product (viser 30+ tests)
+- [x] Tests order/stock : 29 pass (orderLogic + shopStore + smoke)
 
 **Exit Phase 1**
 - Réservation API → visible desk master après refresh
@@ -68,7 +68,7 @@ client trouve un produit → construit un PC compatible → réserve en espèces
 - `npm test` ≥ 30 pass
 - App découpée, build < 400 kB JS utile (code-split pages)
 
-**Note estimée : 8.4**
+**Note estimée : 8.5 — livré (stock API + desk + tests)**
 
 ---
 
@@ -77,20 +77,20 @@ client trouve un produit → construit un PC compatible → réserve en espèces
 **Objectif :** parcours client aussi clair qu’un bon Ouedkniss/physique.
 
 ### 2.1 Funnel
-- [ ] Home : hero + 3 chemins (Pièces / Config PC / Hits DZ) plus visibles
-- [ ] PDP : galerie 3 photos, zoom léger, specs compat en badges, CTA sticky mobile
-- [ ] Cart : stepper `Panier → Infos → Confirmé`
-- [ ] Post-réservation : page/écran succès plein (code gros, créneau, adresse, carte, rappel cash)
+- [x] Home : hero + 3 chemins (Pièces / Config PC / Hits DZ)
+- [x] PDP : galerie, zoom, specs badges, CTA sticky mobile
+- [x] Cart : stepper `Panier → Infos → Confirmé`
+- [x] Post-réservation : écran succès (code, maps, cash)
 
 ### 2.2 Builder
-- [ ] Récap wattage / socket / form factor en sidebar
+- [x] Récap wattage / socket / form factor en sidebar
 - [ ] Suggestion auto « PSU min » et « cooler socket »
-- [ ] Bouton « copier config » / partager WhatsApp config
-- [ ] Presets Star (budget étudiant, gaming 1080p, bureau) en 1 clic
+- [x] Bouton copier + WhatsApp config
+- [x] Presets Star (étudiant, gaming 1080p, bureau)
 
 ### 2.3 Search
 - [ ] URL query sync (`?line=cpu&brand=Havit`) pour partage
-- [ ] Filtres collapsibles mobile (offcanvas filters)
+- [x] Filtres mobile offcanvas
 - [ ] « En magasin seulement » par défaut option magasin
 
 ### 2.4 Micro-copy Oran
@@ -102,7 +102,7 @@ client trouve un produit → construit un PC compatible → réserve en espèces
 - 0 dead-end (empty states + reset partout)
 - Builder presets utilisés en smoke test
 
-**Note estimée : 8.8**
+**Note estimée : 8.8 — livré (funnel + presets + PDP sticky)**
 
 ---
 

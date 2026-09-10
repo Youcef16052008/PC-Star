@@ -13,6 +13,13 @@ import {
   updateDb
 } from './db.js'
 import { completeDemo, demoConsentHtml, oauthConfig, startOAuth, unlinkProvider } from './oauth.js'
+import {
+  cancelOrder,
+  liveStockOf,
+  placeOrder,
+  publicCatalog,
+  setOrderStatus
+} from './catalog.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const PORT = Number(process.env.PORT || 8787)
@@ -25,7 +32,7 @@ function send(res, status, body, headers = {}) {
     'Content-Type': isJson ? 'application/json; charset=utf-8' : 'text/html; charset=utf-8',
     'Access-Control-Allow-Origin': FRONT_ORIGIN,
     'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-    'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS',
+    'Access-Control-Allow-Methods': 'GET,POST,PUT,PATCH,DELETE,OPTIONS',
     ...headers
   })
   res.end(payload)
@@ -250,12 +257,41 @@ async function handler(req, res) {
       return send(res, 200, out)
     }
 
+    // Catalog with live stock
+    if (req.method === 'GET' && pathname === '/api/catalog') {
+      const db = readDb()
+      const products = publicCatalog(db).map((p) => ({
+        id: p.id,
+        sku: p.sku,
+        name: p.name,
+        brand: p.brand,
+        category: p.category,
+        price: p.price,
+        stock: p.stock,
+        photos: p.photos,
+        short: p.short,
+        tags: p.tags,
+        compat: p.compat
+      }))
+      return send(res, 200, { ok: true, products, count: products.length })
+    }
+
+    if (req.method === 'GET' && pathname.startsWith('/api/stock/')) {
+      const id = pathname.split('/').pop()
+      const db = readDb()
+      return send(res, 200, { ok: true, id, stock: liveStockOf(db, id) })
+    }
+
     // Orders
     if (req.method === 'GET' && pathname === '/api/orders') {
       const auth = userFromReq(req)
       if (!auth || auth.user.role !== 'master') return send(res, 403, { ok: false, error: 'forbidden' })
       const db = readDb()
-      return send(res, 200, { ok: true, orders: db.orders })
+      const orders = (db.orders || []).map((o) => ({
+        ...o,
+        status: o.status === 'pending' ? 'new' : o.status || 'new'
+      }))
+      return send(res, 200, { ok: true, orders })
     }
 
     if (req.method === 'POST' && pathname === '/api/orders') {
@@ -265,25 +301,62 @@ async function handler(req, res) {
       }
       if (!isDzPhone(body.phone)) return send(res, 400, { ok: false, error: 'phone' })
       const auth = userFromReq(req)
-      const order = {
-        code: `PS-${String(Date.now()).slice(-6)}`,
-        name: String(body.name).trim(),
-        phone: normalizePhone(body.phone),
-        carrier: phoneCarrier(body.phone),
-        wilaya: body.wilaya || 'Oran',
-        payment: body.payment || 'cash',
-        slot: body.slot || '',
-        items: body.items,
-        total: body.total || body.items.reduce((s, i) => s + i.qty * i.price, 0),
-        userId: auth?.user?.id || null,
-        at: new Date().toISOString(),
-        status: 'pending'
-      }
+      let result = null
       updateDb((db) => {
-        db.orders = [order, ...db.orders].slice(0, 500)
+        result = placeOrder(
+          db,
+          {
+            name: String(body.name).trim(),
+            phone: normalizePhone(body.phone),
+            carrier: phoneCarrier(body.phone),
+            wilaya: body.wilaya || 'Oran',
+            payment: 'cash',
+            slot: body.slot || '',
+            items: body.items,
+            total: body.total
+          },
+          { userId: auth?.user?.id || null }
+        )
         return db
       })
-      return send(res, 201, { ok: true, order })
+      if (!result?.ok) {
+        if (result?.error === 'stock') return send(res, 409, { ok: false, error: 'stock', shortages: result.shortages })
+        return send(res, 400, { ok: false, error: result?.error || 'order' })
+      }
+      return send(res, 201, { ok: true, order: result.order })
+    }
+
+    // PATCH /api/orders/:code  { status }
+    if (req.method === 'PATCH' && pathname.startsWith('/api/orders/')) {
+      const auth = userFromReq(req)
+      if (!auth || auth.user.role !== 'master') return send(res, 403, { ok: false, error: 'forbidden' })
+      const code = decodeURIComponent(pathname.split('/').pop())
+      const body = await readBody(req)
+      const status = String(body.status || '')
+      let result = null
+      updateDb((db) => {
+        result = setOrderStatus(db, code, status)
+        return db
+      })
+      if (!result?.ok) {
+        const codeHttp = result?.error === 'not_found' ? 404 : 400
+        return send(res, codeHttp, { ok: false, error: result?.error || 'status' })
+      }
+      return send(res, 200, { ok: true, order: result.order })
+    }
+
+    if (req.method === 'POST' && pathname.startsWith('/api/orders/') && pathname.endsWith('/cancel')) {
+      const auth = userFromReq(req)
+      if (!auth || auth.user.role !== 'master') return send(res, 403, { ok: false, error: 'forbidden' })
+      const parts = pathname.split('/')
+      const code = decodeURIComponent(parts[parts.length - 2])
+      let result = null
+      updateDb((db) => {
+        result = cancelOrder(db, code)
+        return db
+      })
+      if (!result?.ok) return send(res, 400, { ok: false, error: result?.error })
+      return send(res, 200, { ok: true, order: result.order })
     }
 
     // Catalog meta (master)
@@ -333,7 +406,7 @@ async function handler(req, res) {
           city: 'Oran',
           address: 'Rue Mimoune Bouadjimi, El Makari Les Castors, Oran',
           phones: ['0770650387', '0669174617'],
-          payments: ['cash', 'ccp', 'baridimob', 'pay3x'],
+          payments: ['cash'],
           carriers: ['mobilis', 'ooredoo', 'djezzy']
         },
         oauth: oauthConfig()

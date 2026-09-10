@@ -79,6 +79,18 @@ export async function listOrders() {
   return req('/api/orders')
 }
 
+export async function patchOrder(code, status) {
+  return req(`/api/orders/${encodeURIComponent(code)}`, { method: 'PATCH', body: { status } })
+}
+
+export async function cancelOrder(code) {
+  return req(`/api/orders/${encodeURIComponent(code)}/cancel`, { method: 'POST' })
+}
+
+export async function getCatalog() {
+  return req('/api/catalog')
+}
+
 export async function listCustomers() {
   return req('/api/customers')
 }

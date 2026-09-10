@@ -73,6 +73,7 @@ function emptyDb() {
   return {
     users: [MASTER, ...DEMOS],
     orders: [],
+    stock: {},
     meta: {
       extraProducts: [],
       hiddenProductIds: [],
@@ -102,6 +103,7 @@ export function readDb() {
       if (!db.users.some((u) => u.id === d.id || u.email === d.email)) db.users.push({ ...d })
     })
     if (!Array.isArray(db.orders)) db.orders = []
+    if (!db.stock || typeof db.stock !== 'object') db.stock = {}
     if (!db.meta) db.meta = emptyDb().meta
     if (!db.sessions) db.sessions = {}
     if (!db.oauthPending) db.oauthPending = {}
