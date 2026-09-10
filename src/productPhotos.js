@@ -109,14 +109,47 @@ export function photoFamily(product) {
   return cat === 'case' ? 'case' : 'accessories'
 }
 
+/** Exact per-SKU shots: /photos/sku/{id}-1|2|3.jpg (shipped for full catalog). */
+function skuPhotoPaths(productId) {
+  const id = String(productId || '').trim()
+  if (!id) return null
+  return [1, 2, 3].map((n) => `/photos/sku/${id}-${n}.jpg`)
+}
+
+/** True when path is a catalog default (legacy PNG / family lib), not a master upload. */
+function isCatalogDefaultPhoto(path) {
+  const p = String(path || '')
+  if (!p) return true
+  if (p.startsWith('/photos/sku/')) return true
+  if (p.startsWith('/photos/lib/')) return true
+  // Legacy static PNGs under /photos/*.png (not uploads/)
+  if (/^\/photos\/[^/]+\.(png|jpg|jpeg|webp)$/i.test(p)) return true
+  return false
+}
+
 export function photosForProduct(product) {
   const existing = Array.isArray(product.photos) ? product.photos.filter(Boolean) : []
-  if (existing.length >= 3) return existing.slice(0, 12)
+  const sku = skuPhotoPaths(product.id)
+
+  // Master / runtime overrides: keep non-catalog paths (data URLs, /uploads/, http…)
+  const custom = existing.filter((p) => !isCatalogDefaultPhoto(p))
+  if (custom.length >= 3) return custom.slice(0, 12)
+  if (custom.length > 0 && sku) {
+    const out = [...custom]
+    for (const p of sku) {
+      if (out.length >= 3) break
+      if (!out.includes(p)) out.push(p)
+    }
+    return out.slice(0, 12)
+  }
+
+  // Full catalog: prefer exact SKU trio over family pools / legacy PNGs
+  if (sku) return sku
+
   const family = photoFamily(product)
   const pool = POOLS[family] || POOLS.accessories
   const trio = pick3(pool, hashId(product.id))
   if (existing.length === 0) return trio
-  // merge unique
   const out = [...existing]
   for (const p of trio) {
     if (out.length >= 3) break
