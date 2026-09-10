@@ -55,6 +55,20 @@ import {
 
 const storage = typeof localStorage !== 'undefined' ? localStorage : null
 
+/** Cart is stored PER ACCOUNT (guest = 'guest'), so switching account = own cart. */
+const cartKeyFor = (uid) => `pcstar-cart-${uid || 'guest'}`
+
+function loadCartFor(st, uid) {
+  try {
+    const raw = st?.getItem?.(cartKeyFor(uid))
+    if (!raw) return []
+    const list = JSON.parse(raw)
+    return Array.isArray(list) ? list : []
+  } catch {
+    return []
+  }
+}
+
 const BASE_PANELS = [
   { id: 'parts', titleKey: 'panelParts' },
   { id: 'machines', titleKey: 'panelMachines' },
@@ -99,7 +113,7 @@ export default function App() {
   const [photoIndex, setPhotoIndex] = useState(0)
   const [category, setCategory] = useState('all')
   const [query, setQuery] = useState('')
-  const [cart, setCart] = useState([])
+  const [cart, setCartState] = useState(() => loadCartFor(storage, loadSession(storage)?.userId))
   const [toast, setToast] = useState('')
   const [pickup, setPickup] = useState({
     name: '',
@@ -132,6 +146,21 @@ export default function App() {
   }, [session, users])
   const user = authMode === 'api' && apiUser ? apiUser : localUser
   const isMaster = user?.role === 'master'
+  const authId = user?.id || null
+  const authIdRef = useRef(authId)
+  authIdRef.current = authId
+
+  function setCart(updater) {
+    setCartState((prev) => {
+      const next = typeof updater === 'function' ? updater(prev) : updater
+      try {
+        storage?.setItem?.(cartKeyFor(authIdRef.current), JSON.stringify(next))
+      } catch {
+        /* ignore */
+      }
+      return next
+    })
+  }
 
   const shopView = useMemo(() => buildShopView(PRODUCTS, PART_LINES, BASE_PANELS, meta), [meta])
   const catalog = shopView.products
@@ -276,6 +305,8 @@ export default function App() {
           setAuthMode('api')
           setApiOnline(true)
           setToast(t('authOk'))
+          setPage('shop')
+          setNavOpen(false)
         }
         u.searchParams.delete('oauth_token')
         u.searchParams.delete('oauth_provider')
@@ -302,11 +333,19 @@ export default function App() {
 
   async function handleOrderStatus(code, status) {
     if (apiOnline && authMode === 'api' && isMaster) {
-      const r = await api.patchOrder(code, status)
-      if (!r.ok) return false
-      setReservations((prev) => prev.map((o) => (o.code === code ? { ...o, ...r.data.order } : o)))
-      await refreshStock()
-      return true
+      try {
+        const r = await api.patchOrder(code, status)
+        if (r.ok && r.data?.order) {
+          setReservations((prev) => prev.map((o) => (o.code === code ? { ...o, ...r.data.order } : o)))
+          await refreshStock()
+          return true
+        }
+        setToast(t('deskStatusFail'))
+        return false
+      } catch {
+        setToast(t('deskStatusFail'))
+        return false
+      }
     }
     // local fallback
     setReservations((prev) => {
@@ -320,11 +359,20 @@ export default function App() {
     return true
   }
 
+  // Per-account cart + pickup form : à la connexion / déconnexion /
+  // changement de compte, charger le PROPRE panier du compte et reprendre
+  // nom/tél depuis son profil (un nouveau client ne voit plus le panier
+  // ni les infos du précédent).
   useEffect(() => {
-    if (user?.name && !pickup.name) setPickup((p) => ({ ...p, name: user.name }))
-    if (user?.phone && !pickup.phone) setPickup((p) => ({ ...p, phone: user.phone }))
-    if (user?.wilaya) setPickup((p) => ({ ...p, wilaya: user.wilaya }))
-  }, [user]) // eslint-disable-line react-hooks/exhaustive-deps
+    setCartState(loadCartFor(storage, authId))
+    if (!user) return
+    setPickup((p) => ({
+      ...p,
+      name: user.name || p.name,
+      phone: user.phone || p.phone,
+      wilaya: user.wilaya || p.wilaya
+    }))
+  }, [authId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!isMaster || !apiOnline || authMode !== 'api') return undefined
@@ -379,6 +427,10 @@ export default function App() {
     setAuthMode('api')
     setSession(null)
     saveSession(storage, null)
+    // après login (API) → page d'accueil
+    setPage('shop')
+    setNavOpen(false)
+    window.scrollTo({ top: 0 })
   }
 
   function persistMeta(next) {
@@ -1354,7 +1406,15 @@ export default function App() {
           t={t}
           users={users}
           onUsers={persistUsers}
-          onSession={persistSession}
+          onSession={(s) => {
+            persistSession(s)
+            // après login local → page d'accueil
+            if (s?.userId) {
+              setPage('shop')
+              setNavOpen(false)
+              window.scrollTo({ top: 0 })
+            }
+          }}
           onClose={() => setAuthOpen(false)}
           setToast={setToast}
           apiOnline={apiOnline}

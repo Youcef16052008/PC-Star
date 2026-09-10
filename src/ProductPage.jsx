@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { money, starText, STORE, REVIEWS } from './data.js'
 import PartThumb from './PartThumb.jsx'
 import { relatedProducts, specRows } from './media.js'
@@ -47,6 +48,7 @@ export default function ProductPage({ t, product, photoIndex, setPhotoIndex, lef
   const photos = product.photos || []
   const also = relatedProducts(product, catalog, 4)
   const specs = specRows(product, t)
+  const [loadedIdx, setLoadedIdx] = useState(-1)
 
   return (
     <main id="main-content" className="container page py-4" tabIndex={-1}>
@@ -56,7 +58,7 @@ export default function ProductPage({ t, product, photoIndex, setPhotoIndex, lef
       <div className="row g-4">
         <div className="col-md-6">
           <div className="card border-0 shadow-sm overflow-hidden">
-            <div className="ratio ratio-1x1 photo-frame position-relative pdp-zoom photo-skeleton">
+            <div className={`ratio ratio-1x1 photo-frame position-relative pdp-zoom ${loadedIdx === photoIndex ? '' : 'photo-skeleton'}`.trim()}>
               {photos.length > 0 ? (
                 <img
                   src={photos[photoIndex]}
@@ -67,6 +69,7 @@ export default function ProductPage({ t, product, photoIndex, setPhotoIndex, lef
                   decoding="async"
                   width={800}
                   height={800}
+                  onLoad={() => setLoadedIdx(photoIndex)}
                 />
               ) : (
                 <PartThumb product={product} eager />

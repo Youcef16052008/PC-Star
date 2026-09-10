@@ -5,11 +5,16 @@
 
 const TOKEN_KEY = 'pcstar-api-token'
 
+// Memory fallback: some embedded iframes block third-party localStorage —
+// the token must still work for the lifetime of the page session.
+let memoryToken = null
+
 export function getToken(storage = typeof localStorage !== 'undefined' ? localStorage : null) {
-  return storage?.getItem?.(TOKEN_KEY) || null
+  return storage?.getItem?.(TOKEN_KEY) || memoryToken || null
 }
 
 export function setToken(token, storage = typeof localStorage !== 'undefined' ? localStorage : null) {
+  memoryToken = token || null
   if (!token) storage?.removeItem?.(TOKEN_KEY)
   else storage?.setItem?.(TOKEN_KEY, token)
 }
