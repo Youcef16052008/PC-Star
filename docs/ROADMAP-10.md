@@ -176,54 +176,54 @@ client trouve un produit → construit un PC compatible → réserve en espèces
 **Objectif :** comptes clients réels, pas seulement démo.
 
 ### 5.1 Auth
-- [ ] OAuth Google **réel** (désactiver demo si `OAUTH_DEMO=0`) — code déjà préparé dans `server/oauth.js`
-- [ ] Optionnel Meta plus tard
-- [ ] Reset password email (ou flux magasin : master reset)
-- [ ] Session httpOnly cookie option (anti-XSS token localStorage)
+- [x] OAuth Google/Meta UI + demo flow; réel si `OAUTH_DEMO=0` + clés env
+- [x] Meta OAuth branch (demo + prod keys)
+- [x] Change password profil + master reset-password API
+- [ ] Token localStorage (httpOnly cookie reporté hébergeur HTTPS)
 
 ### 5.2 Confiance UI
-- [ ] Page garantie / RMA claire (1 an magasin — process écrit)
-- [ ] Mentions légales algériennes basiques (RC, adresse, contact)
-- [ ] Consentement données (téléphone pour pickup uniquement)
+- [x] Page garantie / RMA i18n
+- [x] Pages conditions + contact magasin
+- [x] Page confidentialité (tél pickup only)
 
 ### 5.3 Sécurité
-- [ ] bcrypt déjà — vérifier rounds
-- [ ] Pas de mots de passe en front/docs publics en prod
-- [ ] CSP basique, HTTPS only
+- [x] scrypt new + legacy sha256 verify (seed demos)
+- [x] Auth UI sans mots de passe démo affichés
+- [x] Security headers API (nosniff, frame, referrer); HTTPS hors sandbox
 
 **Exit Phase 5**
 - Client crée compte Google → réserve → revoit ses commandes (historique profil)
 - OAuth demo off en prod
 - Docs légales présentes FR/AR
 
-**Note estimée : 9.7**
+**Note estimée : 9.6 — OAuth UI + legal + scrypt (OAuth réel = clés)**
 
 ---
 
 ## Phase 6 — Perf, SEO, a11y, QA → 10/10 shop Oran
 
 ### 6.1 Performance
-- [ ] Code-split routes (Shop, Search, Builder, Master)
-- [ ] Prefetch hover nav
-- [ ] Image WebP + lazy (déjà partiel)
-- [ ] Lighthouse mobile : Perf ≥ 90, Best practices ≥ 90
+- [x] manualChunks react/bootstrap (route lazy reporté)
+- [ ] Prefetch hover (optionnel)
+- [x] WebP picture + lazy (Phase 3)
+- [ ] Lighthouse cible — à mesurer en prod HTTPS
 
 ### 6.2 SEO local Oran
-- [ ] Meta title/description i18n
-- [ ] JSON-LD `LocalBusiness` + `Product` basique
-- [ ] `sitemap.xml` + `robots.txt`
-- [ ] Open Graph image magasin
+- [x] document.title + meta description i18n
+- [x] JSON-LD ComputerStore
+- [x] public/robots.txt + sitemap.xml
+- [x] OG tags basiques (image pack shot optionnel)
 
 ### 6.3 Accessibilité
-- [ ] Audit clavier complet (modals déjà BS)
-- [ ] Contraste WCAG AA light/dark
-- [ ] `aria-live` stock/toast (partiel)
-- [ ] RTL re-test AR pages critiques
+- [x] BS Modal/Offcanvas focus + skip-link
+- [x] text-secondary contraste renforcé light
+- [x] toast aria-live polite
+- [x] dir/lang chrome AR
 
 ### 6.4 QA
-- [ ] Playwright smoke : home → add → reserve → desk voit order
-- [ ] Tests i18n clés manquantes (script CI)
-- [ ] Checklist ouverture magasin (doc 1 page)
+- [x] `npm run smoke` API e2e (fetch)
+- [ ] i18n missing-key CI (reporté)
+- [x] docs/GUIDE-DEMO* + ROADMAP
 
 **Exit Phase 6 = 10/10 défini**
 - [ ] Lighthouse mobile Perf ≥ 90
@@ -232,7 +232,7 @@ client trouve un produit → construit un PC compatible → réserve en espèces
 - [ ] Master checklist « ouverture journée » OK
 - [ ] Client réel peut retirer une commande sans aide dev
 
-**Note finale cible : 10.0 (shop pickup Oran)**
+**Note code ~9.5–9.7 ; 10.0 shop Oran = + shoot + OAuth clés + HTTPS prod + Lighthouse**
 
 ---
 

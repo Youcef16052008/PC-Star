@@ -11,7 +11,7 @@ const MASTER = {
   id: 'master-pcstar',
   role: 'master',
   email: 'pcstar.info31@gmail.com',
-  passwordHash: hashPass('star31'),
+  passwordHash: hashPassLegacy('star31'),
   name: 'PC Star Desk',
   phone: '0770650387',
   avatar: 'star',
@@ -21,7 +21,28 @@ const MASTER = {
 }
 
 function hashPass(password) {
+  const salt = crypto.randomBytes(8).toString('hex')
+  const hash = crypto.scryptSync(String(password), `pcstar:${salt}`, 32).toString('hex')
+  return `scrypt$${salt}$${hash}`
+}
+
+function hashPassLegacy(password) {
   return crypto.createHash('sha256').update(`pcstar:${password}`).digest('hex')
+}
+
+export function verifyPass(password, stored) {
+  if (!stored) return false
+  const s = String(stored)
+  if (s.startsWith('scrypt$')) {
+    const parts = s.split('$')
+    const salt = parts[1]
+    const hash = parts[2]
+    const check = crypto.scryptSync(String(password), `pcstar:${salt}`, 32)
+    const expect = Buffer.from(hash, 'hex')
+    if (check.length !== expect.length) return false
+    return crypto.timingSafeEqual(check, expect)
+  }
+  return s === hashPassLegacy(password)
 }
 
 const DEMOS = [
@@ -29,7 +50,7 @@ const DEMOS = [
     id: 'demo-karim',
     role: 'customer',
     email: 'karim.oran@demo.dz',
-    passwordHash: hashPass('karim31'),
+    passwordHash: hashPassLegacy('karim31'),
     name: 'Karim B.',
     phone: '0550123456',
     avatar: 'chip',
@@ -43,7 +64,7 @@ const DEMOS = [
     id: 'demo-amina',
     role: 'customer',
     email: 'amina.castors@demo.dz',
-    passwordHash: hashPass('amina31'),
+    passwordHash: hashPassLegacy('amina31'),
     name: 'Amina K.',
     phone: '0669174617',
     avatar: 'card',
@@ -57,7 +78,7 @@ const DEMOS = [
     id: 'demo-yacine',
     role: 'customer',
     email: 'yacine.pc@demo.dz',
-    passwordHash: hashPass('yacine31'),
+    passwordHash: hashPassLegacy('yacine31'),
     name: 'Yacine M.',
     phone: '0770650387',
     avatar: 'pad',
@@ -127,7 +148,7 @@ export function updateDb(mutator) {
   return next
 }
 
-export { hashPass, MASTER }
+export { hashPass, hashPassLegacy, MASTER }
 
 export function newId(prefix) {
   return `${prefix}-${Date.now().toString(36)}-${crypto.randomBytes(3).toString('hex')}`

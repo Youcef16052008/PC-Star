@@ -66,6 +66,25 @@ export default function AuthPanel({ t, users, onUsers, onSession, onClose, setTo
     modalRef.current?.hide()
   }
 
+  async function startOAuth(provider) {
+    setBusy(true)
+    setError('')
+    try {
+      if (!apiOnline) {
+        setError(t('backendOffline'))
+        return
+      }
+      const r = await api.oauthStart(provider, { intent: 'login', returnUrl: window.location.origin + '/' })
+      if (!r.ok || !r.data?.authorizeUrl) {
+        setError(t('authErrorAuth'))
+        return
+      }
+      window.location.href = r.data.authorizeUrl
+    } finally {
+      setBusy(false)
+    }
+  }
+
   async function submitLogin(e) {
     e.preventDefault()
     setBusy(true)
@@ -152,6 +171,18 @@ export default function AuthPanel({ t, users, onUsers, onSession, onClose, setTo
             </ul>
 
             {error && <div className="alert alert-danger py-2">{error}</div>}
+
+            {apiOnline && (
+              <div className="d-grid gap-2 mb-3">
+                <button type="button" className="btn btn-outline-dark" disabled={busy} onClick={() => startOAuth('google')}>
+                  {t('loginWithGoogle')}
+                </button>
+                <button type="button" className="btn btn-outline-primary" disabled={busy} onClick={() => startOAuth('meta')}>
+                  {t('loginWithMeta')}
+                </button>
+                <div className="form-text">{t('oauthNote')}</div>
+              </div>
+            )}
 
             {tab === 'login' && (
               <form onSubmit={submitLogin}>

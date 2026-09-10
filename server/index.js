@@ -10,7 +10,8 @@ import {
   newToken,
   publicUser,
   readDb,
-  updateDb
+  updateDb,
+  verifyPass
 } from './db.js'
 import { completeDemo, demoConsentHtml, oauthConfig, startOAuth, unlinkProvider } from './oauth.js'
 import {
@@ -43,6 +44,10 @@ function send(res, status, body, headers = {}) {
     'Access-Control-Allow-Origin': FRONT_ORIGIN,
     'Access-Control-Allow-Headers': 'Content-Type, Authorization',
     'Access-Control-Allow-Methods': 'GET,POST,PUT,PATCH,DELETE,OPTIONS',
+    'X-Content-Type-Options': 'nosniff',
+    'X-Frame-Options': 'SAMEORIGIN',
+    'Referrer-Policy': 'strict-origin-when-cross-origin',
+    'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
     ...headers
   })
   res.end(payload)
@@ -191,7 +196,7 @@ async function handler(req, res) {
       const password = String(body.password || '')
       const db = readDb()
       const user = db.users.find((u) => u.email === email)
-      if (!user || user.passwordHash !== hashPass(password)) {
+      if (!user || !verifyPass(password, user.passwordHash)) {
         return send(res, 401, { ok: false, error: 'auth' })
       }
       const token = newToken()
@@ -233,6 +238,55 @@ async function handler(req, res) {
         return db
       })
       return send(res, 200, { ok: true, user: publicUser(user) })
+    }
+
+    // Customer own orders
+    if (req.method === 'GET' && pathname === '/api/me/orders') {
+      const auth = userFromReq(req)
+      if (!auth) return send(res, 401, { ok: false, error: 'auth' })
+      const db = readDb()
+      const uid = auth.user.id
+      const phone = auth.user.phone || ''
+      const orders = (db.orders || []).filter(
+        (o) => o.userId === uid || (phone && o.phone === phone)
+      )
+      return send(res, 200, { ok: true, orders })
+    }
+
+    // Password change (authenticated)
+    if (req.method === 'POST' && pathname === '/api/me/password') {
+      const auth = userFromReq(req)
+      if (!auth) return send(res, 401, { ok: false, error: 'auth' })
+      const body = await readBody(req)
+      const next = String(body.password || '')
+      if (next.length < 6) return send(res, 400, { ok: false, error: 'password' })
+      updateDb((db) => {
+        const u = db.users.find((x) => x.id === auth.user.id)
+        if (u) u.passwordHash = hashPass(next)
+        return db
+      })
+      return send(res, 200, { ok: true })
+    }
+
+    // Master reset customer password (demo/store desk)
+    if (req.method === 'POST' && pathname.startsWith('/api/master/customers/') && pathname.endsWith('/reset-password')) {
+      const auth = userFromReq(req)
+      if (!auth || auth.user.role !== 'master') return send(res, 403, { ok: false, error: 'forbidden' })
+      const parts = pathname.split('/')
+      const id = decodeURIComponent(parts[parts.length - 2])
+      const body = await readBody(req)
+      const next = String(body.password || 'client31')
+      if (next.length < 6) return send(res, 400, { ok: false, error: 'password' })
+      let ok = false
+      updateDb((db) => {
+        const u = db.users.find((x) => x.id === id && x.role !== 'master')
+        if (u) {
+          u.passwordHash = hashPass(next)
+          ok = true
+        }
+        return db
+      })
+      return send(res, ok ? 200 : 404, { ok })
     }
 
     // OAuth start

@@ -154,3 +154,19 @@ export async function downloadOrdersCsv(day) {
   URL.revokeObjectURL(url)
   return { ok: true }
 }
+
+export async function oauthStart(provider, { intent = 'login', returnUrl } = {}) {
+  return req('/api/oauth/start', { method: 'POST', body: { provider, intent, returnUrl } })
+}
+
+export async function oauthUnlink(provider) {
+  return req('/api/oauth/unlink', { method: 'POST', body: { provider } })
+}
+
+export async function myOrders() {
+  return req('/api/me/orders')
+}
+
+export async function changePassword(password) {
+  return req('/api/me/password', { method: 'POST', body: { password } })
+}

@@ -27,6 +27,7 @@ import ProfilePage from './ProfilePage.jsx'
 import MasterPage from './MasterPage.jsx'
 import DeskPage from './DeskPage.jsx'
 import ProductPage from './ProductPage.jsx'
+import LegalPage from './LegalPage.jsx'
 import { makeOrderCode } from './orderLogic.js'
 import { t as translate, LANGS, langMeta } from './i18n.js'
 import {
@@ -141,6 +142,55 @@ export default function App() {
   }, [lang, theme])
 
   useEffect(() => {
+    const titles = {
+      shop: t('heroTitle'),
+      search: t('navSearch'),
+      builder: t('navBuilder'),
+      about: t('aboutTitle'),
+      product: selected?.name || t('navShop'),
+      desk: t('deskTitle'),
+      master: t('masterTitle'),
+      profile: t('profileTitle'),
+      warranty: t('legalWarrantyTitle'),
+      privacy: t('legalPrivacyTitle'),
+      terms: t('legalTermsTitle'),
+      help: t('helpTitle')
+    }
+    document.title = `${titles[page] || 'PC Star'} · PC Star Oran`
+    let meta = document.querySelector('meta[name="description"]')
+    if (!meta) {
+      meta = document.createElement('meta')
+      meta.name = 'description'
+      document.head.appendChild(meta)
+    }
+    meta.content = t('seoDescription')
+    // JSON-LD LocalBusiness once
+    if (!document.getElementById('pcstar-ld')) {
+      const s = document.createElement('script')
+      s.id = 'pcstar-ld'
+      s.type = 'application/ld+json'
+      s.textContent = JSON.stringify({
+        '@context': 'https://schema.org',
+        '@type': 'ComputerStore',
+        name: 'PC Star Informatique',
+        address: {
+          '@type': 'PostalAddress',
+          streetAddress: 'Rue Mimoune Bouadjimi, El Makari Les Castors',
+          addressLocality: 'Oran',
+          addressCountry: 'DZ'
+        },
+        telephone: '+213770650387',
+        url: typeof location !== 'undefined' ? location.origin : 'https://pcstar.dz',
+        currenciesAccepted: 'DZD',
+        paymentAccepted: 'Cash',
+        openingHours: 'Mo-Sa 10:00-18:30'
+      })
+      document.head.appendChild(s)
+    }
+  }, [page, lang, selected]) // eslint-disable-line react-hooks/exhaustive-deps
+
+
+  useEffect(() => {
     const apply = () => setTheme(resolveTheme(themePref))
     apply()
     if (themePref !== 'system' || typeof window === 'undefined' || !window.matchMedia) return undefined
@@ -210,6 +260,30 @@ export default function App() {
       cancelled = true
     }
   }, [])
+
+  // OAuth return ?oauth_token=
+  useEffect(() => {
+    try {
+      const u = new URL(window.location.href)
+      const tok = u.searchParams.get('oauth_token')
+      if (!tok) return
+      api.setToken(tok)
+      ;(async () => {
+        const me = await api.me()
+        if (me.ok && me.data?.user) {
+          setApiUser(me.data.user)
+          setAuthMode('api')
+          setApiOnline(true)
+          setToast(t('authOk'))
+        }
+        u.searchParams.delete('oauth_token')
+        u.searchParams.delete('oauth_provider')
+        window.history.replaceState({}, '', u.pathname + u.search)
+      })()
+    } catch {
+      /* ignore */
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function refreshStock() {
     if (!apiOnline) return
@@ -1007,6 +1081,10 @@ export default function App() {
         />
       )}
 
+      {(page === 'warranty' || page === 'privacy' || page === 'terms') && (
+        <LegalPage t={t} kind={page} onBack={() => go('shop')} />
+      )}
+
       {page === 'profile' && user && (
         <ProfilePage
           t={t}
@@ -1061,6 +1139,15 @@ export default function App() {
               </a>
               <button type="button" className="btn btn-sm btn-outline-secondary" onClick={() => go('about')}>
                 {t('navAbout')}
+              </button>
+              <button type="button" className="btn btn-sm btn-outline-secondary" onClick={() => go('warranty')}>
+                {t('navWarranty')}
+              </button>
+              <button type="button" className="btn btn-sm btn-outline-secondary" onClick={() => go('privacy')}>
+                {t('navPrivacy')}
+              </button>
+              <button type="button" className="btn btn-sm btn-outline-secondary" onClick={() => go('terms')}>
+                {t('navTerms')}
               </button>
             </div>
           </div>

@@ -532,3 +532,14 @@ html[data-theme='dark'] .text-bg-light {
     color: #000 !important;
   }
 }
+
+/* Phase 5–6 a11y */
+.form-text, .text-secondary {
+  color: var(--muted) !important;
+}
+html[data-theme='light'] .text-secondary {
+  color: #475569 !important;
+}
+.skip-link:focus {
+  outline: 3px solid #fff;
+}
