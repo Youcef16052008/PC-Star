@@ -11,6 +11,7 @@ import {
   startSms,
   verifySms
 } from './shopStore.js'
+import * as api from './api.js'
 
 const ERR = {
   email: 'authErrorEmail',
@@ -21,7 +22,16 @@ const ERR = {
   code: 'authErrorCode'
 }
 
-export default function AuthPanel({ t, users, onUsers, onSession, onClose, setToast }) {
+export default function AuthPanel({
+  t,
+  users,
+  onUsers,
+  onSession,
+  onClose,
+  setToast,
+  apiOnline,
+  onApiUser
+}) {
   const [tab, setTab] = useState('login')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -32,31 +42,66 @@ export default function AuthPanel({ t, users, onUsers, onSession, onClose, setTo
   const [pending, setPending] = useState(null)
   const [shownCode, setShownCode] = useState('')
   const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
 
   function fail(code) {
     setError(t(ERR[code] || code))
   }
 
-  function succeed(user, nextUsers, msgKey) {
+  function succeedLocal(user, nextUsers, msgKey) {
     if (nextUsers) onUsers(nextUsers)
-    onSession({ userId: user.id })
+    onSession({ userId: user.id, mode: 'local' })
     setToast(t(msgKey))
     onClose?.()
   }
 
-  function submitLogin(e) {
-    e.preventDefault()
-    const res = loginEmail(users, { email, password })
-    if (!res.ok) return fail(res.error)
-    succeed(res.user, null, 'authOk')
+  function succeedApi(user, token, msgKey) {
+    api.setToken(token)
+    onApiUser?.(user, token)
+    setToast(t(msgKey))
+    onClose?.()
   }
 
-  function submitRegister(e) {
+  async function submitLogin(e) {
+    e.preventDefault()
+    setBusy(true)
+    setError('')
+    try {
+      if (apiOnline) {
+        const r = await api.login(email, password)
+        if (r.ok && r.data?.user) {
+          succeedApi(r.data.user, r.data.token, 'authOk')
+          return
+        }
+      }
+      const res = loginEmail(users, { email, password })
+      if (!res.ok) return fail(res.error || 'auth')
+      succeedLocal(res.user, null, 'authOk')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function submitRegister(e) {
     e.preventDefault()
     if (phone && !isDzPhone(phone)) return fail('phone')
-    const res = registerEmail(users, { email, password, name, phone: phone || undefined })
-    if (!res.ok) return fail(res.error)
-    succeed(res.user, res.users, 'authRegistered')
+    setBusy(true)
+    setError('')
+    try {
+      if (apiOnline) {
+        const r = await api.register({ email, password, name, phone: phone || undefined })
+        if (r.ok && r.data?.user) {
+          succeedApi(r.data.user, r.data.token, 'authRegistered')
+          return
+        }
+        if (r.data?.error) return fail(r.data.error)
+      }
+      const res = registerEmail(users, { email, password, name, phone: phone || undefined })
+      if (!res.ok) return fail(res.error)
+      succeedLocal(res.user, res.users, 'authRegistered')
+    } finally {
+      setBusy(false)
+    }
   }
 
   function sendSms(e) {
@@ -73,30 +118,44 @@ export default function AuthPanel({ t, users, onUsers, onSession, onClose, setTo
     e.preventDefault()
     const res = verifySms(users, { phone: smsPhone, code: smsCode, pending })
     if (!res.ok) return fail(res.error)
-    succeed(res.user, res.users, 'authOk')
+    succeedLocal(res.user, res.users, 'authOk')
   }
 
-  function doGoogle() {
+  function doGoogleLocal() {
     const res = loginGoogle(users)
-    succeed(res.user, res.users, 'authOk')
+    succeedLocal(res.user, res.users, 'authOk')
+  }
+
+  async function doOAuth(provider) {
+    setBusy(true)
+    setError('')
+    try {
+      if (!apiOnline) {
+        if (provider === 'google') doGoogleLocal()
+        else setError(t('backendOffline'))
+        return
+      }
+      const r = await api.startOAuth(provider, 'login')
+      if (!r.ok || !r.data?.authorizeUrl) {
+        setError(t('authErrorAuth'))
+        return
+      }
+      window.location.href = r.data.authorizeUrl
+    } finally {
+      setBusy(false)
+    }
   }
 
   function quickDemo(seed) {
-    const mail = seed.email
-    const pass = seed.passwordPlain
-    let res = loginEmail(users, { email: mail, password: pass })
-    if (!res.ok) {
-      // ensure seeded
-      res = loginEmail(users, { email: mail, password: pass })
-    }
-    if (res.ok) succeed(res.user, null, 'authOk')
+    const res = loginEmail(users, { email: seed.email, password: seed.passwordPlain })
+    if (res.ok) succeedLocal(res.user, null, 'authOk')
     else fail('auth')
   }
 
   function quickMaster() {
     const res = loginEmail(users, { email: MASTER.email, password: MASTER.password })
     if (!res.ok) return fail('auth')
-    succeed(res.user, null, 'authOk')
+    succeedLocal(res.user, null, 'authOk')
   }
 
   const carrier = phoneCarrier(smsPhone || phone)
@@ -113,10 +172,19 @@ export default function AuthPanel({ t, users, onUsers, onSession, onClose, setTo
           </button>
         </header>
         <p className="short">{t('authDemoNote')}</p>
+        <p className={`api-pill ${apiOnline ? 'on' : 'off'}`}>{apiOnline ? t('backendOnline') : t('backendOffline')}</p>
 
         <div className="auth-tabs">
           {['login', 'register', 'sms'].map((id) => (
-            <button key={id} type="button" className={`chip ${tab === id ? 'on' : ''}`} onClick={() => { setTab(id); setError('') }}>
+            <button
+              key={id}
+              type="button"
+              className={`chip ${tab === id ? 'on' : ''}`}
+              onClick={() => {
+                setTab(id)
+                setError('')
+              }}
+            >
               {id === 'login' ? t('authLogin') : id === 'register' ? t('authRegister') : t('authSms')}
             </button>
           ))}
@@ -130,7 +198,9 @@ export default function AuthPanel({ t, users, onUsers, onSession, onClose, setTo
             <input id="auth-email" className="field" type="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} required />
             <label htmlFor="auth-pass">{t('authPassword')}</label>
             <input id="auth-pass" className="field" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} required />
-            <button className="add wide" type="submit">{t('authSubmitLogin')}</button>
+            <button className="add wide" type="submit" disabled={busy}>
+              {t('authSubmitLogin')}
+            </button>
           </form>
         )}
 
@@ -144,8 +214,13 @@ export default function AuthPanel({ t, users, onUsers, onSession, onClose, setTo
             <input id="reg-pass" className="field" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={6} />
             <label htmlFor="reg-phone">{t('phone')}</label>
             <input id="reg-phone" className="field" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="05 / 06 / 07…" inputMode="tel" />
-            <p className="short">{t('phoneHint')}{carrierLabel ? ` · ${carrierLabel}` : ''}</p>
-            <button className="add wide" type="submit">{t('authSubmitRegister')}</button>
+            <p className="short">
+              {t('phoneHint')}
+              {carrierLabel ? ` · ${carrierLabel}` : ''}
+            </p>
+            <button className="add wide" type="submit" disabled={busy}>
+              {t('authSubmitRegister')}
+            </button>
           </form>
         )}
 
@@ -154,8 +229,13 @@ export default function AuthPanel({ t, users, onUsers, onSession, onClose, setTo
             <form onSubmit={sendSms}>
               <label htmlFor="sms-phone">{t('phone')}</label>
               <input id="sms-phone" className="field" value={smsPhone} onChange={(e) => setSmsPhone(e.target.value)} placeholder="0669…" inputMode="tel" required />
-              <p className="short">{t('phoneHint')}{carrierLabel ? ` · ${carrierLabel}` : ''}</p>
-              <button className="add wide" type="submit">{t('authSendCode')}</button>
+              <p className="short">
+                {t('phoneHint')}
+                {carrierLabel ? ` · ${carrierLabel}` : ''}
+              </p>
+              <button className="add wide" type="submit">
+                {t('authSendCode')}
+              </button>
             </form>
             {pending && (
               <form onSubmit={checkSms}>
@@ -166,15 +246,22 @@ export default function AuthPanel({ t, users, onUsers, onSession, onClose, setTo
                     {t('authCodeShown')} <strong>{shownCode}</strong>
                   </p>
                 )}
-                <button className="add wide" type="submit">{t('authVerify')}</button>
+                <button className="add wide" type="submit">
+                  {t('authVerify')}
+                </button>
               </form>
             )}
           </div>
         )}
 
-        <button type="button" className="ghost wide-btn" onClick={doGoogle}>
-          {t('authGoogle')}
-        </button>
+        <div className="oauth-row">
+          <button type="button" className="oauth-btn google" disabled={busy} onClick={() => doOAuth('google')}>
+            {t('loginWithGoogle')}
+          </button>
+          <button type="button" className="oauth-btn meta" disabled={busy} onClick={() => doOAuth('meta')}>
+            {t('loginWithMeta')}
+          </button>
+        </div>
 
         <div className="demo-profiles">
           <h3>{t('masterDemoProfiles')}</h3>

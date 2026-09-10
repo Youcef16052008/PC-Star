@@ -301,6 +301,7 @@ export function updateUser(users, id, patch) {
   }
   if (patch.avatar && AVATARS.some((a) => a.id === patch.avatar)) allowed.avatar = patch.avatar
   if (patch.accent && ACCENTS.some((a) => a.id === patch.accent)) allowed.accent = patch.accent
+  if (patch.wilaya != null) allowed.wilaya = String(patch.wilaya).trim() || users[idx].wilaya || 'Oran'
   const user = { ...users[idx], ...allowed }
   const next = users.slice()
   next[idx] = user

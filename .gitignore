@@ -111,6 +111,9 @@
 *.pem
 *.key
 
+# PC Star API local DB
+server/data/
+
 # Temporary files
 *.tmp
 *.temp

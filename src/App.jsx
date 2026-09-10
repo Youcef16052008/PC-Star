@@ -1,22 +1,26 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
+  BRANDS_DZ_PRIORITY,
   CATEGORIES,
   COMPARE_FIELDS,
   DEALS,
   GUIDES,
   PART_LINES,
+  PAYMENT_HINTS,
   PRODUCTS,
   REVIEWS,
   SLOTS,
   SHOP_SERVICES,
   STORE,
   STORE_LINKS,
+  WILAYAS_NEAR,
   checkCompatibility,
   money,
   splitWarnings,
   starText,
   third
 } from './data'
+import * as api from './api.js'
 import SearchPage from './SearchPage.jsx'
 import BuilderPage from './BuilderPage.jsx'
 import Orbit from './Orbit.jsx'
@@ -104,7 +108,13 @@ export default function App() {
   const [query, setQuery] = useState('')
   const [cart, setCart] = useState([])
   const [toast, setToast] = useState('')
-  const [pickup, setPickup] = useState({ name: '', phone: '', slot: SLOTS[2] })
+  const [pickup, setPickup] = useState({
+    name: '',
+    phone: '',
+    slot: SLOTS[2],
+    wilaya: 'Oran',
+    payment: 'cash'
+  })
   const [phoneErr, setPhoneErr] = useState('')
   const [reservations, setReservations] = useState(() => loadOrders(storage))
   const [reserved, setReserved] = useState(null)
@@ -112,12 +122,17 @@ export default function App() {
   const [build, setBuild] = useState({})
   const [authOpen, setAuthOpen] = useState(false)
   const [navOpen, setNavOpen] = useState(false)
+  const [apiOnline, setApiOnline] = useState(false)
+  const [apiUser, setApiUser] = useState(null)
+  const [authMode, setAuthMode] = useState('local') // local | api
+  const [brandFilter, setBrandFilter] = useState(null)
 
   const t = (key, vars) => translate(lang, key, vars)
-  const user = useMemo(() => {
+  const localUser = useMemo(() => {
     if (!session?.userId) return null
     return users.find((u) => u.id === session.userId) || null
   }, [session, users])
+  const user = authMode === 'api' && apiUser ? apiUser : localUser
   const isMaster = user?.role === 'master'
 
   const shopView = useMemo(() => buildShopView(PRODUCTS, PART_LINES, BASE_PANELS, meta), [meta])
@@ -145,6 +160,47 @@ export default function App() {
   }, [toast])
 
   useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      const h = await api.health()
+      if (cancelled) return
+      setApiOnline(Boolean(h?.ok))
+      // OAuth return
+      if (typeof window !== 'undefined') {
+        const params = new URLSearchParams(window.location.search)
+        const oauthToken = params.get('oauth_token')
+        if (oauthToken) {
+          api.setToken(oauthToken)
+          const me = await api.me()
+          if (me.ok && me.data?.user) {
+            setApiUser(me.data.user)
+            setAuthMode('api')
+            setToast(t('authOk'))
+          }
+          params.delete('oauth_token')
+          params.delete('oauth_provider')
+          const clean = `${window.location.pathname}${params.toString() ? `?${params}` : ''}`
+          window.history.replaceState({}, '', clean)
+          return
+        }
+      }
+      const token = api.getToken()
+      if (token) {
+        const me = await api.me()
+        if (me.ok && me.data?.user) {
+          setApiUser(me.data.user)
+          setAuthMode('api')
+        } else {
+          api.setToken(null)
+        }
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
     if (!user) return
     const accent = ACCENTS.find((a) => a.id === user.accent)
     if (accent && typeof document !== 'undefined') {
@@ -156,7 +212,22 @@ export default function App() {
   useEffect(() => {
     if (user?.name && !pickup.name) setPickup((p) => ({ ...p, name: user.name }))
     if (user?.phone && !pickup.phone) setPickup((p) => ({ ...p, phone: user.phone }))
+    if (user?.wilaya) setPickup((p) => ({ ...p, wilaya: user.wilaya }))
   }, [user]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!isMaster || !apiOnline || authMode !== 'api') return undefined
+    let cancelled = false
+    ;(async () => {
+      const r = await api.listOrders()
+      if (!cancelled && r.ok && Array.isArray(r.data?.orders)) {
+        setReservations(r.data.orders)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [isMaster, apiOnline, authMode, page])
 
   function persistUsers(next) {
     setUsers(next)
@@ -166,6 +237,17 @@ export default function App() {
   function persistSession(next) {
     setSession(next)
     saveSession(storage, next)
+    if (next) {
+      setAuthMode('local')
+      setApiUser(null)
+    }
+  }
+
+  function onApiUser(u) {
+    setApiUser(u)
+    setAuthMode('api')
+    setSession(null)
+    saveSession(storage, null)
   }
 
   function persistMeta(next) {
@@ -183,10 +265,16 @@ export default function App() {
     saveTheme(storage, id)
   }
 
-  function logout() {
+  async function logout() {
+    if (authMode === 'api') await api.logout()
+    setApiUser(null)
+    setAuthMode('local')
     persistSession(null)
     setToast(t('navLogout'))
-    if (page === 'desk' || page === 'master' || page === 'profile') go('shop')
+    if (page === 'desk' || page === 'master' || page === 'profile') {
+      setPage('shop')
+      window.scrollTo({ top: 0 })
+    }
   }
 
   const selected = catalog.find((p) => p.id === selectedId)
@@ -200,14 +288,21 @@ export default function App() {
     const q = query.trim().toLowerCase()
     return catalog.filter((p) => {
       const catOk = category === 'all' || p.category === category
+      const brandOk = !brandFilter || p.brand === brandFilter
       const qOk =
         !q ||
         p.name.toLowerCase().includes(q) ||
         p.sku.toLowerCase().includes(q) ||
-        (p.short || '').toLowerCase().includes(q)
-      return catOk && qOk
+        (p.short || '').toLowerCase().includes(q) ||
+        p.brand.toLowerCase().includes(q)
+      return catOk && brandOk && qOk
     })
-  }, [category, query, catalog])
+  }, [category, query, catalog, brandFilter])
+
+  const dzHits = useMemo(
+    () => catalog.filter((p) => (p.tags || []).includes('dz-hit')).slice(0, 8),
+    [catalog]
+  )
 
   function liveStock(product) {
     const inCart = cart.find((i) => i.id === product.id)
@@ -281,7 +376,7 @@ export default function App() {
     })
   }
 
-  function reserve(e) {
+  async function reserve(e) {
     e.preventDefault()
     if (!pickup.name.trim() || cart.length === 0) return
     if (!isDzPhone(pickup.phone)) {
@@ -289,16 +384,44 @@ export default function App() {
       return
     }
     setPhoneErr('')
-    const code = `PS-${String(Date.now()).slice(-6)}`
-    const order = {
-      code,
+    const base = {
       name: pickup.name.trim(),
       phone: normalizePhone(pickup.phone),
       carrier: phoneCarrier(pickup.phone),
+      wilaya: pickup.wilaya,
+      payment: pickup.payment,
       slot: pickup.slot,
-      items: cart,
+      items: cart.map((i) => ({
+        id: i.id,
+        sku: i.sku,
+        name: i.name,
+        qty: i.qty,
+        price: i.price
+      })),
       total,
-      userId: user?.id || null,
+      userId: user?.id || null
+    }
+
+    if (apiOnline) {
+      const r = await api.postOrder(base)
+      if (r.ok && r.data?.order) {
+        const order = {
+          ...r.data.order,
+          at: new Date(r.data.order.at || Date.now()).toLocaleString(
+            lang === 'ar' ? 'ar-DZ' : lang === 'fr' ? 'fr-DZ' : 'en-GB'
+          )
+        }
+        setReservations((prev) => [order, ...prev])
+        setReserved(order)
+        setCart([])
+        setToast(t('ordersSynced'))
+        return
+      }
+    }
+
+    const order = {
+      code: `PS-${String(Date.now()).slice(-6)}`,
+      ...base,
       at: new Date().toLocaleString(lang === 'ar' ? 'ar-DZ' : lang === 'fr' ? 'fr-DZ' : 'en-GB')
     }
     const next = [order, ...reservations]
@@ -306,6 +429,7 @@ export default function App() {
     saveOrders(storage, next)
     setReserved(order)
     setCart([])
+    setToast(apiOnline ? t('ordersSynced') : t('ordersLocalOnly'))
   }
 
   const msg = cartMessage(cart, total, pickup)
@@ -412,7 +536,7 @@ export default function App() {
 
           <section className="deals">
             <h2>{t('thisWeek')}</h2>
-            <div className="deal-row">
+            <div className="deal-row deal-row-wide">
               {DEALS.map((d) => {
                 const p = catalog.find((x) => x.id === d.id)
                 if (!p) return null
@@ -435,9 +559,33 @@ export default function App() {
             </div>
           </section>
 
+          {dzHits.length > 0 && (
+            <section className="deals">
+              <h2>{t('dzHits')}</h2>
+              <div className="deal-row deal-row-wide">
+                {dzHits.map((p) => (
+                  <article className="deal-card" key={p.id}>
+                    <span className="deal-tag dz">{t('tag_dz-hit')}</span>
+                    <button type="button" className="deal-thumb" onClick={() => openProduct(p.id)}>
+                      <PartThumb product={p} />
+                    </button>
+                    <h3>
+                      <button type="button" onClick={() => openProduct(p.id)}>
+                        {p.name}
+                      </button>
+                    </h3>
+                    <div className="sku">{p.brand}</div>
+                    <div className="price">{money(p.price)}</div>
+                    <p className="short">{p.short}</p>
+                  </article>
+                ))}
+              </div>
+            </section>
+          )}
+
           <section className="guides">
             <h2>{t('starConfigs')}</h2>
-            <div className="guide-row">
+            <div className="guide-row guide-row-wide">
               {GUIDES.map((g) => (
                 <article className="guide-card" key={g.id}>
                   <h3>{g.title}</h3>
@@ -446,6 +594,18 @@ export default function App() {
               ))}
             </div>
           </section>
+
+          <div className="brand-strip">
+            <span className="brand-label">{t('dzBrands')}</span>
+            <button type="button" className={`chip ${!brandFilter ? 'on' : ''}`} onClick={() => setBrandFilter(null)}>
+              {t('cat_all')}
+            </button>
+            {BRANDS_DZ_PRIORITY.map((b) => (
+              <button key={b} type="button" className={`chip ${brandFilter === b ? 'on' : ''}`} onClick={() => setBrandFilter(brandFilter === b ? null : b)}>
+                {b}
+              </button>
+            ))}
+          </div>
 
           <div className="toolbar">
             {CATEGORIES.map((c) => (
@@ -481,6 +641,16 @@ export default function App() {
                       <h3>{p.name}</h3>
                       <Stars product={p} />
                       <div className="short">{p.short}</div>
+                      {(p.tags || []).length > 0 && (
+                        <div className="tag-row">
+                          {(p.tags || []).slice(0, 2).map((tag) => (
+                            <span className={`mini-tag tag-${tag}`} key={tag}>
+                              {t(`tag_${tag}`) !== `tag_${tag}` ? t(`tag_${tag}`) : tag}
+                            </span>
+                          ))}
+                          {p.origin === 'dz' && <span className="mini-tag tag-dz">{t('originDz')}</span>}
+                        </div>
+                      )}
                       {p.price >= 30000 && <div className="pay3x">3x {third(p.price)}</div>}
                       <div className="row">
                         <div className="price">{money(p.price)}</div>
@@ -671,12 +841,28 @@ export default function App() {
                     aria-invalid={!!phoneErr}
                   />
                   <p className="short">
-                    {t('phoneHint')}
+                    {t('carrierNote')}
                     {carrier === 'mobilis' && ` · ${t('carrierMobilis')}`}
                     {carrier === 'ooredoo' && ` · ${t('carrierOoredoo')}`}
                     {carrier === 'djezzy' && ` · ${t('carrierDjezzy')}`}
                   </p>
                   {phoneErr && <p className="form-error">{phoneErr}</p>}
+                  <label htmlFor="wilaya">{t('wilaya')}</label>
+                  <select id="wilaya" className="field" value={pickup.wilaya} onChange={(e) => setPickup({ ...pickup, wilaya: e.target.value })}>
+                    {WILAYAS_NEAR.map((w) => (
+                      <option key={w} value={w}>
+                        {w}
+                      </option>
+                    ))}
+                  </select>
+                  <label htmlFor="pay">{t('paymentMethod')}</label>
+                  <select id="pay" className="field" value={pickup.payment} onChange={(e) => setPickup({ ...pickup, payment: e.target.value })}>
+                    {PAYMENT_HINTS.map((h) => (
+                      <option key={h.id} value={h.id}>
+                        {t(h.key)}
+                      </option>
+                    ))}
+                  </select>
                   <label htmlFor="slot">{t('timeSlot')}</label>
                   <select id="slot" className="field" value={pickup.slot} onChange={(e) => setPickup({ ...pickup, slot: e.target.value })}>
                     {SLOTS.map((s) => (
@@ -807,6 +993,8 @@ export default function App() {
                   <p>
                     {r.name} · {r.phone}
                     {r.carrier ? ` · ${r.carrier}` : ''}
+                    {r.wilaya ? ` · ${r.wilaya}` : ''}
+                    {r.payment ? ` · ${r.payment}` : ''}
                   </p>
                   <ul>
                     {r.items.map((i) => (
@@ -831,9 +1019,14 @@ export default function App() {
           user={user}
           users={users}
           onUsers={persistUsers}
-          onUser={(u) => persistSession({ userId: u.id })}
+          onUser={(u) => {
+            if (authMode === 'api') setApiUser(u)
+            else persistSession({ userId: u.id })
+          }}
           setToast={setToast}
           onBack={() => go('shop')}
+          apiOnline={apiOnline}
+          mode={authMode}
         />
       )}
 
@@ -894,8 +1087,13 @@ export default function App() {
           onSession={persistSession}
           onClose={() => setAuthOpen(false)}
           setToast={setToast}
+          apiOnline={apiOnline}
+          onApiUser={onApiUser}
         />
       )}
+      <div className={`api-status ${apiOnline ? 'on' : ''}`} title={apiOnline ? t('backendOnline') : t('backendOffline')}>
+        {apiOnline ? '● API' : '○ local'}
+      </div>
     </div>
   )
 }
