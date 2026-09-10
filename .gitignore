@@ -181,3 +181,8 @@ server/data/
 # temp image downloads
 image-search/
 
+
+# local API runtime
+server/data/store.json
+server/data/backups/
+public/photos/uploads/

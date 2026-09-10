@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { CATEGORIES, money } from './data.js'
 import { addPanel, addProduct, deleteCustomer, hideProduct, setProductPhotos, togglePanel } from './shopStore.js'
 import PartThumb from './PartThumb.jsx'
+import * as api from './api.js'
 
 function readFilesAsDataUrls(fileList) {
   const files = [...(fileList || [])].slice(0, 6)
@@ -20,7 +21,7 @@ function readFilesAsDataUrls(fileList) {
   ).then((list) => list.filter(Boolean))
 }
 
-export default function MasterPage({ t, lang, user, users, onUsers, products, meta, onMeta, basePanels, setToast, onBack }) {
+export default function MasterPage({ t, lang, user, users, onUsers, products, meta, onMeta, basePanels, setToast, onBack, apiOnline, onStockRefresh }) {
   const [tab, setTab] = useState('products')
   const [form, setForm] = useState({
     name: '',
@@ -69,8 +70,27 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, me
     e.target.value = ''
   }
 
-  function submitProduct(e) {
+  async function submitProduct(e) {
     e.preventDefault()
+    if (apiOnline) {
+      const r = await api.masterCreateProduct({
+        name: form.name,
+        price: Number(form.price),
+        stock: Number(form.stock),
+        category: form.category,
+        brand: form.brand,
+        short: form.short,
+        photoDataUrls: form.photos
+      })
+      if (!r.ok) {
+        setToast(t('authErrorPassword'))
+        return
+      }
+      setForm({ name: '', price: '', stock: '1', category: form.category, brand: 'PC Star', short: '', photos: [] })
+      setToast(t('masterAdded'))
+      onStockRefresh?.()
+      return
+    }
     const res = addProduct(meta, {
       name: form.name,
       price: Number(form.price),
@@ -94,8 +114,27 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, me
     setEditPhotos([...(p.photos || [])].slice(0, 6))
   }
 
-  function saveEditPhotos() {
+  async function saveEditPhotos() {
     if (!editId) return
+    if (apiOnline) {
+      // split data urls vs paths
+      const dataUrls = editPhotos.filter((x) => String(x).startsWith('data:'))
+      const paths = editPhotos.filter((x) => !String(x).startsWith('data:'))
+      let photos = paths
+      if (dataUrls.length) {
+        const up = await api.masterPhotos(editId, dataUrls)
+        if (up.ok && up.data?.product?.photos) photos = up.data.product.photos
+      } else {
+        const r = await api.masterUpdateProduct(editId, { photos: paths })
+        if (!r.ok) return
+        photos = r.data?.product?.photos || paths
+      }
+      setEditId(null)
+      setEditPhotos([])
+      setToast(t('masterPhotosSaved'))
+      onStockRefresh?.()
+      return
+    }
     const res = setProductPhotos(meta, editId, editPhotos)
     if (!res.ok) return
     onMeta(res.meta)
@@ -104,7 +143,17 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, me
     setToast(t('masterPhotosSaved'))
   }
 
-  function doHide(id) {
+  async function doHide(id) {
+    if (apiOnline) {
+      const r = await api.masterHideProduct(id, true)
+      if (!r.ok) {
+        setToast(t('masterForbidden'))
+        return
+      }
+      setToast(t('masterHidden'))
+      onStockRefresh?.()
+      return
+    }
     onMeta(hideProduct(meta, id))
     setToast(t('masterHidden'))
   }
@@ -139,7 +188,21 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, me
       <button className="btn btn-outline-secondary btn-sm mb-3" type="button" onClick={onBack}>
         ← {t('backToShop')}
       </button>
-      <h1 className="h3 mb-3">{t('masterTitle')}</h1>
+      <div className="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+        <h1 className="h3 mb-0">{t('masterTitle')}</h1>
+        {apiOnline && (
+          <button
+            type="button"
+            className="btn btn-sm btn-outline-secondary"
+            onClick={async () => {
+              const r = await api.masterBackup()
+              setToast(r.ok ? t('masterBackupOk') : t('deskStatusFail'))
+            }}
+          >
+            {t('masterBackup')}
+          </button>
+        )}
+      </div>
 
       <ul className="nav nav-pills gap-2 mb-4">
         {['products', 'customers', 'panels'].map((id) => (

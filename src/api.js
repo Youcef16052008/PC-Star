@@ -106,3 +106,51 @@ export async function getMeta() {
 export async function putMeta(meta) {
   return req('/api/meta', { method: 'PUT', body: { meta } })
 }
+
+export async function masterProducts() {
+  return req('/api/master/products')
+}
+
+export async function masterCreateProduct(body) {
+  return req('/api/master/products', { method: 'POST', body })
+}
+
+export async function masterUpdateProduct(id, body) {
+  return req(`/api/master/products/${encodeURIComponent(id)}`, { method: 'PUT', body })
+}
+
+export async function masterHideProduct(id, hidden = true) {
+  return req(`/api/master/products/${encodeURIComponent(id)}/hide`, { method: 'POST', body: { hidden } })
+}
+
+export async function masterPhotos(id, photoDataUrls) {
+  return req(`/api/master/products/${encodeURIComponent(id)}/photos`, {
+    method: 'POST',
+    body: { photoDataUrls }
+  })
+}
+
+export async function masterBackup() {
+  return req('/api/master/backup', { method: 'POST' })
+}
+
+export function ordersExportUrl(day) {
+  const q = day ? `?day=${encodeURIComponent(day)}` : ''
+  return `/api/orders/export.csv${q}`
+}
+
+export async function downloadOrdersCsv(day) {
+  const token = getToken()
+  const res = await fetch(ordersExportUrl(day), {
+    headers: token ? { Authorization: `Bearer ${token}` } : {}
+  })
+  if (!res.ok) return { ok: false, status: res.status }
+  const blob = await res.blob()
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `pcstar-orders${day ? '-' + day : ''}.csv`
+  a.click()
+  URL.revokeObjectURL(url)
+  return { ok: true }
+}

@@ -1,5 +1,6 @@
 import { money, starText, STORE, REVIEWS } from './data.js'
 import PartThumb from './PartThumb.jsx'
+import { relatedProducts, specRows } from './media.js'
 
 function stockLabel(n, t) {
   if (n <= 0) return { text: t('outOfStock'), cls: 'stock-out' }
@@ -44,7 +45,8 @@ export default function ProductPage({ t, product, photoIndex, setPhotoIndex, lef
   const st = stockLabel(left, t)
   const badge = st.cls === 'stock-ok' ? 'text-bg-success' : st.cls === 'stock-low' ? 'text-bg-warning' : 'text-bg-danger'
   const photos = product.photos || []
-  const also = (product.related || []).map((id) => catalog.find((p) => p.id === id)).filter(Boolean)
+  const also = relatedProducts(product, catalog, 4)
+  const specs = specRows(product, t)
 
   return (
     <main id="main-content" className="container page py-4" tabIndex={-1}>
@@ -54,7 +56,7 @@ export default function ProductPage({ t, product, photoIndex, setPhotoIndex, lef
       <div className="row g-4">
         <div className="col-md-6">
           <div className="card border-0 shadow-sm overflow-hidden">
-            <div className="ratio ratio-1x1 photo-frame position-relative pdp-zoom">
+            <div className="ratio ratio-1x1 photo-frame position-relative pdp-zoom photo-skeleton">
               {photos.length > 0 ? (
                 <img
                   src={photos[photoIndex]}
@@ -98,6 +100,20 @@ export default function ProductPage({ t, product, photoIndex, setPhotoIndex, lef
           <p className="text-secondary">{product.short}</p>
           <div className="fs-4 fw-bold text-success mb-2">{money(product.price)}</div>
           <SpecBadges product={product} t={t} />
+          {specs.length > 0 && (
+            <div className="table-responsive mb-3">
+              <table className="table table-sm table-borderless mb-0 spec-table">
+                <tbody>
+                  {specs.map((r) => (
+                    <tr key={r.label}>
+                      <th className="text-secondary fw-normal small" style={{ width: '40%' }}>{r.label}</th>
+                      <td className="fw-semibold small">{r.value}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
           {product.needs && <div className={`alert py-2 ${left <= 0 ? 'alert-danger' : 'alert-secondary'}`}>{product.needs}</div>}
 
           <div className="d-none d-md-flex flex-wrap gap-2 mt-3">

@@ -490,3 +490,45 @@ html[data-theme='dark'] .text-bg-light {
 .bg-body-tertiary {
   background: var(--soft) !important;
 }
+
+/* Phase 3 — media */
+.photo-skeleton {
+  background:
+    linear-gradient(90deg, var(--photo-bg) 0%, color-mix(in srgb, var(--soft) 80%, var(--photo-bg)) 50%, var(--photo-bg) 100%);
+  background-size: 200% 100%;
+}
+.spec-table th,
+.spec-table td {
+  padding: 0.35rem 0.25rem;
+  border-bottom: 1px solid var(--line) !important;
+  color: var(--ink);
+}
+.spec-table tr:last-child th,
+.spec-table tr:last-child td {
+  border-bottom: 0 !important;
+}
+
+/* Phase 4 — print desk tickets */
+@media print {
+  .topbar,
+  .shop-navbar,
+  .wa-fab,
+  .api-status,
+  .no-print,
+  .skip-link,
+  .site-footer,
+  .offcanvas,
+  .toast,
+  .pdp-sticky-cta {
+    display: none !important;
+  }
+  .desk-print-card {
+    break-inside: avoid;
+    box-shadow: none !important;
+    border: 1px solid #333 !important;
+  }
+  body {
+    background: #fff !important;
+    color: #000 !important;
+  }
+}

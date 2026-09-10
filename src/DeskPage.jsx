@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { money } from './data.js'
 import { statusLabelKey } from './orderLogic.js'
+import * as api from './api.js'
 
 const FILTERS = ['all', 'new', 'preparing', 'ready', 'picked', 'cancelled']
 
@@ -71,8 +72,8 @@ export default function DeskPage({ t, lang, reservations, onStatus, setToast }) 
         <span className="badge text-bg-success">{list.length}/{reservations.length}</span>
       </div>
 
-      <div className="row g-2 mb-3">
-        <div className="col-md-5">
+      <div className="row g-2 mb-3 no-print">
+        <div className="col-md-4">
           <input
             className="form-control"
             value={q}
@@ -81,7 +82,7 @@ export default function DeskPage({ t, lang, reservations, onStatus, setToast }) 
             aria-label={t('deskSearch')}
           />
         </div>
-        <div className="col-md-7">
+        <div className="col-md-5">
           <div className="d-flex flex-wrap gap-1">
             {FILTERS.map((f) => (
               <button
@@ -94,6 +95,23 @@ export default function DeskPage({ t, lang, reservations, onStatus, setToast }) 
               </button>
             ))}
           </div>
+        </div>
+        <div className="col-md-3 d-flex flex-wrap gap-1 justify-content-md-end">
+          <button
+            type="button"
+            className="btn btn-sm btn-outline-secondary"
+            onClick={async () => {
+              const day = new Date().toISOString().slice(0, 10)
+              const r = await api.downloadOrdersCsv(day)
+              if (!r.ok) setToast?.(t('deskStatusFail'))
+              else setToast?.(t('deskExportOk'))
+            }}
+          >
+            {t('deskExportCsv')}
+          </button>
+          <button type="button" className="btn btn-sm btn-outline-secondary" onClick={() => window.print()}>
+            {t('deskPrint')}
+          </button>
         </div>
       </div>
 
@@ -108,7 +126,7 @@ export default function DeskPage({ t, lang, reservations, onStatus, setToast }) 
             const st = r.status === 'pending' ? 'new' : r.status || 'new'
             return (
               <div className="col-md-6 col-xl-4" key={r.code}>
-                <article className="card h-100 shadow-sm desk-card border-0">
+                <article className="card h-100 shadow-sm desk-card border-0 desk-print-card">
                   <div className="card-body d-flex flex-column">
                     <div className="d-flex justify-content-between align-items-start gap-2 mb-2">
                       <span className="badge text-bg-dark font-monospace">{r.code}</span>

@@ -122,6 +122,7 @@ export default function App() {
   const [cartStep, setCartStep] = useState(0) // 0 cart, 1 info (when items)
   const cartElRef = useRef(null)
   const cartOcRef = useRef(null)
+  const prevOrderCount = useRef(0)
 
   const t = (key, vars) => translate(lang, key, vars)
   const localUser = useMemo(() => {
@@ -253,16 +254,36 @@ export default function App() {
   useEffect(() => {
     if (!isMaster || !apiOnline || authMode !== 'api') return undefined
     let cancelled = false
-    ;(async () => {
+    async function pull() {
       const r = await api.listOrders()
-      if (!cancelled && r.ok && Array.isArray(r.data?.orders)) {
-        setReservations(r.data.orders)
+      if (cancelled || !r.ok || !Array.isArray(r.data?.orders)) return
+      const next = r.data.orders
+      if (prevOrderCount.current && next.length > prevOrderCount.current && page === 'desk') {
+        try {
+          const ctx = new (window.AudioContext || window.webkitAudioContext)()
+          const o = ctx.createOscillator()
+          const g = ctx.createGain()
+          o.connect(g)
+          g.connect(ctx.destination)
+          o.frequency.value = 880
+          g.gain.value = 0.04
+          o.start()
+          o.stop(ctx.currentTime + 0.12)
+        } catch {
+          /* ignore */
+        }
+        setToast(t('deskNewOrder'))
       }
-    })()
+      prevOrderCount.current = next.length
+      setReservations(next)
+    }
+    pull()
+    const id = setInterval(pull, 20000)
     return () => {
       cancelled = true
+      clearInterval(id)
     }
-  }, [isMaster, apiOnline, authMode, page])
+  }, [isMaster, apiOnline, authMode, page]) // eslint-disable-line react-hooks/exhaustive-deps
 
   function persistUsers(next) {
     setUsers(next)
@@ -1016,6 +1037,8 @@ export default function App() {
           basePanels={BASE_PANELS}
           setToast={setToast}
           onBack={() => go('shop')}
+          apiOnline={apiOnline && authMode === 'api'}
+          onStockRefresh={refreshStock}
         />
       )}
 

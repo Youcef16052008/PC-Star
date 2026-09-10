@@ -152,10 +152,15 @@ export function setOrderStatus(db, code, status) {
 export function publicCatalog(db) {
   ensureStock(db)
   const hidden = new Set(db.meta?.hiddenProductIds || [])
-  const base = PRODUCTS.filter((p) => !hidden.has(p.id)).map((p) => ({
-    ...p,
-    stock: liveStockOf(db, p.id)
-  }))
+  const overrides = db.meta?.productOverrides || {}
+  const base = PRODUCTS.filter((p) => !hidden.has(p.id)).map((p) => {
+    const o = overrides[p.id] || {}
+    return {
+      ...p,
+      ...o,
+      stock: liveStockOf(db, p.id)
+    }
+  })
   const extras = (db.meta?.extraProducts || []).map((p) => ({
     ...p,
     stock: liveStockOf(db, p.id)

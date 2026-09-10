@@ -20,6 +20,16 @@ import {
   publicCatalog,
   setOrderStatus
 } from './catalog.js'
+import { rateLimit, clientKey } from './rateLimit.js'
+import {
+  backupStore,
+  createProduct,
+  hideProductMaster,
+  listMasterProducts,
+  ordersToCsv,
+  savePhotoDataUrls,
+  updateProduct
+} from './masterApi.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const PORT = Number(process.env.PORT || 8787)
@@ -117,7 +127,13 @@ async function handler(req, res) {
   try {
     // health
     if (req.method === 'GET' && pathname === '/api/health') {
-      return send(res, 200, { ok: true, oauth: oauthConfig(), master: MASTER.email })
+      return send(res, 200, {
+        ok: true,
+        oauth: oauthConfig(),
+        master: MASTER.email,
+        cors: FRONT_ORIGIN,
+        payments: ['cash']
+      })
     }
 
     // session
@@ -166,6 +182,8 @@ async function handler(req, res) {
     }
 
     if (req.method === 'POST' && pathname === '/api/auth/login') {
+      const rl = rateLimit({ windowMs: 60_000, max: 20, key: clientKey(req, 'login') })
+      if (!rl.ok) return send(res, 429, { ok: false, error: 'rate', retryAfter: rl.retryAfter })
       const body = await readBody(req)
       const email = String(body.email || '')
         .trim()
@@ -295,6 +313,8 @@ async function handler(req, res) {
     }
 
     if (req.method === 'POST' && pathname === '/api/orders') {
+      const rl = rateLimit({ windowMs: 60_000, max: 15, key: clientKey(req, 'order') })
+      if (!rl.ok) return send(res, 429, { ok: false, error: 'rate', retryAfter: rl.retryAfter })
       const body = await readBody(req)
       if (!body.name || !Array.isArray(body.items) || !body.items.length) {
         return send(res, 400, { ok: false, error: 'order' })
@@ -359,7 +379,117 @@ async function handler(req, res) {
       return send(res, 200, { ok: true, order: result.order })
     }
 
-    // Catalog meta (master)
+    // Master products CRUD
+    if (req.method === 'GET' && pathname === '/api/master/products') {
+      const auth = userFromReq(req)
+      if (!auth || auth.user.role !== 'master') return send(res, 403, { ok: false, error: 'forbidden' })
+      return send(res, 200, { ok: true, products: listMasterProducts(readDb()) })
+    }
+
+    if (req.method === 'POST' && pathname === '/api/master/products') {
+      const auth = userFromReq(req)
+      if (!auth || auth.user.role !== 'master') return send(res, 403, { ok: false, error: 'forbidden' })
+      const body = await readBody(req)
+      let result = null
+      updateDb((db) => {
+        // optional dataURL photos
+        if (Array.isArray(body.photoDataUrls) && body.photoDataUrls.length) {
+          const idHint = 'tmp'
+          const paths = savePhotoDataUrls(idHint, body.photoDataUrls)
+          body.photos = [...(body.photos || []), ...paths].slice(0, 6)
+        }
+        result = createProduct(db, body)
+        if (result.ok && Array.isArray(body.photoDataUrls) && body.photoDataUrls.length) {
+          // re-save under real id
+          const paths = savePhotoDataUrls(result.product.id, body.photoDataUrls)
+          if (paths.length) {
+            result.product.photos = paths
+            const extras = db.meta.extraProducts
+            const i = extras.findIndex((x) => x.id === result.product.id)
+            if (i >= 0) extras[i].photos = paths
+          }
+        }
+        return db
+      })
+      if (!result?.ok) return send(res, 400, { ok: false, error: result?.error || 'invalid' })
+      return send(res, 201, { ok: true, product: result.product })
+    }
+
+    if (req.method === 'PUT' && pathname.startsWith('/api/master/products/')) {
+      const auth = userFromReq(req)
+      if (!auth || auth.user.role !== 'master') return send(res, 403, { ok: false, error: 'forbidden' })
+      const id = decodeURIComponent(pathname.split('/').pop())
+      const body = await readBody(req)
+      let result = null
+      updateDb((db) => {
+        if (Array.isArray(body.photoDataUrls) && body.photoDataUrls.length) {
+          const paths = savePhotoDataUrls(id, body.photoDataUrls)
+          body.photos = [...(body.photos || []), ...paths].slice(0, 6)
+        }
+        result = updateProduct(db, id, body)
+        return db
+      })
+      if (!result?.ok) return send(res, result?.error === 'not_found' ? 404 : 400, { ok: false, error: result?.error })
+      return send(res, 200, { ok: true, product: result.product })
+    }
+
+    if (req.method === 'POST' && pathname.startsWith('/api/master/products/') && pathname.endsWith('/hide')) {
+      const auth = userFromReq(req)
+      if (!auth || auth.user.role !== 'master') return send(res, 403, { ok: false, error: 'forbidden' })
+      const parts = pathname.split('/')
+      const id = decodeURIComponent(parts[parts.length - 2])
+      const body = await readBody(req)
+      let result = null
+      updateDb((db) => {
+        result = hideProductMaster(db, id, body.hidden !== false)
+        return db
+      })
+      if (!result?.ok) return send(res, 400, { ok: false, error: result?.error })
+      return send(res, 200, { ok: true, product: result.product })
+    }
+
+    if (req.method === 'POST' && pathname.startsWith('/api/master/products/') && pathname.endsWith('/photos')) {
+      const auth = userFromReq(req)
+      if (!auth || auth.user.role !== 'master') return send(res, 403, { ok: false, error: 'forbidden' })
+      const parts = pathname.split('/')
+      const id = decodeURIComponent(parts[parts.length - 2])
+      const body = await readBody(req)
+      const paths = savePhotoDataUrls(id, body.photoDataUrls || body.photos || [])
+      if (!paths.length && !Array.isArray(body.photos)) return send(res, 400, { ok: false, error: 'photos' })
+      let result = null
+      updateDb((db) => {
+        const photos = paths.length ? paths : body.photos
+        result = updateProduct(db, id, { photos })
+        return db
+      })
+      if (!result?.ok) return send(res, 400, { ok: false, error: result?.error })
+      return send(res, 200, { ok: true, product: result.product })
+    }
+
+    // Orders CSV export (master)
+    if (req.method === 'GET' && pathname === '/api/orders/export.csv') {
+      const auth = userFromReq(req)
+      if (!auth || auth.user.role !== 'master') return send(res, 403, { ok: false, error: 'forbidden' })
+      const day = url.searchParams.get('day') // YYYY-MM-DD optional
+      const csv = ordersToCsv(readDb().orders || [], { day })
+      res.writeHead(200, {
+        'Content-Type': 'text/csv; charset=utf-8',
+        'Content-Disposition': `attachment; filename="pcstar-orders${day ? '-' + day : ''}.csv"`,
+        'Access-Control-Allow-Origin': FRONT_ORIGIN
+      })
+      return res.end(csv)
+    }
+
+    // Manual backup
+    if (req.method === 'POST' && pathname === '/api/master/backup') {
+      const auth = userFromReq(req)
+      if (!auth || auth.user.role !== 'master') return send(res, 403, { ok: false, error: 'forbidden' })
+      const dbPath = path.join(__dirname, 'data', 'store.json')
+      const dest = backupStore(dbPath, path.join(__dirname, 'data', 'backups'))
+      return send(res, 200, { ok: true, file: dest ? path.basename(dest) : null })
+    }
+
+        // Catalog meta (master)
     if (req.method === 'GET' && pathname === '/api/meta') {
       return send(res, 200, { ok: true, meta: readDb().meta })
     }
@@ -424,4 +554,19 @@ const server = http.createServer(handler)
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`PC Star API on http://0.0.0.0:${PORT}`)
   console.log('OAuth:', oauthConfig())
+  try {
+    const dbPath = path.join(__dirname, 'data', 'store.json')
+    const dest = backupStore(dbPath, path.join(__dirname, 'data', 'backups'))
+    if (dest) console.log('Backup:', dest)
+  } catch (e) {
+    console.warn('Backup skipped', e.message)
+  }
+  // rolling backup every 6h
+  setInterval(() => {
+    try {
+      backupStore(path.join(__dirname, 'data', 'store.json'), path.join(__dirname, 'data', 'backups'))
+    } catch {
+      /* ignore */
+    }
+  }, 6 * 60 * 60 * 1000).unref?.()
 })

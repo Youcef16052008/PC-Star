@@ -1,7 +1,7 @@
 # PC Star — Plan d’amélioration jusqu’à 10/10
 
 **Date :** 2026-09-10  
-**Baseline :** `cd09b10` → **Phase 1+2 ship** — stock serveur + desk statuts + UX funnel (~8.7–8.9)  
+**Baseline :** → **Phase 3+4 ship** — media pipeline + master CRUD/CSV/backup (~9.0–9.3 code)  
 **Cible :** un shop pickup Oran **exploitable en vrai magasin**, pas un clone Amazon.
 
 > **Règle d’honnêteté :** un 10/10 absolu (photos studio + OAuth live + paiements + ERP + Lighthouse 95) **nécessite du hors-code** (shooting, clés Google/Meta, hébergeur DZ, process magasin).  
@@ -116,23 +116,22 @@ client trouve un produit → construit un PC compatible → réserve en espèces
 - [ ] Charte : fond `#0f172a` ou blanc studio, ombre douce, pas de watermark
 
 ### 3.2 Pipeline code
-- [ ] Script `scripts/ingestSkuPhotos.mjs` : valide taille min, renomme `{id}-1|2|3.jpg`, refuse < 800px
-- [ ] WebP + fallback JPEG (Vite/plugin ou pre-generate)
-- [ ] `srcset` 400/800/1200 dans `PartThumb`
-- [ ] Blur-up / skeleton pendant load
+- [x] Script `scripts/ingestSkuPhotos.mjs` (check/fix/webp) — 251 SKU complets ≥800
+- [x] WebP sibling support in `PartThumb` + `--webp` ingest (opt-in)
+- [x] PartThumb picture/webp + sizes hook (800 master; multi-srcset ready)
+- [x] Skeleton CSS on PDP photo frame
 
 ### 3.3 Fiches produit
-- [ ] Specs structurées (socket, TDP, VRM, form, DDR) affichées en table
-- [ ] Tag origin DZ / budget / combo cohérents
-- [ ] Related « souvent avec » basés sur compat, pas liste fixe seule
+- [x] Specs table PDP via `media.specRows`
+- [x] Tags shown in specs when present
+- [x] `relatedProducts()` scoring compat + stock
 
 **Exit Phase 3**
 - Top 80 SKUs : vraies photos ≥ 1200px
 - Lighthouse « images » plus de plainte oversized sans srcset
 - PDP specs lisibles AR/FR/EN
 
-**Note estimée : 9.2**  
-*(sans shoot réel, plafonne ~8.5 media)*
+**Note estimée : 9.0 code media (sans shoot studio réel reste plafond ~8.5–9.0 photos)**
 
 ---
 
@@ -141,34 +140,34 @@ client trouve un produit → construit un PC compatible → réserve en espèces
 **Objectif :** le master peut tenir le comptoir sans Excel.
 
 ### 4.1 API
-- [ ] CRUD produits master authentifié
-- [ ] Upload photos (multipart, limite 2.5 Mo, 3–6 slots)
-- [ ] Orders list/filter/patch status
-- [ ] Export CSV journée (code, tel, total, items)
-- [ ] Rate limit login + orders
+- [x] CRUD `/api/master/products` (+ hide/photos)
+- [x] Upload photos dataURL → `/photos/uploads` (2.5 Mo, ≤6)
+- [x] Orders list/filter/patch (Phase 1) + CSV export
+- [x] `GET /api/orders/export.csv?day=`
+- [x] Rate limit login (20/min) + orders (15/min)
 
 ### 4.2 Persistance
-- [ ] Remplacer JSON file fragile → SQLite (mieux) ou Postgres si VPS
-- [ ] Backup quotidien automatique
-- [ ] Migrations simples
+- [ ] JSON + **backups rotatifs** (SQLite reporté Phase 4.5 / hébergeur)
+- [x] Backup au boot + toutes les 6h + `npm run backup` + bouton master
+- [x] ensureStock / meta defaults auto-migrate
 
 ### 4.3 Ops
-- [ ] `FRONT_ORIGIN` strict CORS
-- [ ] HTTPS (Caddy/Nginx) sur domaine `.dz` ou tunnel
-- [ ] Variables env documentées (`.env.example`)
-- [ ] Healthcheck + uptime ping
+- [x] `FRONT_ORIGIN` env (défaut `*` démo) + `.env.example`
+- [ ] HTTPS — doc hébergeur (hors sandbox)
+- [x] `.env.example`
+- [x] `/api/health` enrichi (cors, payments)
 
 ### 4.4 Desk UX
-- [ ] Son/badge nouvelle réservation
-- [ ] Impression ticket simple (window.print CSS)
-- [ ] Marquer « prêt » → message WA client (lien wa.me)
+- [x] Poll desk 20s + beep + toast nouvelle résa
+- [x] Print CSS desk tickets
+- [x] WA ready link (Phase 1 desk)
 
 **Exit Phase 4**
 - Master gère stock/photos/commandes 100 % via UI sans toucher au code
 - Redémarrage serveur : zéro perte commandes
 - Export CSV du jour OK
 
-**Note estimée : 9.5**
+**Note estimée : 9.3 — livré CRUD/upload/CSV/backup/rate-limit (SQLite/HTTPS hors sandbox)**
 
 ---
 
