@@ -94,6 +94,50 @@ function emptyMeta() {
   }
 }
 
+export const DEMO_CUSTOMERS = [
+  {
+    id: 'demo-karim',
+    role: 'customer',
+    email: 'karim.oran@demo.dz',
+    passwordPlain: 'karim31',
+    name: 'Karim B.',
+    phone: '0550123456',
+    avatar: 'chip',
+    accent: 'blue',
+    provider: 'email',
+    demo: true
+  },
+  {
+    id: 'demo-amina',
+    role: 'customer',
+    email: 'amina.castors@demo.dz',
+    passwordPlain: 'amina31',
+    name: 'Amina K.',
+    phone: '0669174617',
+    avatar: 'card',
+    accent: 'gold',
+    provider: 'email',
+    demo: true
+  },
+  {
+    id: 'demo-yacine',
+    role: 'customer',
+    email: 'yacine.pc@demo.dz',
+    passwordPlain: 'yacine31',
+    name: 'Yacine M.',
+    phone: '0770650387',
+    avatar: 'pad',
+    accent: 'red',
+    provider: 'email',
+    demo: true
+  }
+]
+
+function demoUser(seed) {
+  const { passwordPlain, ...rest } = seed
+  return { ...rest, password: hashPass(passwordPlain) }
+}
+
 export function loadUsers(storage) {
   const raw = storage?.getItem?.(KEY_USERS)
   let list = []
@@ -105,8 +149,28 @@ export function loadUsers(storage) {
       list = []
     }
   }
-  if (!list.some((u) => u.role === 'master')) list = [masterUser(), ...list]
+  let changed = false
+  if (!list.some((u) => u.role === 'master')) {
+    list = [masterUser(), ...list]
+    changed = true
+  }
+  DEMO_CUSTOMERS.forEach((d) => {
+    if (!list.some((u) => u.id === d.id || (d.email && u.email === d.email))) {
+      list = [...list, demoUser(d)]
+      changed = true
+    }
+  })
+  if (changed) saveUsers(storage, list)
   return list
+}
+
+export function phoneCarrier(value) {
+  const p = normalizePhone(value)
+  if (!isDzPhone(p)) return null
+  if (p.startsWith('05')) return 'ooredoo'
+  if (p.startsWith('06')) return 'mobilis'
+  if (p.startsWith('07')) return 'djezzy'
+  return null
 }
 
 export function saveUsers(storage, users) {

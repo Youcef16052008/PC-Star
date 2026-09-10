@@ -1,14 +1,15 @@
 import { useMemo, useState } from 'react'
-import { BUILDER_SLOTS, PRODUCTS, STORE, checkCompatibility, money, specOf, splitWarnings } from './data'
+import { BUILDER_SLOTS, STORE, checkCompatibility, money, specOf, splitWarnings } from './data'
 import PartThumb from './PartThumb.jsx'
 
-function stockLabel(n) {
-  if (n <= 0) return { text: 'Out of stock', cls: 'stock-out' }
-  if (n <= 3) return { text: `${n} left`, cls: 'stock-low' }
-  return { text: `${n} in store`, cls: 'stock-ok' }
+function stockLabel(n, t) {
+  if (n <= 0) return { text: t('outOfStock'), cls: 'stock-out' }
+  if (n <= 3) return { text: `${n} ${t('left')}`, cls: 'stock-low' }
+  return { text: `${n} ${t('inStore')}`, cls: 'stock-ok' }
 }
 
-export default function BuilderPage({ build, setBuild, liveStock, onAdd, onOpen, onGoCart, setToast }) {
+export default function BuilderPage({ t, products, build, setBuild, liveStock, onAdd, onOpen, onGoCart, setToast }) {
+  const catalog = products || []
   const [group, setGroup] = useState('parts')
   const [slotKey, setSlotKey] = useState('motherboard')
   const [q, setQ] = useState('')
@@ -26,10 +27,11 @@ export default function BuilderPage({ build, setBuild, liveStock, onAdd, onOpen,
   const total = picked.reduce((s, p) => s + p.price, 0)
   const locked = slot.needsBoard && !board
   const heatOk = blocks.length === 0
+  const slotLabel = t(`line_${slot.key}`) !== `line_${slot.key}` ? t(`line_${slot.key}`) : slot.label
 
   const options = useMemo(() => {
     if (locked) return []
-    let list = PRODUCTS.filter(slot.pick)
+    let list = catalog.filter(slot.pick)
     if (slot.key === 'cpu' && board) list = list.filter((p) => p.compat?.socket === board.compat?.socket)
     if (slot.key === 'ram' && board) list = list.filter((p) => !board.compat?.memory || p.compat?.memory === board.compat.memory)
     if (slot.key === 'cooler' && board) {
@@ -54,12 +56,12 @@ export default function BuilderPage({ build, setBuild, liveStock, onAdd, onOpen,
       list = list.filter((p) => `${p.name} ${p.sku} ${p.short} ${p.brand}`.toLowerCase().includes(query))
     }
     return list
-  }, [slot, board, cpu, locked, brand, q])
+  }, [slot, board, cpu, locked, brand, q, catalog])
 
   const brands = useMemo(() => {
-    const list = PRODUCTS.filter(slot.pick)
+    const list = catalog.filter(slot.pick)
     return [...new Set(list.map((p) => p.brand))].sort((a, b) => a.localeCompare(b))
-  }, [slot])
+  }, [slot, catalog])
 
   function chooseSlot(key) {
     setSlotKey(key)
@@ -93,25 +95,25 @@ export default function BuilderPage({ build, setBuild, liveStock, onAdd, onOpen,
 
   function addBuild() {
     if (!board) {
-      setToast('Pick a motherboard first')
+      setToast(t('toastPickBoard'))
       chooseSlot('motherboard')
       return
     }
     if (!requiredReady) {
-      setToast('Motherboard, CPU and RAM are required')
+      setToast(t('toastNeedCore'))
       return
     }
     if (!socketOk) {
-      setToast('CPU and motherboard sockets must match')
+      setToast(t('toastSocket'))
       return
     }
     if (!heatOk) {
-      setToast('This mix can overheat or bottleneck. Fix the red warnings first.')
+      setToast(t('toastHeat'))
       return
     }
     const blocked = picked.find((p) => liveStock(p) <= 0)
     if (blocked) {
-      setToast(`${blocked.name} is out of stock`)
+      setToast(t('toastOos', { name: blocked.name }))
       return
     }
     picked.forEach(onAdd)
@@ -124,16 +126,13 @@ export default function BuilderPage({ build, setBuild, liveStock, onAdd, onOpen,
   return (
     <main className="wrap page">
       <div className="search-hero">
-        <div className="crumb">Shop / PC builder</div>
-        <h1>Build a PC for pickup</h1>
-        <p>
-          Motherboard first. CPU, RAM and GPU must match — a too-high-gamme GPU on a weak CPU or board
-          will bottleneck or surchauffe. Collect at {STORE.address}.
-        </p>
+        <div className="crumb">{t('builderCrumb')}</div>
+        <h1>{t('builderTitle')}</h1>
+        <p>{t('builderBody', { address: STORE.address })}</p>
       </div>
 
       <div className="builder-progress">
-        <span>{filled} / {BUILDER_SLOTS.length} chosen</span>
+        <span>{t('builderChosen', { n: filled, total: BUILDER_SLOTS.length })}</span>
         <div className="builder-bar" aria-hidden>
           <i style={{ width: `${(filled / BUILDER_SLOTS.length) * 100}%` }} />
         </div>
@@ -143,24 +142,45 @@ export default function BuilderPage({ build, setBuild, liveStock, onAdd, onOpen,
         <div>
           <div className="line-tabs">
             <div className="line-group">
-              <span>Catalog</span>
-              <button type="button" className={`chip ${group === 'parts' ? 'on' : ''}`} onClick={() => { setGroup('parts'); chooseSlot('motherboard') }}>PC parts</button>
-              <button type="button" className={`chip ${group === 'accessories' ? 'on' : ''}`} onClick={() => { setGroup('accessories'); chooseSlot('keyboard') }}>Accessories</button>
+              <span>{t('filters')}</span>
+              <button
+                type="button"
+                className={`chip ${group === 'parts' ? 'on' : ''}`}
+                onClick={() => {
+                  setGroup('parts')
+                  chooseSlot('motherboard')
+                }}
+              >
+                {t('catalogParts')}
+              </button>
+              <button
+                type="button"
+                className={`chip ${group === 'accessories' ? 'on' : ''}`}
+                onClick={() => {
+                  setGroup('accessories')
+                  chooseSlot('keyboard')
+                }}
+              >
+                {t('catalogAcc')}
+              </button>
             </div>
           </div>
 
           <div className="builder-slot-row">
-            {slots.map((s) => (
-              <button
-                key={s.key}
-                type="button"
-                className={`builder-tab ${slotKey === s.key ? 'on' : ''} ${build[s.key] ? 'has' : ''} ${s.required ? 'req' : ''}`}
-                onClick={() => chooseSlot(s.key)}
-              >
-                {s.label}
-                {build[s.key] ? <b>Picked</b> : s.required ? <em>Need</em> : <em>Optional</em>}
-              </button>
-            ))}
+            {slots.map((s) => {
+              const lab = t(`line_${s.key}`) !== `line_${s.key}` ? t(`line_${s.key}`) : s.label
+              return (
+                <button
+                  key={s.key}
+                  type="button"
+                  className={`builder-tab ${slotKey === s.key ? 'on' : ''} ${build[s.key] ? 'has' : ''} ${s.required ? 'req' : ''}`}
+                  onClick={() => chooseSlot(s.key)}
+                >
+                  {lab}
+                  {build[s.key] ? <b>{t('picked')}</b> : s.required ? <em>{t('need')}</em> : <em>{t('optional')}</em>}
+                </button>
+              )
+            })}
           </div>
 
           <div className="builder-tools">
@@ -168,25 +188,29 @@ export default function BuilderPage({ build, setBuild, liveStock, onAdd, onOpen,
               className="field"
               value={q}
               onChange={(e) => setQ(e.target.value)}
-              placeholder={`Search ${slot.label.toLowerCase()} by name, SKU, brand…`}
-              aria-label={`Search ${slot.label}`}
+              placeholder={t('searchSlot', { slot: slotLabel })}
+              aria-label={slotLabel}
               disabled={locked}
             />
-            <select className="field brand-field" value={brand} onChange={(e) => setBrand(e.target.value)} disabled={locked} aria-label="Brand">
-              <option value="all">All {slot.label} brands</option>
-              {brands.map((b) => <option key={b} value={b}>{b}</option>)}
+            <select className="field brand-field" value={brand} onChange={(e) => setBrand(e.target.value)} disabled={locked} aria-label={t('brands')}>
+              <option value="all">{t('allBrands')}</option>
+              {brands.map((b) => (
+                <option key={b} value={b}>
+                  {b}
+                </option>
+              ))}
             </select>
           </div>
 
           {locked ? (
-            <p className="empty">Pick a motherboard first. Then {slot.label.toLowerCase()} options follow its socket.</p>
+            <p className="empty">{t('pickBoardFirst')}</p>
           ) : options.length === 0 ? (
-            <p className="empty">No {slot.label.toLowerCase()} match. Try another brand or clear the search.</p>
+            <p className="empty">{t('noProducts')}</p>
           ) : (
             <div className="builder-grid">
               {options.map((p) => {
                 const left = liveStock(p)
-                const st = stockLabel(left)
+                const st = stockLabel(left, t)
                 const on = current && current.id === p.id
                 const gpuBlocks = p.gpuBlocks || []
                 const gpuNotes = p.gpuNotes || []
@@ -199,8 +223,16 @@ export default function BuilderPage({ build, setBuild, liveStock, onAdd, onOpen,
                       <span className={`badge ${st.cls}`}>{st.text}</span>
                     </button>
                     <div className="pick-body">
-                      <div className="sku">{p.brand}{spec.tdp ? ` · ${spec.tdp}W` : ''}{spec.vrm ? ` · VRM ${spec.vrm}W` : ''}</div>
-                      <h3><button type="button" onClick={() => onOpen(p.id)}>{p.name}</button></h3>
+                      <div className="sku">
+                        {p.brand}
+                        {spec.tdp ? ` · ${spec.tdp}W` : ''}
+                        {spec.vrm ? ` · VRM ${spec.vrm}W` : ''}
+                      </div>
+                      <h3>
+                        <button type="button" onClick={() => onOpen(p.id)}>
+                          {p.name}
+                        </button>
+                      </h3>
                       <p className="short">{p.short}</p>
                       {tooHot && <p className="fit-err">{gpuBlocks[0]}</p>}
                       {!tooHot && gpuNotes[0] && <p className="fit-note">{gpuNotes[0]}</p>}
@@ -212,7 +244,7 @@ export default function BuilderPage({ build, setBuild, liveStock, onAdd, onOpen,
                           disabled={left <= 0 || tooHot}
                           onClick={() => (on ? clearSlot(slot.key) : pick(p))}
                         >
-                          {left <= 0 ? 'Sold out' : tooHot ? 'Too high gamme' : on ? 'Selected' : 'Choose'}
+                          {left <= 0 ? t('soldOut') : tooHot ? t('tooHighGamme') : on ? t('selected') : t('choose')}
                         </button>
                       </div>
                     </div>
@@ -224,51 +256,64 @@ export default function BuilderPage({ build, setBuild, liveStock, onAdd, onOpen,
         </div>
 
         <aside className="callbox build-summary">
-          <h2>This build</h2>
+          <h2>{t('thisBuild')}</h2>
           {!board ? (
-            <p>Pick a motherboard first. CPU, RAM and GPU then follow socket, VRM and power so the card does not surchauffe.</p>
+            <p>{t('pickBoardFirst')}</p>
           ) : (
             <ul className="build-list">
-              {BUILDER_SLOTS.map((s) => (
-                <li key={s.key} className={build[s.key] ? '' : 'dim'}>
-                  <button type="button" className="build-jump" onClick={() => chooseSlot(s.key)}>
-                    {s.label}
-                  </button>
-                  {build[s.key] ? (
-                    <span className="build-pick">
-                      <strong>{money(build[s.key].price)}</strong>
-                      <button type="button" className="remove" onClick={() => clearSlot(s.key)}>×</button>
-                    </span>
-                  ) : (
-                    <em>{s.required ? 'Required' : 'Skip'}</em>
-                  )}
-                </li>
-              ))}
+              {BUILDER_SLOTS.map((s) => {
+                const lab = t(`line_${s.key}`) !== `line_${s.key}` ? t(`line_${s.key}`) : s.label
+                return (
+                  <li key={s.key} className={build[s.key] ? '' : 'dim'}>
+                    <button type="button" className="build-jump" onClick={() => chooseSlot(s.key)}>
+                      {lab}
+                    </button>
+                    {build[s.key] ? (
+                      <span className="build-pick">
+                        <strong>{money(build[s.key].price)}</strong>
+                        <button type="button" className="remove" onClick={() => clearSlot(s.key)}>
+                          ×
+                        </button>
+                      </span>
+                    ) : (
+                      <em>{s.required ? t('required') : t('skip')}</em>
+                    )}
+                  </li>
+                )
+              })}
             </ul>
           )}
-          <div className="total">Total {money(total)}</div>
+          <div className="total">
+            {t('total')} {money(total)}
+          </div>
           {!socketOk && cpu && board && (
             <div className="warn danger">
-              <h3>Socket mismatch</h3>
-              <p>{cpu.name} is {cpu.compat.socket}. {board.name} is {board.compat.socket}.</p>
+              <h3>{t('socketMismatch')}</h3>
+              <p>
+                {cpu.name} is {cpu.compat.socket}. {board.name} is {board.compat.socket}.
+              </p>
             </div>
           )}
           {blocks.length > 0 && (
             <div className="warn danger">
-              <h3>Will not run / will overheat</h3>
-              {blocks.map((w) => <p key={w}>{w}</p>)}
+              <h3>{t('willNotRun')}</h3>
+              {blocks.map((w) => (
+                <p key={w}>{w}</p>
+              ))}
             </div>
           )}
           {socketOk && notes.length > 0 && (
             <div className="warn">
-              <h3>Watch this</h3>
-              {notes.map((w) => <p key={w}>{w}</p>)}
+              <h3>{t('watchThis')}</h3>
+              {notes.map((w) => (
+                <p key={w}>{w}</p>
+              ))}
             </div>
           )}
           <button className="add wide" type="button" disabled={!requiredReady || !socketOk || !heatOk} onClick={addBuild}>
-            Add build to cart
+            {t('addBuild')}
           </button>
-          <p className="short">Reserve from the cart. Pay in dinars at pickup in Oran.</p>
+          <p className="short">{t('builderPayNote')}</p>
         </aside>
       </div>
     </main>

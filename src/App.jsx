@@ -4,6 +4,7 @@ import {
   COMPARE_FIELDS,
   DEALS,
   GUIDES,
+  PART_LINES,
   PRODUCTS,
   REVIEWS,
   SLOTS,
@@ -13,7 +14,6 @@ import {
   checkCompatibility,
   money,
   splitWarnings,
-  relatedOf,
   starText,
   third
 } from './data'
@@ -21,11 +21,48 @@ import SearchPage from './SearchPage.jsx'
 import BuilderPage from './BuilderPage.jsx'
 import Orbit from './Orbit.jsx'
 import PartThumb from './PartThumb.jsx'
+import AuthPanel from './AuthPanel.jsx'
+import ProfilePage from './ProfilePage.jsx'
+import MasterPage from './MasterPage.jsx'
+import { t as translate, LANGS, langMeta } from './i18n.js'
+import {
+  applyDocumentChrome,
+  loadLang,
+  loadOrders,
+  loadTheme,
+  resolveTheme,
+  saveLang,
+  saveOrders,
+  saveTheme
+} from './prefs.js'
+import {
+  ACCENTS,
+  AVATARS,
+  buildShopView,
+  isDzPhone,
+  loadMeta,
+  loadSession,
+  loadUsers,
+  normalizePhone,
+  phoneCarrier,
+  saveMeta,
+  saveSession,
+  saveUsers
+} from './shopStore.js'
 
-function stockLabel(n) {
-  if (n <= 0) return { text: 'Out of stock', cls: 'stock-out' }
-  if (n <= 3) return { text: `${n} left`, cls: 'stock-low' }
-  return { text: `${n} in store`, cls: 'stock-ok' }
+const storage = typeof localStorage !== 'undefined' ? localStorage : null
+
+const BASE_PANELS = [
+  { id: 'parts', titleKey: 'panelParts' },
+  { id: 'machines', titleKey: 'panelMachines' },
+  { id: 'desk', titleKey: 'panelDesk' },
+  { id: 'accessories', titleKey: 'panelAccessories' }
+]
+
+function stockLabel(n, t) {
+  if (n <= 0) return { text: t('outOfStock'), cls: 'stock-out' }
+  if (n <= 3) return { text: `${n} ${t('left')}`, cls: 'stock-low' }
+  return { text: `${n} ${t('inStore')}`, cls: 'stock-ok' }
 }
 
 function cartMessage(cart, total, pickup) {
@@ -47,7 +84,19 @@ function Stars({ product }) {
   )
 }
 
+function AvatarBadge({ user, size = '' }) {
+  if (!user) return null
+  const mark = AVATARS.find((a) => a.id === user.avatar)?.mark || 'PS'
+  return <span className={`av ${size} av-${user.avatar || 'star'} accent-${user.accent || 'green'}`}>{mark}</span>
+}
+
 export default function App() {
+  const [lang, setLang] = useState(() => loadLang(storage))
+  const [themePref, setThemePref] = useState(() => loadTheme(storage))
+  const [theme, setTheme] = useState(() => resolveTheme(loadTheme(storage)))
+  const [users, setUsers] = useState(() => loadUsers(storage))
+  const [session, setSession] = useState(() => loadSession(storage))
+  const [meta, setMeta] = useState(() => loadMeta(storage))
   const [page, setPage] = useState('shop')
   const [selectedId, setSelectedId] = useState(null)
   const [photoIndex, setPhotoIndex] = useState(0)
@@ -56,36 +105,109 @@ export default function App() {
   const [cart, setCart] = useState([])
   const [toast, setToast] = useState('')
   const [pickup, setPickup] = useState({ name: '', phone: '', slot: SLOTS[2] })
-  const [reservations, setReservations] = useState([])
+  const [phoneErr, setPhoneErr] = useState('')
+  const [reservations, setReservations] = useState(() => loadOrders(storage))
   const [reserved, setReserved] = useState(null)
   const [compareIds, setCompareIds] = useState([])
   const [build, setBuild] = useState({})
+  const [authOpen, setAuthOpen] = useState(false)
+  const [navOpen, setNavOpen] = useState(false)
+
+  const t = (key, vars) => translate(lang, key, vars)
+  const user = useMemo(() => {
+    if (!session?.userId) return null
+    return users.find((u) => u.id === session.userId) || null
+  }, [session, users])
+  const isMaster = user?.role === 'master'
+
+  const shopView = useMemo(() => buildShopView(PRODUCTS, PART_LINES, BASE_PANELS, meta), [meta])
+  const catalog = shopView.products
+
+  useEffect(() => {
+    const metaL = langMeta(lang)
+    applyDocumentChrome({ lang, dir: metaL.dir, theme })
+  }, [lang, theme])
+
+  useEffect(() => {
+    const apply = () => setTheme(resolveTheme(themePref))
+    apply()
+    if (themePref !== 'system' || typeof window === 'undefined' || !window.matchMedia) return undefined
+    const mql = window.matchMedia('(prefers-color-scheme: dark)')
+    const onChange = () => apply()
+    mql.addEventListener?.('change', onChange)
+    return () => mql.removeEventListener?.('change', onChange)
+  }, [themePref])
 
   useEffect(() => {
     if (!toast) return undefined
-    const t = setTimeout(() => setToast(''), 1800)
-    return () => clearTimeout(t)
+    const timer = setTimeout(() => setToast(''), 1800)
+    return () => clearTimeout(timer)
   }, [toast])
 
-  const selected = PRODUCTS.find((p) => p.id === selectedId)
+  useEffect(() => {
+    if (!user) return
+    const accent = ACCENTS.find((a) => a.id === user.accent)
+    if (accent && typeof document !== 'undefined') {
+      document.documentElement.style.setProperty('--blue', accent.hex)
+      document.documentElement.style.setProperty('--blue-on', accent.on)
+    }
+  }, [user])
+
+  useEffect(() => {
+    if (user?.name && !pickup.name) setPickup((p) => ({ ...p, name: user.name }))
+    if (user?.phone && !pickup.phone) setPickup((p) => ({ ...p, phone: user.phone }))
+  }, [user]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  function persistUsers(next) {
+    setUsers(next)
+    saveUsers(storage, next)
+  }
+
+  function persistSession(next) {
+    setSession(next)
+    saveSession(storage, next)
+  }
+
+  function persistMeta(next) {
+    setMeta(next)
+    saveMeta(storage, next)
+  }
+
+  function changeLang(id) {
+    setLang(id)
+    saveLang(storage, id)
+  }
+
+  function changeTheme(id) {
+    setThemePref(id)
+    saveTheme(storage, id)
+  }
+
+  function logout() {
+    persistSession(null)
+    setToast(t('navLogout'))
+    if (page === 'desk' || page === 'master' || page === 'profile') go('shop')
+  }
+
+  const selected = catalog.find((p) => p.id === selectedId)
   const count = cart.reduce((s, i) => s + i.qty, 0)
   const total = cart.reduce((s, i) => s + i.qty * i.price, 0)
   const warnings = useMemo(() => checkCompatibility(cart), [cart])
   const { blocks, notes } = useMemo(() => splitWarnings(warnings), [warnings])
-  const compareItems = compareIds.map((id) => PRODUCTS.find((p) => p.id === id)).filter(Boolean)
+  const compareItems = compareIds.map((id) => catalog.find((p) => p.id === id)).filter(Boolean)
 
   const list = useMemo(() => {
     const q = query.trim().toLowerCase()
-    return PRODUCTS.filter((p) => {
+    return catalog.filter((p) => {
       const catOk = category === 'all' || p.category === category
       const qOk =
         !q ||
         p.name.toLowerCase().includes(q) ||
         p.sku.toLowerCase().includes(q) ||
-        p.short.toLowerCase().includes(q)
+        (p.short || '').toLowerCase().includes(q)
       return catOk && qOk
     })
-  }, [category, query])
+  }, [category, query, catalog])
 
   function liveStock(product) {
     const inCart = cart.find((i) => i.id === product.id)
@@ -95,7 +217,7 @@ export default function App() {
   function add(product) {
     const left = liveStock(product)
     if (left <= 0) {
-      setToast('Out of stock')
+      setToast(t('outOfStock'))
       return
     }
     setCart((prev) => {
@@ -103,11 +225,11 @@ export default function App() {
       if (found) return prev.map((i) => (i.id === product.id ? { ...i, qty: i.qty + 1 } : i))
       return [...prev, { ...product, qty: 1 }]
     })
-    setToast(`${product.name} added`)
+    setToast(`${product.name} ${t('added')}`)
   }
 
   function setQty(id, qty) {
-    const product = PRODUCTS.find((p) => p.id === id)
+    const product = catalog.find((p) => p.id === id)
     const max = product ? product.stock : 1
     setCart((prev) =>
       prev
@@ -124,11 +246,27 @@ export default function App() {
     setSelectedId(id)
     setPhotoIndex(0)
     setPage('product')
+    setNavOpen(false)
     window.scrollTo({ top: 0 })
   }
 
   function go(next) {
+    if (next === 'desk' && !isMaster) {
+      setToast(t('masterOnlyDesk'))
+      setAuthOpen(true)
+      return
+    }
+    if (next === 'master' && !isMaster) {
+      setToast(t('masterForbidden'))
+      setAuthOpen(true)
+      return
+    }
+    if (next === 'profile' && !user) {
+      setAuthOpen(true)
+      return
+    }
     setPage(next)
+    setNavOpen(false)
     window.scrollTo({ top: 0 })
   }
 
@@ -136,7 +274,7 @@ export default function App() {
     setCompareIds((prev) => {
       if (prev.includes(id)) return prev.filter((x) => x !== id)
       if (prev.length >= 3) {
-        setToast('Compare up to 3 products')
+        setToast(t('compareUpTo'))
         return prev
       }
       return [...prev, id]
@@ -145,51 +283,126 @@ export default function App() {
 
   function reserve(e) {
     e.preventDefault()
-    if (!pickup.name.trim() || !pickup.phone.trim() || cart.length === 0) return
+    if (!pickup.name.trim() || cart.length === 0) return
+    if (!isDzPhone(pickup.phone)) {
+      setPhoneErr(t('phoneInvalid'))
+      return
+    }
+    setPhoneErr('')
     const code = `PS-${String(Date.now()).slice(-6)}`
     const order = {
       code,
-      ...pickup,
+      name: pickup.name.trim(),
+      phone: normalizePhone(pickup.phone),
+      carrier: phoneCarrier(pickup.phone),
+      slot: pickup.slot,
       items: cart,
       total,
-      at: new Date().toLocaleString('fr-DZ')
+      userId: user?.id || null,
+      at: new Date().toLocaleString(lang === 'ar' ? 'ar-DZ' : lang === 'fr' ? 'fr-DZ' : 'en-GB')
     }
-    setReservations((prev) => [order, ...prev])
+    const next = [order, ...reservations]
+    setReservations(next)
+    saveOrders(storage, next)
     setReserved(order)
     setCart([])
   }
 
   const msg = cartMessage(cart, total, pickup)
   const waHref = `https://wa.me/${STORE.whatsapp}?text=${encodeURIComponent(msg)}`
+  const carrier = phoneCarrier(pickup.phone)
 
   return (
-    <div className="app">
+    <div className={`app theme-${theme} ${user ? `accent-${user.accent || 'green'}` : ''}`}>
       <header className="wrap nav">
-        <button className="logo" onClick={() => go('shop')}>
+        <button className="logo" type="button" onClick={() => go('shop')}>
           PC <span>Star</span>
         </button>
-        <nav className="nav-links">
-          <button className={page === 'shop' || page === 'product' ? 'on' : ''} onClick={() => go('shop')}>Shop</button>
-          <button className={page === 'search' ? 'on' : ''} onClick={() => go('search')}>Search</button>
-          <button className={page === 'builder' ? 'on' : ''} onClick={() => go('builder')}>PC builder</button>
-          <button className={page === 'about' ? 'on' : ''} onClick={() => go('about')}>About us</button>
-          <button className={page === 'desk' ? 'on' : ''} onClick={() => go('desk')}>Desk list</button>
-          <button className="cart-btn" onClick={() => go('cart')}>Cart {count}</button>
+
+        <nav className={`nav-links ${navOpen ? 'open' : ''}`}>
+          <button type="button" className={page === 'shop' || page === 'product' ? 'on' : ''} onClick={() => go('shop')}>
+            {t('navShop')}
+          </button>
+          <button type="button" className={page === 'search' ? 'on' : ''} onClick={() => go('search')}>
+            {t('navSearch')}
+          </button>
+          <button type="button" className={page === 'builder' ? 'on' : ''} onClick={() => go('builder')}>
+            {t('navBuilder')}
+          </button>
+          <button type="button" className={page === 'about' ? 'on' : ''} onClick={() => go('about')}>
+            {t('navAbout')}
+          </button>
+          {isMaster && (
+            <button type="button" className={page === 'desk' ? 'on' : ''} onClick={() => go('desk')}>
+              {t('navDesk')}
+            </button>
+          )}
+          {isMaster && (
+            <button type="button" className={page === 'master' ? 'on' : ''} onClick={() => go('master')}>
+              {t('navMaster')}
+            </button>
+          )}
+          <button type="button" className="cart-btn" onClick={() => go('cart')}>
+            {t('navCart')} {count}
+          </button>
+          {user ? (
+            <>
+              <button type="button" className={`account-btn ${page === 'profile' ? 'on' : ''}`} onClick={() => go('profile')}>
+                <AvatarBadge user={user} />
+                <span>{user.name}</span>
+              </button>
+              <button type="button" className="ghost tiny" onClick={logout}>
+                {t('navLogout')}
+              </button>
+            </>
+          ) : (
+            <button type="button" className="ghost tiny" onClick={() => { setAuthOpen(true); setNavOpen(false) }}>
+              {t('navLogin')}
+            </button>
+          )}
         </nav>
+
+        <div className="nav-tools">
+          <div className="lang-switch" role="group" aria-label={t('lang')}>
+            {LANGS.map((l) => (
+              <button key={l.id} type="button" className={lang === l.id ? 'on' : ''} onClick={() => changeLang(l.id)}>
+                {l.short}
+              </button>
+            ))}
+          </div>
+          <div className="theme-switch" role="group" aria-label="theme">
+            {[
+              ['system', t('themeSystem')],
+              ['light', t('themeLight')],
+              ['dark', t('themeDark')]
+            ].map(([id, label]) => (
+              <button key={id} type="button" className={themePref === id ? 'on' : ''} onClick={() => changeTheme(id)} title={label}>
+                {id === 'light' ? '☀' : id === 'dark' ? '☾' : '◐'}
+              </button>
+            ))}
+          </div>
+          <button type="button" className="nav-burger" aria-label={t('navMenu')} aria-expanded={navOpen} onClick={() => setNavOpen((v) => !v)}>
+            ☰
+          </button>
+        </div>
       </header>
 
       {page === 'shop' && (
         <main className="wrap page">
           <section className="hero">
             <div>
-              <h1>PC, laptop, console — in dinars</h1>
-              <p>Parts, laptops, PC pret, USB, manettes. We also repair almost anything PC, laptop or console. Price in DA, pay at the desk in El Makari Les Castors, Oran.</p>
+              <h1>{t('heroTitle')}</h1>
+              <p>{t('heroBody')}</p>
               <div className="trust-row">
                 <span className="pickup">{STORE.address}</span>
-                <span className="pickup">Pay in 3x from 30 000 DA</span>
-                <span className="pickup">1-year shop warranty</span>
-                <button className="add" type="button" onClick={() => go('search')}>Advanced search</button>
-                <button className="ghost" type="button" onClick={() => go('builder')}>PC builder</button>
+                <span className="pickup">{t('pay3xBadge')}</span>
+                <span className="pickup">{t('warrantyBadge')}</span>
+                <button className="add" type="button" onClick={() => go('search')}>
+                  {t('advancedSearch')}
+                </button>
+                <button className="ghost" type="button" onClick={() => go('builder')}>
+                  {t('pcBuilder')}
+                </button>
               </div>
             </div>
             <div className="hero-orbit">
@@ -198,10 +411,10 @@ export default function App() {
           </section>
 
           <section className="deals">
-            <h2>This week</h2>
+            <h2>{t('thisWeek')}</h2>
             <div className="deal-row">
               {DEALS.map((d) => {
-                const p = PRODUCTS.find((x) => x.id === d.id)
+                const p = catalog.find((x) => x.id === d.id)
                 if (!p) return null
                 return (
                   <article className="deal-card" key={d.id}>
@@ -209,7 +422,11 @@ export default function App() {
                     <button type="button" className="deal-thumb" onClick={() => openProduct(p.id)}>
                       <PartThumb product={p} />
                     </button>
-                    <h3><button type="button" onClick={() => openProduct(p.id)}>{p.name}</button></h3>
+                    <h3>
+                      <button type="button" onClick={() => openProduct(p.id)}>
+                        {p.name}
+                      </button>
+                    </h3>
                     <div className="price">{money(p.price)}</div>
                     <p className="short">{d.note}</p>
                   </article>
@@ -219,7 +436,7 @@ export default function App() {
           </section>
 
           <section className="guides">
-            <h2>Star configs</h2>
+            <h2>{t('starConfigs')}</h2>
             <div className="guide-row">
               {GUIDES.map((g) => (
                 <article className="guide-card" key={g.id}>
@@ -232,30 +449,30 @@ export default function App() {
 
           <div className="toolbar">
             {CATEGORIES.map((c) => (
-              <button key={c.id} className={`chip ${category === c.id ? 'on' : ''}`} onClick={() => setCategory(c.id)}>
-                {c.label}
+              <button key={c.id} type="button" className={`chip ${category === c.id ? 'on' : ''}`} onClick={() => setCategory(c.id)}>
+                {t(`cat_${c.id}`)}
               </button>
             ))}
             <input
               className="search"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search name or SKU…"
-              aria-label="Search products"
+              placeholder={t('searchPlaceholder')}
+              aria-label={t('navSearch')}
             />
           </div>
 
           {list.length === 0 ? (
-            <p className="empty">No products in this filter.</p>
+            <p className="empty">{t('noProducts')}</p>
           ) : (
             <div className="grid">
               {list.map((p) => {
                 const left = liveStock(p)
-                const st = stockLabel(left)
+                const st = stockLabel(left, t)
                 const inCmp = compareIds.includes(p.id)
                 return (
                   <article className="card" key={p.id}>
-                    <button className="thumb" onClick={() => openProduct(p.id)} aria-label={p.name}>
+                    <button className="thumb" type="button" onClick={() => openProduct(p.id)} aria-label={p.name}>
                       <PartThumb product={p} />
                       <span className={`badge ${st.cls}`}>{st.text}</span>
                     </button>
@@ -267,16 +484,12 @@ export default function App() {
                       {p.price >= 30000 && <div className="pay3x">3x {third(p.price)}</div>}
                       <div className="row">
                         <div className="price">{money(p.price)}</div>
-                        <button className="add" disabled={left <= 0} onClick={() => add(p)}>
-                          {left <= 0 ? 'Sold out' : 'Add'}
+                        <button className="add" type="button" disabled={left <= 0} onClick={() => add(p)}>
+                          {left <= 0 ? t('soldOut') : t('add')}
                         </button>
                       </div>
-                      <button
-                        type="button"
-                        className={`ghost tiny ${inCmp ? 'on' : ''}`}
-                        onClick={() => toggleCompare(p.id)}
-                      >
-                        {inCmp ? 'In compare' : 'Compare'}
+                      <button type="button" className={`ghost tiny ${inCmp ? 'on' : ''}`} onClick={() => toggleCompare(p.id)}>
+                        {inCmp ? t('inCompare') : t('compare')}
                       </button>
                     </div>
                   </article>
@@ -289,6 +502,11 @@ export default function App() {
 
       {page === 'search' && (
         <SearchPage
+          t={t}
+          products={catalog}
+          lines={shopView.lines}
+          panels={shopView.panels}
+          lang={lang}
           liveStock={liveStock}
           onAdd={add}
           onOpen={openProduct}
@@ -299,6 +517,7 @@ export default function App() {
 
       {page === 'product' && selected && (
         <ProductPage
+          t={t}
           product={selected}
           photoIndex={photoIndex}
           setPhotoIndex={setPhotoIndex}
@@ -310,11 +529,13 @@ export default function App() {
           onOpen={openProduct}
           liveStock={liveStock}
           onAddRelated={add}
+          catalog={catalog}
         />
       )}
 
       {page === 'compare' && (
         <ComparePage
+          t={t}
           items={compareItems}
           liveStock={liveStock}
           onOpen={openProduct}
@@ -327,6 +548,8 @@ export default function App() {
 
       {page === 'builder' && (
         <BuilderPage
+          t={t}
+          products={catalog}
           build={build}
           setBuild={setBuild}
           liveStock={liveStock}
@@ -339,34 +562,58 @@ export default function App() {
 
       {page === 'cart' && (
         <main className="wrap page">
-          <button className="back" onClick={() => go('shop')}>← Continue shopping</button>
-          <h1 style={{ marginBottom: 16 }}>Cart</h1>
+          <button className="back" type="button" onClick={() => go('shop')}>
+            {t('continueShopping')}
+          </button>
+          <h1 style={{ marginBottom: 16 }}>{t('cartTitle')}</h1>
           {reserved ? (
             <div className="ok-box">
-              <h2>Reserved · {reserved.code}</h2>
+              <h2>{t('reservedTitle', { code: reserved.code })}</h2>
               <p>
-                {reserved.name}, we are preparing your order for {reserved.slot}.
-                Pickup at {STORE.address}. Pay in dinars at the desk.
+                {t('reservedBody', {
+                  name: reserved.name,
+                  slot: reserved.slot,
+                  address: STORE.address
+                })}
               </p>
-              <p className="short">Show this code at the desk: <strong>{reserved.code}</strong></p>
-              <button className="add" onClick={() => { setReserved(null); go('shop') }}>Back to shop</button>
+              <p className="short">
+                {t('showCode')} <strong>{reserved.code}</strong>
+              </p>
+              <button
+                className="add"
+                type="button"
+                onClick={() => {
+                  setReserved(null)
+                  go('shop')
+                }}
+              >
+                {t('backToShop')}
+              </button>
             </div>
           ) : cart.length === 0 ? (
-            <p className="empty">Your cart is empty.</p>
+            <p className="empty">{t('cartEmpty')}</p>
           ) : (
             <div className="cart-grid">
               <div className="cart-list">
                 {cart.map((i) => (
                   <div className="item" key={i.id}>
-                    <div className="item-thumb"><PartThumb product={i} /></div>
+                    <div className="item-thumb">
+                      <PartThumb product={i} />
+                    </div>
                     <div>
                       <div className="sku">{i.sku}</div>
                       <h3>{i.name}</h3>
                       <div className="qty">
-                        <button onClick={() => setQty(i.id, i.qty - 1)}>-</button>
+                        <button type="button" onClick={() => setQty(i.id, i.qty - 1)}>
+                          -
+                        </button>
                         <span>{i.qty}</span>
-                        <button onClick={() => setQty(i.id, i.qty + 1)}>+</button>
-                        <button className="remove" onClick={() => remove(i.id)}>Remove</button>
+                        <button type="button" onClick={() => setQty(i.id, i.qty + 1)}>
+                          +
+                        </button>
+                        <button className="remove" type="button" onClick={() => remove(i.id)}>
+                          {t('remove')}
+                        </button>
                       </div>
                     </div>
                     <strong>{money(i.qty * i.price)}</strong>
@@ -377,36 +624,77 @@ export default function App() {
               <div>
                 {blocks.length > 0 && (
                   <div className="warn danger">
-                    <h3>Will not run / will overheat</h3>
-                    {blocks.map((w) => <p key={w}>{w}</p>)}
-                    <p className="short">Fix this mix before you pay. The desk will refuse a high-gamme GPU on a weak CPU or board.</p>
+                    <h3>{t('willNotRun')}</h3>
+                    {blocks.map((w) => (
+                      <p key={w}>{w}</p>
+                    ))}
+                    <p className="short">{t('fixMix')}</p>
                   </div>
                 )}
                 {notes.length > 0 && (
                   <div className="warn">
-                    <h3>Watch this</h3>
-                    {notes.map((w) => <p key={w}>{w}</p>)}
-                    <p className="short">You can still reserve. The desk will confirm before you pay.</p>
+                    <h3>{t('watchThis')}</h3>
+                    {notes.map((w) => (
+                      <p key={w}>{w}</p>
+                    ))}
+                    <p className="short">{t('canStillReserve')}</p>
                   </div>
                 )}
 
                 <form className="callbox" onSubmit={reserve}>
-                  <h2>Reserve for pickup</h2>
-                  <p>We bag it. You collect it at El Makari Les Castors, Oran. Pay in DA at the desk.</p>
-                  <div className="total">Total {money(total)}</div>
-                  {total >= 30000 && <p className="pay3x">Or 3x {third(total)} at the desk (LICB-style).</p>}
-                  <label htmlFor="name">Your name</label>
-                  <input id="name" className="field" value={pickup.name} onChange={(e) => setPickup({ ...pickup, name: e.target.value })} required />
-                  <label htmlFor="phone">Phone</label>
-                  <input id="phone" className="field" value={pickup.phone} onChange={(e) => setPickup({ ...pickup, phone: e.target.value })} required />
-                  <label htmlFor="slot">Time slot today</label>
+                  <h2>{t('reserveTitle')}</h2>
+                  <p>{t('reserveBody')}</p>
+                  <div className="total">
+                    {t('total')} {money(total)}
+                  </div>
+                  {total >= 30000 && <p className="pay3x">{t('or3x', { amount: third(total) })}</p>}
+                  <label htmlFor="name">{t('yourName')}</label>
+                  <input
+                    id="name"
+                    className="field"
+                    value={pickup.name}
+                    onChange={(e) => setPickup({ ...pickup, name: e.target.value })}
+                    required
+                  />
+                  <label htmlFor="phone">{t('phone')}</label>
+                  <input
+                    id="phone"
+                    className="field"
+                    value={pickup.phone}
+                    onChange={(e) => {
+                      setPickup({ ...pickup, phone: e.target.value })
+                      setPhoneErr('')
+                    }}
+                    required
+                    inputMode="tel"
+                    placeholder="05xx / 06xx / 07xx"
+                    aria-invalid={!!phoneErr}
+                  />
+                  <p className="short">
+                    {t('phoneHint')}
+                    {carrier === 'mobilis' && ` · ${t('carrierMobilis')}`}
+                    {carrier === 'ooredoo' && ` · ${t('carrierOoredoo')}`}
+                    {carrier === 'djezzy' && ` · ${t('carrierDjezzy')}`}
+                  </p>
+                  {phoneErr && <p className="form-error">{phoneErr}</p>}
+                  <label htmlFor="slot">{t('timeSlot')}</label>
                   <select id="slot" className="field" value={pickup.slot} onChange={(e) => setPickup({ ...pickup, slot: e.target.value })}>
-                    {SLOTS.map((s) => <option key={s} value={s}>{s}</option>)}
+                    {SLOTS.map((s) => (
+                      <option key={s} value={s}>
+                        {s}
+                      </option>
+                    ))}
                   </select>
-                  <button className="add wide" type="submit">Reserve pickup</button>
+                  <button className="add wide" type="submit">
+                    {t('reservePickup')}
+                  </button>
                   <div className="alt-row">
-                    <a className="ghost" href={waHref} target="_blank" rel="noreferrer">WhatsApp this cart</a>
-                    <a className="ghost" href={STORE.phoneHref}>Call {STORE.phone}</a>
+                    <a className="ghost" href={waHref} target="_blank" rel="noreferrer">
+                      {t('whatsappCart')}
+                    </a>
+                    <a className="ghost" href={STORE.phoneHref}>
+                      {t('call')} {STORE.phone}
+                    </a>
                   </div>
                   <p className="short">{STORE.ready}</p>
                 </form>
@@ -420,7 +708,7 @@ export default function App() {
         <main className="wrap page">
           <div className="store-grid">
             <div className="store">
-              <h1>About us</h1>
+              <h1>{t('aboutTitle')}</h1>
               <p>{STORE.about}</p>
               <p>{STORE.services}</p>
               <p>{STORE.buyNote}</p>
@@ -432,33 +720,52 @@ export default function App() {
                   </article>
                 ))}
               </div>
-              <p><strong>{STORE.address}</strong></p>
+              <p>
+                <strong>{STORE.address}</strong>
+              </p>
               <p>{STORE.hours}</p>
               <p>{STORE.ready}</p>
               <p>{STORE.warranty}</p>
-              <p><a href={`mailto:${STORE.email}`}>{STORE.email}</a></p>
-              <p>Call <a href={STORE.phoneHref}>{STORE.phone}</a> · <a href={STORE.phone2Href}>{STORE.phone2}</a></p>
+              <p>
+                <a href={`mailto:${STORE.email}`}>{STORE.email}</a>
+              </p>
+              <p>
+                {t('call')} <a href={STORE.phoneHref}>{STORE.phone}</a> · <a href={STORE.phone2Href}>{STORE.phone2}</a>
+              </p>
               <div className="social-grid">
                 {STORE_LINKS.map((l) => (
-                  <a
-                    key={l.id}
-                    className={`social-btn social-${l.id}`}
-                    href={l.href}
-                    target="_blank"
-                    rel="noreferrer"
-                  >
+                  <a key={l.id} className={`social-btn social-${l.id}`} href={l.href} target="_blank" rel="noreferrer">
                     <span className="social-ico" aria-hidden>
                       {l.id === 'instagram' && (
-                        <svg viewBox="0 0 24 24" width="22" height="22"><rect x="3" y="3" width="18" height="18" rx="5" fill="none" stroke="currentColor" strokeWidth="1.8"/><circle cx="12" cy="12" r="4" fill="none" stroke="currentColor" strokeWidth="1.8"/><circle cx="17.5" cy="6.5" r="1.1" fill="currentColor"/></svg>
+                        <svg viewBox="0 0 24 24" width="22" height="22">
+                          <rect x="3" y="3" width="18" height="18" rx="5" fill="none" stroke="currentColor" strokeWidth="1.8" />
+                          <circle cx="12" cy="12" r="4" fill="none" stroke="currentColor" strokeWidth="1.8" />
+                          <circle cx="17.5" cy="6.5" r="1.1" fill="currentColor" />
+                        </svg>
                       )}
                       {l.id === 'facebook' && (
-                        <svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M14.5 8.5V6.8c0-.7.5-1.1 1.2-1.1H17V3.2h-2.1C12.4 3.2 11 4.7 11 7v1.5H9v2.6h2V21h3.5v-9.9h2.4l.3-2.6h-2.7z"/></svg>
+                        <svg viewBox="0 0 24 24" width="22" height="22">
+                          <path
+                            fill="currentColor"
+                            d="M14.5 8.5V6.8c0-.7.5-1.1 1.2-1.1H17V3.2h-2.1C12.4 3.2 11 4.7 11 7v1.5H9v2.6h2V21h3.5v-9.9h2.4l.3-2.6h-2.7z"
+                          />
+                        </svg>
                       )}
                       {l.id === 'whatsapp' && (
-                        <svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M12 3.2A8.7 8.7 0 0 0 4.4 16.4L3.2 21l4.7-1.2A8.8 8.8 0 1 0 12 3.2zm4.9 12.4c-.2.6-1.2 1.1-1.7 1.1-.4 0-.9.2-3-.8-2.5-1.2-4.1-3.9-4.2-4.1-.1-.2-1-1.3-1-2.5s.6-1.8.9-2c.2-.2.5-.3.7-.3h.5c.2 0 .4 0 .6.5.2.6.7 2 .8 2.1.1.2.1.3 0 .5l-.3.5c-.1.2-.3.4-.1.7.1.3.6 1 1.3 1.6.9.8 1.6 1 1.9 1.1.3.1.4.1.6-.1l.8-1.1c.2-.2.3-.2.6-.1l1.7.8c.3.1.4.2.5.3.1.3 0 .9-.2 1.5z"/></svg>
+                        <svg viewBox="0 0 24 24" width="22" height="22">
+                          <path
+                            fill="currentColor"
+                            d="M12 3.2A8.7 8.7 0 0 0 4.4 16.4L3.2 21l4.7-1.2A8.8 8.8 0 1 0 12 3.2zm4.9 12.4c-.2.6-1.2 1.1-1.7 1.1-.4 0-.9.2-3-.8-2.5-1.2-4.1-3.9-4.2-4.1-.1-.2-1-1.3-1-2.5s.6-1.8.9-2c.2-.2.5-.3.7-.3h.5c.2 0 .4 0 .6.5.2.6.7 2 .8 2.1.1.2.1.3 0 .5l-.3.5c-.1.2-.3.4-.1.7.1.3.6 1 1.3 1.6.9.8 1.6 1 1.9 1.1.3.1.4.1.6-.1l.8-1.1c.2-.2.3-.2.6-.1l1.7.8c.3.1.4.2.5.3.1.3 0 .9-.2 1.5z"
+                          />
+                        </svg>
                       )}
                       {l.id === 'maps' && (
-                        <svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M12 3.2c-3.3 0-6 2.5-6 6.1 0 4.5 6 11.5 6 11.5s6-7 6-11.5c0-3.6-2.7-6.1-6-6.1zm0 8.3a2.2 2.2 0 1 1 0-4.4 2.2 2.2 0 0 1 0 4.4z"/></svg>
+                        <svg viewBox="0 0 24 24" width="22" height="22">
+                          <path
+                            fill="currentColor"
+                            d="M12 3.2c-3.3 0-6 2.5-6 6.1 0 4.5 6 11.5 6 11.5s6-7 6-11.5c0-3.6-2.7-6.1-6-6.1zm0 8.3a2.2 2.2 0 1 1 0-4.4 2.2 2.2 0 0 1 0 4.4z"
+                          />
+                        </svg>
                       )}
                     </span>
                     <span>
@@ -471,38 +778,79 @@ export default function App() {
             </div>
             <div className="map-wrap">
               <iframe title="PC Star map" src={STORE.mapEmbed} loading="lazy" referrerPolicy="no-referrer-when-downgrade" />
-              <a className="map-link" href={STORE.mapUrl} target="_blank" rel="noreferrer">Open in Google Maps</a>
+              <a className="map-link" href={STORE.mapUrl} target="_blank" rel="noreferrer">
+                Google Maps
+              </a>
             </div>
           </div>
         </main>
       )}
 
-      {page === 'desk' && (
+      {page === 'desk' && isMaster && (
         <main className="wrap page">
-          <h1 style={{ marginBottom: 8 }}>Desk list</h1>
-          <p className="short" style={{ marginBottom: 18 }}>For the store: reservations to prepare. Newest first.</p>
+          <h1 style={{ marginBottom: 8 }}>{t('deskTitle')}</h1>
+          <p className="short" style={{ marginBottom: 18 }}>
+            {t('deskHint')}
+          </p>
           {reservations.length === 0 ? (
-            <p className="empty">No reservations yet.</p>
+            <p className="empty">{t('deskEmpty')}</p>
           ) : (
             <div className="desk-list">
               {reservations.map((r) => (
                 <article className="desk-card" key={r.code}>
                   <header>
                     <strong>{r.code}</strong>
-                    <span>{r.slot} · {r.at}</span>
+                    <span>
+                      {r.slot} · {r.at}
+                    </span>
                   </header>
-                  <p>{r.name} · {r.phone}</p>
+                  <p>
+                    {r.name} · {r.phone}
+                    {r.carrier ? ` · ${r.carrier}` : ''}
+                  </p>
                   <ul>
                     {r.items.map((i) => (
-                      <li key={i.id}>{i.qty} × {i.name} <span className="sku">{i.sku}</span></li>
+                      <li key={i.id}>
+                        {i.qty} × {i.name} <span className="sku">{i.sku}</span>
+                      </li>
                     ))}
                   </ul>
-                  <div className="total">Due in store {money(r.total)}</div>
+                  <div className="total">
+                    {t('dueInStore')} {money(r.total)}
+                  </div>
                 </article>
               ))}
             </div>
           )}
         </main>
+      )}
+
+      {page === 'profile' && user && (
+        <ProfilePage
+          t={t}
+          user={user}
+          users={users}
+          onUsers={persistUsers}
+          onUser={(u) => persistSession({ userId: u.id })}
+          setToast={setToast}
+          onBack={() => go('shop')}
+        />
+      )}
+
+      {page === 'master' && (
+        <MasterPage
+          t={t}
+          lang={lang}
+          user={user}
+          users={users}
+          onUsers={persistUsers}
+          products={catalog}
+          meta={meta}
+          onMeta={persistMeta}
+          basePanels={BASE_PANELS}
+          setToast={setToast}
+          onBack={() => go('shop')}
+        />
       )}
 
       {compareIds.length > 0 && page !== 'compare' && (
@@ -516,32 +864,51 @@ export default function App() {
               ))}
             </div>
             <div className="tray-actions">
-              <button className="add" disabled={compareIds.length < 2} onClick={() => go('compare')}>
-                Compare {compareIds.length}
+              <button className="add" type="button" disabled={compareIds.length < 2} onClick={() => go('compare')}>
+                {t('compareN', { n: compareIds.length })}
               </button>
-              <button className="ghost tiny" onClick={() => setCompareIds([])}>Clear</button>
+              <button className="ghost tiny" type="button" onClick={() => setCompareIds([])}>
+                {t('clear')}
+              </button>
             </div>
           </div>
         </div>
       )}
 
       <footer className="footer">
-        <div className="wrap">{STORE.name} · {STORE.address} · {STORE.phone} · Prices in DA</div>
+        <div className="wrap">
+          {STORE.name} · {STORE.address} · {STORE.phone} · {t('pricesInDa')}
+        </div>
       </footer>
 
-      <a className="wa-fab" href={`https://wa.me/${STORE.whatsapp}`} target="_blank" rel="noreferrer">WhatsApp</a>
+      <a className="wa-fab" href={`https://wa.me/${STORE.whatsapp}`} target="_blank" rel="noreferrer">
+        WhatsApp
+      </a>
       {toast && <div className="toast">{toast}</div>}
+
+      {authOpen && (
+        <AuthPanel
+          t={t}
+          users={users}
+          onUsers={persistUsers}
+          onSession={persistSession}
+          onClose={() => setAuthOpen(false)}
+          setToast={setToast}
+        />
+      )}
     </div>
   )
 }
 
-function ProductPage({ product, photoIndex, setPhotoIndex, left, compared, onToggleCompare, onBack, onAdd, onOpen, liveStock, onAddRelated }) {
-  const st = stockLabel(left)
+function ProductPage({ t, product, photoIndex, setPhotoIndex, left, compared, onToggleCompare, onBack, onAdd, onOpen, liveStock, onAddRelated, catalog }) {
+  const st = stockLabel(left, t)
   const photos = product.photos || []
-  const also = relatedOf(product)
+  const also = (product.related || []).map((id) => catalog.find((p) => p.id === id)).filter(Boolean)
   return (
     <main className="wrap page">
-      <button className="back" onClick={onBack}>← Back to shop</button>
+      <button className="back" type="button" onClick={onBack}>
+        {t('continueShopping')}
+      </button>
       <div className="pdp">
         <div>
           <div className="pdp-photo">
@@ -551,7 +918,7 @@ function ProductPage({ product, photoIndex, setPhotoIndex, left, compared, onTog
           {photos.length > 1 && (
             <div className="thumbs">
               {photos.map((src, i) => (
-                <button key={src + i} className={i === photoIndex ? 'on' : ''} onClick={() => setPhotoIndex(i)}>
+                <button key={src + i} type="button" className={i === photoIndex ? 'on' : ''} onClick={() => setPhotoIndex(i)}>
                   <img src={src} alt="" />
                 </button>
               ))}
@@ -559,33 +926,45 @@ function ProductPage({ product, photoIndex, setPhotoIndex, left, compared, onTog
           )}
         </div>
         <div className="pdp-info">
-          <div className="sku">{product.sku} · {product.brand}</div>
+          <div className="sku">
+            {product.sku} · {product.brand}
+          </div>
           <h1>{product.name}</h1>
           <Stars product={product} />
           <div className="short">{product.short}</div>
           <div className="price">{money(product.price)}</div>
           <div className={`need ${left <= 0 ? 'out' : ''}`}>{product.needs}</div>
-          {product.price >= 30000 && <p className="pay3x">3x {third(product.price)} at the desk</p>}
-          <p className="short">Reserve, collect in Oran, pay in DA. 1-year shop warranty.</p>
+          {product.price >= 30000 && <p className="pay3x">3x {third(product.price)}</p>}
           <div className="alt-row">
-            <button className="add" disabled={left <= 0} onClick={onAdd}>
-              {left <= 0 ? 'Sold out' : 'Add to cart'}
+            <button className="add" type="button" disabled={left <= 0} onClick={onAdd}>
+              {left <= 0 ? t('soldOut') : t('addToCart')}
             </button>
             <button type="button" className={`ghost ${compared ? 'on' : ''}`} onClick={onToggleCompare}>
-              {compared ? 'In compare' : 'Add to compare'}
+              {compared ? t('inCompare') : t('addToCompare')}
             </button>
-            <a className="ghost" href={`https://wa.me/${STORE.whatsapp}?text=${encodeURIComponent(`Salam, I want ${product.name} (${product.sku}) — ${money(product.price)}`)}`} target="_blank" rel="noreferrer">Ask on WhatsApp</a>
+            <a
+              className="ghost"
+              href={`https://wa.me/${STORE.whatsapp}?text=${encodeURIComponent(`Salam, I want ${product.name} (${product.sku}) — ${money(product.price)}`)}`}
+              target="_blank"
+              rel="noreferrer"
+            >
+              {t('askWhatsapp')}
+            </a>
           </div>
         </div>
       </div>
 
       {(REVIEWS[product.id] || []).length > 0 && (
         <section className="reviews">
-          <h2>Customer reviews</h2>
+          <h2>{t('customerReviews')}</h2>
           <div className="review-list">
             {REVIEWS[product.id].map((r, i) => (
               <article className="review" key={i}>
-                <div className="stars"><span>{starText(r.stars)}</span><em>{r.name}</em><span className="rev">{r.city}</span></div>
+                <div className="stars">
+                  <span>{starText(r.stars)}</span>
+                  <em>{r.name}</em>
+                  <span className="rev">{r.city}</span>
+                </div>
                 <p>{r.text}</p>
               </article>
             ))}
@@ -595,7 +974,7 @@ function ProductPage({ product, photoIndex, setPhotoIndex, left, compared, onTog
 
       {also.length > 0 && (
         <section className="also">
-          <h2>People also bought</h2>
+          <h2>{t('alsoBought')}</h2>
           <div className="also-row">
             {also.map((p) => {
               const l = liveStock(p)
@@ -604,11 +983,15 @@ function ProductPage({ product, photoIndex, setPhotoIndex, left, compared, onTog
                   <button type="button" className="also-thumb" onClick={() => onOpen(p.id)}>
                     <PartThumb product={p} />
                   </button>
-                  <h3><button type="button" onClick={() => onOpen(p.id)}>{p.name}</button></h3>
+                  <h3>
+                    <button type="button" onClick={() => onOpen(p.id)}>
+                      {p.name}
+                    </button>
+                  </h3>
                   <Stars product={p} />
                   <div className="price">{money(p.price)}</div>
-                  <button className="add" disabled={l <= 0} onClick={() => onAddRelated(p)}>
-                    {l <= 0 ? 'Sold out' : 'Add'}
+                  <button className="add" type="button" disabled={l <= 0} onClick={() => onAddRelated(p)}>
+                    {l <= 0 ? t('soldOut') : t('add')}
                   </button>
                 </article>
               )
@@ -620,16 +1003,20 @@ function ProductPage({ product, photoIndex, setPhotoIndex, left, compared, onTog
   )
 }
 
-function ComparePage({ items, liveStock, onOpen, onAdd, onRemove, onClear, onBack }) {
+function ComparePage({ t, items, liveStock, onOpen, onAdd, onRemove, onClear, onBack }) {
   return (
     <main className="wrap page">
-      <button className="back" onClick={onBack}>← Back to shop</button>
+      <button className="back" type="button" onClick={onBack}>
+        {t('continueShopping')}
+      </button>
       <div className="compare-head">
-        <h1>Compare</h1>
-        <button className="ghost tiny" onClick={onClear} disabled={items.length === 0}>Clear all</button>
+        <h1>{t('compareTitle')}</h1>
+        <button className="ghost tiny" type="button" onClick={onClear} disabled={items.length === 0}>
+          {t('clearAll')}
+        </button>
       </div>
       {items.length < 2 ? (
-        <p className="empty">Pick 2 or 3 products from the shop or search, then compare.</p>
+        <p className="empty">{t('compareNeed')}</p>
       ) : (
         <div className="compare-table-wrap">
           <table className="compare-table">
@@ -641,14 +1028,18 @@ function ComparePage({ items, liveStock, onOpen, onAdd, onRemove, onClear, onBac
                     <button type="button" className="cmp-photo" onClick={() => onOpen(p.id)}>
                       <PartThumb product={p} />
                     </button>
-                    <button type="button" className="cmp-name" onClick={() => onOpen(p.id)}>{p.name}</button>
+                    <button type="button" className="cmp-name" onClick={() => onOpen(p.id)}>
+                      {p.name}
+                    </button>
                     <div className="price">{money(p.price)}</div>
                     <Stars product={p} />
                     <div className="alt-row">
-                      <button className="add" disabled={liveStock(p) <= 0} onClick={() => onAdd(p)}>
-                        {liveStock(p) <= 0 ? 'Sold out' : 'Add'}
+                      <button className="add" type="button" disabled={liveStock(p) <= 0} onClick={() => onAdd(p)}>
+                        {liveStock(p) <= 0 ? t('soldOut') : t('add')}
                       </button>
-                      <button className="ghost tiny" onClick={() => onRemove(p.id)}>Remove</button>
+                      <button className="ghost tiny" type="button" onClick={() => onRemove(p.id)}>
+                        {t('remove')}
+                      </button>
                     </div>
                   </th>
                 ))}

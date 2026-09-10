@@ -18,13 +18,15 @@ import {
   loginEmail,
   loginGoogle,
   normalizePhone,
+  phoneCarrier,
   registerEmail,
   saveMeta,
   saveUsers,
   startSms,
   togglePanel,
   updateUser,
-  verifySms
+  verifySms,
+  DEMO_CUSTOMERS
 } from './shopStore.js'
 
 describe('phones and emails', () => {
@@ -39,6 +41,13 @@ describe('phones and emails', () => {
   it('accepts a simple email', () => {
     assert.equal(isEmail('a@b.dz'), true)
     assert.equal(isEmail('nope'), false)
+  })
+
+  it('maps DZ carriers', () => {
+    assert.equal(phoneCarrier('0550123456'), 'ooredoo')
+    assert.equal(phoneCarrier('0669174617'), 'mobilis')
+    assert.equal(phoneCarrier('0770650387'), 'djezzy')
+    assert.equal(phoneCarrier('021234567'), null)
   })
 })
 
@@ -75,6 +84,15 @@ describe('email accounts', () => {
     const login = loginEmail(users, { email: MASTER.email, password: MASTER.password })
     assert.equal(login.ok, true)
     assert.equal(login.user.role, 'master')
+  })
+
+  it('seeds demo customers', () => {
+    const users = loadUsers(createMemoryStorage())
+    DEMO_CUSTOMERS.forEach((d) => {
+      const login = loginEmail(users, { email: d.email, password: d.passwordPlain })
+      assert.equal(login.ok, true)
+      assert.equal(login.user.role, 'customer')
+    })
   })
 })
 
