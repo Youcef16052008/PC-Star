@@ -40,7 +40,7 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, me
 
   if (!user || user.role !== 'master') {
     return (
-      <main className="container page py-4">
+      <main id="main-content" className="container page py-4" tabIndex={-1}>
         <div className="alert alert-danger">{t('masterForbidden')}</div>
         <button className="btn btn-outline-secondary" type="button" onClick={onBack}>
           {t('backToShop')}
@@ -135,7 +135,7 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, me
   const hidden = new Set(meta.hiddenPanelIds || [])
 
   return (
-    <main className="container page py-4">
+    <main id="main-content" className="container page py-4" tabIndex={-1}>
       <button className="btn btn-outline-secondary btn-sm mb-3" type="button" onClick={onBack}>
         ← {t('backToShop')}
       </button>

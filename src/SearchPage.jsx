@@ -122,7 +122,7 @@ export default function SearchPage({ t, products, lines, panels, lang, liveStock
     return (
       <div className="card h-100 shadow-sm product-bs-card">
         <button type="button" className="btn p-0 border-0 position-relative" onClick={() => onOpen(p.id)} aria-label={p.name}>
-          <div className="ratio ratio-1x1 bg-body-secondary overflow-hidden">
+          <div className="ratio ratio-1x1 photo-frame overflow-hidden">
             <PartThumb product={p} />
           </div>
           <span className={`badge position-absolute top-0 end-0 m-2 text-bg-${st.cls}`}>{st.text}</span>
@@ -150,7 +150,7 @@ export default function SearchPage({ t, products, lines, panels, lang, liveStock
   }
 
   return (
-    <main className="container page py-4">
+    <main id="main-content" className="container page py-4" tabIndex={-1}>
       <div className="mb-4">
         <div className="text-secondary small mb-1">{t('searchCrumb')}</div>
         <h1 className="h3 mb-2">{lineLabel}</h1>
@@ -303,7 +303,16 @@ export default function SearchPage({ t, products, lines, panels, lang, liveStock
           )}
 
           {results.length === 0 ? (
-            <p className="text-secondary">{t('noProducts')}</p>
+            <div className="empty-state">
+              <strong>{t('noProducts')}</strong>
+              <button
+                type="button"
+                className="btn btn-sm btn-outline-success mt-2"
+                onClick={() => setFilters({ ...EMPTY, line: filters.line })}
+              >
+                {t('reset')}
+              </button>
+            </div>
           ) : view === 'grid' ? (
             <div className="row g-3">
               {results.map((p) => (
@@ -321,7 +330,7 @@ export default function SearchPage({ t, products, lines, panels, lang, liveStock
                   <div className="card shadow-sm" key={p.id}>
                     <div className="card-body d-flex flex-wrap gap-3 align-items-center">
                       <button type="button" className="btn p-0 border-0" style={{ width: 72, height: 72 }} onClick={() => onOpen(p.id)}>
-                        <div className="ratio ratio-1x1 rounded overflow-hidden bg-body-secondary">
+                        <div className="ratio ratio-1x1 photo-frame rounded overflow-hidden">
                           <PartThumb product={p} />
                         </div>
                       </button>

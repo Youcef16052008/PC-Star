@@ -146,7 +146,7 @@ export default function App() {
 
   useEffect(() => {
     if (!toast) return undefined
-    const timer = setTimeout(() => setToast(''), 2200)
+    const timer = setTimeout(() => setToast(''), 3200)
     return () => clearTimeout(timer)
   }, [toast])
 
@@ -304,7 +304,7 @@ export default function App() {
       if (found) return prev.map((i) => (i.id === product.id ? { ...i, qty: i.qty + 1 } : i))
       return [...prev, { ...product, qty: 1 }]
     })
-    setToast(`${product.name} · ${t('added')}`)
+    setToast({ kind: 'cart', name: product.name, count: (cart.find((i) => i.id === product.id)?.qty || 0) + 1 })
   }
 
   function setQty(id, qty) {
@@ -410,8 +410,13 @@ export default function App() {
   const waHref = `https://wa.me/${STORE.whatsapp}?text=${encodeURIComponent(msg)}`
   const carrier = phoneCarrier(pickup.phone)
 
+  const toastText = typeof toast === 'string' ? toast : toast?.kind === 'cart' ? `${toast.name} · ${t('addedToCart')}` : ''
+
   return (
     <div className={`app theme-${theme}`}>
+      <a className="skip-link" href="#main-content">
+        {t('skipToContent')}
+      </a>
       <div className="topbar text-white small py-2">
         <div className="container d-flex flex-wrap justify-content-between gap-2">
           <span>{STORE.address}</span>
@@ -431,10 +436,17 @@ export default function App() {
             PC <span>Star</span>
           </button>
           <div className="d-flex align-items-center gap-2 order-lg-last ms-auto ms-lg-0">
-            <button type="button" className="btn btn-success position-relative" onClick={() => setCartOpen(true)}>
+            <button
+              type="button"
+              className="btn btn-success position-relative"
+              onClick={() => setCartOpen(true)}
+              aria-label={count > 0 ? `${t('navCart')} (${count})` : t('navCart')}
+            >
               {t('navCart')}
               {count > 0 && (
-                <span className="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger">{count}</span>
+                <span className="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger" aria-hidden="true">
+                  {count}
+                </span>
               )}
             </button>
             <button
@@ -522,7 +534,7 @@ export default function App() {
       </nav>
 
       {page === 'shop' && (
-        <main className="container page py-4">
+        <main id="main-content" className="container page py-4" tabIndex={-1}>
           <section className="hero hero-simple p-4 p-md-5 mb-4 rounded-4 border">
             <h1 className="display-5 fw-bold mb-2">{t('heroTitle')}</h1>
             <p className="lead text-secondary mb-3">{t('heroBody')}</p>
@@ -551,8 +563,8 @@ export default function App() {
                     <div className="card h-100 shadow-sm product-bs-card">
                       <span className="badge text-bg-danger position-absolute m-2 z-1">{d.tag}</span>
                       <button type="button" className="btn p-0 border-0 bg-transparent" onClick={() => openProduct(p.id)}>
-                        <div className="ratio ratio-1x1 bg-body-secondary rounded-top overflow-hidden">
-                          <PartThumb product={p} />
+                        <div className="ratio ratio-1x1 photo-frame rounded-top overflow-hidden">
+                          <PartThumb product={p} eager />
                         </div>
                       </button>
                       <div className="card-body">
@@ -580,7 +592,7 @@ export default function App() {
                     <div className="card h-100 shadow-sm product-bs-card">
                       <span className="badge text-bg-success position-absolute m-2 z-1">{t('tag_dz-hit')}</span>
                       <button type="button" className="btn p-0 border-0" onClick={() => openProduct(p.id)}>
-                        <div className="ratio ratio-1x1 bg-body-secondary overflow-hidden">
+                        <div className="ratio ratio-1x1 photo-frame overflow-hidden">
                           <PartThumb product={p} />
                         </div>
                       </button>
@@ -645,7 +657,12 @@ export default function App() {
           </div>
 
           {list.length === 0 ? (
-            <p className="text-secondary">{t('noProducts')}</p>
+            <div className="empty-state">
+              <strong>{t('noProducts')}</strong>
+              <button type="button" className="btn btn-sm btn-outline-success mt-2" onClick={() => { setCategory('all'); setBrandFilter(null); setQuery('') }}>
+                {t('reset')}
+              </button>
+            </div>
           ) : (
             <div className="row g-3">
               {list.map((p) => {
@@ -655,7 +672,7 @@ export default function App() {
                   <div className="col-6 col-md-4 col-xl-3" key={p.id}>
                     <div className="card h-100 shadow-sm product-bs-card">
                       <button className="btn p-0 border-0 position-relative" type="button" onClick={() => openProduct(p.id)} aria-label={p.name}>
-                        <div className="ratio ratio-1x1 bg-body-secondary overflow-hidden">
+                        <div className="ratio ratio-1x1 photo-frame overflow-hidden">
                           <PartThumb product={p} />
                         </div>
                         <span className={`badge position-absolute top-0 end-0 m-2 ${st.cls === 'stock-ok' ? 'text-bg-success' : st.cls === 'stock-low' ? 'text-bg-warning' : 'text-bg-danger'}`}>
@@ -727,7 +744,7 @@ export default function App() {
       )}
 
       {page === 'about' && (
-        <main className="container page py-4">
+        <main id="main-content" className="container page py-4" tabIndex={-1}>
           <div className="row g-4">
             <div className="col-lg-7">
               <h1 className="h3 mb-3">{t('aboutTitle')}</h1>
@@ -789,7 +806,7 @@ export default function App() {
       )}
 
       {page === 'help' && isMaster && (
-        <main className="container page py-4">
+        <main id="main-content" className="container page py-4" tabIndex={-1}>
           <div className="alert alert-warning border-0 shadow-sm" role="status">
             {t('masterOnlyGuideNote')}
           </div>
@@ -861,40 +878,56 @@ export default function App() {
       )}
 
       {page === 'desk' && isMaster && (
-        <main className="container page py-4">
-          <h1 style={{ marginBottom: 8 }}>{t('deskTitle')}</h1>
-          <p className="short" style={{ marginBottom: 18 }}>
-            {t('deskHint')}
-          </p>
+        <main id="main-content" className="container page py-4" tabIndex={-1}>
+          <div className="d-flex flex-wrap justify-content-between align-items-end gap-2 mb-3">
+            <div>
+              <h1 className="h3 mb-1">{t('deskTitle')}</h1>
+              <p className="text-secondary mb-0">{t('deskHint')}</p>
+            </div>
+            <span className="badge text-bg-success">{reservations.length}</span>
+          </div>
           {reservations.length === 0 ? (
-            <p className="empty">{t('deskEmpty')}</p>
+            <div className="empty-state">
+              <strong>{t('deskEmpty')}</strong>
+              <p className="mb-0 small">{t('deskHint')}</p>
+            </div>
           ) : (
-            <div className="desk-list">
+            <div className="row g-3">
               {reservations.map((r) => (
-                <article className="desk-card" key={r.code}>
-                  <header>
-                    <strong>{r.code}</strong>
-                    <span>
-                      {r.slot} · {r.at}
-                    </span>
-                  </header>
-                  <p>
-                    {r.name} · {r.phone}
-                    {r.carrier ? ` · ${r.carrier}` : ''}
-                    {r.wilaya ? ` · ${r.wilaya}` : ''}
-                    {r.payment ? ` · ${r.payment}` : ''}
-                  </p>
-                  <ul>
-                    {r.items.map((i) => (
-                      <li key={i.id}>
-                        {i.qty} × {i.name} <span className="sku">{i.sku}</span>
-                      </li>
-                    ))}
-                  </ul>
-                  <div className="total">
-                    {t('dueInStore')} {money(r.total)}
-                  </div>
-                </article>
+                <div className="col-md-6 col-xl-4" key={r.code}>
+                  <article className="card h-100 shadow-sm desk-card border-0">
+                    <div className="card-body">
+                      <div className="d-flex justify-content-between align-items-start gap-2 mb-2">
+                        <span className="badge text-bg-success font-monospace">{r.code}</span>
+                        <span className="small text-secondary">
+                          {r.slot} · {r.at}
+                        </span>
+                      </div>
+                      <h2 className="h6 mb-1">{r.name}</h2>
+                      <p className="small text-secondary mb-3">
+                        {r.phone}
+                        {r.carrier ? ` · ${r.carrier}` : ''}
+                        {r.wilaya ? ` · ${r.wilaya}` : ''}
+                        {' · '}
+                        {t('payCash')}
+                      </p>
+                      <ul className="list-group list-group-flush mb-3">
+                        {r.items.map((i) => (
+                          <li className="list-group-item d-flex justify-content-between gap-2" key={i.id}>
+                            <span>
+                              {i.qty} × {i.name}
+                            </span>
+                            <span className="small text-secondary text-nowrap">{i.sku}</span>
+                          </li>
+                        ))}
+                      </ul>
+                      <div className="d-flex justify-content-between align-items-center">
+                        <span className="small text-secondary">{t('dueInStore')}</span>
+                        <strong className="text-success fs-5">{money(r.total)}</strong>
+                      </div>
+                    </div>
+                  </article>
+                </div>
               ))}
             </div>
           )}
@@ -1000,14 +1033,20 @@ export default function App() {
               </button>
             </div>
           ) : cart.length === 0 ? (
-            <p className="text-secondary">{t('cartEmpty')}</p>
+            <div className="empty-state my-4">
+              <strong>{t('emptyCartTitle')}</strong>
+              <p className="small mb-3">{t('emptyCartBody')}</p>
+              <button type="button" className="btn btn-success btn-sm" onClick={() => { setCartOpen(false); go('shop') }}>
+                {t('browseShop')}
+              </button>
+            </div>
           ) : (
             <>
               <div className="list-group list-group-flush mb-3 flex-grow-1 overflow-auto">
                 {cart.map((i) => (
                   <div className="list-group-item px-0" key={i.id}>
                     <div className="d-flex gap-3">
-                      <div style={{ width: 64, height: 64 }} className="rounded overflow-hidden bg-body-secondary flex-shrink-0">
+                      <div style={{ width: 64, height: 64 }} className="rounded overflow-hidden photo-frame flex-shrink-0">
                         <PartThumb product={i} />
                       </div>
                       <div className="flex-grow-1">
@@ -1110,17 +1149,26 @@ export default function App() {
         </div>
       </div>
 
-      {toast && (
+      {toastText && (
         <div className="position-fixed bottom-0 end-0 p-3" style={{ zIndex: 1100 }}>
-          <div className="toast show align-items-center text-bg-success border-0" role="status">
-            <div className="d-flex">
-              <div className="toast-body">{toast}</div>
+          <div className="toast show align-items-center text-bg-success border-0 pc-toast" role="status" aria-live="polite">
+            <div className="d-flex align-items-center w-100">
+              <div className="toast-body flex-grow-1">
+                <div className="fw-semibold">{toastText}</div>
+                {typeof toast === 'object' && toast?.kind === 'cart' && (
+                  <div className="small opacity-75">{t('itemsInCart', { n: count })}</div>
+                )}
+              </div>
+              {typeof toast === 'object' && toast?.kind === 'cart' && (
+                <button type="button" className="btn btn-sm btn-light me-2" onClick={() => { setToast(''); setCartOpen(true) }}>
+                  {t('viewCart')}
+                </button>
+              )}
               <button type="button" className="btn-close btn-close-white me-2 m-auto" onClick={() => setToast('')} aria-label={t('close')} />
             </div>
           </div>
         </div>
       )}
-
 
       {authOpen && (
         <AuthPanel
@@ -1134,7 +1182,7 @@ export default function App() {
           onApiUser={onApiUser}
         />
       )}
-      <div className={`api-status ${apiOnline ? 'on' : ''}`} title={apiOnline ? t('backendOnline') : t('backendOffline')}>
+      <div className={`api-status ${apiOnline ? 'on' : ''}`} title={apiOnline ? t('backendOnline') : t('backendOffline')} aria-hidden="true">
         {apiOnline ? '● API' : '○ local'}
       </div>
     </div>
@@ -1148,18 +1196,27 @@ function ProductPage({ t, product, photoIndex, setPhotoIndex, left, onBack, onAd
   const photos = product.photos || []
   const also = (product.related || []).map((id) => catalog.find((p) => p.id === id)).filter(Boolean)
   return (
-    <main className="container page py-4">
+    <main id="main-content" className="container page py-4" tabIndex={-1}>
       <button className="btn btn-outline-secondary btn-sm mb-3" type="button" onClick={onBack}>
         ← {t('continueShopping')}
       </button>
       <div className="row g-4">
         <div className="col-md-6">
           <div className="card border-0 shadow-sm overflow-hidden">
-            <div className="ratio ratio-1x1 bg-body-secondary position-relative">
+            <div className="ratio ratio-1x1 photo-frame position-relative">
               {photos.length > 0 ? (
-                <img src={photos[photoIndex]} alt={product.name} className="w-100 h-100" style={{ objectFit: 'cover' }} />
+                <img
+                  src={photos[photoIndex]}
+                  alt={product.name}
+                  className="w-100 h-100"
+                  style={{ objectFit: 'contain' }}
+                  loading="eager"
+                  decoding="async"
+                  width={800}
+                  height={800}
+                />
               ) : (
-                <PartThumb product={product} />
+                <PartThumb product={product} eager />
               )}
               <span className={`badge position-absolute top-0 end-0 m-2 ${badge}`}>{st.text}</span>
             </div>
@@ -1175,7 +1232,7 @@ function ProductPage({ t, product, photoIndex, setPhotoIndex, left, onBack, onAd
                   onClick={() => setPhotoIndex(i)}
                   aria-label={`${product.name} ${i + 1}`}
                 >
-                  <img src={src} alt="" className="w-100 h-100" style={{ objectFit: 'cover' }} />
+                  <img src={src} alt="" className="w-100 h-100" style={{ objectFit: 'contain', background: 'var(--photo-bg)' }} loading="lazy" />
                 </button>
               ))}
             </div>
@@ -1240,7 +1297,7 @@ function ProductPage({ t, product, photoIndex, setPhotoIndex, left, onBack, onAd
                 <div className="col-6 col-md-3" key={p.id}>
                   <article className="card h-100 shadow-sm product-bs-card">
                     <button type="button" className="btn p-0 border-0" onClick={() => onOpen(p.id)} aria-label={p.name}>
-                      <div className="ratio ratio-1x1 bg-body-secondary overflow-hidden">
+                      <div className="ratio ratio-1x1 photo-frame overflow-hidden">
                         <PartThumb product={p} />
                       </div>
                     </button>

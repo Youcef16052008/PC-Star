@@ -232,8 +232,6 @@ const dict = {
     price_100p: '100 000 دج+',
     reserveNeedLogin: 'سجّل الدخول أو أكمل كضيف — الهاتف الجزائري إلزامي.',
     demoHint: 'جرّب: حساب رئيسي أو زبون تجريبي من صفحة الدخول.',
-    masterOnlyGuide: 'الدليل للمسؤول فقط',
-    masterOnlyGuideNote: 'هذه الصفحة داخلية للمتجر — غير ظاهرة للزبائن.',
     masterOnlyGuide: 'الدليل للحساب الرئيسي فقط.',
     masterOnlyGuideNote: 'صفحة داخلية للمتجر — غير ظاهرة للزبائن.',
     masterOnlyDesk: 'قائمة المكتب للحساب الرئيسي فقط.',
@@ -292,6 +290,13 @@ const dict = {
     masterPhotosSaved: "تم حفظ الصور",
     masterPhotoTooBig: "صورة كبيرة جداً (حد 2.5 ميغابايت)",
     helpNoPublicDemo: "لا تُعرض كلمات المرور هنا. انظر docs/GUIDE-DEMO.md",
+    viewCart: 'عرض السلة',
+    skipToContent: 'تخطي إلى المحتوى',
+    emptyCartTitle: 'سلتك فارغة',
+    emptyCartBody: 'أضف قطعاً من المتجر أو ابنِ PC ثم احجز الاستلام.',
+    browseShop: 'تصفح المتجر',
+    addedToCart: 'أُضيف إلى السلة',
+    itemsInCart: '{n} في السلة',
     searchSlot: 'ابحث {slot}…'
   },
   fr: {
@@ -580,6 +585,13 @@ const dict = {
     masterPhotosSaved: "Photos enregistrées",
     masterPhotoTooBig: "Image trop lourde (max 2,5 Mo)",
     helpNoPublicDemo: "Pas de mots de passe ici. Voir docs/GUIDE-DEMO.md",
+    viewCart: 'Voir le panier',
+    skipToContent: 'Aller au contenu',
+    emptyCartTitle: 'Panier vide',
+    emptyCartBody: 'Ajoutez des pièces depuis la boutique ou montez un PC, puis réservez le retrait.',
+    browseShop: 'Parcourir la boutique',
+    addedToCart: 'Ajouté au panier',
+    itemsInCart: '{n} dans le panier',
     searchSlot: 'Chercher {slot}…'
   },
   en: {
@@ -868,6 +880,13 @@ const dict = {
     masterPhotosSaved: "Photos saved",
     masterPhotoTooBig: "Image too large (max 2.5 MB)",
     helpNoPublicDemo: "No passwords shown here. See docs/GUIDE-DEMO.md",
+    viewCart: 'View cart',
+    skipToContent: 'Skip to content',
+    emptyCartTitle: 'Cart is empty',
+    emptyCartBody: 'Add parts from the shop or build a PC, then reserve pickup.',
+    browseShop: 'Browse shop',
+    addedToCart: 'Added to cart',
+    itemsInCart: '{n} in cart',
     searchSlot: 'Search {slot}…'
   }
 }

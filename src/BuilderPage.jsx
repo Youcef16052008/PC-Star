@@ -125,7 +125,7 @@ export default function BuilderPage({ t, products, build, setBuild, liveStock, o
   const progress = Math.round((filled / BUILDER_SLOTS.length) * 100)
 
   return (
-    <main className="container page py-4">
+    <main id="main-content" className="container page py-4" tabIndex={-1}>
       <div className="mb-3">
         <div className="text-secondary small">{t('builderCrumb')}</div>
         <h1 className="h3">{t('builderTitle')}</h1>
@@ -227,7 +227,7 @@ export default function BuilderPage({ t, products, build, setBuild, liveStock, o
                   <div className="col-6 col-md-4" key={p.id}>
                     <div className={`card h-100 shadow-sm product-bs-card ${on ? 'border-success' : ''} ${tooHot ? 'opacity-75' : ''}`}>
                       <button type="button" className="btn p-0 border-0 position-relative" onClick={() => onOpen(p.id)} aria-label={p.name}>
-                        <div className="ratio ratio-1x1 bg-body-secondary overflow-hidden">
+                        <div className="ratio ratio-1x1 photo-frame overflow-hidden">
                           <PartThumb product={p} />
                         </div>
                         <span className={`badge position-absolute top-0 end-0 m-2 text-bg-${st.cls}`}>{st.text}</span>

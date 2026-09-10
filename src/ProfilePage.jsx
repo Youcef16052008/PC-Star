@@ -47,7 +47,7 @@ export default function ProfilePage({ t, user, users, onUsers, onUser, setToast,
   }
 
   return (
-    <main className="container page py-4">
+    <main id="main-content" className="container page py-4" tabIndex={-1}>
       <button className="btn btn-outline-secondary btn-sm mb-3" type="button" onClick={onBack}>
         ← {t('backToShop')}
       </button>
