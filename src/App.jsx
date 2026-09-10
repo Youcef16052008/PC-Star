@@ -135,6 +135,7 @@ export default function App() {
 
   const shopView = useMemo(() => buildShopView(PRODUCTS, PART_LINES, BASE_PANELS, meta), [meta])
   const catalog = shopView.products
+  const selected = catalog.find((p) => p.id === selectedId)
 
   useEffect(() => {
     const metaL = langMeta(lang)
@@ -407,7 +408,6 @@ export default function App() {
     }
   }
 
-  const selected = catalog.find((p) => p.id === selectedId)
   const count = cart.reduce((s, i) => s + i.qty, 0)
   const total = cart.reduce((s, i) => s + i.qty * i.price, 0)
   const warnings = useMemo(() => checkCompatibility(cart), [cart])
