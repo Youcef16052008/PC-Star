@@ -860,32 +860,12 @@ export default function App() {
           <h1 style={{ marginBottom: 12 }}>{t('helpTitle')}</h1>
           <div className="help-grid">
             <article className="callbox">
-              <h2>1. {t('demoHowTitle')}</h2>
-              <p>{t('demoHowBody')}</p>
-              <ul className="help-list">
-                <li>
-                  <strong>{t('roleMaster')}</strong>
-                  <code>pcstar.info31@gmail.com</code> / <code>star31</code>
-                </li>
-                <li>
-                  <strong>Karim</strong>
-                  <code>karim.oran@demo.dz</code> / <code>karim31</code>
-                </li>
-                <li>
-                  <strong>Amina</strong>
-                  <code>amina.castors@demo.dz</code> / <code>amina31</code>
-                </li>
-                <li>
-                  <strong>Yacine</strong>
-                  <code>yacine.pc@demo.dz</code> / <code>yacine31</code>
-                </li>
-              </ul>
+              <h2>1. {t('authTitle')}</h2>
+              <p>{t('authSimpleNote')}</p>
+              <p className="short">{t('helpNoPublicDemo')}</p>
               <button type="button" className="add" onClick={() => setAuthOpen(true)}>
                 {t('navLogin')}
               </button>
-              <p className="short" style={{ marginTop: 10 }}>
-                {t('demoClickHint')}
-              </p>
             </article>
             <article className="callbox">
               <h2>2. {t('roleMaster')}</h2>

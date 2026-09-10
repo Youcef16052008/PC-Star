@@ -90,7 +90,8 @@ function emptyMeta() {
     extraProducts: [],
     hiddenProductIds: [],
     extraPanels: [],
-    hiddenPanelIds: []
+    hiddenPanelIds: [],
+    photoOverrides: {}
   }
 }
 
@@ -326,7 +327,19 @@ export function hideProduct(meta, id) {
   }
 }
 
-export function addProduct(meta, { name, price, category, brand, stock, short } = {}) {
+function cleanPhotos(list) {
+  const out = []
+  for (const raw of list || []) {
+    const s = String(raw || '').trim()
+    if (!s) continue
+    if (s.startsWith('data:image/') || s.startsWith('http://') || s.startsWith('https://') || s.startsWith('/')) {
+      out.push(s)
+    }
+  }
+  return out.slice(0, 12)
+}
+
+export function addProduct(meta, { name, price, category, brand, stock, short, photos } = {}) {
   const title = String(name || '').trim()
   const n = Number(price)
   if (!title || !Number.isFinite(n) || n < 0) return { ok: false, error: 'product' }
@@ -343,7 +356,7 @@ export function addProduct(meta, { name, price, category, brand, stock, short } 
     stock: Math.max(0, Math.round(Number(stock) || 0)),
     rating: 0,
     reviews: 0,
-    photos: [],
+    photos: cleanPhotos(photos),
     needs: '',
     related: [],
     custom: true
@@ -358,6 +371,21 @@ export function addProduct(meta, { name, price, category, brand, stock, short } 
     }
   }
 }
+
+/** Set / replace photos on a custom product, or store overrides for catalog SKUs. */
+export function setProductPhotos(meta, id, photos) {
+  if (!id) return { ok: false, error: 'product' }
+  const nextPhotos = cleanPhotos(photos)
+  const extras = [...(meta.extraProducts || [])]
+  const idx = extras.findIndex((p) => p.id === id)
+  if (idx >= 0) {
+    extras[idx] = { ...extras[idx], photos: nextPhotos }
+    return { ok: true, meta: { ...meta, extraProducts: extras } }
+  }
+  const overrides = { ...(meta.photoOverrides || {}), [id]: nextPhotos }
+  return { ok: true, meta: { ...meta, photoOverrides: overrides } }
+}
+
 
 export function addPanel(meta, { titles, categories } = {}) {
   const cats = (categories || []).filter(Boolean)
@@ -389,9 +417,14 @@ export function togglePanel(meta, id, on) {
 
 export function buildShopView(baseProducts, baseLines, basePanels, meta) {
   const hiddenIds = new Set(meta.hiddenProductIds || [])
+  const overrides = meta.photoOverrides || {}
+  const withPhotos = (p) => {
+    if (overrides[p.id]?.length) return { ...p, photos: overrides[p.id] }
+    return p
+  }
   const products = [
-    ...baseProducts.filter((p) => !hiddenIds.has(p.id)),
-    ...(meta.extraProducts || []).filter((p) => !hiddenIds.has(p.id))
+    ...baseProducts.filter((p) => !hiddenIds.has(p.id)).map(withPhotos),
+    ...(meta.extraProducts || []).filter((p) => !hiddenIds.has(p.id)).map(withPhotos)
   ]
   const hiddenPanels = new Set(meta.hiddenPanelIds || [])
   const extraLines = (meta.extraPanels || []).flatMap((panel) =>

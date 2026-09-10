@@ -22,6 +22,7 @@ import {
   registerEmail,
   saveMeta,
   saveUsers,
+  setProductPhotos,
   startSms,
   togglePanel,
   updateUser,
@@ -174,13 +175,26 @@ describe('catalog paneaux', () => {
       category: 'usb',
       brand: 'Kingston',
       stock: 8,
-      short: 'USB 3.2'
+      short: 'USB 3.2',
+      photos: ['/photos/lib/usb-1.jpg', 'https://example.com/a.jpg']
     })
     assert.equal(added.ok, true)
+    assert.equal(added.product.photos.length, 2)
     meta = added.meta
     const view = buildShopView(baseProducts, baseLines, basePanels, meta)
     assert.equal(view.products.some((p) => p.id === 'cpu-1'), false)
     assert.equal(view.products.some((p) => p.name === 'Flash 64 Go'), true)
+  })
+
+  it('overrides catalog photos and keeps custom product photos', () => {
+    let meta = { extraProducts: [], hiddenProductIds: [], extraPanels: [], hiddenPanelIds: [], photoOverrides: {} }
+    const ov = setProductPhotos(meta, 'cpu-1', ['/photos/lib/cpu-1.jpg', '/photos/lib/cpu-2.jpg', '/photos/lib/cpu-3.jpg'])
+    assert.equal(ov.ok, true)
+    meta = ov.meta
+    const view = buildShopView(baseProducts, baseLines, basePanels, meta)
+    const cpu = view.products.find((p) => p.id === 'cpu-1')
+    assert.equal(cpu.photos.length, 3)
+    assert.equal(cpu.photos[0], '/photos/lib/cpu-1.jpg')
   })
 
   it('toggles a panel off and adds a custom panel', () => {

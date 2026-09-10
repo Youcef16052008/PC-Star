@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { DEMO_CUSTOMERS, MASTER, isDzPhone, loginEmail, registerEmail } from './shopStore.js'
+import { isDzPhone, loginEmail, registerEmail } from './shopStore.js'
 import * as api from './api.js'
 
 const ERR = {
@@ -79,32 +79,6 @@ export default function AuthPanel({ t, users, onUsers, onSession, onClose, setTo
     }
   }
 
-  function fill(emailVal, passVal) {
-    setEmail(emailVal)
-    setPassword(passVal)
-    setTab('login')
-    setError('')
-  }
-
-  async function quickLogin(emailVal, passVal) {
-    setBusy(true)
-    setError('')
-    try {
-      if (apiOnline) {
-        const r = await api.login(emailVal, passVal)
-        if (r.ok && r.data?.user) {
-          succeedApi(r.data.user, r.data.token, 'authOk')
-          return
-        }
-      }
-      const res = loginEmail(users, { email: emailVal, password: passVal })
-      if (!res.ok) return fail('auth')
-      succeedLocal(res.user, null, 'authOk')
-    } finally {
-      setBusy(false)
-    }
-  }
-
   return (
     <div className="modal-backdrop" role="presentation" onClick={onClose}>
       <div className="modal auth-modal" role="dialog" aria-modal="true" aria-label={t('authTitle')} onClick={(e) => e.stopPropagation()}>
@@ -156,40 +130,6 @@ export default function AuthPanel({ t, users, onUsers, onSession, onClose, setTo
             </button>
           </form>
         )}
-
-        <div className="demo-profiles">
-          <h3>{t('demoHowTitle')}</h3>
-          <p className="short">{t('demoHowBody')}</p>
-          <button type="button" className="demo-chip master" disabled={busy} onClick={() => quickLogin(MASTER.email, MASTER.password)}>
-            <span>
-              <strong>{t('roleMaster')}</strong>
-              <em>
-                {MASTER.email} · {MASTER.password}
-              </em>
-            </span>
-          </button>
-          {DEMO_CUSTOMERS.map((d) => (
-            <button
-              key={d.id}
-              type="button"
-              className="demo-chip"
-              disabled={busy}
-              onClick={() => quickLogin(d.email, d.passwordPlain)}
-              onContextMenu={(e) => {
-                e.preventDefault()
-                fill(d.email, d.passwordPlain)
-              }}
-            >
-              <span>
-                <strong>{d.name}</strong>
-                <em>
-                  {d.email} · {d.passwordPlain}
-                </em>
-              </span>
-            </button>
-          ))}
-          <p className="short">{t('demoClickHint')}</p>
-        </div>
       </div>
     </div>
   )

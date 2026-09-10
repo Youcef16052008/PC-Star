@@ -5,9 +5,27 @@ import {
   addProduct,
   deleteCustomer,
   hideProduct,
+  setProductPhotos,
   togglePanel
 } from './shopStore.js'
 import PartThumb from './PartThumb.jsx'
+
+function readFilesAsDataUrls(fileList) {
+  const files = [...(fileList || [])].slice(0, 6)
+  return Promise.all(
+    files.map(
+      (file) =>
+        new Promise((resolve, reject) => {
+          if (!file.type.startsWith('image/')) return resolve(null)
+          if (file.size > 2.5 * 1024 * 1024) return reject(new Error('big'))
+          const reader = new FileReader()
+          reader.onload = () => resolve(reader.result)
+          reader.onerror = () => reject(reader.error)
+          reader.readAsDataURL(file)
+        })
+    )
+  ).then((list) => list.filter(Boolean))
+}
 
 export default function MasterPage({
   t,
@@ -29,10 +47,13 @@ export default function MasterPage({
     stock: '1',
     category: 'accessories',
     brand: 'PC Star',
-    short: ''
+    short: '',
+    photos: []
   })
   const [panelTitle, setPanelTitle] = useState({ ar: '', fr: '', en: '' })
   const [panelCat, setPanelCat] = useState('accessories')
+  const [editId, setEditId] = useState(null)
+  const [editPhotos, setEditPhotos] = useState([])
 
   const customers = useMemo(() => users.filter((u) => u.role !== 'master'), [users])
 
@@ -47,6 +68,26 @@ export default function MasterPage({
     )
   }
 
+  async function onFormPhotos(e) {
+    try {
+      const urls = await readFilesAsDataUrls(e.target.files)
+      setForm((f) => ({ ...f, photos: [...f.photos, ...urls].slice(0, 6) }))
+    } catch {
+      setToast(t('masterPhotoTooBig'))
+    }
+    e.target.value = ''
+  }
+
+  async function onEditPhotos(e) {
+    try {
+      const urls = await readFilesAsDataUrls(e.target.files)
+      setEditPhotos((prev) => [...prev, ...urls].slice(0, 6))
+    } catch {
+      setToast(t('masterPhotoTooBig'))
+    }
+    e.target.value = ''
+  }
+
   function submitProduct(e) {
     e.preventDefault()
     const res = addProduct(meta, {
@@ -55,15 +96,31 @@ export default function MasterPage({
       stock: Number(form.stock),
       category: form.category,
       brand: form.brand,
-      short: form.short
+      short: form.short,
+      photos: form.photos
     })
     if (!res.ok) {
       setToast(t('authErrorPassword'))
       return
     }
     onMeta(res.meta)
-    setForm({ name: '', price: '', stock: '1', category: form.category, brand: 'PC Star', short: '' })
+    setForm({ name: '', price: '', stock: '1', category: form.category, brand: 'PC Star', short: '', photos: [] })
     setToast(t('masterAdded'))
+  }
+
+  function openEdit(p) {
+    setEditId(p.id)
+    setEditPhotos([...(p.photos || [])].slice(0, 6))
+  }
+
+  function saveEditPhotos() {
+    if (!editId) return
+    const res = setProductPhotos(meta, editId, editPhotos)
+    if (!res.ok) return
+    onMeta(res.meta)
+    setEditId(null)
+    setEditPhotos([])
+    setToast(t('masterPhotosSaved'))
   }
 
   function doHide(id) {
@@ -133,6 +190,24 @@ export default function MasterPage({
             <input className="field" value={form.brand} onChange={(e) => setForm({ ...form, brand: e.target.value })} />
             <label>{t('masterShort')}</label>
             <input className="field" value={form.short} onChange={(e) => setForm({ ...form, short: e.target.value })} />
+            <label>{t('masterPhotos')}</label>
+            <input className="field" type="file" accept="image/*" multiple onChange={onFormPhotos} />
+            <p className="short">{t('masterPhotosHint')}</p>
+            {form.photos.length > 0 && (
+              <div className="photo-edit-row">
+                {form.photos.map((src, i) => (
+                  <button
+                    key={i}
+                    type="button"
+                    className="photo-edit-thumb"
+                    onClick={() => setForm((f) => ({ ...f, photos: f.photos.filter((_, j) => j !== i) }))}
+                    title={t('remove')}
+                  >
+                    <img src={src} alt="" />
+                  </button>
+                ))}
+              </div>
+            )}
             <button className="add wide" type="submit">
               {t('masterAddProduct')}
             </button>
@@ -149,13 +224,45 @@ export default function MasterPage({
                     <div className="sku">{p.sku}</div>
                     <strong>{p.name}</strong>
                     <div className="short">
-                      {money(p.price)} · {p.stock} · {t(`cat_${p.category}`) || p.category}
+                      {money(p.price)} · {p.stock} · {t(`cat_${p.category}`) || p.category} · {(p.photos || []).length} img
                     </div>
                   </div>
-                  <button type="button" className="ghost tiny" onClick={() => doHide(p.id)}>
-                    {t('masterHide')}
-                  </button>
+                  <div className="master-actions">
+                    <button type="button" className="ghost tiny" onClick={() => openEdit(p)}>
+                      {t('masterEditPhotos')}
+                    </button>
+                    <button type="button" className="ghost tiny" onClick={() => doHide(p.id)}>
+                      {t('masterHide')}
+                    </button>
+                  </div>
                 </div>
+                {editId === p.id && (
+                  <div className="photo-editor">
+                    <p className="short">{t('masterPhotosHint')}</p>
+                    <input className="field" type="file" accept="image/*" multiple onChange={onEditPhotos} />
+                    <div className="photo-edit-row">
+                      {editPhotos.map((src, i) => (
+                        <button
+                          key={i}
+                          type="button"
+                          className="photo-edit-thumb"
+                          onClick={() => setEditPhotos((prev) => prev.filter((_, j) => j !== i))}
+                          title={t('remove')}
+                        >
+                          <img src={src} alt="" />
+                        </button>
+                      ))}
+                    </div>
+                    <div className="alt-row">
+                      <button type="button" className="add" onClick={saveEditPhotos}>
+                        {t('masterPhotosSaved')}
+                      </button>
+                      <button type="button" className="ghost tiny" onClick={() => { setEditId(null); setEditPhotos([]) }}>
+                        {t('close')}
+                      </button>
+                    </div>
+                  </div>
+                )}
               </article>
             ))}
           </div>
@@ -170,16 +277,13 @@ export default function MasterPage({
             customers.map((c) => (
               <article className="desk-card" key={c.id}>
                 <header>
-                  <strong>
-                    <span className={`av av-${c.avatar} accent-${c.accent}`}>{c.name?.slice(0, 2) || 'U'}</span> {c.name}
-                  </strong>
+                  <strong>{c.name}</strong>
                   <button type="button" className="remove" onClick={() => doDeleteCustomer(c.id)}>
                     {t('masterDelete')}
                   </button>
                 </header>
                 <p className="short">
-                  {c.email || '—'} · {c.phone || '—'} · {c.provider}
-                  {c.demo ? ' · demo' : ''}
+                  {c.email || '—'} · {c.phone || '—'}
                 </p>
               </article>
             ))

@@ -177,3 +177,7 @@ server/data/
 *.lz
 *.lzma
 *.iso
+
+# temp image downloads
+image-search/
+

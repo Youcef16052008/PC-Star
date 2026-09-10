@@ -1,5 +1,6 @@
 import { EXTRA } from './extraCatalog.js'
 import { DZ_EXTRA, DZ_DEALS, DZ_GUIDES, PAYMENT_HINTS, WILAYAS_NEAR, DZ_BRANDS } from './dzCatalog.js'
+import { ensureProductPhotos } from './productPhotos.js'
 
 export { DZ_DEALS, DZ_GUIDES, PAYMENT_HINTS, WILAYAS_NEAR, DZ_BRANDS }
 
@@ -584,7 +585,7 @@ const PRODUCTS_CORE = [
   }
 ]
 
-export const PRODUCTS = [...PRODUCTS_CORE, ...EXTRA, ...DZ_EXTRA]
+export const PRODUCTS = [...PRODUCTS_CORE, ...EXTRA, ...DZ_EXTRA].map(ensureProductPhotos)
 
 function firstMatch(text, rules, fallback = {}) {
   for (const [re, spec] of rules) {
