@@ -19,6 +19,7 @@ import {
   liveStockOf,
   placeOrder,
   publicCatalog,
+  purgeUser,
   setOrderStatus
 } from './catalog.js'
 import { rateLimit, clientKey } from './rateLimit.js'
@@ -607,10 +608,7 @@ export async function handler(req, res) {
       const id = pathname.split('/').pop()
       let ok = false
       updateDb((db) => {
-        const t = db.users.find((u) => u.id === id)
-        if (!t || t.role === 'master') return db
-        db.users = db.users.filter((u) => u.id !== id)
-        ok = true
+        ok = purgeUser(db, id).ok
         return db
       })
       return send(res, ok ? 200 : 400, { ok })

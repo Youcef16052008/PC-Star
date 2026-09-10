@@ -43,6 +43,21 @@ export function setStock(db, productId, qty) {
 }
 
 /**
+ * Prix de référence d'un produit, côté serveur uniquement :
+ * override master (productOverrides) > produit master (extraProducts) > catalogue de base.
+ * Retourne null si l'id est inconnu.
+ */
+export function priceOf(db, productId) {
+  const ov = db.meta?.productOverrides?.[productId]
+  if (ov && ov.price != null) return Math.max(0, Number(ov.price) || 0)
+  const extra = (db.meta?.extraProducts || []).find((p) => p.id === productId)
+  if (extra) return Math.max(0, Number(extra.price) || 0)
+  const base = PRODUCTS.find((p) => p.id === productId)
+  if (base) return Math.max(0, Number(base.price) || 0)
+  return null
+}
+
+/**
  * Try to reserve items atomically. Returns { ok, order?, error?, shortages? }.
  * Decrements stock only when every line is available.
  */
@@ -53,13 +68,19 @@ export function placeOrder(db, body, { userId = null } = {}) {
   const items = Array.isArray(body.items) ? body.items : []
   if (!items.length) return { ok: false, error: 'order' }
 
-  const normalized = items.map((i) => ({
-    id: String(i.id || ''),
-    sku: String(i.sku || ''),
-    name: String(i.name || ''),
-    qty: Math.max(1, Math.floor(Number(i.qty) || 1)),
-    price: Math.max(0, Number(i.price) || 0)
-  }))
+  // Prix recalculés côté serveur depuis le catalogue (le prix/total envoyé
+  // par le client n'est jamais fait confiance).
+  const normalized = items.map((i) => {
+    const id = String(i.id || '')
+    const price = priceOf(db, id)
+    return {
+      id,
+      sku: String(i.sku || ''),
+      name: String(i.name || ''),
+      qty: Math.max(1, Math.floor(Number(i.qty) || 1)),
+      price: price == null ? 0 : price
+    }
+  })
 
   const shortages = []
   for (const line of normalized) {
@@ -78,10 +99,7 @@ export function placeOrder(db, body, { userId = null } = {}) {
     setStock(db, line.id, left - line.qty)
   }
 
-  const total =
-    body.total != null
-      ? Number(body.total)
-      : normalized.reduce((s, i) => s + i.qty * i.price, 0)
+  const total = normalized.reduce((s, i) => s + i.qty * i.price, 0)
 
   const order = {
     code: makeOrderCode(db),
@@ -146,6 +164,25 @@ export function setOrderStatus(db, code, status) {
   order.status = status
   order.updatedAt = new Date().toISOString()
   return { ok: true, order }
+}
+
+/**
+ * Suppression d'un client : retire l'utilisateur, purge ses sessions
+ * (tokens invalidés) et délie ses commandes (nom/télé sont déjà snapshotés
+ * dans la commande, userId passe à null — l'historique reste lisible).
+ * Renvoie { ok: false } si introuvable ou master.
+ */
+export function purgeUser(db, id) {
+  const target = db.users.find((u) => u.id === id)
+  if (!target || target.role === 'master') return { ok: false }
+  db.users = db.users.filter((u) => u.id !== id)
+  for (const [token, s] of Object.entries(db.sessions || {})) {
+    if (s && s.userId === id) delete db.sessions[token]
+  }
+  for (const o of db.orders || []) {
+    if (o.userId === id) o.userId = null
+  }
+  return { ok: true }
 }
 
 /** Public catalog with live stock + meta hide/extra. */

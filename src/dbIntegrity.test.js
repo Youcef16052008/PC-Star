@@ -1,0 +1,56 @@
+import { describe, it } from 'node:test'
+import assert from 'node:assert/strict'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+
+// Répertoire temporaire isolé — ne touche JAMAIS server/data/store.json (base de dev).
+const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pcstar-dbtest-'))
+process.env.PCSTAR_DATA_DIR = dir
+const dbFile = path.join(dir, 'store.json')
+
+const db = await import('../server/db.js')
+
+describe('intégrité de la base (B1)', () => {
+  it('writeDb: écriture atomique (pas de .tmp résiduel) + roundtrip', () => {
+    const data = db.readDb()
+    data.orders.push({ code: 'PS-TEST-0001', status: 'new' })
+    db.writeDb(data)
+    assert.equal(fs.existsSync(path.join(dir, 'store.json.tmp')), false)
+    const back = db.readDb()
+    assert.equal(back.orders.length, 1)
+    assert.equal(back.orders[0].code, 'PS-TEST-0001')
+  })
+
+  it('fichier corrompu (JSON tronqué) → base neuve + fichier quarantainé, pas écrasé', () => {
+    fs.writeFileSync(dbFile, '{"users": [ tronqu')
+    const data = db.readDb()
+    assert.ok(Array.isArray(data.users))
+    assert.ok(data.users.some((u) => u.role === 'master'))
+    assert.equal(data.orders.length, 0)
+    const quarantined = fs.readdirSync(dir).filter((f) => f.startsWith('store.json.corrupt-'))
+    assert.equal(quarantined.length, 1)
+    assert.match(fs.readFileSync(path.join(dir, quarantined[0]), 'utf8'), /tronqu/)
+  })
+
+  it('fichier vide → base neuve + quarantaine', () => {
+    fs.writeFileSync(dbFile, '')
+    const data = db.readDb()
+    assert.ok(data.users.some((u) => u.role === 'master'))
+    assert.equal(fs.readdirSync(dir).filter((f) => f.startsWith('store.json.corrupt-')).length, 2)
+  })
+
+  it('la quarantaine garde au plus 3 anciens fichiers', () => {
+    for (let i = 0; i < 4; i += 1) {
+      fs.writeFileSync(dbFile, 'xxx')
+      db.readDb()
+    }
+    assert.equal(fs.readdirSync(dir).filter((f) => f.startsWith('store.json.corrupt-')).length, 3)
+  })
+
+  it('base valide : aucune quarantaine supplémentaire', () => {
+    const before = fs.readdirSync(dir).filter((f) => f.startsWith('store.json.corrupt-')).length
+    db.readDb()
+    assert.equal(fs.readdirSync(dir).filter((f) => f.startsWith('store.json.corrupt-')).length, before)
+  })
+})

@@ -11,7 +11,7 @@ import {
   makeOrderCode,
   BUILD_PRESETS
 } from './orderLogic.js'
-import { placeOrder, cancelOrder, liveStockOf, setOrderStatus } from '../server/catalog.js'
+import { placeOrder, cancelOrder, liveStockOf, priceOf, purgeUser, setOrderStatus } from '../server/catalog.js'
 import { PRODUCTS } from './data.js'
 
 describe('order codes', () => {
@@ -146,5 +146,82 @@ describe('builder presets', () => {
     const r = buildPowerRecap([gpu, psu])
     assert.ok(r.estimateWatts >= 550)
     assert.equal(r.psuOk, true)
+  })
+})
+
+describe('prix recalculés côté serveur (B3)', () => {
+  const priced = PRODUCTS.find((p) => Number.isFinite(p.price) && p.price > 0)
+
+  it('ignore le total et les prix envoyés par le client', () => {
+    const db = { orders: [], stock: {}, meta: {} }
+    const ok = placeOrder(
+      db,
+      {
+        name: 'Trafiqué',
+        phone: '0550123456',
+        items: [{ id: priced.id, sku: priced.sku, name: priced.name, qty: 2, price: 1 }],
+        total: 1
+      },
+      {}
+    )
+    assert.equal(ok.ok, true)
+    assert.equal(ok.order.items[0].price, priced.price)
+    assert.equal(ok.order.total, priced.price * 2)
+  })
+
+  it('applique l’override de prix master (productOverrides)', () => {
+    const db = { orders: [], stock: {}, meta: { productOverrides: { [priced.id]: { price: 1234 } } } }
+    const ok = placeOrder(db, {
+      name: 'X',
+      phone: '0550123456',
+      items: [{ id: priced.id, sku: priced.sku, name: priced.name, qty: 3, price: 5 }]
+    })
+    assert.equal(ok.ok, true)
+    assert.equal(ok.order.total, 1234 * 3)
+  })
+
+  it('utilise le prix du produit créé par le master (extraProducts)', () => {
+    const db = {
+      orders: [],
+      stock: { 'extra-1': 5 },
+      meta: { extraProducts: [{ id: 'extra-1', name: 'E', price: 999, stock: 5 }] }
+    }
+    const ok = placeOrder(db, {
+      name: 'X',
+      phone: '0669174617',
+      items: [{ id: 'extra-1', sku: 'E', name: 'E', qty: 2, price: 1 }],
+      total: 2
+    })
+    assert.equal(ok.ok, true)
+    assert.equal(ok.order.items[0].price, 999)
+    assert.equal(ok.order.total, 999 * 2)
+  })
+
+  it('priceOf: null pour un id inconnu', () => {
+    assert.equal(priceOf({ meta: {} }, 'n-importe-quoi'), null)
+  })
+})
+
+describe('purgeUser (B13)', () => {
+  it('supprime l’utilisateur, purge ses sessions, délie ses commandes', () => {
+    const db = {
+      users: [{ id: 'a', role: 'customer' }, { id: 'm', role: 'master' }],
+      sessions: { t1: { userId: 'a' }, t2: { userId: 'm' } },
+      orders: [{ code: 'C1', userId: 'a' }, { code: 'C2', userId: 'm' }],
+      meta: {}
+    }
+    assert.equal(purgeUser(db, 'a').ok, true)
+    assert.equal(db.users.length, 1)
+    assert.equal(db.sessions.t1, undefined)
+    assert.ok(db.sessions.t2)
+    assert.equal(db.orders[0].userId, null)
+    assert.equal(db.orders[1].userId, 'm')
+  })
+
+  it('refuse le master et les inconnus', () => {
+    const db = { users: [{ id: 'm', role: 'master' }], sessions: {}, orders: [], meta: {} }
+    assert.equal(purgeUser(db, 'm').ok, false)
+    assert.equal(purgeUser(db, 'inconnu').ok, false)
+    assert.equal(db.users.length, 1)
   })
 })
