@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { Offcanvas } from 'bootstrap'
 import {
   BRANDS_DZ_PRIORITY,
   CATEGORIES,
@@ -114,6 +115,8 @@ export default function App() {
   const [apiUser, setApiUser] = useState(null)
   const [authMode, setAuthMode] = useState('local')
   const [brandFilter, setBrandFilter] = useState(null)
+  const cartElRef = useRef(null)
+  const cartOcRef = useRef(null)
 
   const t = (key, vars) => translate(lang, key, vars)
   const localUser = useMemo(() => {
@@ -143,9 +146,34 @@ export default function App() {
 
   useEffect(() => {
     if (!toast) return undefined
-    const timer = setTimeout(() => setToast(''), 1800)
+    const timer = setTimeout(() => setToast(''), 2200)
     return () => clearTimeout(timer)
   }, [toast])
+
+  /* Bootstrap Offcanvas — focus trap + backdrop via official API */
+  useEffect(() => {
+    const el = cartElRef.current
+    if (!el) return undefined
+    const oc = Offcanvas.getOrCreateInstance(el, { backdrop: true, scroll: false })
+    cartOcRef.current = oc
+    const onShown = () => setCartOpen(true)
+    const onHidden = () => setCartOpen(false)
+    el.addEventListener('shown.bs.offcanvas', onShown)
+    el.addEventListener('hidden.bs.offcanvas', onHidden)
+    return () => {
+      el.removeEventListener('shown.bs.offcanvas', onShown)
+      el.removeEventListener('hidden.bs.offcanvas', onHidden)
+      oc.dispose()
+      cartOcRef.current = null
+    }
+  }, [])
+
+  useEffect(() => {
+    const oc = cartOcRef.current
+    if (!oc) return
+    if (cartOpen) oc.show()
+    else oc.hide()
+  }, [cartOpen])
 
   useEffect(() => {
     let cancelled = false
@@ -276,8 +304,7 @@ export default function App() {
       if (found) return prev.map((i) => (i.id === product.id ? { ...i, qty: i.qty + 1 } : i))
       return [...prev, { ...product, qty: 1 }]
     })
-    setToast(`${product.name} ${t('added')}`)
-    setCartOpen(true)
+    setToast(`${product.name} · ${t('added')}`)
   }
 
   function setQty(id, qty) {
@@ -701,46 +728,61 @@ export default function App() {
 
       {page === 'about' && (
         <main className="container page py-4">
-          <div className="store-grid">
-            <div className="store">
-              <h1>{t('aboutTitle')}</h1>
-              <p>{STORE.about}</p>
+          <div className="row g-4">
+            <div className="col-lg-7">
+              <h1 className="h3 mb-3">{t('aboutTitle')}</h1>
+              <p className="lead fs-6 text-secondary">{STORE.about}</p>
               <p>{STORE.services}</p>
-              <p>{STORE.buyNote}</p>
-              <div className="about-panels">
+              <p className="text-secondary">{STORE.buyNote}</p>
+              <div className="row g-3 my-3">
                 {SHOP_SERVICES.map((s) => (
-                  <article className="about-panel" key={s.id}>
-                    <h3>{s.title}</h3>
-                    <p>{s.body}</p>
-                  </article>
+                  <div className="col-sm-6" key={s.id}>
+                    <article className="card h-100 shadow-sm border-0">
+                      <div className="card-body">
+                        <h3 className="h6">{s.title}</h3>
+                        <p className="small text-secondary mb-0">{s.body}</p>
+                      </div>
+                    </article>
+                  </div>
                 ))}
               </div>
-              <p>
-                <strong>{STORE.address}</strong>
-              </p>
-              <p>{STORE.hours}</p>
-              <p>{STORE.ready}</p>
-              <p>{STORE.warranty}</p>
-              <p>
-                <a href={`mailto:${STORE.email}`}>{STORE.email}</a>
-              </p>
-              <p>
-                {t('call')} <a href={STORE.phoneHref}>{STORE.phone}</a> · <a href={STORE.phone2Href}>{STORE.phone2}</a>
-              </p>
-              <div className="social-grid">
+              <ul className="list-group list-group-flush mb-3">
+                <li className="list-group-item px-0">
+                  <strong>{STORE.address}</strong>
+                </li>
+                <li className="list-group-item px-0 text-secondary">{STORE.hours}</li>
+                <li className="list-group-item px-0 text-secondary">{STORE.ready}</li>
+                <li className="list-group-item px-0 text-secondary">{STORE.warranty}</li>
+                <li className="list-group-item px-0">
+                  <a href={`mailto:${STORE.email}`}>{STORE.email}</a>
+                </li>
+                <li className="list-group-item px-0">
+                  {t('call')}{' '}
+                  <a href={STORE.phoneHref}>{STORE.phone}</a>
+                  {' · '}
+                  <a href={STORE.phone2Href}>{STORE.phone2}</a>
+                </li>
+              </ul>
+              <div className="d-flex flex-wrap gap-2">
                 {STORE_LINKS.map((l) => (
-                  <a key={l.id} className={`social-btn social-${l.id}`} href={l.href} target="_blank" rel="noreferrer">
+                  <a key={l.id} className={`btn btn-sm social-btn social-${l.id} text-white`} href={l.href} target="_blank" rel="noreferrer">
                     <strong>{l.label}</strong>
-                    <em style={{ display: 'block', fontStyle: 'normal', opacity: 0.9, fontSize: 12 }}>{l.sub}</em>
+                    <span className="d-block small opacity-75">{l.sub}</span>
                   </a>
                 ))}
               </div>
             </div>
-            <div className="map-wrap">
-              <iframe title="PC Star map" src={STORE.mapEmbed} loading="lazy" referrerPolicy="no-referrer-when-downgrade" />
-              <a className="map-link" href={STORE.mapUrl} target="_blank" rel="noreferrer">
-                Google Maps
-              </a>
+            <div className="col-lg-5">
+              <div className="card shadow-sm border-0 overflow-hidden h-100">
+                <div className="ratio ratio-4x3">
+                  <iframe title="PC Star map" src={STORE.mapEmbed} loading="lazy" referrerPolicy="no-referrer-when-downgrade" className="border-0" />
+                </div>
+                <div className="card-body">
+                  <a className="btn btn-outline-success btn-sm" href={STORE.mapUrl} target="_blank" rel="noreferrer">
+                    Google Maps
+                  </a>
+                </div>
+              </div>
             </div>
           </div>
         </main>
@@ -892,17 +934,27 @@ export default function App() {
         />
       )}
 
-            <footer className="site-footer">
-        <div className="container d-flex flex-wrap" style={{ display: 'flex', flexWrap: 'wrap', gap: 16, justifyContent: 'space-between', alignItems: 'center' }}>
-          <div>
-            <strong>PC Star Informatique</strong>
-            <div className="short">{STORE.address}</div>
-            <div className="short">{t('payCash')} · {t('warrantyBadge')} · {t('pricesInDa')}</div>
-          </div>
-          <div className="alt-row" style={{ gap: 10 }}>
-            <a className="ghost" href={STORE.phoneHref}>{t('call')} {STORE.phone}</a>
-            <a className="ghost" href={`https://wa.me/${STORE.whatsapp}`} target="_blank" rel="noreferrer">WhatsApp</a>
-            <button type="button" className="ghost" onClick={() => go('about')}>{t('navAbout')}</button>
+      <footer className="site-footer border-top mt-auto">
+        <div className="container py-4">
+          <div className="row g-3 align-items-center">
+            <div className="col-md-6">
+              <strong className="d-block">PC Star Informatique</strong>
+              <div className="small text-secondary">{STORE.address}</div>
+              <div className="small text-secondary">
+                {t('payCash')} · {t('warrantyBadge')} · {t('pricesInDa')}
+              </div>
+            </div>
+            <div className="col-md-6 d-flex flex-wrap gap-2 justify-content-md-end">
+              <a className="btn btn-sm btn-outline-secondary" href={STORE.phoneHref}>
+                {t('call')} {STORE.phone}
+              </a>
+              <a className="btn btn-sm btn-outline-success" href={`https://wa.me/${STORE.whatsapp}`} target="_blank" rel="noreferrer">
+                WhatsApp
+              </a>
+              <button type="button" className="btn btn-sm btn-outline-secondary" onClick={() => go('about')}>
+                {t('navAbout')}
+              </button>
+            </div>
           </div>
         </div>
       </footer>
@@ -911,18 +963,19 @@ export default function App() {
         WhatsApp
       </a>
 
-      {/* Cart offcanvas */}
+      {/* Cart offcanvas — controlled via Bootstrap Offcanvas API */}
       <div
-        className={`offcanvas offcanvas-end ${cartOpen ? 'show' : ''}`}
+        ref={cartElRef}
+        className="offcanvas offcanvas-end"
         tabIndex={-1}
-        style={{ visibility: cartOpen ? 'visible' : 'hidden' }}
+        id="cartOffcanvas"
         aria-labelledby="cartOffcanvasLabel"
       >
         <div className="offcanvas-header border-bottom">
           <h2 className="offcanvas-title h5 mb-0" id="cartOffcanvasLabel">
             {t('cartTitle')} {count > 0 ? `(${count})` : ''}
           </h2>
-          <button type="button" className="btn-close" aria-label={t('close')} onClick={() => setCartOpen(false)} />
+          <button type="button" className="btn-close" data-bs-dismiss="offcanvas" aria-label={t('close')} />
         </div>
         <div className="offcanvas-body d-flex flex-column">
           {reserved ? (
@@ -1056,7 +1109,6 @@ export default function App() {
           )}
         </div>
       </div>
-      {cartOpen && <div className="offcanvas-backdrop fade show" onClick={() => setCartOpen(false)} />}
 
       {toast && (
         <div className="position-fixed bottom-0 end-0 p-3" style={{ zIndex: 1100 }}>
@@ -1091,6 +1143,8 @@ export default function App() {
 
 function ProductPage({ t, product, photoIndex, setPhotoIndex, left, onBack, onAdd, onOpen, liveStock, onAddRelated, catalog }) {
   const st = stockLabel(left, t)
+  const badge =
+    st.cls === 'stock-ok' ? 'text-bg-success' : st.cls === 'stock-low' ? 'text-bg-warning' : 'text-bg-danger'
   const photos = product.photos || []
   const also = (product.related || []).map((id) => catalog.find((p) => p.id === id)).filter(Boolean)
   return (
@@ -1098,32 +1152,47 @@ function ProductPage({ t, product, photoIndex, setPhotoIndex, left, onBack, onAd
       <button className="btn btn-outline-secondary btn-sm mb-3" type="button" onClick={onBack}>
         ← {t('continueShopping')}
       </button>
-      <div className="row g-4 pdp">
+      <div className="row g-4">
         <div className="col-md-6">
-          <div className="pdp-photo position-relative rounded overflow-hidden border bg-body-secondary">
-            {photos.length > 0 ? <img src={photos[photoIndex]} alt={product.name} className="w-100" /> : <PartThumb product={product} />}
-            <span className={`badge position-absolute top-0 end-0 m-2 ${st.cls === 'stock-ok' ? 'text-bg-success' : st.cls === 'stock-low' ? 'text-bg-warning' : 'text-bg-danger'}`}>{st.text}</span>
+          <div className="card border-0 shadow-sm overflow-hidden">
+            <div className="ratio ratio-1x1 bg-body-secondary position-relative">
+              {photos.length > 0 ? (
+                <img src={photos[photoIndex]} alt={product.name} className="w-100 h-100" style={{ objectFit: 'cover' }} />
+              ) : (
+                <PartThumb product={product} />
+              )}
+              <span className={`badge position-absolute top-0 end-0 m-2 ${badge}`}>{st.text}</span>
+            </div>
           </div>
           {photos.length > 1 && (
-            <div className="thumbs">
+            <div className="d-flex flex-wrap gap-2 mt-2">
               {photos.map((src, i) => (
-                <button key={src + i} type="button" className={i === photoIndex ? 'on' : ''} onClick={() => setPhotoIndex(i)}>
-                  <img src={src} alt="" />
+                <button
+                  key={src + i}
+                  type="button"
+                  className={`btn p-0 border rounded overflow-hidden ${i === photoIndex ? 'border-success border-2' : ''}`}
+                  style={{ width: 72, height: 56 }}
+                  onClick={() => setPhotoIndex(i)}
+                  aria-label={`${product.name} ${i + 1}`}
+                >
+                  <img src={src} alt="" className="w-100 h-100" style={{ objectFit: 'cover' }} />
                 </button>
               ))}
             </div>
           )}
         </div>
-        <div className="col-md-6 pdp-info">
-          <div className="sku">
+        <div className="col-md-6">
+          <div className="small text-secondary mb-1">
             {product.sku} · {product.brand}
           </div>
-          <h1>{product.name}</h1>
+          <h1 className="h3 mb-2">{product.name}</h1>
           <Stars product={product} />
-          <div className="short">{product.short}</div>
-          <div className="price">{money(product.price)}</div>
-          <div className={`need ${left <= 0 ? 'out' : ''}`}>{product.needs}</div>
-          <div className="alt-row">
+          <p className="text-secondary">{product.short}</p>
+          <div className="fs-4 fw-bold text-success mb-2">{money(product.price)}</div>
+          {product.needs && (
+            <div className={`alert py-2 ${left <= 0 ? 'alert-danger' : 'alert-secondary'}`}>{product.needs}</div>
+          )}
+          <div className="d-flex flex-wrap gap-2 mt-3">
             <button className="btn btn-success" type="button" disabled={left <= 0} onClick={onAdd}>
               {left <= 0 ? t('soldOut') : t('addToCart')}
             </button>
@@ -1140,45 +1209,55 @@ function ProductPage({ t, product, photoIndex, setPhotoIndex, left, onBack, onAd
       </div>
 
       {(REVIEWS[product.id] || []).length > 0 && (
-        <section className="reviews">
-          <h2>{t('customerReviews')}</h2>
-          <div className="review-list">
+        <section className="mt-5">
+          <h2 className="h5 mb-3">{t('customerReviews')}</h2>
+          <div className="row g-3">
             {REVIEWS[product.id].map((r, i) => (
-              <article className="review" key={i}>
-                <div className="stars">
-                  <span>{starText(r.stars)}</span>
-                  <em>{r.name}</em>
-                  <span className="rev">{r.city}</span>
-                </div>
-                <p>{r.text}</p>
-              </article>
+              <div className="col-md-6" key={i}>
+                <article className="card h-100 shadow-sm border-0">
+                  <div className="card-body">
+                    <div className="d-flex flex-wrap gap-2 small mb-2">
+                      <span className="text-warning">{starText(r.stars)}</span>
+                      <strong>{r.name}</strong>
+                      <span className="text-secondary">{r.city}</span>
+                    </div>
+                    <p className="mb-0 small">{r.text}</p>
+                  </div>
+                </article>
+              </div>
             ))}
           </div>
         </section>
       )}
 
       {also.length > 0 && (
-        <section className="also">
-          <h2>{t('alsoBought')}</h2>
-          <div className="also-row">
+        <section className="mt-5">
+          <h2 className="h5 mb-3">{t('alsoBought')}</h2>
+          <div className="row g-3">
             {also.map((p) => {
               const l = liveStock(p)
               return (
-                <article className="also-card" key={p.id}>
-                  <button type="button" className="also-thumb" onClick={() => onOpen(p.id)}>
-                    <PartThumb product={p} />
-                  </button>
-                  <h3>
-                    <button type="button" onClick={() => onOpen(p.id)}>
-                      {p.name}
+                <div className="col-6 col-md-3" key={p.id}>
+                  <article className="card h-100 shadow-sm product-bs-card">
+                    <button type="button" className="btn p-0 border-0" onClick={() => onOpen(p.id)} aria-label={p.name}>
+                      <div className="ratio ratio-1x1 bg-body-secondary overflow-hidden">
+                        <PartThumb product={p} />
+                      </div>
                     </button>
-                  </h3>
-                  <Stars product={p} />
-                  <div className="price">{money(p.price)}</div>
-                  <button className="add" type="button" disabled={l <= 0} onClick={() => onAddRelated(p)}>
-                    {l <= 0 ? t('soldOut') : t('add')}
-                  </button>
-                </article>
+                    <div className="card-body d-flex flex-column">
+                      <h3 className="h6">
+                        <button type="button" className="btn btn-link p-0 text-start text-decoration-none text-body" onClick={() => onOpen(p.id)}>
+                          {p.name}
+                        </button>
+                      </h3>
+                      <Stars product={p} />
+                      <div className="fw-bold text-success mb-2">{money(p.price)}</div>
+                      <button className="btn btn-sm btn-success mt-auto" type="button" disabled={l <= 0} onClick={() => onAddRelated(p)}>
+                        {l <= 0 ? t('soldOut') : t('add')}
+                      </button>
+                    </div>
+                  </article>
+                </div>
               )
             })}
           </div>

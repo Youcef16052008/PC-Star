@@ -47,42 +47,60 @@ export default function ProfilePage({ t, user, users, onUsers, onUser, setToast,
   }
 
   return (
-    <main className="wrap page">
-      <button className="back" type="button" onClick={onBack}>
-        {t('backToShop')}
+    <main className="container page py-4">
+      <button className="btn btn-outline-secondary btn-sm mb-3" type="button" onClick={onBack}>
+        ← {t('backToShop')}
       </button>
-      <div className="profile-card callbox">
-        <h1>{t('profileTitle')}</h1>
-        <p className="short">
-          {t('profileRole')}: <strong>{user.role === 'master' ? t('roleMaster') : t('roleCustomer')}</strong>
-          {user.email ? ` · ${user.email}` : ''}
-        </p>
+      <div className="row justify-content-center">
+        <div className="col-md-7 col-lg-5">
+          <div className="card shadow-sm border-0">
+            <div className="card-body p-4">
+              <h1 className="h4 mb-2">{t('profileTitle')}</h1>
+              <p className="text-secondary small mb-4">
+                {t('profileRole')}: <strong>{user.role === 'master' ? t('roleMaster') : t('roleCustomer')}</strong>
+                {user.email ? ` · ${user.email}` : ''}
+              </p>
 
-        <form onSubmit={save} className="auth-form">
-          <label htmlFor="pf-name">{t('authName')}</label>
-          <input id="pf-name" className="field" value={name} onChange={(e) => setName(e.target.value)} required />
+              <form onSubmit={save}>
+                <div className="mb-3">
+                  <label className="form-label" htmlFor="pf-name">
+                    {t('authName')}
+                  </label>
+                  <input id="pf-name" className="form-control" value={name} onChange={(e) => setName(e.target.value)} required />
+                </div>
 
-          <label htmlFor="pf-phone">{t('phone')}</label>
-          <input id="pf-phone" className="field" value={phone} onChange={(e) => setPhone(e.target.value)} inputMode="tel" placeholder="05 / 06 / 07…" />
-          <p className="short">
-            {t('carrierNote')}
-            {carrierLabel ? ` · ${carrierLabel}` : ''}
-          </p>
+                <div className="mb-3">
+                  <label className="form-label" htmlFor="pf-phone">
+                    {t('phone')}
+                  </label>
+                  <input id="pf-phone" className="form-control" value={phone} onChange={(e) => setPhone(e.target.value)} inputMode="tel" placeholder="05 / 06 / 07…" />
+                  <div className="form-text">
+                    {t('carrierNote')}
+                    {carrierLabel ? ` · ${carrierLabel}` : ''}
+                  </div>
+                </div>
 
-          <label htmlFor="pf-wilaya">{t('wilaya')}</label>
-          <select id="pf-wilaya" className="field" value={wilaya} onChange={(e) => setWilaya(e.target.value)}>
-            {WILAYAS_NEAR.map((w) => (
-              <option key={w} value={w}>
-                {w}
-              </option>
-            ))}
-          </select>
+                <div className="mb-3">
+                  <label className="form-label" htmlFor="pf-wilaya">
+                    {t('wilaya')}
+                  </label>
+                  <select id="pf-wilaya" className="form-select" value={wilaya} onChange={(e) => setWilaya(e.target.value)}>
+                    {WILAYAS_NEAR.map((w) => (
+                      <option key={w} value={w}>
+                        {w}
+                      </option>
+                    ))}
+                  </select>
+                </div>
 
-          {err && <p className="form-error">{err}</p>}
-          <button className="add wide" type="submit" disabled={busy}>
-            {t('profileSave')}
-          </button>
-        </form>
+                {err && <div className="alert alert-danger py-2">{err}</div>}
+                <button className="btn btn-success w-100" type="submit" disabled={busy}>
+                  {t('profileSave')}
+                </button>
+              </form>
+            </div>
+          </div>
+        </div>
       </div>
     </main>
   )

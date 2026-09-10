@@ -78,128 +78,6 @@ a { color: inherit; }
 .app { min-height: 100vh; display: flex; flex-direction: column; position: relative; }
 .wrap { width: min(1180px, calc(100% - 32px)); margin: 0 auto; position: relative; z-index: 1; }
 
-.orbit-bg { display: none; }
-.orbit-scene {
-  position: relative;
-  width: 420px;
-  height: 420px;
-  margin: 0 auto;
-  perspective: 900px;
-  transform-style: preserve-3d;
-}
-.orbit-scene.faint { width: min(720px, 90vw); height: min(720px, 90vw); margin: 8vh auto 0; }
-.orbit-core {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  width: 132px;
-  height: 132px;
-  transform: translate(-50%, -50%);
-  border-radius: 22px;
-  overflow: hidden;
-  border: 3px solid #1c273c;
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
-  z-index: 2;
-  background: #0f172a;
-}
-.orbit-core img,
-.orbit-face img { width: 100%; height: 100%; object-fit: cover; }
-.orbit-core span,
-.orbit-face span {
-  position: absolute;
-  left: 8px;
-  right: 8px;
-  bottom: 8px;
-  background: rgba(28, 28, 28, 0.78);
-  color: #fff;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  text-align: center;
-  padding: 4px 6px;
-  border-radius: 8px;
-}
-.orbit-ring {
-  position: absolute;
-  inset: 0;
-  transform-style: preserve-3d;
-  animation: orbit-spin 28s linear infinite;
-}
-.orbit-slot {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  width: 92px;
-  height: 92px;
-  margin: -46px 0 0 -46px;
-  transform-style: preserve-3d;
-  transform: rotateY(calc(var(--i) * 360deg / var(--n))) translateZ(168px);
-}
-.orbit-face {
-  width: 100%;
-  height: 100%;
-  border-radius: 16px;
-  overflow: hidden;
-  border: 2px solid #2a364c;
-  background: #0f172a;
-  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.35);
-  animation: orbit-unspin 28s linear infinite;
-  position: relative;
-}
-.hero-orbit { margin: 8px 0 18px; }
-
-.m3d { position: relative; transform-style: preserve-3d; }
-.m-case { width: 52px; height: 70px; }
-.m-case .face { position: absolute; background: linear-gradient(145deg, #3a4658, #1c2430); border: 1px solid #6d7b90; }
-.m-case .front { inset: 0; border-radius: 4px; }
-.m-case .side { top: 4px; right: -10px; width: 12px; height: 62px; background: #121820; transform: skewY(-12deg); }
-.m-case .top { top: -6px; left: 4px; width: 46px; height: 10px; background: #2a3342; transform: skewX(-18deg); }
-.m-case .window { position: absolute; inset: 10px 8px 14px 8px; background: linear-gradient(160deg, #8ec5ff55, #1f4aa822); border: 1px solid #9ec4ff66; border-radius: 2px; }
-
-.m-cpu { width: 40px; height: 40px; }
-.m-cpu .top { width: 40px; height: 40px; background: linear-gradient(135deg, #cfd6e0, #8d97a8); border: 1px solid #eee; border-radius: 3px; }
-.m-cpu .front { position: absolute; left: 0; bottom: -6px; width: 40px; height: 6px; background: #5c6573; }
-.m-cpu .side { position: absolute; right: -6px; top: 0; width: 6px; height: 40px; background: #6b7482; }
-.m-cpu .pins { position: absolute; inset: 8px; background: repeating-linear-gradient(90deg, #2c3340 0 2px, transparent 2px 4px), repeating-linear-gradient(#2c3340 0 2px, transparent 2px 4px); opacity: 0.55; }
-
-.m-gpu { width: 54px; height: 28px; }
-.m-gpu .pcb { position: absolute; inset: 6px 0 0; background: #1a7a3a; border-radius: 2px; }
-.m-gpu .fan { position: absolute; top: 0; width: 22px; height: 22px; border-radius: 50%; background: radial-gradient(circle at 50% 50%, #dbe4f0 0 5px, #4a5568 6px 11px, #222 12px); }
-.m-gpu .f1 { left: 4px; }
-.m-gpu .f2 { right: 4px; }
-.m-gpu .slot { position: absolute; bottom: -3px; left: 8px; width: 18px; height: 5px; background: #c9a227; }
-
-.m-mb { width: 46px; height: 46px; }
-.m-mb .pcb { position: absolute; inset: 0; background: #1b6b3a; border-radius: 3px; }
-.m-mb .socket { position: absolute; top: 8px; left: 8px; width: 16px; height: 16px; background: #cfd6e0; border: 2px solid #333; }
-.m-mb .slots { position: absolute; right: 6px; top: 8px; width: 8px; height: 28px; background: repeating-linear-gradient(#1f4aa8 0 4px, #0d2a66 4px 7px); }
-.m-mb .io { position: absolute; left: 0; bottom: 6px; width: 46px; height: 6px; background: #2a3342; }
-
-.m-ram { width: 44px; height: 28px; }
-.m-ram .stick { position: absolute; width: 36px; height: 10px; background: linear-gradient(90deg, #1f4aa8, #4d7adf); border-bottom: 3px solid #cfd6e0; }
-.m-ram .s1 { top: 4px; left: 4px; }
-.m-ram .s2 { top: 16px; left: 4px; }
-
-.m-ssd { width: 48px; height: 14px; }
-.m-ssd .bar { position: absolute; inset: 0; background: #2a3342; border-radius: 2px; }
-.m-ssd .chip { position: absolute; left: 8px; top: 3px; width: 14px; height: 8px; background: #8d97a8; }
-
-.m-psu { width: 42px; height: 28px; }
-.m-psu .top { width: 42px; height: 22px; background: #2a3342; border: 1px solid #6d7b90; }
-.m-psu .front { position: absolute; left: 0; bottom: 0; width: 42px; height: 8px; background: #121820; }
-.m-psu .side { position: absolute; right: -5px; top: 2px; width: 6px; height: 22px; background: #1c2430; }
-.m-psu .grill { position: absolute; right: 4px; top: 4px; width: 14px; height: 14px; border-radius: 50%; background: radial-gradient(#111 40%, #889 41% 70%, transparent 71%); }
-
-.m-cooler { width: 36px; height: 40px; }
-.m-cooler .tower { position: absolute; left: 8px; top: 4px; width: 14px; height: 32px; background: repeating-linear-gradient(#b8c0cc 0 2px, #6d7b90 2px 3px); }
-.m-cooler .heatfan { position: absolute; right: 2px; top: 10px; width: 18px; height: 18px; border-radius: 50%; background: radial-gradient(circle, #dbe4f0 0 4px, #4a5568 5px 9px, #222 10px); }
-
-.m-fan { width: 36px; height: 36px; }
-.m-fan .rim { position: absolute; inset: 0; border: 3px solid #4a5568; border-radius: 50%; }
-.m-fan .blade { position: absolute; top: 16px; left: 4px; width: 28px; height: 4px; background: #8d97a8; }
-.m-fan .b2 { transform: rotate(90deg); }
-.m-fan .hub { position: absolute; inset: 12px; border-radius: 50%; background: #1c2430; }
 
 .part-mark {
   display: grid;
@@ -223,17 +101,9 @@ a { color: inherit; }
 .cat-console { background: linear-gradient(145deg, #2f6b4a, #143326); }
 .cat-repair { background: linear-gradient(145deg, #8a5a2d, #4a2e14); }
 
-@keyframes orbit-spin {
-  from { transform: rotateY(0deg); }
-  to { transform: rotateY(360deg); }
-}
-@keyframes orbit-unspin {
-  from { transform: rotateY(calc(var(--i) * -360deg / var(--n))); }
-  to { transform: rotateY(calc(var(--i) * -360deg / var(--n) - 360deg)); }
-}
 
 @media (prefers-reduced-motion: reduce) {
-  .orbit-ring, .orbit-face, .social-btn { animation: none; }
+  .social-btn { animation: none; }
   .pick-card, .builder-tab, .social-btn { transition: none; }
 }
 
@@ -1231,9 +1101,6 @@ html[dir='rtl'] .compare-table th, html[dir='rtl'] .compare-table td { text-alig
 @media (max-width: 900px) {
   .grid { grid-template-columns: repeat(2, 1fr); }
   .pdp, .cart-grid, .store-grid, .search-layout, .builder-layout, .also-row, .deal-row, .guide-row, .hero, .master-grid { grid-template-columns: 1fr; }
-  .orbit-scene { width: 300px; height: 300px; }
-  .orbit-slot { width: 72px; height: 72px; margin: -36px 0 0 -36px; transform: rotateY(calc(var(--i) * 360deg / var(--n))) translateZ(118px); }
-  .orbit-core { width: 96px; height: 96px; }
   .card { min-height: 360px; }
   .pdp-photo { min-height: 240px; }
   .row-card { grid-template-columns: 120px 1fr; }

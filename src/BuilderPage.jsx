@@ -3,9 +3,9 @@ import { BUILDER_SLOTS, STORE, checkCompatibility, money, specOf, splitWarnings 
 import PartThumb from './PartThumb.jsx'
 
 function stockLabel(n, t) {
-  if (n <= 0) return { text: t('outOfStock'), cls: 'stock-out' }
-  if (n <= 3) return { text: `${n} ${t('left')}`, cls: 'stock-low' }
-  return { text: `${n} ${t('inStore')}`, cls: 'stock-ok' }
+  if (n <= 0) return { text: t('outOfStock'), cls: 'danger' }
+  if (n <= 3) return { text: `${n} ${t('left')}`, cls: 'warning' }
+  return { text: `${n} ${t('inStore')}`, cls: 'success' }
 }
 
 export default function BuilderPage({ t, products, build, setBuild, liveStock, onAdd, onOpen, onGoCart, setToast }) {
@@ -122,92 +122,99 @@ export default function BuilderPage({ t, products, build, setBuild, liveStock, o
 
   const current = build[slot.key]
   const filled = BUILDER_SLOTS.filter((s) => build[s.key]).length
+  const progress = Math.round((filled / BUILDER_SLOTS.length) * 100)
 
   return (
-    <main className="wrap page">
-      <div className="search-hero">
-        <div className="crumb">{t('builderCrumb')}</div>
-        <h1>{t('builderTitle')}</h1>
-        <p>{t('builderBody', { address: STORE.address })}</p>
+    <main className="container page py-4">
+      <div className="mb-3">
+        <div className="text-secondary small">{t('builderCrumb')}</div>
+        <h1 className="h3">{t('builderTitle')}</h1>
+        <p className="text-secondary">{t('builderBody', { address: STORE.address })}</p>
       </div>
 
-      <div className="builder-progress">
-        <span>{t('builderChosen', { n: filled, total: BUILDER_SLOTS.length })}</span>
-        <div className="builder-bar" aria-hidden>
-          <i style={{ width: `${(filled / BUILDER_SLOTS.length) * 100}%` }} />
+      <div className="mb-3">
+        <div className="d-flex justify-content-between small mb-1">
+          <span>{t('builderChosen', { n: filled, total: BUILDER_SLOTS.length })}</span>
+          <span className="text-secondary">{progress}%</span>
+        </div>
+        <div className="progress" role="progressbar" aria-valuenow={progress} aria-valuemin={0} aria-valuemax={100} style={{ height: 8 }}>
+          <div className="progress-bar bg-success" style={{ width: `${progress}%` }} />
         </div>
       </div>
 
-      <div className="builder-layout">
-        <div>
-          <div className="line-tabs">
-            <div className="line-group">
-              <span>{t('filters')}</span>
-              <button
-                type="button"
-                className={`chip ${group === 'parts' ? 'on' : ''}`}
-                onClick={() => {
-                  setGroup('parts')
-                  chooseSlot('motherboard')
-                }}
-              >
-                {t('catalogParts')}
-              </button>
-              <button
-                type="button"
-                className={`chip ${group === 'accessories' ? 'on' : ''}`}
-                onClick={() => {
-                  setGroup('accessories')
-                  chooseSlot('keyboard')
-                }}
-              >
-                {t('catalogAcc')}
-              </button>
-            </div>
+      <div className="row g-4">
+        <div className="col-lg-8">
+          <div className="btn-group mb-3" role="group">
+            <button
+              type="button"
+              className={`btn ${group === 'parts' ? 'btn-success' : 'btn-outline-secondary'}`}
+              onClick={() => {
+                setGroup('parts')
+                chooseSlot('motherboard')
+              }}
+            >
+              {t('catalogParts')}
+            </button>
+            <button
+              type="button"
+              className={`btn ${group === 'accessories' ? 'btn-success' : 'btn-outline-secondary'}`}
+              onClick={() => {
+                setGroup('accessories')
+                chooseSlot('keyboard')
+              }}
+            >
+              {t('catalogAcc')}
+            </button>
           </div>
 
-          <div className="builder-slot-row">
+          <div className="d-flex flex-wrap gap-2 mb-3">
             {slots.map((s) => {
               const lab = t(`line_${s.key}`) !== `line_${s.key}` ? t(`line_${s.key}`) : s.label
+              const has = Boolean(build[s.key])
+              const active = slotKey === s.key
               return (
                 <button
                   key={s.key}
                   type="button"
-                  className={`builder-tab ${slotKey === s.key ? 'on' : ''} ${build[s.key] ? 'has' : ''} ${s.required ? 'req' : ''}`}
+                  className={`btn btn-sm ${active ? 'btn-success' : has ? 'btn-outline-success' : 'btn-outline-secondary'}`}
                   onClick={() => chooseSlot(s.key)}
                 >
                   {lab}
-                  {build[s.key] ? <b>{t('picked')}</b> : s.required ? <em>{t('need')}</em> : <em>{t('optional')}</em>}
+                  <span className="ms-1 small opacity-75">{has ? t('picked') : s.required ? t('need') : t('optional')}</span>
                 </button>
               )
             })}
           </div>
 
-          <div className="builder-tools">
-            <input
-              className="field"
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              placeholder={t('searchSlot', { slot: slotLabel })}
-              aria-label={slotLabel}
-              disabled={locked}
-            />
-            <select className="field brand-field" value={brand} onChange={(e) => setBrand(e.target.value)} disabled={locked} aria-label={t('brands')}>
-              <option value="all">{t('allBrands')}</option>
-              {brands.map((b) => (
-                <option key={b} value={b}>
-                  {b}
-                </option>
-              ))}
-            </select>
+          <div className="row g-2 mb-3">
+            <div className="col-md-8">
+              <input
+                className="form-control"
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                placeholder={t('searchSlot', { slot: slotLabel })}
+                aria-label={slotLabel}
+                disabled={locked}
+              />
+            </div>
+            <div className="col-md-4">
+              <select className="form-select" value={brand} onChange={(e) => setBrand(e.target.value)} disabled={locked} aria-label={t('brands')}>
+                <option value="all">{t('allBrands')}</option>
+                {brands.map((b) => (
+                  <option key={b} value={b}>
+                    {b}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
 
           {locked ? (
-            <p className="empty">{t('pickBoardFirst')}</p>
+            <div className="alert alert-warning">{t('pickBoardFirst')}</div>
           ) : options.length === 0 ? (
-            <p className="empty">{t('noProducts')}</p>
+            <p className="text-secondary">{t('noProducts')}</p>
           ) : (
-            <div className="builder-grid">
+            <div className="row g-3">
               {options.map((p) => {
                 const left = liveStock(p)
                 const st = stockLabel(left, t)
@@ -217,103 +224,117 @@ export default function BuilderPage({ t, products, build, setBuild, liveStock, o
                 const tooHot = gpuBlocks.length > 0
                 const spec = specOf(p)
                 return (
-                  <article className={`pick-card ${on ? 'on' : ''} ${tooHot ? 'blocked' : ''}`} key={p.id}>
-                    <button type="button" className="pick-thumb" onClick={() => onOpen(p.id)} aria-label={p.name}>
-                      <PartThumb product={p} />
-                      <span className={`badge ${st.cls}`}>{st.text}</span>
-                    </button>
-                    <div className="pick-body">
-                      <div className="sku">
-                        {p.brand}
-                        {spec.tdp ? ` · ${spec.tdp}W` : ''}
-                        {spec.vrm ? ` · VRM ${spec.vrm}W` : ''}
-                      </div>
-                      <h3>
-                        <button type="button" onClick={() => onOpen(p.id)}>
-                          {p.name}
-                        </button>
-                      </h3>
-                      <p className="short">{p.short}</p>
-                      {tooHot && <p className="fit-err">{gpuBlocks[0]}</p>}
-                      {!tooHot && gpuNotes[0] && <p className="fit-note">{gpuNotes[0]}</p>}
-                      <div className="row">
-                        <div className="price">{money(p.price)}</div>
-                        <button
-                          type="button"
-                          className={on ? 'ghost tiny on' : 'add'}
-                          disabled={left <= 0 || tooHot}
-                          onClick={() => (on ? clearSlot(slot.key) : pick(p))}
-                        >
-                          {left <= 0 ? t('soldOut') : tooHot ? t('tooHighGamme') : on ? t('selected') : t('choose')}
-                        </button>
+                  <div className="col-6 col-md-4" key={p.id}>
+                    <div className={`card h-100 shadow-sm product-bs-card ${on ? 'border-success' : ''} ${tooHot ? 'opacity-75' : ''}`}>
+                      <button type="button" className="btn p-0 border-0 position-relative" onClick={() => onOpen(p.id)} aria-label={p.name}>
+                        <div className="ratio ratio-1x1 bg-body-secondary overflow-hidden">
+                          <PartThumb product={p} />
+                        </div>
+                        <span className={`badge position-absolute top-0 end-0 m-2 text-bg-${st.cls}`}>{st.text}</span>
+                      </button>
+                      <div className="card-body d-flex flex-column">
+                        <div className="small text-secondary">
+                          {p.brand}
+                          {spec.tdp ? ` · ${spec.tdp}W` : ''}
+                          {spec.vrm ? ` · VRM ${spec.vrm}W` : ''}
+                        </div>
+                        <h3 className="h6">
+                          <button type="button" className="btn btn-link p-0 text-start text-decoration-none text-body" onClick={() => onOpen(p.id)}>
+                            {p.name}
+                          </button>
+                        </h3>
+                        <p className="small text-secondary flex-grow-1 mb-2">{p.short}</p>
+                        {tooHot && <div className="alert alert-danger py-1 px-2 small mb-2">{gpuBlocks[0]}</div>}
+                        {!tooHot && gpuNotes[0] && <div className="alert alert-warning py-1 px-2 small mb-2">{gpuNotes[0]}</div>}
+                        <div className="d-flex justify-content-between align-items-center gap-2 mt-auto">
+                          <span className="fw-bold text-success">{money(p.price)}</span>
+                          <button
+                            type="button"
+                            className={`btn btn-sm ${on ? 'btn-outline-success' : 'btn-success'}`}
+                            disabled={left <= 0 || tooHot}
+                            onClick={() => (on ? clearSlot(slot.key) : pick(p))}
+                          >
+                            {left <= 0 ? t('soldOut') : tooHot ? t('tooHighGamme') : on ? t('selected') : t('choose')}
+                          </button>
+                        </div>
                       </div>
                     </div>
-                  </article>
+                  </div>
                 )
               })}
             </div>
           )}
         </div>
 
-        <aside className="callbox build-summary">
-          <h2>{t('thisBuild')}</h2>
-          {!board ? (
-            <p>{t('pickBoardFirst')}</p>
-          ) : (
-            <ul className="build-list">
-              {BUILDER_SLOTS.map((s) => {
-                const lab = t(`line_${s.key}`) !== `line_${s.key}` ? t(`line_${s.key}`) : s.label
-                return (
-                  <li key={s.key} className={build[s.key] ? '' : 'dim'}>
-                    <button type="button" className="build-jump" onClick={() => chooseSlot(s.key)}>
-                      {lab}
-                    </button>
-                    {build[s.key] ? (
-                      <span className="build-pick">
-                        <strong>{money(build[s.key].price)}</strong>
-                        <button type="button" className="remove" onClick={() => clearSlot(s.key)}>
-                          ×
+        <aside className="col-lg-4">
+          <div className="card shadow-sm border-0 sticky-lg-top" style={{ top: 88 }}>
+            <div className="card-body">
+              <h2 className="h5">{t('thisBuild')}</h2>
+              {!board ? (
+                <p className="text-secondary">{t('pickBoardFirst')}</p>
+              ) : (
+                <ul className="list-group list-group-flush mb-3">
+                  {BUILDER_SLOTS.map((s) => {
+                    const lab = t(`line_${s.key}`) !== `line_${s.key}` ? t(`line_${s.key}`) : s.label
+                    return (
+                      <li key={s.key} className={`list-group-item px-0 d-flex justify-content-between align-items-center ${build[s.key] ? '' : 'text-secondary'}`}>
+                        <button type="button" className="btn btn-link btn-sm p-0 text-decoration-none" onClick={() => chooseSlot(s.key)}>
+                          {lab}
                         </button>
-                      </span>
-                    ) : (
-                      <em>{s.required ? t('required') : t('skip')}</em>
-                    )}
-                  </li>
-                )
-              })}
-            </ul>
-          )}
-          <div className="total">
-            {t('total')} {money(total)}
+                        {build[s.key] ? (
+                          <span className="d-flex align-items-center gap-2">
+                            <strong className="text-success">{money(build[s.key].price)}</strong>
+                            <button type="button" className="btn-close btn-sm" aria-label={t('remove')} onClick={() => clearSlot(s.key)} />
+                          </span>
+                        ) : (
+                          <em className="small">{s.required ? t('required') : t('skip')}</em>
+                        )}
+                      </li>
+                    )
+                  })}
+                </ul>
+              )}
+
+              <div className="d-flex justify-content-between align-items-center mb-3">
+                <span className="fw-semibold">{t('total')}</span>
+                <span className="fs-5 fw-bold text-success">{money(total)}</span>
+              </div>
+
+              {!socketOk && cpu && board && (
+                <div className="alert alert-danger py-2">
+                  <strong>{t('socketMismatch')}</strong>
+                  <div className="small">
+                    {cpu.name} is {cpu.compat.socket}. {board.name} is {board.compat.socket}.
+                  </div>
+                </div>
+              )}
+              {blocks.length > 0 && (
+                <div className="alert alert-danger py-2">
+                  <strong>{t('willNotRun')}</strong>
+                  {blocks.map((w) => (
+                    <div key={w} className="small">
+                      {w}
+                    </div>
+                  ))}
+                </div>
+              )}
+              {socketOk && notes.length > 0 && (
+                <div className="alert alert-warning py-2">
+                  <strong>{t('watchThis')}</strong>
+                  {notes.map((w) => (
+                    <div key={w} className="small">
+                      {w}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <button className="btn btn-success w-100" type="button" disabled={!requiredReady || !socketOk || !heatOk} onClick={addBuild}>
+                {t('addBuild')}
+              </button>
+              <p className="small text-secondary mt-2 mb-0">{t('builderPayNote')}</p>
+            </div>
           </div>
-          {!socketOk && cpu && board && (
-            <div className="warn danger">
-              <h3>{t('socketMismatch')}</h3>
-              <p>
-                {cpu.name} is {cpu.compat.socket}. {board.name} is {board.compat.socket}.
-              </p>
-            </div>
-          )}
-          {blocks.length > 0 && (
-            <div className="warn danger">
-              <h3>{t('willNotRun')}</h3>
-              {blocks.map((w) => (
-                <p key={w}>{w}</p>
-              ))}
-            </div>
-          )}
-          {socketOk && notes.length > 0 && (
-            <div className="warn">
-              <h3>{t('watchThis')}</h3>
-              {notes.map((w) => (
-                <p key={w}>{w}</p>
-              ))}
-            </div>
-          )}
-          <button className="add wide" type="button" disabled={!requiredReady || !socketOk || !heatOk} onClick={addBuild}>
-            {t('addBuild')}
-          </button>
-          <p className="short">{t('builderPayNote')}</p>
         </aside>
       </div>
     </main>
