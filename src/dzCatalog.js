@@ -245,8 +245,8 @@ export const DZ_EXTRA = [
     'Migration + Win11 + drivers', { tags: ['combo', 'budget'] }),
   p('pack-gamer-desk', 'PACK-GDESK', 'Pack desk gamer Havit 4en1 + pose', 'PC Star', 'service', 'repair', 5500, 20,
     'Combo + config au comptoir', { tags: ['combo'] }),
-  p('ccp-help', 'SRV-PAY', 'Aide paiement CCP / BaridiMob (info desk)', 'PC Star', 'service', 'repair', 0, 99,
-    'Gratuit · on explique au comptoir', { tags: ['desk'] })
+  p('desk-info', 'SRV-INFO', 'Info comptoir · retrait & paiement espèces', 'PC Star', 'service', 'repair', 0, 99,
+    'Gratuit · on explique le retrait au comptoir', { tags: ['desk'] })
 ]
 
 export const DZ_GUIDES = [
@@ -274,11 +274,9 @@ export const DZ_DEALS = [
   { id: 'tw-ssd-512', tag: 'Hot', noteKey: 'dealSsd' }
 ]
 
+/** Pickup payment: cash at desk only (no CCP / BaridiMob / 3x). */
 export const PAYMENT_HINTS = [
-  { id: 'cash', key: 'payCash' },
-  { id: 'ccp', key: 'payCcp' },
-  { id: 'baridi', key: 'payBaridi' },
-  { id: 'pay3x', key: 'pay3xDesk' }
+  { id: 'cash', key: 'payCash' }
 ]
 
 export const WILAYAS_NEAR = [

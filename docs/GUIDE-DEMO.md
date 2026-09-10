@@ -39,7 +39,7 @@ Tu peux aussi taper e-mail + mot de passe à la main, ou **Créer un compte**.
 1. Connexion client (ou invité au panier).
 2. Boutique / Recherche / **Config PC** (builder + alertes surchauffe / socket).
 3. Panier → nom + mobile **05 Ooredoo / 06 Mobilis / 07 Djezzy** → réserver.
-4. Montrer le code **PS-…** au comptoir, payer en DA (cash / CCP / BaridiMob / 3x).
+4. Montrer le code **PS-…** au comptoir, payer en DA (espèces au retrait).
 
 ## Thème & langues
 

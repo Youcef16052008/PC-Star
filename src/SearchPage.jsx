@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { PRICE_PRESETS, SOCKETS, STORE, money, starText, third } from './data'
+import { PRICE_PRESETS, SOCKETS, STORE, money, starText } from './data'
 import PartThumb from './PartThumb.jsx'
 
 function stockLabel(n, t) {
@@ -289,7 +289,6 @@ export default function SearchPage({ t, products, lines, panels, lang, liveStock
                       <h3>{p.name}</h3>
                       <Rating product={p} />
                       <div className="short">{p.short}</div>
-                      {p.price >= 30000 && <div className="pay3x">3x {third(p.price)}</div>}
                       <div className="row">
                         <div className="price">{money(p.price)}</div>
                         <button className="add" type="button" disabled={left <= 0} onClick={() => onAdd(p)}>
@@ -322,7 +321,6 @@ export default function SearchPage({ t, products, lines, panels, lang, liveStock
                       </h3>
                       <Rating product={p} />
                       <p>{p.short}</p>
-                      {p.price >= 30000 && <div className="pay3x">3x {third(p.price)}</div>}
                       <span className={`inline-stock ${st.cls}`}>{st.text}</span>
                     </div>
                     <div className="row-buy">

@@ -5,7 +5,6 @@ import {
   DEALS,
   GUIDES,
   PART_LINES,
-  PAYMENT_HINTS,
   PRODUCTS,
   REVIEWS,
   SLOTS,
@@ -16,8 +15,7 @@ import {
   checkCompatibility,
   money,
   splitWarnings,
-  starText,
-  third
+  starText
 } from './data'
 import * as api from './api.js'
 import SearchPage from './SearchPage.jsx'
@@ -335,7 +333,7 @@ export default function App() {
       phone: normalizePhone(pickup.phone),
       carrier: phoneCarrier(pickup.phone),
       wilaya: pickup.wilaya,
-      payment: pickup.payment,
+      payment: 'cash',
       slot: pickup.slot,
       items: cart.map((i) => ({
         id: i.id,
@@ -474,7 +472,7 @@ export default function App() {
               <p>{t('heroBody')}</p>
               <div className="trust-row">
                 <span className="pickup">{STORE.address}</span>
-                <span className="pickup">{t('pay3xBadge')}</span>
+                <span className="pickup">{t('payCash')}</span>
                 <span className="pickup">{t('warrantyBadge')}</span>
                 <button className="add" type="button" onClick={() => go('search')}>
                   {t('advancedSearch')}
@@ -604,7 +602,6 @@ export default function App() {
                           ))}
                         </div>
                       )}
-                      {p.price >= 30000 && <div className="pay3x">3x {third(p.price)}</div>}
                       <div className="row">
                         <div className="price">{money(p.price)}</div>
                         <button className="add" type="button" disabled={left <= 0} onClick={() => add(p)}>
@@ -741,7 +738,6 @@ export default function App() {
                   <div className="total">
                     {t('total')} {money(total)}
                   </div>
-                  {total >= 30000 && <p className="pay3x">{t('or3x', { amount: third(total) })}</p>}
                   <label htmlFor="name">{t('yourName')}</label>
                   <input id="name" className="field" value={pickup.name} onChange={(e) => setPickup({ ...pickup, name: e.target.value })} required />
                   <label htmlFor="phone">{t('phone')}</label>
@@ -774,13 +770,10 @@ export default function App() {
                     ))}
                   </select>
                   <label htmlFor="pay">{t('paymentMethod')}</label>
-                  <select id="pay" className="field" value={pickup.payment} onChange={(e) => setPickup({ ...pickup, payment: e.target.value })}>
-                    {PAYMENT_HINTS.map((h) => (
-                      <option key={h.id} value={h.id}>
-                        {t(h.key)}
-                      </option>
-                    ))}
-                  </select>
+                  <div id="pay" className="field field-static" role="note">
+                    {t('payCash')}
+                  </div>
+                  <input type="hidden" value="cash" readOnly />
                   <label htmlFor="slot">{t('timeSlot')}</label>
                   <select id="slot" className="field" value={pickup.slot} onChange={(e) => setPickup({ ...pickup, slot: e.target.value })}>
                     {SLOTS.map((s) => (
@@ -978,15 +971,25 @@ export default function App() {
         />
       )}
 
-      <footer className="footer">
-        <div className="wrap">
-          {STORE.name} · {STORE.address} · {STORE.phone} · {t('pricesInDa')}
+            <footer className="site-footer">
+        <div className="wrap" style={{ display: 'flex', flexWrap: 'wrap', gap: 16, justifyContent: 'space-between', alignItems: 'center' }}>
+          <div>
+            <strong>PC Star Informatique</strong>
+            <div className="short">{STORE.address}</div>
+            <div className="short">{t('payCash')} · {t('warrantyBadge')} · {t('pricesInDa')}</div>
+          </div>
+          <div className="alt-row" style={{ gap: 10 }}>
+            <a className="ghost" href={STORE.phoneHref}>{t('call')} {STORE.phone}</a>
+            <a className="ghost" href={`https://wa.me/${STORE.whatsapp}`} target="_blank" rel="noreferrer">WhatsApp</a>
+            <button type="button" className="ghost" onClick={() => go('about')}>{t('navAbout')}</button>
+          </div>
         </div>
       </footer>
 
       <a className="wa-fab" href={`https://wa.me/${STORE.whatsapp}`} target="_blank" rel="noreferrer">
         WhatsApp
       </a>
+
       {toast && <div className="toast">{toast}</div>}
 
       {authOpen && (
@@ -1042,7 +1045,6 @@ function ProductPage({ t, product, photoIndex, setPhotoIndex, left, onBack, onAd
           <div className="short">{product.short}</div>
           <div className="price">{money(product.price)}</div>
           <div className={`need ${left <= 0 ? 'out' : ''}`}>{product.needs}</div>
-          {product.price >= 30000 && <p className="pay3x">3x {third(product.price)}</p>}
           <div className="alt-row">
             <button className="add" type="button" disabled={left <= 0} onClick={onAdd}>
               {left <= 0 ? t('soldOut') : t('addToCart')}
