@@ -14,6 +14,7 @@ commit. Une **6e phase (P6)** a traité les 7 bugs reportés en conditions réel
 | P4 | `5d6f736` | B10, B17 | Durcissement Vercel |
 | P5 | `823df13` | B11, B12, B14, B15, B16, B19, B20, B21 | Mineurs & nettoyage |
 | P6 | (11/09) | C1–C7 | Bugs terrain & gestion des commandes |
+| P7 | (11/09) | P7-1 → P7-18 | 2ᵉ audit complet : bugs identifiés + solutions conçues (**non implémentés**) |
 
 L'audit initial et le plan détaillé : [`AUDIT-REPO.md`](./AUDIT-REPO.md).
 B18/B22/B23 : jugés **non-bugs** (contraintes de conception démo, documentées).
@@ -356,6 +357,231 @@ ciblées, chaque flux re-vérifié **en live** (API réelle) et en E2E jsdom (Vi
   vue master (masqués/rupture inclus) → masquer/réafficher → panneaux synchronisés
   sans alerte ; builder → panier régression (6 pièces) ; boutique offline : rupture
   masquée.
+
+## P7 — 2ᵉ audit (11/09/2026) : bugs identifiés, solutions conçues
+
+Nouveau passage **ligne par ligne, fichier par fichier** (`src/*`, `server/*`,
+configs, scripts) après la P6. **18 bugs** identifiés et hiérarchisés, chacun avec
+sa solution conçue — **aucun n'est implémenté** (sur demande : trouver les bugs
++ leurs solutions, pas les corriger). Les références `fichier:ligne` pointent le
+commit `7e9b5e7`.
+
+Priorité : 🔴 = intégrité de données / argent / vie privée · 🟠 = justesse
+opérationnelle · 🟡 = robustesse · ⚪ = cosmétique / contrainte documentée.
+
+### 🔴 P7-1. Vue master ignorée par les overrides — affichage obsolète + édition destructrice
+- **Où** : `server/masterApi.js:28` (`listMasterProducts`).
+- **Mécanisme** : la liste master ne merge pas `db.meta.productOverrides` sur les
+  produits du catalogue de base. Après `PUT /api/master/products/:id` (prix, nom,
+  stock, photos), le **catalogue public applique l'override** mais la liste master
+  continue d'afficher la valeur de base. **Reproduit en live** : `PUT price=99999`
+  → public = 99999, master = 24500. Conséquence grave : le panneau « Éditer les
+  photos » (`src/MasterPage.jsx:164`) charge `p.photos` de cette liste **obsolète**
+  ; si le master retire une photo et sauvegarde, `updateProduct({photos})`
+  **remplace les photos uploadées par les photos de base moins une** → perte des
+  photos que voient les clients.
+- **Solution** : dans `listMasterProducts`, pour chaque produit de base :
+  `const ov = db.meta.productOverrides?.[p.id] || {}` puis
+  `{ ...p, ...ov, stock: liveStockOf(db, p.id), hidden, source: 'catalog' }`
+  (idempotent, aligne la vue master sur le public + flags). Test de régression :
+  `PUT` prix/override → `GET /api/master/products` renvoie la valeur override ;
+  le panneau photos master doit afficher les photos uploadées.
+
+### 🔴 P7-2. Panier : échec API 429/5xx → repli local silencieux + code de commande en collision
+- **Où** : `src/App.jsx:626` (`reserve()`), repli local ~L663-690.
+- **Mécanisme** : après `api.postOrder`, seuls `r.ok` et `409/stock` traitent ;
+  un **429** (rate-limit : 15 cmd/min par IP — partagé entre l'iframe de preview,
+  le navigateur du user et le comptoir en local !) ou un **5xx** tombe dans le
+  repli local : la commande est créée **uniquement dans le navigateur** —
+  invisible au shop, jamais préparée. Pire, le code local
+  `makeOrderCode(new Date(), reservations.length + 1)` (L690) recalcule la
+  séquence depuis la liste **client** : un client en API mode a `reservations`
+  vide → code `PS-<jour>-0001`, **identique au 1ᵉʳ code du jour côté serveur**
+  → annulation/`PATCH` par code pourrait viser la mauvaise commande.
+- **Solution** : (1) ne replier sur le local **que si `r.offline === true`** ;
+  sinon toast explicite et garder le panier : 429 → « Trop de commandes,
+  réessayez dans N s » (`r.data.retryAfter`), 5xx → « Serveur momentanément
+  indisponible » ; (2) code local in-collidable : préfixe `PSL-<jour>-<seq>`
+  ou dériver la séquence du max des codes du jour déjà présents (client +
+  serveur), jamais `length + 1`.
+
+### 🔴 P7-3. Formulaire de retrait non réinitialisé au logout (PII entre comptes)
+- **Où** : `src/App.jsx:438` (effet `[authId]`).
+- **Mécanisme** : `if (!user) return` — à la déconnexion l'effet charge le panier
+  guest mais **ne vide pas `pickup`** : nom, téléphone, wilaya du client
+  précédent restent pré-remplis pour le suivant sur le même appareil (le panier,
+  lui, est bien isolé par compte depuis B15).
+- **Solution** : dans le même effet, `if (!user) { setPickup({ name: '', phone: '',
+  wilaya: 'Oran', slot: '' }); return }`.
+
+### 🟠 P7-4. Export CSV « aujourd'hui » : date UTC vs date locale (1 h par jour en Oran)
+- **Où** : `src/DeskPage.jsx:115` vs `server/catalog.js` (`makeOrderCode`).
+- **Mécanisme** : le client envoie `day = new Date().toISOString().slice(0,10)`
+  (**UTC**), alors que le code de commande est daté à la date **locale du
+  serveur**. Depuis Oran (UTC+1), entre **00:00 et 01:00** la « journée » UTC ne
+  correspond pas à la journée locale : les commandes de cette heure portent le
+  code du jour précédent et **disparaissent de l'export « aujourd'hui »**.
+- **Solution** : source de vérité unique — à la création, stocker le champ
+  `order.day` (= date intégrée au code) et filtrer le CSV dessus
+  (`ordersToCsv` compare `o.day`) ; le client envoie `day=today` et le serveur
+  résout « today » dans **sa** locale (ou rien = export complet). Filtre client
+  et code partagent alors la même date par construction.
+
+### 🟠 P7-5. `GET /api/meta` publique — fuite des produits masqués
+- **Où** : `server/index.js:624`.
+- **Mécanisme** : pas de contrôle d'auth — tout visiteur récupère la **méta
+  complète** : `extraProducts` (fiche entière des produits masqués/ajoutés),
+  `productOverrides`, `hiddenProductIds`. La route n'était nécessaire que pour
+  les panneaux du shop (`extraPanels`/`hiddenPanelIds`).
+- **Solution** : `GET /api/meta` ne renvoie que
+  `{ extraPanels, hiddenPanelIds }` (les seuls champs consommés publiquement) ;
+  la méta complète reste accessible via une route master dédiée si besoin
+  (`/api/master/meta`). Le client (`api.getMeta()`) ne change pas de contrat.
+
+### 🟠 P7-6. Biper du comptoir : un `AudioContext` par commande, jamais fermé
+- **Où** : `src/App.jsx:462`.
+- **Mécanisme** : `new AudioContext()` à chaque nouvelle commande, jamais
+  `close()`d. Chrome plafonne à ~6 contextes actifs par page : après ~6
+  commandes, **plus aucun son** (crée en erreur/suspendu) + fuite de mémoire.
+- **Solution** : un **contexte unique** créé paresseusement au module (ou ref),
+  `ctx.resume()` au premier geste utilisateur (politique autoplay), oscillateur
+  recréé à chaque bipe, `close()` au `beforeunload`.
+
+### 🟠 P7-7. Backups de `store.json` non bornés
+- **Où** : `server/index.js:693` (setInterval 6 h + backup au startup),
+  `server/masterApi.js:208` (`backupStore`), `POST /api/master/backup`.
+- **Mécanisme** : `backupStore` copie sans jamais nettoyer : sur une machine
+  longue durée (VPS/dev) `server/data/backups/` grossit **indéfiniment**
+  (14 fichiers/jour au rythme du timer + manuels). Seul `scripts/backupDb.mjs`
+  borne à 14.
+- **Solution** : helper partagé `capBackups(dir, keep = 14)` (tri par nom =
+  horodatage, suppression des plus anciens) appelé à la fin de `backupStore` —
+  le script et le timer passent par le même chemin.
+
+### 🟠 P7-8. `PUT /api/meta` : écrasement total sans validation (pied de fusil)
+- **Où** : `server/index.js:628` ; exposé par `src/api.js` (`putMeta`).
+- **Mécanisme** : `db.meta = { ...db.meta, ...body.meta }` — un seul corps
+  malformé suffit à **écraser `extraProducts` / `productOverrides`** (produits
+  custom + overrides perdus). Le UI ne l'utilise plus depuis P6 (panneaux via
+  `/api/master/panels`, validé) — la surface d'API reste ouverte.
+- **Solution** : supprimer la route et `api.putMeta` (mort), ou la limiter à un
+  merge de champs validés façon `PUT /api/master/panels` (types vérifiés,
+  slice bornée).
+
+### 🟡 P7-9. Rate-limit : `Map` de buckets sans bornage
+- **Où** : `server/rateLimit.js:2`.
+- **Mécanisme** : une entrée par IP (`x-forwarded-for`) n'est jamais purgée — sur
+  une instance longue durée (déploiement public) la mémoire croît lentement sans
+  fin.
+- **Solution** : purge opportuniste : au passage d'`rateLimit`, supprimer les
+  buckets dont `now - start > windowMs` (ou balayage à chaque appel si
+  `buckets.size > 10 000`, éviction du plus ancien).
+
+### 🟡 P7-10. `readBody` sans limite de taille
+- **Où** : `server/index.js:60`.
+- **Mécanisme** : l'accumulation des chunks est **illimitée** : un corps de 500 Mo
+  (6 photos non compressées × 6 uploads, ou simple malveillance) = OOM en local
+  (Vercel impose ses propres limites d'entrée).
+- **Solution** : stopper à ~15 Mo (≈ 6 photos compressées ~2,5 Mo en base64 +
+  marge) et répondre `413 { error: 'too_large' }` ; le client a déjà la
+  compression P4 (B10), la limite est large.
+
+### 🟡 P7-11. Catalogue serveur vide → repli statique silencieux
+- **Où** : `src/App.jsx:180` (`catalog = useMemo(...)`).
+- **Mécanisme** : `apiOnline && serverCatalog.length` — si l'API répond mais que
+  **tout est masqué ou en rupture** (0 produit), le shop bascule **silencieusement**
+  sur le catalogue statique de 249 pièces : le client voit des produits que le
+  master a masqués, avec des **prix qui peuvent différer** des overrides serveur
+  (l'affiché ≠ le facturé par `placeOrder`).
+- **Solution** : distinguer « API morte » (`r.offline` → repli statique actuel)
+  de « API OK mais 0 produit » (afficher un état vide « Catalogue en
+  préparation » avec le logo, comme le fait déjà MasterPage avec
+  `productsLoading`) — le repli ne se déclenche que sur offline.
+
+### 🟡 P7-12. CSV sans BOM UTF-8 → accents illisibles dans Excel
+- **Où** : `server/masterApi.js:178` (`ordersToCsv`), réponse `server/index.js`.
+- **Mécanisme** : le CSV UTF-8 n'a pas de BOM : Excel (Windows) interprète en
+  ANSI → noms français/arabes en accents **illisibles** sur le comptoir
+  (utilitaire n°1 du fichier).
+- **Solution** : préfixer `'\uFEFF'` au début du CSV (`ordersToCsv` ou au
+  `res.end`) — Excel le reconnaît en UTF-8, les autres lecteurs l'ignorent.
+
+### 🟡 P7-13. `PartThumb` : sonde `.webp` en 404 garanti par photo uploadée
+- **Où** : `src/PartThumb.jsx:15-19`.
+- **Mécanisme** : chaque vignette tente d'abord la variante `.webp` ; les
+  catalogues statiques l'ont, les **uploads du master non** → un 404 systématique
+  par photo uploadée (2 requêtes au lieu de 1 par vignette, ×6 photos/produit).
+- **Solution** : ne sonder le webp que pour les URLs du catalogue statique
+  (pattern `/photos/<base>.jpg` connus) ; ou cache mémoire module
+  `Map<url, variant>` peuplé au premier `onerror` — plus de 404 répétés même en
+  statique.
+
+### 🟡 P7-14. Recherche : filtre « En stock » inopérant + recherches sauvées perdues
+- **Où** : `src/SearchPage.jsx:17` (inStock), `:33` (saved).
+- **Mécanisme** : (a) en mode API le catalogue public **exclut déjà les ruptures**
+  → le filtre « En stock » ne fait rien (illusion de fonctionnalité) ; (b) les
+  recherches « sauvées » ne vivent que dans le state React → perdues au
+  rechargement, contrairement au panier (B15) qui persiste.
+- **Solution** : (a) ne rendre le filtre que si le catalogue peut contenir des
+  ruptures (mode local), sinon le masquer/désactiver avec un tooltip ; (b)
+  persister `saved` dans `localStorage` (`pcstar-saved-searches`) à la manière du
+  panier, bornée (10 entrées).
+
+### 🟡 P7-15. Commandes « les miennes » : match par téléphone entre comptes
+- **Où** : `server/index.js:259` (`GET /api/me/orders`) + annulation (même
+  condition `o.userId === uid || o.phone === phone`).
+- **Mécanisme** : deux comptes **différents** partageant un même numéro (famille)
+  voient — et **peuvent annuler** — les commandes de l'autre. Le match par
+  téléphone est utile pour le guest→compte, mais il ne devrait s'appliquer qu'aux
+  commandes **sans compte**.
+- **Solution** : `o.userId === uid || (o.userId == null && phone && o.phone === phone)` —
+  une commande liée à un autre compte n'apparaît plus qu'au sien.
+
+### ⚪ P7-16. Builder « copier la config » : promesse `clipboard` non gérée
+- **Où** : `src/BuilderPage.jsx:349`.
+- **Mécanisme** : `navigator.clipboard?.writeText?.(text)` sans `.catch` — dans
+  une iframe (preview) sans permission clipboard la promesse **rejette**
+  (unhandled rejection, console) alors que le toast « copié » s'affiche quand
+  même.
+- **Solution** : `writeText(text).catch(() => setToast(t('copyBlocked')))`
+  (+ clé i18n) — ou fallback `document.execCommand('copy')` dans une textarea
+  éphémère.
+
+### ⚪ P7-17. Radiateur NH-D15 classé « case » → affiché sous « Boîtier & PSU »
+- **Où** : `src/data.js:393` (`category: 'case'`).
+- **Mécanisme** : le modèle réutilise `case` comme bac « pièces » : le builder le
+  sépare proprement (slot dédié via `pick`), mais dans la **boutique** le
+  refroidisseur CPU apparaît dans la section Boîtier & PSU (cat_case).
+- **Solution** : catégorie `cooling` dédiée (+ clé `cat_cooling` ar/fr/en) et
+  `PART_LINES` ajusté ; ou, à minima, renommer la ligne `cat_case` en
+  « Boîtier, PSU & Cooling ».
+
+### ⚪ P7-18. `PUT /api/me` : `wilaya` libre, sans whitelist
+- **Où** : `server/index.js:251`.
+- **Mécanisme** : le client restreint via le select `WILAYAS_NEAR`, l'API accepte
+  **n'importe quelle chaîne** → une valeur arbitraire (ou une chaîne longue)
+  sature les listes de livraison/CSV.
+- **Solution** : valider côté serveur : `wilaya` ∈ liste connue (partagée
+  `src/data.js` → import serveur déjà en place via `PRODUCTS`) sinon défaut
+  `'Oran'`, et tronquer à 32 caractères.
+
+### Contrainte documentée (pas de bug)
+- **Uploads Vercel éphémères** (`masterApi.js`, `/tmp` par instance) : déjà
+  annoté dans le code et `DEPLOY-VERCEL.md` ; la solution durable = stockage
+  Blob/Postgres. À traiter au moment du vrai déploiement, pas dans ce repo.
+
+**Méthode P7** : re-lecture intégrale de 27 fichiers (`src/App.jsx` 1560 l.,
+`server/index.js` 714 l., `masterApi.js`, `catalog.js`, `db.js`, `oauth.js`,
+`rateLimit.js`, `api.js`, `shopStore.js`, `data.js`, `orderLogic.js`, les 5 pages,
+`i18n.js`, `prefs.js`, `photoCompress.js`, configs) + reproducteurs live sur
+l'API (P7-1 démontré en conditions réelles). Les points jugés sains au passage :
+`writeDb` atomique, `newId`/`newToken`, `publicUser`, `purgeUser` (commandes
+conservées `userId=null`), `updateProduct` (merge, pas écrasement),
+`savePhotoDataUrls`/`unlinkUpload` (bornés, anti-traversal), `hashPass` scrypt +
+legacy, `canTransition`, `checkCompatibility`, `photoCompress`, `.gitignore`
+(`server/data/` hors git), sitemap/robots.
+
+---
 
 ## Juges non-bugs (documentés, pas de code)
 
