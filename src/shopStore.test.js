@@ -1,8 +1,6 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  ACCENTS,
-  AVATARS,
   MASTER,
   addPanel,
   addProduct,
@@ -14,19 +12,18 @@ import {
   isDzPhone,
   isEmail,
   loadMeta,
+  loadSavedSearches,
+  saveSavedSearches,
   loadUsers,
   loginEmail,
-  loginGoogle,
   normalizePhone,
   phoneCarrier,
   registerEmail,
   saveMeta,
   saveUsers,
   setProductPhotos,
-  startSms,
   togglePanel,
   updateUser,
-  verifySms,
   DEMO_CUSTOMERS
 } from './shopStore.js'
 
@@ -97,35 +94,6 @@ describe('email accounts', () => {
   })
 })
 
-describe('sms and google demo', () => {
-  it('starts an SMS code and verifies it', () => {
-    const started = startSms([], { phone: '0669174617' })
-    assert.equal(started.ok, true)
-    assert.match(started.code, /^\d{6}$/)
-    const done = verifySms(started.users, {
-      phone: '0669174617',
-      code: started.code,
-      pending: started.pending
-    })
-    assert.equal(done.ok, true)
-    assert.equal(done.user.phone, '0669174617')
-    assert.equal(done.user.role, 'customer')
-  })
-
-  it('rejects a wrong SMS code', () => {
-    const started = startSms([], { phone: '0669174617' })
-    const done = verifySms(started.users, { phone: '0669174617', code: '000000', pending: started.pending })
-    assert.equal(done.ok, false)
-  })
-
-  it('creates a google demo customer', () => {
-    const res = loginGoogle([])
-    assert.equal(res.ok, true)
-    assert.equal(res.user.provider, 'google')
-    assert.equal(res.user.role, 'customer')
-  })
-})
-
 describe('master vs customer', () => {
   it('lets master delete a customer but not itself', () => {
     const seeded = loadUsers(createMemoryStorage())
@@ -142,13 +110,27 @@ describe('master vs customer', () => {
     assert.equal(deleteCustomer(users, user, user.id).ok, false)
   })
 
-  it('saves profile avatar and accent', () => {
+  it('saves profile name and wilaya', () => {
     const { users, user } = registerEmail([], { email: 'a@b.dz', password: 'secret99', name: 'Amina' })
-    const next = updateUser(users, user.id, { avatar: AVATARS[1].id, accent: ACCENTS[2].id, name: 'Amina B' })
+    const next = updateUser(users, user.id, { name: 'Amina B', wilaya: 'Mascara' })
     assert.equal(next.ok, true)
-    assert.equal(next.user.avatar, AVATARS[1].id)
-    assert.equal(next.user.accent, ACCENTS[2].id)
     assert.equal(next.user.name, 'Amina B')
+    assert.equal(next.user.wilaya, 'Mascara')
+  })
+})
+
+// P5 (B19) : plus aucun téléphone partagé entre master et comptes démo —
+// un login SMS local ne doit jamais retomber sur le master.
+describe('demo phone uniqueness (B19)', () => {
+  it('master + démos : téléphones uniques', () => {
+    const seeded = loadUsers(createMemoryStorage())
+    const phones = seeded
+      .filter((u) => u.phone)
+      .map((u) => u.phone)
+    assert.equal(new Set(phones).size, phones.length, 'téléphone dupliqué → ' + phones.join(', '))
+    const master = seeded.find((u) => u.role === 'master')
+    assert.ok(master.phone)
+    assert.ok(!seeded.some((u) => u.role !== 'master' && u.phone === master.phone))
   })
 })
 
@@ -184,6 +166,26 @@ describe('catalog paneaux', () => {
     const view = buildShopView(baseProducts, baseLines, basePanels, meta)
     assert.equal(view.products.some((p) => p.id === 'cpu-1'), false)
     assert.equal(view.products.some((p) => p.name === 'Flash 64 Go'), true)
+  })
+
+  it('P6 : SKU saisi par le master est conservé (sinon généré)', () => {
+    const withSku = addProduct({ extraProducts: [] }, {
+      name: 'Câble HDMI 2.1',
+      price: 900,
+      category: 'usb',
+      stock: 5,
+      sku: 'HDMI-15M'
+    })
+    assert.equal(withSku.ok, true)
+    assert.equal(withSku.product.sku, 'HDMI-15M')
+    const withoutSku = addProduct({ extraProducts: [] }, {
+      name: 'Souris sans fil',
+      price: 700,
+      category: 'usb',
+      stock: 2
+    })
+    assert.equal(withoutSku.ok, true)
+    assert.match(withoutSku.product.sku, /^PS-/)
   })
 
   it('overrides catalog photos and keeps custom product photos', () => {
@@ -222,5 +224,28 @@ describe('storage roundtrip', () => {
     const meta = addProduct(loadMeta(storage), { name: 'X', price: 10, category: 'usb', brand: 'A', stock: 1, short: 's' }).meta
     saveMeta(storage, meta)
     assert.equal(loadMeta(storage).extraProducts.length, 1)
+  })
+})
+
+describe('P10 (P7-14) — recherches sauvées persistées', () => {
+  it('vide par défaut, round-trip, bornées à 10', () => {
+    const st = createMemoryStorage()
+    assert.deepEqual(loadSavedSearches(st), [])
+    const list = [{ id: 's-1', title: 'CPU · AM5', filters: { q: '' } }]
+    saveSavedSearches(st, list)
+    assert.deepEqual(loadSavedSearches(st), list)
+    // 15 entrées → seules les 10 plus récentes (début de liste) survivent
+    const big = Array.from({ length: 15 }, (_, i) => ({ id: `s-${i}`, title: `t${i}`, filters: {} }))
+    saveSavedSearches(st, big)
+    const loaded = loadSavedSearches(st)
+    assert.equal(loaded.length, 10)
+    assert.equal(loaded[0].id, 's-0')
+    assert.equal(loaded[9].id, 's-9')
+  })
+  it('storage cassé / illisible → [] (jamais d\'exception)', () => {
+    const st = createMemoryStorage()
+    st.setItem('pcstar-saved-searches', '{pas du json')
+    assert.deepEqual(loadSavedSearches(st), [])
+    saveSavedSearches(null, [{ id: 'x' }]) // storage null : silencieux
   })
 })

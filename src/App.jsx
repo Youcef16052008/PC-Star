@@ -3,8 +3,6 @@ import { Offcanvas } from 'bootstrap'
 import {
   BRANDS_DZ_PRIORITY,
   CATEGORIES,
-  DEALS,
-  GUIDES,
   PART_LINES,
   PRODUCTS,
   REVIEWS,
@@ -12,23 +10,24 @@ import {
   SHOP_SERVICES,
   STORE,
   STORE_LINKS,
-  WILAYAS_NEAR,
   checkCompatibility,
   money,
   splitWarnings,
   starText
 } from './data'
 import * as api from './api.js'
+import { ensureProductPhotos } from './productPhotos.js'
 import SearchPage from './SearchPage.jsx'
 import BuilderPage from './BuilderPage.jsx'
 import PartThumb from './PartThumb.jsx'
 import AuthPanel from './AuthPanel.jsx'
 import ProfilePage from './ProfilePage.jsx'
+import OrdersPage from './OrdersPage.jsx'
 import MasterPage from './MasterPage.jsx'
 import DeskPage from './DeskPage.jsx'
 import ProductPage from './ProductPage.jsx'
 import LegalPage from './LegalPage.jsx'
-import { makeOrderCode } from './orderLogic.js'
+import { localDay, nextLocalOrderCode, orderApiFailure, pickupForUser } from './orderLogic.js'
 import { t as translate, LANGS, langMeta } from './i18n.js'
 import {
   applyDocumentChrome,
@@ -55,6 +54,29 @@ import {
 
 const storage = typeof localStorage !== 'undefined' ? localStorage : null
 
+/** Cart is stored PER ACCOUNT (guest = 'guest'), so switching account = own cart. */
+const cartKeyFor = (uid) => `pcstar-cart-${uid || 'guest'}`
+
+function loadCartFor(st, uid) {
+  try {
+    const raw = st?.getItem?.(cartKeyFor(uid))
+    if (!raw) return []
+    const list = JSON.parse(raw)
+    return Array.isArray(list) ? list : []
+  } catch {
+    return []
+  }
+}
+
+/** P8 (P7-3) : formulaire de retrait — valeurs vides d'origine. */
+const PICKUP_DEFAULTS = {
+  name: '',
+  phone: '',
+  slot: SLOTS[2],
+  wilaya: 'Oran',
+  payment: 'cash'
+}
+
 const BASE_PANELS = [
   { id: 'parts', titleKey: 'panelParts' },
   { id: 'machines', titleKey: 'panelMachines' },
@@ -62,24 +84,55 @@ const BASE_PANELS = [
   { id: 'accessories', titleKey: 'panelAccessories' }
 ]
 
+// P9 (P7-6) : UN SEUL AudioContext partagé (créé à la demande), réutilisé à
+// chaque bipe. Avant : `new AudioContext()` par commande — Chrome plafonne à
+// ~6 contextes actifs par page, au-delà plus aucun son + fuite mémoire.
+let deskAudioCtx = null
+function deskBeep() {
+  try {
+    const AC = window.AudioContext || window.webkitAudioContext
+    if (!AC) return
+    if (!deskAudioCtx || deskAudioCtx.state === 'closed') deskAudioCtx = new AC()
+    // autoplay : un contexte peut naître « suspended » → le réveiller.
+    if (deskAudioCtx.state === 'suspended') deskAudioCtx.resume()
+    const o = deskAudioCtx.createOscillator()
+    const g = deskAudioCtx.createGain()
+    o.connect(g)
+    g.connect(deskAudioCtx.destination)
+    o.frequency.value = 880
+    g.gain.value = 0.04
+    o.start()
+    o.stop(deskAudioCtx.currentTime + 0.12)
+  } catch {
+    /* ignore */
+  }
+}
+
 function stockLabel(n, t) {
   if (n <= 0) return { text: t('outOfStock'), cls: 'stock-out' }
   if (n <= 3) return { text: `${n} ${t('left')}`, cls: 'stock-low' }
   return { text: `${n} ${t('inStore')}`, cls: 'stock-ok' }
 }
 
-function cartMessage(cart, total, pickup) {
+function cartMessage(cart, total, pickup, t) {
   const lines = cart.map((i) => `${i.qty} x ${i.name} (${i.sku})`).join('\n')
-  const who = pickup.name ? `\nName: ${pickup.name}` : ''
-  const tel = pickup.phone ? `\nPhone: ${pickup.phone}` : ''
-  const when = pickup.slot ? `\nPickup slot: ${pickup.slot}` : ''
-  return `Salam PC Star Informatique, please prepare this for pickup at El Makari Les Castors, Oran:${who}${tel}${when}\n\n${lines}\n\nTotal ${money(total)}`
+  const who = pickup.name ? `${t('waName')}: ${pickup.name}\n` : ''
+  const tel = pickup.phone ? `${t('waPhone')}: ${pickup.phone}\n` : ''
+  const when = pickup.slot ? `${t('waSlot')}: ${pickup.slot}\n` : ''
+  return t('waMessage', {
+    address: STORE.address,
+    who,
+    tel,
+    when,
+    items: lines,
+    total: money(total)
+  })
 }
 
-function Stars({ product }) {
+function Stars({ product, t }) {
   if (!product || !product.rating) return null
   return (
-    <div className="stars" title={`${product.rating} from ${product.reviews} reviews`}>
+    <div className="stars" title={`${product.rating} ${t('xReviews', { n: product.reviews })}`}>
       <span>{starText(product.rating)}</span>
       <em>{product.rating.toFixed(1)}</em>
       <span className="rev">({product.reviews})</span>
@@ -99,15 +152,11 @@ export default function App() {
   const [photoIndex, setPhotoIndex] = useState(0)
   const [category, setCategory] = useState('all')
   const [query, setQuery] = useState('')
-  const [cart, setCart] = useState([])
+  const [cart, setCartState] = useState(() => loadCartFor(storage, loadSession(storage)?.userId))
   const [toast, setToast] = useState('')
-  const [pickup, setPickup] = useState({
-    name: '',
-    phone: '',
-    slot: SLOTS[2],
-    wilaya: 'Oran',
-    payment: 'cash'
-  })
+  // P8 (P7-3) : état vide du formulaire de retrait — unique source, réutilisé
+  // au logout pour ne JAMAIS laisser les infos du client précédent.
+  const [pickup, setPickup] = useState(PICKUP_DEFAULTS)
   const [phoneErr, setPhoneErr] = useState('')
   const [reservations, setReservations] = useState(() => loadOrders(storage))
   const [reserved, setReserved] = useState(null)
@@ -120,6 +169,10 @@ export default function App() {
   const [authMode, setAuthMode] = useState('local')
   const [brandFilter, setBrandFilter] = useState(null)
   const [stockMap, setStockMap] = useState({}) // id -> live server stock
+  const [serverCatalog, setServerCatalog] = useState([]) // produits complets servis par l'API (mode API)
+  // P10 (P7-11) : le fetch catalogue a abouti côté serveur (ok ou 5xx) — auquel
+  // cas c'est la vérité, MÊME vide. Seul l'offline justifie le repli statique.
+  const [serverCatalogReady, setServerCatalogReady] = useState(false)
   const [cartStep, setCartStep] = useState(0) // 0 cart, 1 info (when items)
   const cartElRef = useRef(null)
   const cartOcRef = useRef(null)
@@ -132,9 +185,41 @@ export default function App() {
   }, [session, users])
   const user = authMode === 'api' && apiUser ? apiUser : localUser
   const isMaster = user?.role === 'master'
+  const authId = user?.id || null
+  const authIdRef = useRef(authId)
+  authIdRef.current = authId
+
+  function setCart(updater) {
+    setCartState((prev) => {
+      const next = typeof updater === 'function' ? updater(prev) : updater
+      try {
+        storage?.setItem?.(cartKeyFor(authIdRef.current), JSON.stringify(next))
+      } catch {
+        /* ignore */
+      }
+      return next
+    })
+  }
 
   const shopView = useMemo(() => buildShopView(PRODUCTS, PART_LINES, BASE_PANELS, meta), [meta])
-  const catalog = shopView.products
+  // Mode API : le catalogue serveur est la source de vérité (masquages et
+  // créations du master, stock live, overrides de prix). Offline : repli
+  // sur le catalogue statique + meta local.
+  // Rupture (stock live = 0) → produit invisible au client (le master le
+  // voit toujours dans sa vue complète).
+  const catalog = useMemo(() => {
+    // P10 (P7-11) : API en ligne + catalogue chargé → c'est la vérité, même
+    // vide (tous masqués/rupture) — plus de repli SILENCIEUX sur le catalogue
+    // statique (produits masqués réapparaissaient, prix désuets).
+    if (apiOnline && serverCatalogReady) return serverCatalog.map(ensureProductPhotos)
+    return shopView.products.filter((p) => (stockMap[p.id] != null ? stockMap[p.id] : p.stock) > 0)
+  }, [apiOnline, serverCatalogReady, serverCatalog, shopView.products, stockMap])
+  // Le produit affiché peut sortir du catalogue pendant la visite (rupture /
+  // masquage) : on garde la dernière référence pour ne pas vider la PDP.
+  const selectedFound = catalog.find((p) => p.id === selectedId)
+  const selectedRef = useRef(null)
+  if (selectedFound) selectedRef.current = selectedFound
+  const selected = selectedFound || (selectedRef.current?.id === selectedId ? selectedRef.current : null)
 
   useEffect(() => {
     const metaL = langMeta(lang)
@@ -239,10 +324,27 @@ export default function App() {
       setApiOnline(Boolean(h?.ok))
       if (h?.ok) {
         const cat = await api.getCatalog()
-        if (!cancelled && cat.ok && Array.isArray(cat.data?.products)) {
-          const map = {}
-          for (const pr of cat.data.products) map[pr.id] = pr.stock
-          setStockMap(map)
+        if (!cancelled) {
+          if (cat.ok && Array.isArray(cat.data?.products)) {
+            setServerCatalog(cat.data.products)
+            const map = {}
+            for (const pr of cat.data.products) map[pr.id] = pr.stock
+            setStockMap(map)
+          }
+          // P10 (P7-11) : le serveur a répondu (200 ou 5xx) → son catalogue
+          // est la vérité, même vide. Seul l'OFFLINE garde le repli statique.
+          if (!cat.offline) setServerCatalogReady(true)
+        }
+        // Panneaux (P6) : le serveur est la source de vérité pour
+        // extraPanels/hiddenPanelIds → le shop est cohérent multi-appareils.
+        const m = await api.getMeta()
+        if (!cancelled && m.ok && m.data?.meta) {
+          const sm = m.data.meta
+          persistMeta({
+            ...loadMeta(storage),
+            hiddenPanelIds: Array.isArray(sm.hiddenPanelIds) ? sm.hiddenPanelIds : [],
+            extraPanels: Array.isArray(sm.extraPanels) ? sm.extraPanels : []
+          })
         }
       }
       const token = api.getToken()
@@ -275,6 +377,8 @@ export default function App() {
           setAuthMode('api')
           setApiOnline(true)
           setToast(t('authOk'))
+          setPage('shop')
+          setNavOpen(false)
         }
         u.searchParams.delete('oauth_token')
         u.searchParams.delete('oauth_provider')
@@ -290,6 +394,7 @@ export default function App() {
     try {
       const cat = await api.getCatalog()
       if (cat.ok && Array.isArray(cat.data?.products)) {
+        setServerCatalog(cat.data.products)
         const map = {}
         for (const pr of cat.data.products) map[pr.id] = pr.stock
         setStockMap(map)
@@ -301,11 +406,19 @@ export default function App() {
 
   async function handleOrderStatus(code, status) {
     if (apiOnline && authMode === 'api' && isMaster) {
-      const r = await api.patchOrder(code, status)
-      if (!r.ok) return false
-      setReservations((prev) => prev.map((o) => (o.code === code ? { ...o, ...r.data.order } : o)))
-      await refreshStock()
-      return true
+      try {
+        const r = await api.patchOrder(code, status)
+        if (r.ok && r.data?.order) {
+          setReservations((prev) => prev.map((o) => (o.code === code ? { ...o, ...r.data.order } : o)))
+          await refreshStock()
+          return true
+        }
+        setToast(t('deskStatusFail'))
+        return false
+      } catch {
+        setToast(t('deskStatusFail'))
+        return false
+      }
     }
     // local fallback
     setReservations((prev) => {
@@ -319,11 +432,57 @@ export default function App() {
     return true
   }
 
+  // P6 : le client annule une de SES commandes (état « neuve » uniquement)
+  // → le stock est rétabli (serveur ou local).
+  async function cancelMyOrder(code) {
+    if (apiOnline && authMode === 'api' && user) {
+      let r = null
+      try {
+        r = await api.cancelMyOrder(code)
+      } catch {
+        r = { ok: false, offline: true }
+      }
+      if (r?.ok && r.data?.order) {
+        setReservations((prev) => prev.map((o) => (o.code === code ? { ...o, ...r.data.order } : o)))
+        await refreshStock()
+        setToast(t('orderCancelled'))
+        return true
+      }
+      setToast(t(r?.offline || !r ? 'backendOffline' : 'orderCancelFail'))
+      return false
+    }
+    const target = (reservations || []).find((o) => o.code === code)
+    if (!target || (target.status !== 'new' && target.status !== 'pending')) {
+      setToast(t('orderOnlyNew'))
+      return false
+    }
+    setReservations((prev) => {
+      const next = prev.map((o) => (o.code === code ? { ...o, status: 'cancelled', cancelledAt: new Date().toISOString() } : o))
+      saveOrders(storage, next)
+      return next
+    })
+    setStockMap((prev) => {
+      const next = { ...prev }
+      for (const line of target.items || []) {
+        const cur = next[line.id] != null ? next[line.id] : catalog.find((p) => p.id === line.id)?.stock ?? 0
+        next[line.id] = Math.max(0, cur + (Number(line.qty) || 0))
+      }
+      return next
+    })
+    setToast(t('orderCancelled'))
+    return true
+  }
+
+  // Per-account cart + pickup form : à la connexion / déconnexion /
+  // changement de compte, charger le PROPRE panier du compte et reprendre
+  // nom/tél depuis son profil (un nouveau client ne voit plus le panier
+  // ni les infos du précédent).
   useEffect(() => {
-    if (user?.name && !pickup.name) setPickup((p) => ({ ...p, name: user.name }))
-    if (user?.phone && !pickup.phone) setPickup((p) => ({ ...p, phone: user.phone }))
-    if (user?.wilaya) setPickup((p) => ({ ...p, wilaya: user.wilaya }))
-  }, [user]) // eslint-disable-line react-hooks/exhaustive-deps
+    setCartState(loadCartFor(storage, authId))
+    // P8 (P7-3) : sans compte → formulaire VIDE (plus les nom/tél du client
+    // précédent) ; avec compte → reprise depuis le profil.
+    setPickup((p) => pickupForUser(user, p, PICKUP_DEFAULTS))
+  }, [authId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!isMaster || !apiOnline || authMode !== 'api') return undefined
@@ -333,19 +492,7 @@ export default function App() {
       if (cancelled || !r.ok || !Array.isArray(r.data?.orders)) return
       const next = r.data.orders
       if (prevOrderCount.current && next.length > prevOrderCount.current && page === 'desk') {
-        try {
-          const ctx = new (window.AudioContext || window.webkitAudioContext)()
-          const o = ctx.createOscillator()
-          const g = ctx.createGain()
-          o.connect(g)
-          g.connect(ctx.destination)
-          o.frequency.value = 880
-          g.gain.value = 0.04
-          o.start()
-          o.stop(ctx.currentTime + 0.12)
-        } catch {
-          /* ignore */
-        }
+        deskBeep() // P9 (P7-6) : contexte unique partagé, jamais de leak
         setToast(t('deskNewOrder'))
       }
       prevOrderCount.current = next.length
@@ -378,6 +525,10 @@ export default function App() {
     setAuthMode('api')
     setSession(null)
     saveSession(storage, null)
+    // après login (API) → page d'accueil
+    setPage('shop')
+    setNavOpen(false)
+    window.scrollTo({ top: 0 })
   }
 
   function persistMeta(next) {
@@ -401,13 +552,12 @@ export default function App() {
     setAuthMode('local')
     persistSession(null)
     setToast(t('navLogout'))
-    if (page === 'desk' || page === 'master' || page === 'profile' || page === 'help') {
+    if (page === 'desk' || page === 'master' || page === 'profile' || page === 'help' || page === 'orders') {
       setPage('shop')
       window.scrollTo({ top: 0 })
     }
   }
 
-  const selected = catalog.find((p) => p.id === selectedId)
   const count = cart.reduce((s, i) => s + i.qty, 0)
   const total = cart.reduce((s, i) => s + i.qty * i.price, 0)
   const warnings = useMemo(() => checkCompatibility(cart), [cart])
@@ -452,7 +602,9 @@ export default function App() {
 
   function setQty(id, qty) {
     const product = catalog.find((p) => p.id === id)
-    const max = product ? product.stock : 1
+    // P5 (B20) : plafond = stock VRAIMENT dispo = stock live (stockMap, incluant
+    // ce qui est déjà dans le panier) — pas le product.stock statique.
+    const max = product ? liveStock(product) + (cart.find((i) => i.id === id)?.qty || 0) : 1
     setCart((prev) =>
       prev
         .map((i) => (i.id === id ? { ...i, qty: Math.min(max, Math.max(1, qty)) } : i))
@@ -506,6 +658,9 @@ export default function App() {
       phone: normalizePhone(pickup.phone),
       carrier: phoneCarrier(pickup.phone),
       wilaya: pickup.wilaya,
+      // P9 (P7-4) : « journée » = date LOCALE du client (Oran) — le serveur
+      // l'intègre au code de commande et à l'export CSV (plus de décalage UTC).
+      day: localDay(new Date()),
       payment: 'cash',
       slot: pickup.slot,
       items: cart.map((i) => ({
@@ -523,7 +678,16 @@ export default function App() {
       const r = await api.postOrder(base)
       if (r.ok && r.data?.order) {
         const order = { ...r.data.order, status: r.data.order.status || 'new' }
-        setReservations((prev) => [order, ...prev])
+        // P11 : on persiste AUSSI localement la copie navigateur — avant, seul
+        // le repli hors-ligne faisait saveOrders(), donc après un succès API la
+        // commande « disparaissait » (aucune trace locale ; un guest n'avait
+        // nulle part où la retrouver). La page « Commandes » croise maintenant
+        // cette copie avec le serveur.
+        setReservations((prev) => {
+          const next = [order, ...prev.filter((o) => o.code !== order.code)]
+          saveOrders(storage, next)
+          return next
+        })
         setReserved(order)
         setCart([])
         setCartStep(0)
@@ -531,17 +695,31 @@ export default function App() {
         await refreshStock()
         return
       }
-      if (r.status === 409 || r.data?.error === 'stock') {
+      // P8 (P7-2) : seul un échec OFFLINE (backend injoignable) déclenche le
+      // repli local — un 429 (rate-limit) ou un 5xx est signalé honnêtement,
+      // le panier reste intact (avant : repli local silencieux = commande
+      // invisible au shop + code en collision avec le serveur).
+      const fail = orderApiFailure(r)
+      if (fail.kind === 'stock') {
         setToast(t('stockShort'))
         await refreshStock()
         return
       }
+      if (fail.kind === 'rate') {
+        setToast(t('orderRateLimit', { n: fail.retryAfter || 60 }))
+        return
+      }
+      if (fail.kind === 'server') {
+        setToast(t('orderServerError'))
+        return
+      }
+      // fail.kind === 'offline' → repli local ci-dessous
     }
 
     // Local fallback — still decrement local stockMap view
     for (const line of base.items) {
-      const left = liveStock({ id: line.id, stock: stockMap[line.id] ?? catalog.find((p) => p.id === line.id)?.stock ?? 0 })
-      // liveStock subtracts cart; for final check use raw
+      // P5 (B14) : on compare le stock BRUT (pas liveStock qui soustrait le
+      // panier — la ligne en cours de checkout fait partie du stock réservé)
       const raw = stockMap[line.id] != null ? stockMap[line.id] : catalog.find((p) => p.id === line.id)?.stock ?? 0
       if (raw < line.qty) {
         setToast(t('stockShort'))
@@ -557,7 +735,10 @@ export default function App() {
       return next
     })
     const order = {
-      code: makeOrderCode(new Date(), reservations.length + 1),
+      // P8 (P7-2) : séquence = max des codes locaux du jour + 1 (jamais
+      // `reservations.length + 1`) → plus de collision si la liste client est
+      // partielle.
+      code: nextLocalOrderCode(reservations.map((o) => o.code)),
       ...base,
       status: 'new',
       at: new Date().toISOString()
@@ -568,10 +749,12 @@ export default function App() {
     setReserved(order)
     setCart([])
     setCartStep(0)
-    setToast(apiOnline ? t('ordersSynced') : t('ordersLocalOnly'))
+    // On n'arrive ici QUE si la commande n'a pas été acceptée par l'API
+    // (échec ou offline) : le toast doit le dire, jamais « synchronisée ».
+    setToast(t('ordersLocalOnly'))
   }
 
-  const msg = cartMessage(cart, total, pickup)
+  const msg = cartMessage(cart, total, pickup, t)
   const waHref = `https://wa.me/${STORE.whatsapp}?text=${encodeURIComponent(msg)}`
   const carrier = phoneCarrier(pickup.phone)
 
@@ -597,8 +780,8 @@ export default function App() {
 
       <nav className="navbar navbar-expand-lg sticky-top border-bottom shop-navbar">
         <div className="container">
-          <button type="button" className="navbar-brand btn btn-link text-decoration-none p-0 logo" onClick={() => go('shop')}>
-            PC <span>Star</span>
+          <button type="button" className="navbar-brand btn btn-link text-decoration-none p-0 logo" onClick={() => go('shop')} aria-label="PC Star Informatique — accueil">
+            <img src="/logo.png" alt="PC Star Informatique" className="logo-img" width="150" height="101" />
           </button>
           <div className="d-flex align-items-center gap-2 order-lg-last ms-auto ms-lg-0">
             <button
@@ -630,7 +813,10 @@ export default function App() {
                 ['shop', t('navShop'), page === 'shop' || page === 'product'],
                 ['search', t('navSearch'), page === 'search'],
                 ['builder', t('navBuilder'), page === 'builder'],
-                ['about', t('navAbout'), page === 'about']
+                ['about', t('navAbout'), page === 'about'],
+                // P11 : bouton « Commandes » dans le menu (page unique, tous
+                // clients — un guest voit celles passées depuis cet appareil).
+                ['orders', t('navOrders'), page === 'orders']
               ].map(([id, label, on]) => (
                 <li className="nav-item" key={id}>
                   <button type="button" className={`nav-link btn btn-link ${on ? 'active fw-semibold' : ''}`} onClick={() => go(id)}>
@@ -717,25 +903,11 @@ export default function App() {
             </div>
           </section>
 
+          {/* P11 : panneaux « Pièces PC » et « Config PC » supprimés sur
+              demande — seul « Hits DZ » reste (largeur pleine). */}
           <section className="mb-4">
             <div className="row g-3">
-              <div className="col-md-4">
-                <button type="button" className="card h-100 shadow-sm border-0 text-start w-100 btn p-0" onClick={() => go('search')}>
-                  <div className="card-body">
-                    <h2 className="h6 text-success">{t('pathParts')}</h2>
-                    <p className="small text-secondary mb-0">{t('pathPartsBody')}</p>
-                  </div>
-                </button>
-              </div>
-              <div className="col-md-4">
-                <button type="button" className="card h-100 shadow-sm border-0 text-start w-100 btn p-0" onClick={() => go('builder')}>
-                  <div className="card-body">
-                    <h2 className="h6 text-success">{t('pathBuilder')}</h2>
-                    <p className="small text-secondary mb-0">{t('pathBuilderBody')}</p>
-                  </div>
-                </button>
-              </div>
-              <div className="col-md-4">
+              <div className="col-12">
                 <button type="button" className="card h-100 shadow-sm border-0 text-start w-100 btn p-0" onClick={() => { setBrandFilter(null); setCategory('all'); go('shop'); setTimeout(() => document.getElementById('dz-hits')?.scrollIntoView({ behavior: 'smooth' }), 50) }}>
                   <div className="card-body">
                     <h2 className="h6 text-success">{t('pathHits')}</h2>
@@ -743,37 +915,6 @@ export default function App() {
                   </div>
                 </button>
               </div>
-            </div>
-          </section>
-
-          <section className="mb-4">
-            <h2 className="h4 mb-3">{t('thisWeek')}</h2>
-            <div className="row g-3">
-              {DEALS.map((d) => {
-                const p = catalog.find((x) => x.id === d.id)
-                if (!p) return null
-                return (
-                  <div className="col-12 col-sm-6 col-lg-3" key={d.id}>
-                    <div className="card h-100 shadow-sm product-bs-card">
-                      <span className="badge text-bg-danger position-absolute m-2 z-1">{d.tag}</span>
-                      <button type="button" className="btn p-0 border-0 bg-transparent" onClick={() => openProduct(p.id)}>
-                        <div className="ratio ratio-1x1 photo-frame rounded-top overflow-hidden">
-                          <PartThumb product={p} eager />
-                        </div>
-                      </button>
-                      <div className="card-body">
-                        <h3 className="h6 card-title">
-                          <button type="button" className="btn btn-link p-0 text-start text-decoration-none text-body" onClick={() => openProduct(p.id)}>
-                            {p.name}
-                          </button>
-                        </h3>
-                        <div className="fw-bold text-success">{money(p.price)}</div>
-                        <p className="card-text small text-secondary mb-0">{d.note}</p>
-                      </div>
-                    </div>
-                  </div>
-                )
-              })}
             </div>
           </section>
 
@@ -806,21 +947,7 @@ export default function App() {
             </section>
           )}
 
-          <section className="mb-4">
-            <h2 className="h4 mb-3">{t('starConfigs')}</h2>
-            <div className="row g-3">
-              {GUIDES.map((g) => (
-                <div className="col-md-6 col-lg-4" key={g.id}>
-                  <div className="card h-100 border-0 shadow-sm">
-                    <div className="card-body">
-                      <h3 className="h6 card-title">{g.title}</h3>
-                      <p className="card-text small text-secondary mb-0">{g.body}</p>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </section>
+          {/* P11 : section « Configs Star » + ses cartes supprimées sur demande. */}
 
           <div className="d-flex flex-wrap gap-2 align-items-center mb-3">
             <span className="small fw-semibold text-secondary">{t('dzBrands')}</span>
@@ -876,7 +1003,7 @@ export default function App() {
                       <div className="card-body d-flex flex-column">
                         <div className="small text-secondary">{p.sku}</div>
                         <h3 className="h6 card-title">{p.name}</h3>
-                        <Stars product={p} />
+                        <Stars product={p} t={t} />
                         <div className="small text-secondary mb-2">{p.short}</div>
                         {(p.tags || []).length > 0 && (
                           <div className="d-flex flex-wrap gap-1 mb-2">
@@ -909,6 +1036,7 @@ export default function App() {
 
       {page === 'product' && selected && (
         <ProductPage
+          key={selected.id}
           t={t}
           product={selected}
           photoIndex={photoIndex}
@@ -942,16 +1070,16 @@ export default function App() {
           <div className="row g-4">
             <div className="col-lg-7">
               <h1 className="h3 mb-3">{t('aboutTitle')}</h1>
-              <p className="lead fs-6 text-secondary">{STORE.about}</p>
-              <p>{STORE.services}</p>
-              <p className="text-secondary">{STORE.buyNote}</p>
+              <p className="lead fs-6 text-secondary">{t('storeAbout')}</p>
+              <p>{t('storeServices')}</p>
+              <p className="text-secondary">{t('storeBuyNote')}</p>
               <div className="row g-3 my-3">
                 {SHOP_SERVICES.map((s) => (
                   <div className="col-sm-6" key={s.id}>
                     <article className="card h-100 shadow-sm border-0">
                       <div className="card-body">
-                        <h3 className="h6">{s.title}</h3>
-                        <p className="small text-secondary mb-0">{s.body}</p>
+                        <h3 className="h6">{t(s.titleKey)}</h3>
+                        <p className="small text-secondary mb-0">{t(s.bodyKey)}</p>
                       </div>
                     </article>
                   </div>
@@ -961,9 +1089,9 @@ export default function App() {
                 <li className="list-group-item px-0">
                   <strong>{STORE.address}</strong>
                 </li>
-                <li className="list-group-item px-0 text-secondary">{STORE.hours}</li>
-                <li className="list-group-item px-0 text-secondary">{STORE.ready}</li>
-                <li className="list-group-item px-0 text-secondary">{STORE.warranty}</li>
+                <li className="list-group-item px-0 text-secondary">{t('storeHours')}</li>
+                <li className="list-group-item px-0 text-secondary">{t('storeReady')}</li>
+                <li className="list-group-item px-0 text-secondary">{t('storeWarranty')}</li>
                 <li className="list-group-item px-0">
                   <a href={`mailto:${STORE.email}`}>{STORE.email}</a>
                 </li>
@@ -1102,6 +1230,19 @@ export default function App() {
         />
       )}
 
+      {/* P11 : page unique « Commandes » (bouton du menu) — accessible aussi
+          aux guests (commandes passées depuis cet appareil). */}
+      {page === 'orders' && (
+        <OrdersPage
+          t={t}
+          user={user}
+          apiOnline={apiOnline}
+          mode={authMode}
+          onCancelOrder={cancelMyOrder}
+          onBack={() => go('shop')}
+        />
+      )}
+
       {page === 'master' && (
         <MasterPage
           t={t}
@@ -1110,6 +1251,7 @@ export default function App() {
           users={users}
           onUsers={persistUsers}
           products={catalog}
+          masterCatalog={shopView.products}
           meta={meta}
           onMeta={persistMeta}
           basePanels={BASE_PANELS}
@@ -1185,6 +1327,19 @@ export default function App() {
                 <div className="fs-5 fw-bold text-success mt-2">{money(reserved.total)}</div>
               </div>
               <div className="d-grid gap-2">
+                {user && (
+                  <button
+                    className="btn btn-outline-dark"
+                    type="button"
+                    onClick={() => {
+                      setReserved(null)
+                      setCartOpen(false)
+                      go('profile')
+                    }}
+                  >
+                    {t('viewMyOrders')}
+                  </button>
+                )}
                 <a className="btn btn-outline-success btn-sm" href={STORE.mapUrl} target="_blank" rel="noreferrer">
                   {t('openMaps')}
                 </a>
@@ -1251,16 +1406,16 @@ export default function App() {
               {blocks.length > 0 && (
                 <div className="alert alert-danger py-2">
                   <strong>{t('willNotRun')}</strong>
-                  {blocks.map((w) => (
-                    <div key={w} className="small">{w}</div>
+                  {blocks.map((w, i) => (
+                    <div key={`${w.key}-${i}`} className="small">{t(w.key, w.vars)}</div>
                   ))}
                 </div>
               )}
               {notes.length > 0 && (
                 <div className="alert alert-warning py-2">
                   <strong>{t('watchThis')}</strong>
-                  {notes.map((w) => (
-                    <div key={w} className="small">{w}</div>
+                  {notes.map((w, i) => (
+                    <div key={`${w.key}-${i}`} className="small">{t(w.key, w.vars)}</div>
                   ))}
                 </div>
               )}
@@ -1296,14 +1451,8 @@ export default function App() {
                     {carrier === 'djezzy' && ` · ${t('carrierDjezzy')}`}
                   </div>
                 </div>
-                <div className="mb-2">
-                  <label className="form-label small mb-1" htmlFor="wilaya">{t('wilaya')}</label>
-                  <select id="wilaya" className="form-select" value={pickup.wilaya} onChange={(e) => setPickup({ ...pickup, wilaya: e.target.value })}>
-                    {WILAYAS_NEAR.map((w) => (
-                      <option key={w} value={w}>{w}</option>
-                    ))}
-                  </select>
-                </div>
+                {/* P11 : champ wilaya retiré du panier sur demande — la wilaya
+                    reste transmise (profil du client ou « Oran » par défaut). */}
                 <div className="mb-2">
                   <label className="form-label small mb-1">{t('paymentMethod')}</label>
                   <div className="form-control bg-success-subtle border-success-subtle fw-semibold">{t('payCash')}</div>
@@ -1321,7 +1470,7 @@ export default function App() {
                   <a className="btn btn-outline-secondary btn-sm" href={waHref} target="_blank" rel="noreferrer">{t('whatsappCart')}</a>
                   <a className="btn btn-outline-secondary btn-sm" href={STORE.phoneHref}>{t('call')} {STORE.phone}</a>
                 </div>
-                <p className="small text-secondary mt-2 mb-0">{STORE.ready}</p>
+                <p className="small text-secondary mt-2 mb-0">{t('storeReady')}</p>
               </form>
             </>
           )}
@@ -1354,7 +1503,15 @@ export default function App() {
           t={t}
           users={users}
           onUsers={persistUsers}
-          onSession={persistSession}
+          onSession={(s) => {
+            persistSession(s)
+            // après login local → page d'accueil
+            if (s?.userId) {
+              setPage('shop')
+              setNavOpen(false)
+              window.scrollTo({ top: 0 })
+            }
+          }}
           onClose={() => setAuthOpen(false)}
           setToast={setToast}
           apiOnline={apiOnline}

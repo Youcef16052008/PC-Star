@@ -6,7 +6,7 @@
   "installCommand": "npm install",
   "rewrites": [
     { "source": "/api/(.*)", "destination": "/api" },
-    { "source": "/((?!api/|assets/|photos/|favicon.svg|robots.txt|sitemap.xml).*)", "destination": "/index.html" }
+    { "source": "/((?!api/|assets/|photos/|favicon\\.svg|favicon\\.png|logo\\.png|robots.txt|sitemap.xml).*)", "destination": "/index.html" }
   ],
   "headers": [
     {

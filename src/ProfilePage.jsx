@@ -1,16 +1,16 @@
 import { useEffect, useState } from 'react'
 import { isDzPhone, phoneCarrier, updateUser } from './shopStore.js'
-import { WILAYAS_NEAR, money } from './data.js'
+import { WILAYAS_NEAR } from './data.js'
 import * as api from './api.js'
-import { statusLabelKey } from './orderLogic.js'
 
+// P11 : « Mes commandes » est sorti du profil — les commandes vivent dans la
+// page unique « Commandes » (bouton du menu, src/OrdersPage.jsx).
 export default function ProfilePage({ t, user, users, onUsers, onUser, setToast, onBack, apiOnline, mode }) {
   const [name, setName] = useState(user.name || '')
   const [phone, setPhone] = useState(user.phone || '')
   const [wilaya, setWilaya] = useState(user.wilaya || 'Oran')
   const [err, setErr] = useState('')
   const [busy, setBusy] = useState(false)
-  const [orders, setOrders] = useState([])
   const [pw, setPw] = useState('')
   const [pw2, setPw2] = useState('')
 
@@ -18,17 +18,13 @@ export default function ProfilePage({ t, user, users, onUsers, onUser, setToast,
   const carrierLabel =
     carrier === 'mobilis' ? t('carrierMobilis') : carrier === 'ooredoo' ? t('carrierOoredoo') : carrier === 'djezzy' ? t('carrierDjezzy') : null
 
+  // P5 (B15) : resynchronise le formulaire quand on passe à un autre compte.
   useEffect(() => {
-    let cancelled = false
-    ;(async () => {
-      if (!(apiOnline && mode === 'api')) return
-      const r = await api.myOrders()
-      if (!cancelled && r.ok && Array.isArray(r.data?.orders)) setOrders(r.data.orders)
-    })()
-    return () => {
-      cancelled = true
-    }
-  }, [apiOnline, mode, user?.id])
+    setName(user.name || '')
+    setPhone(user.phone || '')
+    setWilaya(user.wilaya || 'Oran')
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id])
 
   async function save(e) {
     e.preventDefault()
@@ -197,42 +193,6 @@ export default function ProfilePage({ t, user, users, onUsers, onUser, setToast,
               </div>
             </div>
           )}
-        </div>
-
-        <div className="col-md-7 col-lg-6">
-          <div className="card shadow-sm border-0">
-            <div className="card-body p-4">
-              <h2 className="h5 mb-3">{t('myOrders')}</h2>
-              {orders.length === 0 ? (
-                <div className="empty-state py-4">
-                  <strong>{t('myOrdersEmpty')}</strong>
-                  <p className="small mb-0">{t('myOrdersEmptyBody')}</p>
-                </div>
-              ) : (
-                <div className="d-flex flex-column gap-2">
-                  {orders.map((o) => (
-                    <article key={o.code} className="border rounded p-3">
-                      <div className="d-flex justify-content-between gap-2 flex-wrap">
-                        <span className="font-monospace fw-semibold">{o.code}</span>
-                        <span className="badge text-bg-secondary">{t(statusLabelKey(o.status === 'pending' ? 'new' : o.status || 'new'))}</span>
-                      </div>
-                      <div className="small text-secondary mt-1">
-                        {o.slot || '—'} · {o.at ? new Date(o.at).toLocaleString() : ''}
-                      </div>
-                      <ul className="small mb-1 mt-2">
-                        {(o.items || []).map((i) => (
-                          <li key={i.id}>
-                            {i.qty} × {i.name}
-                          </li>
-                        ))}
-                      </ul>
-                      <div className="fw-semibold text-success">{money(o.total)}</div>
-                    </article>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
         </div>
       </div>
     </main>

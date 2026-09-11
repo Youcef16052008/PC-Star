@@ -1,9 +1,12 @@
+import { photoCandidates } from './media.js'
+
 const MARK = {
   cpu: 'CPU',
   gpu: 'GPU',
   motherboard: 'MB',
   memory: 'RAM',
   case: 'CASE',
+  cooling: 'COOL',
   accessories: 'ACC',
   laptop: 'LAP',
   ready: 'PC',
@@ -12,12 +15,19 @@ const MARK = {
   repair: 'FIX'
 }
 
-/** Prefer webp sibling when browser supports it via <picture>. */
-function photoCandidates(src) {
-  if (!src) return []
-  const webp = src.replace(/\.(jpe?g|png)$/i, '.webp')
-  if (webp !== src) return [webp, src]
-  return [src]
+
+/**
+ * If the chosen candidate fails to load (missing .webp sibling, network…),
+ * drop the <picture> and retry with the plain image src.
+ */
+function onPhotoError(e) {
+  const img = e.currentTarget
+  if (img.dataset.fallbackUsed) return
+  img.dataset.fallbackUsed = '1'
+  img.closest('picture')?.remove()
+  const fb = img.dataset.fallback
+  if (fb) img.src = fb
+  else img.style.visibility = 'hidden'
 }
 
 /**
@@ -27,10 +37,6 @@ export default function PartThumb({ product, alt, eager = false, className = '',
   const src = product?.photos && product.photos[0]
   const label = alt ?? product?.name ?? ''
   if (src) {
-    const isSku = /\/photos\/sku\//.test(src)
-    const srcSet = isSku
-      ? undefined // single 800 master for now; path ready for 400/800/1200 later
-      : undefined
     const cands = photoCandidates(src)
     if (cands.length > 1) {
       return (
@@ -39,13 +45,14 @@ export default function PartThumb({ product, alt, eager = false, className = '',
           <img
             className={`part-thumb ${className}`.trim()}
             src={cands[1]}
+            data-fallback={cands[1]}
+            onError={onPhotoError}
             alt={label}
             loading={eager ? 'eager' : 'lazy'}
             decoding="async"
             width={800}
             height={800}
             sizes={sizes}
-            srcSet={srcSet}
           />
         </picture>
       )
@@ -54,13 +61,13 @@ export default function PartThumb({ product, alt, eager = false, className = '',
       <img
         className={`part-thumb ${className}`.trim()}
         src={src}
+        onError={onPhotoError}
         alt={label}
         loading={eager ? 'eager' : 'lazy'}
         decoding="async"
         width={800}
         height={800}
         sizes={sizes}
-        srcSet={srcSet}
       />
     )
   }

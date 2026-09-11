@@ -60,6 +60,70 @@ export function statusLabelKey(status) {
   return `orderStatus_${s}`
 }
 
+/**
+ * P9 (P7-4) : date LOCALE (YYYY-MM-DD) de `date` — unique référence de la
+ * « journée » du shop (création de commande + export CSV). Avant : le client
+ * envoyait la date UTC (toISOString) → décalage d'une heure par jour en Oran.
+ */
+export function localDay(date = new Date()) {
+  const y = date.getFullYear()
+  const m = String(date.getMonth() + 1).padStart(2, '0')
+  const d = String(date.getDate()).padStart(2, '0')
+  return `${y}-${m}-${d}`
+}
+
+/**
+ * P8 (P7-2) : classification d'un échec de `api.postOrder`.
+ * - 'offline'  : backend injoignable → SEUL cas où le repli local est légitime.
+ * - 'stock'    : 409/rupture → message stock, stock actualisé.
+ * - 'rate'     : 429 → message d'attente (retryAfter s), panier conservé.
+ * - 'server'   : 5xx/autre → message erreur serveur, panier conservé.
+ * (un succès est géré avant l'appel — ne pas passer un r.ok.)
+ */
+export function orderApiFailure(r) {
+  if (!r || r.offline) return { kind: 'offline' }
+  if (r.status === 409 || r.data?.error === 'stock') {
+    return { kind: 'stock', shortages: r.data?.shortages || [] }
+  }
+  if (r.status === 429) return { kind: 'rate', retryAfter: r.data?.retryAfter || null }
+  return { kind: 'server' }
+}
+
+/**
+ * P8 (P7-2) : prochain code local de commande pour `date` — dérivé du max des
+ * codes existants du jour (jamais `length + 1`) : plus de collision quand la
+ * liste client ne contient pas toutes les commandes du jour.
+ */
+export function nextLocalOrderCode(existingCodes = [], date = new Date()) {
+  const y = date.getFullYear()
+  const m = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  const re = new RegExp(`^PS-${y}${m}${day}-(\\d+)$`)
+  let max = 0
+  for (const raw of existingCodes) {
+    const mt = re.exec(String(raw || ''))
+    if (mt) max = Math.max(max, parseInt(mt[1], 10))
+  }
+  return makeOrderCode(date, max + 1)
+}
+
+/**
+ * P8 (P7-3) : état du formulaire de retrait pour un compte donné.
+ * - pas de compte (logout/visiteur) : retour aux valeurs vides `defaults`
+ *   — les infos du client précédent ne doivent jamais rester pré-remplies ;
+ * - avec compte : reprise nom/tél/wilaya du profil (le reste — slot, payment —
+ *   est conservé depuis `prev`).
+ */
+export function pickupForUser(user, prev = {}, defaults = {}) {
+  if (!user) return { ...defaults }
+  return {
+    ...prev,
+    name: user.name || prev.name || defaults.name || '',
+    phone: user.phone || prev.phone || defaults.phone || '',
+    wilaya: user.wilaya || prev.wilaya || defaults.wilaya || 'Oran'
+  }
+}
+
 /** Builder power recap from picked parts. */
 export function buildPowerRecap(parts) {
   const list = (parts || []).filter(Boolean)

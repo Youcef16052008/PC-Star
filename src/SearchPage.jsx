@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import { PRICE_PRESETS, SOCKETS, STORE, money, starText } from './data'
+import { loadSavedSearches, saveSavedSearches } from './shopStore.js'
 import PartThumb from './PartThumb.jsx'
 
 function stockLabel(n, t) {
@@ -30,7 +31,8 @@ const PRICE_KEYS = {
 export default function SearchPage({ t, products, lines, panels, lang, liveStock, onAdd, onOpen }) {
   const [filters, setFilters] = useState(EMPTY)
   const [view, setView] = useState('grid')
-  const [saved, setSaved] = useState([])
+  // P10 (P7-14) : recherches sauvées PERSISTÉES (avant : perdues au rechargement)
+  const [saved, setSaved] = useState(() => loadSavedSearches())
   const [saveNote, setSaveNote] = useState('')
   const [filtersOpen, setFiltersOpen] = useState(false)
 
@@ -106,7 +108,10 @@ export default function SearchPage({ t, products, lines, panels, lang, liveStock
     const title = [lineLabel, filters.q.trim() || null, filters.socket !== 'all' ? filters.socket : null, ...filters.brands]
       .filter(Boolean)
       .join(' · ')
-    setSaved((prev) => [{ id: `s-${Date.now()}`, title, filters: { ...filters, brands: [...filters.brands] } }, ...prev].slice(0, 6))
+    // P10 (P7-14) : bornée à 10 + persistée (localStorage)
+    const next = [{ id: `s-${Date.now()}`, title, filters: { ...filters, brands: [...filters.brands] } }, ...saved].slice(0, 10)
+    setSaved(next)
+    saveSavedSearches(null, next)
     setSaveNote(t('searchSaved'))
     setTimeout(() => setSaveNote(''), 1600)
   }

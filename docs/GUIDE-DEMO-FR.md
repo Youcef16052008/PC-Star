@@ -24,6 +24,10 @@
 - Réserver avec un mobile **05 / 06 / 07**  
 - Payer au comptoir Oran  
 
+## OAuth (livré, mode démo)
+
+- Boutons **Google / Meta** dans le login — consent simulé par défaut (`OAUTH_DEMO=1`), réel avec clés.
+
 ## Lancer
 
 ```bash

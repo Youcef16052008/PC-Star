@@ -1,11 +1,24 @@
 # PC Star — Plan d’amélioration jusqu’à 10/10
 
 **Date :** 2026-09-10  
-**Baseline :** → **Phase 3+4 ship** — media pipeline + master CRUD/CSV/backup (~9.0–9.3 code)  
+**Statut :** **P0–P6 livrés** — score code final **~9.5–9.7** (état final de ce plan)  
 **Cible :** un shop pickup Oran **exploitable en vrai magasin**, pas un clone Amazon.
 
 > **Règle d’honnêteté :** un 10/10 absolu (photos studio + OAuth live + paiements + ERP + Lighthouse 95) **nécessite du hors-code** (shooting, clés Google/Meta, hébergeur DZ, process magasin).  
 > Ce plan sépare **ce qu’on code** et **ce que tu fournis**.
+
+---
+
+## Statut final (2026-09-10)
+
+- **P0 → P6 : toutes les phases code livrées** (détail par phase plus bas, cases cochées).  
+- **Score code final : ~9.5–9.7/10.** Ce qui reste vers le 10/10 absolu est **hors-code** :
+  1. shoot studio top 80 SKU (photos réelles),
+  2. clés OAuth live si passage en `OAUTH_DEMO=0` (Google/Meta déjà câblés),
+  3. persistance cloud (Vercel KV / Turso) pour des orders survivant aux cold starts,
+  4. mesure Lighthouse en prod HTTPS (cible Perf mobile ≥ 90).
+- **Cas d’usage Oran : exploitable** — catalogue 250 SKUs persistant, stock API multi-écrans, desk comptoir, AR/FR/EN, HTTPS sur Vercel sans VPS.
+- Lire aussi : [PORTFOLIO.md](PORTFOLIO.md) · [PROBLEMS-SOLUTIONS.md](PROBLEMS-SOLUTIONS.md) · [ARCHITECTURE.md](ARCHITECTURE.md) · [README.md](README.md) (index doc).
 
 ---
 
@@ -291,9 +304,6 @@ pendant que Phase 1–2 se codent, tu lances le **shoot top 80 SKUs** (Phase 3 h
 
 ---
 
-## Prochaine action immédiate
+## Reprendre le projet
 
-**Démarrer Phase 1.1–1.2** : stock serveur + statuts réservation + desk filtres.  
-C’est le plus gros gap entre « belle démo » et « outil de comptoir ».
-
-Dis : **`go phase 1`** pour lancer l’implémentation, ou **`go phase 2`** si tu préfères l’UX d’abord.
+La suite (après P0–P6) est **hors-code** : voir la section « Ce que **toi** fournis vs **agent** code » plus haut, [DEPLOY-VERCEL.md](DEPLOY-VERCEL.md) pour la prod, et [PORTFOLIO.md](PORTFOLIO.md) §6 pour les limites + plan B.

@@ -10,9 +10,12 @@ import { PRODUCTS } from '../src/data.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const IS_SERVERLESS = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME)
-const UPLOAD_DIR = IS_SERVERLESS
-  ? path.join('/tmp', 'pcstar-uploads')
-  : path.join(__dirname, '../public/photos/uploads')
+// Override PCSTAR_UPLOAD_DIR : tests isolés / déploiements exotiques.
+const UPLOAD_DIR = process.env.PCSTAR_UPLOAD_DIR
+  ? path.resolve(process.env.PCSTAR_UPLOAD_DIR)
+  : IS_SERVERLESS
+    ? path.join('/tmp', 'pcstar-uploads')
+    : path.join(__dirname, '../public/photos/uploads')
 const MAX_BYTES = 2.5 * 1024 * 1024
 const MAX_PHOTOS = 6
 /** Public URL prefix — on serverless uploads are not CDN-stable until Blob is wired. */
@@ -25,8 +28,13 @@ export function ensureUploadDir() {
 export function listMasterProducts(db) {
   ensureStock(db)
   const hidden = new Set(db.meta?.hiddenProductIds || [])
+  // P8 (P7-1) : la vue master doit refléter les overrides (prix/nom/stock/
+  // photos) exactement comme le catalogue public — sinon le master édite des
+  // valeurs obsolètes (et le panneau photos écrase les uploads).
+  const overrides = db.meta?.productOverrides || {}
   const base = PRODUCTS.map((p) => ({
     ...p,
+    ...(overrides[p.id] || {}),
     stock: liveStockOf(db, p.id),
     hidden: hidden.has(p.id),
     source: 'catalog'
@@ -34,13 +42,17 @@ export function listMasterProducts(db) {
   const extras = (db.meta?.extraProducts || []).map((p) => ({
     ...p,
     stock: liveStockOf(db, p.id),
-    hidden: false,
+    hidden: hidden.has(p.id),
     source: 'extra'
   }))
   return [...base, ...extras]
 }
 
-export function createProduct(db, body) {
+/**
+ * @param {string} [id] P5 (B12) : id pré-généré — permet de sauver les photos
+ * directement sous le vrai id avant la création (plus de fichiers `tmp-*`).
+ */
+export function createProduct(db, body, id) {
   ensureStock(db)
   if (!db.meta) db.meta = { extraProducts: [], hiddenProductIds: [], extraPanels: [], hiddenPanelIds: [] }
   if (!Array.isArray(db.meta.extraProducts)) db.meta.extraProducts = []
@@ -48,11 +60,12 @@ export function createProduct(db, body) {
   const name = String(body.name || '').trim()
   const price = Math.max(0, Number(body.price) || 0)
   if (!name || price <= 0) return { ok: false, error: 'invalid' }
+  if (id && db.meta.extraProducts.some((p) => p.id === id)) return { ok: false, error: 'invalid' }
 
-  const id = newId('sku')
+  const finalId = id || newId('sku')
   const product = {
-    id,
-    sku: String(body.sku || id).trim(),
+    id: finalId,
+    sku: String(body.sku || finalId).trim(),
     name,
     brand: String(body.brand || 'PC Star').trim(),
     kind: body.kind || 'part',
@@ -69,7 +82,7 @@ export function createProduct(db, body) {
     tags: Array.isArray(body.tags) ? body.tags : []
   }
   db.meta.extraProducts = [product, ...db.meta.extraProducts]
-  setStock(db, id, product.stock)
+  setStock(db, finalId, product.stock)
   return { ok: true, product }
 }
 
@@ -91,6 +104,14 @@ export function updateProduct(db, id, patch) {
     if (patch.stock != null) {
       cur.stock = Math.max(0, Math.floor(Number(patch.stock) || 0))
       setStock(db, id, cur.stock)
+    }
+    if (patch.hidden === true) {
+      const set = new Set(db.meta.hiddenProductIds || [])
+      set.add(id)
+      db.meta.hiddenProductIds = [...set]
+    }
+    if (patch.hidden === false) {
+      db.meta.hiddenProductIds = (db.meta.hiddenProductIds || []).filter((x) => x !== id)
     }
     extras[ei] = cur
     db.meta.extraProducts = extras
@@ -145,11 +166,27 @@ export function savePhotoDataUrls(productId, dataUrls = []) {
   return out
 }
 
+/** P5 (B12) : supprime un fichier d'upload à partir de son URL publique. */
+export function unlinkUpload(publicPath) {
+  try {
+    const raw = String(publicPath || '')
+    const name = raw.includes('name=')
+      ? decodeURIComponent(raw.split('name=')[1])
+      : raw.split('/').pop()
+    if (!name || name.includes('..') || name.includes('/')) return
+    fs.unlinkSync(path.join(UPLOAD_DIR, name))
+  } catch {
+    /* best effort — jamais bloquant */
+  }
+}
+
 export function ordersToCsv(orders, { day = null } = {}) {
   const rows = [['code', 'status', 'at', 'name', 'phone', 'carrier', 'wilaya', 'slot', 'total', 'items']]
   for (const o of orders || []) {
     if (day) {
-      const d = String(o.at || '').slice(0, 10)
+      // P9 (P7-4) : la « journée » = o.day (date locale du client, P9) —
+      // repli sur la date d'`at` (UTC) pour les anciennes commandes.
+      const d = o.day || String(o.at || '').slice(0, 10)
       if (d !== day) continue
     }
     const items = (o.items || []).map((i) => `${i.qty}x ${i.name}`).join(' | ')
@@ -175,11 +212,35 @@ function csvEscape(v) {
   return s
 }
 
+/**
+ * P9 (P7-7) : borne le répertoire de backups aux `keep` plus récents
+ * (les noms `store-<timestamp>` sont triables chronologiquement).
+ */
+export function capBackups(backupDir, keep = 14) {
+  if (!fs.existsSync(backupDir)) return 0
+  const all = fs
+    .readdirSync(backupDir)
+    .filter((f) => f.startsWith('store-') && f.endsWith('.json'))
+    .sort()
+  let removed = 0
+  while (all.length > keep) {
+    const f = all.shift()
+    try {
+      fs.unlinkSync(path.join(backupDir, f))
+      removed += 1
+    } catch {
+      /* best effort */
+    }
+  }
+  return removed
+}
+
 export function backupStore(dbPath, backupDir) {
   fs.mkdirSync(backupDir, { recursive: true })
   if (!fs.existsSync(dbPath)) return null
   const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
   const dest = path.join(backupDir, `store-${stamp}.json`)
   fs.copyFileSync(dbPath, dest)
+  capBackups(backupDir) // P9 (P7-7) : plus de croissance infinie (timer 6 h + manuels)
   return dest
 }

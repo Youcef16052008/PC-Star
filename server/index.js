@@ -19,9 +19,13 @@ import {
   liveStockOf,
   placeOrder,
   publicCatalog,
+  purgeUser,
   setOrderStatus
 } from './catalog.js'
 import { rateLimit, clientKey } from './rateLimit.js'
+// P10 (P7-18) : liste connue des wilayas servies par le shop (source partagée
+// src/data.js, déjà importée côté master via PRODUCTS).
+import { WILAYAS_NEAR } from '../src/data.js'
 import {
   backupStore,
   createProduct,
@@ -29,6 +33,7 @@ import {
   listMasterProducts,
   ordersToCsv,
   savePhotoDataUrls,
+  unlinkUpload,
   updateProduct
 } from './masterApi.js'
 
@@ -55,6 +60,11 @@ function send(res, status, body, headers = {}) {
   res.end(payload)
 }
 
+// P10 (P7-10) : corps de requête borné (~6 photos compressées en base64 +
+// marge). Sans limite, un corps de plusieurs centaines de Mo = OOM en local
+// (Vercel impose ses propres limites d'entrée).
+const MAX_BODY_BYTES = 15 * 1024 * 1024
+
 function readBody(req) {
   return new Promise((resolve, reject) => {
     // Vercel / some adapters may already parse JSON
@@ -69,8 +79,23 @@ function readBody(req) {
       }
     }
     const chunks = []
-    req.on('data', (c) => chunks.push(c))
+    let total = 0
+    let aborted = false
+    req.on('data', (c) => {
+      if (aborted) return
+      total += c.length
+      if (total > MAX_BODY_BYTES) {
+        aborted = true
+        const err = new Error('body too large')
+        err.code = 'BODY_TOO_LARGE'
+        reject(err)
+        req.resume() // drainer sans destroy (pas d'erreur en cascade)
+        return
+      }
+      chunks.push(c)
+    })
     req.on('end', () => {
+      if (aborted) return
       const raw = Buffer.concat(chunks).toString('utf8')
       if (!raw) return resolve({})
       const ct = req.headers['content-type'] || ''
@@ -238,6 +263,10 @@ export async function handler(req, res) {
       if (body.phone && String(body.phone).trim() && !isDzPhone(body.phone)) {
         return send(res, 400, { ok: false, error: 'phone' })
       }
+      // P10 (P7-18) : wilaya bornée — liste connue (le select client ne propose
+      // que ces valeurs) + troncature 32 ; sinon on garde l'existant/'Oran'.
+      // Avant : n'importe quelle chaîne libre était stockée.
+      const rawWilaya = body.wilaya == null ? null : String(body.wilaya).trim().slice(0, 32)
       let user = null
       updateDb((db) => {
         const u = db.users.find((x) => x.id === auth.user.id)
@@ -246,7 +275,9 @@ export async function handler(req, res) {
         if (body.phone != null) u.phone = body.phone ? normalizePhone(body.phone) : ''
         if (body.avatar) u.avatar = body.avatar
         if (body.accent) u.accent = body.accent
-        if (body.wilaya) u.wilaya = String(body.wilaya)
+        if (rawWilaya != null) {
+          u.wilaya = WILAYAS_NEAR.includes(rawWilaya) ? rawWilaya : (u.wilaya || 'Oran')
+        }
         user = u
         return db
       })
@@ -260,10 +291,38 @@ export async function handler(req, res) {
       const db = readDb()
       const uid = auth.user.id
       const phone = auth.user.phone || ''
+      // P10 (P7-15) : le match par téléphone ne s'applique qu'aux commandes
+      // GUEST (userId null) — avant, deux comptes au même numéro voyaient (et
+      // annulaient) les commandes de l'autre.
       const orders = (db.orders || []).filter(
-        (o) => o.userId === uid || (phone && o.phone === phone)
+        (o) => o.userId === uid || (o.userId == null && phone && o.phone === phone)
       )
       return send(res, 200, { ok: true, orders })
+    }
+
+    // Customer cancels ONE of his own orders (new/pending only) → restock.
+    if (req.method === 'POST' && pathname.startsWith('/api/me/orders/') && pathname.endsWith('/cancel')) {
+      const auth = userFromReq(req)
+      if (!auth) return send(res, 401, { ok: false, error: 'auth' })
+      const code = decodeURIComponent(pathname.split('/').slice(-2, -1)[0])
+      const db0 = readDb()
+      const uid = auth.user.id
+      const phone = auth.user.phone || ''
+      // P10 (P7-15) : même règle que GET — guest (userId null) ou propriétaire
+      const mine = (db0.orders || []).find(
+        (o) => o.code === code && (o.userId === uid || (o.userId == null && phone && o.phone === phone))
+      )
+      if (!mine) return send(res, 404, { ok: false, error: 'not_found' })
+      if (mine.status !== 'new' && mine.status !== 'pending') {
+        return send(res, 409, { ok: false, error: 'status' })
+      }
+      let result = null
+      updateDb((db) => {
+        result = cancelOrder(db, code)
+        return db
+      })
+      if (!result?.ok) return send(res, 400, { ok: false, error: result?.error })
+      return send(res, 200, { ok: true, order: result.order })
     }
 
     // Password change (authenticated)
@@ -363,22 +422,12 @@ export async function handler(req, res) {
       return res.end(buf)
     }
 
-    // Catalog with live stock
+    // Catalog with live stock — objets complets (rating/needs/related/compat…)
+    // : le front consomme directement cette liste (mode API), il ne lit plus
+    // seulement le stock.
     if (req.method === 'GET' && pathname === '/api/catalog') {
       const db = readDb()
-      const products = publicCatalog(db).map((p) => ({
-        id: p.id,
-        sku: p.sku,
-        name: p.name,
-        brand: p.brand,
-        category: p.category,
-        price: p.price,
-        stock: p.stock,
-        photos: p.photos,
-        short: p.short,
-        tags: p.tags,
-        compat: p.compat
-      }))
+      const products = publicCatalog(db)
       return send(res, 200, { ok: true, products, count: products.length })
     }
 
@@ -418,6 +467,8 @@ export async function handler(req, res) {
             phone: normalizePhone(body.phone),
             carrier: phoneCarrier(body.phone),
             wilaya: body.wilaya || 'Oran',
+            // P9 (P7-4) : « journée » locale du client (validée dans placeOrder)
+            day: body.day || '',
             payment: 'cash',
             slot: body.slot || '',
             items: body.items,
@@ -479,27 +530,21 @@ export async function handler(req, res) {
       if (!auth || auth.user.role !== 'master') return send(res, 403, { ok: false, error: 'forbidden' })
       const body = await readBody(req)
       let result = null
+      // P5 (B12) : id pré-généré UNE fois → photos sauvées directement sous le
+      // vrai id du produit. Plus de double-écriture `tmp-*` ni d'orphelins.
+      const hasDataUrls = Array.isArray(body.photoDataUrls) && body.photoDataUrls.length > 0
+      const newProductId = hasDataUrls ? newId('sku') : null
+      const saved = hasDataUrls ? savePhotoDataUrls(newProductId, body.photoDataUrls) : []
       updateDb((db) => {
-        // optional dataURL photos
-        if (Array.isArray(body.photoDataUrls) && body.photoDataUrls.length) {
-          const idHint = 'tmp'
-          const paths = savePhotoDataUrls(idHint, body.photoDataUrls)
-          body.photos = [...(body.photos || []), ...paths].slice(0, 6)
-        }
-        result = createProduct(db, body)
-        if (result.ok && Array.isArray(body.photoDataUrls) && body.photoDataUrls.length) {
-          // re-save under real id
-          const paths = savePhotoDataUrls(result.product.id, body.photoDataUrls)
-          if (paths.length) {
-            result.product.photos = paths
-            const extras = db.meta.extraProducts
-            const i = extras.findIndex((x) => x.id === result.product.id)
-            if (i >= 0) extras[i].photos = paths
-          }
-        }
+        if (saved.length) body.photos = [...(body.photos || []), ...saved].slice(0, 6)
+        result = createProduct(db, body, newProductId)
         return db
       })
-      if (!result?.ok) return send(res, 400, { ok: false, error: result?.error || 'invalid' })
+      if (!result?.ok) {
+        // échec de création → ne pas laisser les fichiers orphelins
+        for (const p of saved) unlinkUpload(p)
+        return send(res, 400, { ok: false, error: result?.error || 'invalid' })
+      }
       return send(res, 201, { ok: true, product: result.product })
     }
 
@@ -554,6 +599,41 @@ export async function handler(req, res) {
       return send(res, 200, { ok: true, product: result.product })
     }
 
+    // Panels (master) : persiste extraPanels + hiddenPanelIds dans db.meta —
+    // les panneaux du shop sont alors cohérents sur TOUS les appareils
+    // (avant : sauvegarde locale uniquement, invisibles avec le serveur).
+    if (req.method === 'PUT' && pathname === '/api/master/panels') {
+      const auth = userFromReq(req)
+      if (!auth || auth.user.role !== 'master') return send(res, 403, { ok: false, error: 'forbidden' })
+      const body = await readBody(req)
+      let error = null
+      let out = null
+      updateDb((db) => {
+        if (body.hiddenPanelIds != null) {
+          if (!Array.isArray(body.hiddenPanelIds) || body.hiddenPanelIds.some((x) => typeof x !== 'string')) {
+            error = 'panels'
+            return db
+          }
+          db.meta.hiddenPanelIds = [...new Set(body.hiddenPanelIds)]
+        }
+        if (body.extraPanels != null) {
+          const okPanels = Array.isArray(body.extraPanels) &&
+            body.extraPanels.every((p) => p && typeof p.id === 'string' && p.id &&
+              p.titles && typeof p.titles === 'object' &&
+              Array.isArray(p.categories) && p.categories.every((c) => typeof c === 'string'))
+          if (!okPanels) {
+            error = 'panels'
+            return db
+          }
+          db.meta.extraPanels = body.extraPanels.slice(0, 12)
+        }
+        out = { hiddenPanelIds: db.meta.hiddenPanelIds || [], extraPanels: db.meta.extraPanels || [] }
+        return db
+      })
+      if (error) return send(res, 400, { ok: false, error })
+      return send(res, 200, { ok: true, meta: out })
+    }
+
     // Orders CSV export (master)
     if (req.method === 'GET' && pathname === '/api/orders/export.csv') {
       const auth = userFromReq(req)
@@ -565,7 +645,9 @@ export async function handler(req, res) {
         'Content-Disposition': `attachment; filename="pcstar-orders${day ? '-' + day : ''}.csv"`,
         'Access-Control-Allow-Origin': FRONT_ORIGIN
       })
-      return res.end(csv)
+      // P10 (P7-12) : BOM UTF-8 — sans lui, Excel (Windows) lit en ANSI et
+      // les accents FR/AR deviennent illisibles sur le comptoir.
+      return res.end('\uFEFF' + csv)
     }
 
     // Manual backup
@@ -577,21 +659,32 @@ export async function handler(req, res) {
       return send(res, 200, { ok: true, file: dest ? path.basename(dest) : null })
     }
 
-        // Catalog meta (master)
+    // Catalog meta — P9 (P7-5) : route PUBLIQUE réduite aux seuls champs que
+    // le shop consomme (panneaux). Avant : tout le meta était public
+    // (extraProducts = fiches des produits masqués, productOverrides…).
     if (req.method === 'GET' && pathname === '/api/meta') {
+      const meta = readDb().meta || {}
+      return send(res, 200, {
+        ok: true,
+        meta: {
+          extraPanels: meta.extraPanels || [],
+          hiddenPanelIds: meta.hiddenPanelIds || []
+        }
+      })
+    }
+
+    // P9 (P7-5) : méta complète = master uniquement.
+    if (req.method === 'GET' && pathname === '/api/master/meta') {
+      const auth = userFromReq(req)
+      if (!auth || auth.user.role !== 'master') return send(res, 403, { ok: false, error: 'forbidden' })
       return send(res, 200, { ok: true, meta: readDb().meta })
     }
 
-    if (req.method === 'PUT' && pathname === '/api/meta') {
-      const auth = userFromReq(req)
-      if (!auth || auth.user.role !== 'master') return send(res, 403, { ok: false, error: 'forbidden' })
-      const body = await readBody(req)
-      updateDb((db) => {
-        db.meta = { ...db.meta, ...body.meta }
-        return db
-      })
-      return send(res, 200, { ok: true, meta: readDb().meta })
-    }
+    // P9 (P7-8) : PUT /api/meta SUPPRIMÉ — l'écriture `db.meta = {...db.meta,
+    // ...body.meta}` sans validation permettait d'écraser extraProducts /
+    // productOverrides d'un coup. Les panneaux passent par
+    // PUT /api/master/panels (validé, borné) ; les produits par
+    // /api/master/products.
 
     // Customers (master)
     if (req.method === 'GET' && pathname === '/api/customers') {
@@ -607,10 +700,7 @@ export async function handler(req, res) {
       const id = pathname.split('/').pop()
       let ok = false
       updateDb((db) => {
-        const t = db.users.find((u) => u.id === id)
-        if (!t || t.role === 'master') return db
-        db.users = db.users.filter((u) => u.id !== id)
-        ok = true
+        ok = purgeUser(db, id).ok
         return db
       })
       return send(res, ok ? 200 : 400, { ok })
@@ -633,6 +723,10 @@ export async function handler(req, res) {
 
     return send(res, 404, { ok: false, error: 'not_found' })
   } catch (err) {
+    // P10 (P7-10) : corps trop gros → 413 explicite (pas un 500/OOM)
+    if (err && err.code === 'BODY_TOO_LARGE') {
+      return send(res, 413, { ok: false, error: 'too_large' })
+    }
     console.error(err)
     return send(res, 500, { ok: false, error: 'server', message: String(err.message || err) })
   }

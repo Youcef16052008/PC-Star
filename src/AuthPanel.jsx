@@ -8,7 +8,8 @@ const ERR = {
   password: 'authErrorPassword',
   exists: 'authErrorExists',
   auth: 'authErrorAuth',
-  phone: 'authErrorPhone'
+  phone: 'authErrorPhone',
+  rate: 'authErrorRate'
 }
 
 export default function AuthPanel({ t, users, onUsers, onSession, onClose, setToast, apiOnline, onApiUser }) {
@@ -96,7 +97,12 @@ export default function AuthPanel({ t, users, onUsers, onSession, onClose, setTo
           succeedApi(r.data.user, r.data.token, 'authOk')
           return
         }
+        // Le serveur a répondu (mauvais identifiants, rate limit…) : on ne
+        // retombe PAS sur le store local — sinon un mdp refusé par l'API
+        // pourrait passer s'il existe localement.
+        if (!r.offline) return fail(r.data?.error || 'auth')
       }
+      // Mode local, ou réseau mort → repli local.
       const res = loginEmail(users, { email, password })
       if (!res.ok) return fail(res.error || 'auth')
       succeedLocal(res.user, null, 'authOk')
@@ -117,7 +123,7 @@ export default function AuthPanel({ t, users, onUsers, onSession, onClose, setTo
           succeedApi(r.data.user, r.data.token, 'authRegistered')
           return
         }
-        if (r.data?.error) return fail(r.data.error)
+        if (!r.offline) return fail(r.data?.error || 'auth')
       }
       const res = registerEmail(users, { email, password, name, phone: phone || undefined })
       if (!res.ok) return fail(res.error)

@@ -22,7 +22,8 @@ const h = await j(`${API}/api/health`)
 ok('health', h.ok && h.data?.ok)
 
 const cat = await j(`${API}/api/catalog`)
-ok('catalog', cat.ok && cat.data?.count >= 250, cat.data?.count)
+// P6 : 250 SKUs de base, `speakers` (stock 0) filtrée du catalogue public → 249
+ok('catalog', cat.ok && cat.data?.count >= 249, cat.data?.count)
 
 const login = await j(`${API}/api/auth/login`, {
   method: 'POST',

@@ -24,6 +24,15 @@ npm run build
 Full how-to: **[docs/GUIDE-DEMO.md](docs/GUIDE-DEMO.md)** · [FR](docs/GUIDE-DEMO-FR.md) · [AR](docs/GUIDE-DEMO-AR.md)  
 Also in the app menu: **Guide**.
 
+## Portfolio & docs
+
+- [docs/README.md](docs/README.md) — **index** de la documentation
+- [docs/PORTFOLIO.md](docs/PORTFOLIO.md) — case study (contexte, contraintes, chiffres, leçons)
+- [docs/PROBLEMS-SOLUTIONS.md](docs/PROBLEMS-SOLUTIONS.md) — **22 problèmes → solutions** (doc portfolio principale)
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — schéma front / API / media / Vercel
+- [docs/ROADMAP-10.md](docs/ROADMAP-10.md) — plan P0–P6, état final (~9.5–9.7)
+- [docs/DEPLOY-VERCEL.md](docs/DEPLOY-VERCEL.md) — déploiement [Vercel](https://vercel.com) (HTTPS sans VPS)
+
 ## Kept features
 
 - Light / dark / system theme  
@@ -32,9 +41,11 @@ Also in the app menu: **Guide**.
 - Multi-device API: desk orders, master add/hide products  
 - AR / FR / EN · DZ phones 05/06/07 · catalogue marché algérien  
 
-## Removed
+## Removed (volontairement)
 
-Avatars, accent colors, product compare, 3D orbit, Google/Meta OAuth, SMS demo.
+Avatars, accent colors, product compare, 3D orbit, SMS demo.
+
+> **OAuth Google/Meta est LIVRÉ** (mode démo par défaut, réel avec clés) — voir [docs/GUIDE-DEMO.md](docs/GUIDE-DEMO.md) et `server/oauth.js`.
 
 ## Deploy (Vercel, HTTPS, no VPS)
 

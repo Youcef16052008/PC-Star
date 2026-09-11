@@ -6,10 +6,14 @@ import crypto from 'node:crypto'
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 /** On Vercel serverless the bundle FS is read-only — persist under /tmp (ephemeral per instance). */
 const IS_SERVERLESS = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME)
-const DATA_DIR = IS_SERVERLESS
-  ? path.join('/tmp', 'pcstar-data')
-  : path.join(__dirname, 'data')
+const DATA_DIR = process.env.PCSTAR_DATA_DIR
+  ? path.resolve(process.env.PCSTAR_DATA_DIR)
+  : IS_SERVERLESS
+    ? path.join('/tmp', 'pcstar-data')
+    : path.join(__dirname, 'data')
 const DB_FILE = path.join(DATA_DIR, 'store.json')
+const DB_TMP_FILE = path.join(DATA_DIR, 'store.json.tmp')
+const MAX_CORRUPT_BACKUPS = 3
 
 const MASTER = {
   id: 'master-pcstar',
@@ -84,7 +88,7 @@ const DEMOS = [
     email: 'yacine.pc@demo.dz',
     passwordHash: hashPassLegacy('yacine31'),
     name: 'Yacine M.',
-    phone: '0770650387',
+    phone: '0770650388',
     avatar: 'pad',
     accent: 'red',
     provider: 'email',
@@ -119,30 +123,91 @@ function ensure() {
 
 export function readDb() {
   ensure()
+  let db
   try {
     const raw = fs.readFileSync(DB_FILE, 'utf8')
-    const db = JSON.parse(raw)
-    if (!Array.isArray(db.users)) db.users = [MASTER, ...DEMOS]
-    if (!db.users.some((u) => u.role === 'master')) db.users.unshift(MASTER)
-    DEMOS.forEach((d) => {
-      if (!db.users.some((u) => u.id === d.id || u.email === d.email)) db.users.push({ ...d })
+    db = JSON.parse(raw)
+  } catch (err) {
+    // Base corrompue (écriture tronquée, disque plein…) : on ne l'écrase PAS
+    // silencieusement. On la quarantaine pour diagnostic, on log, et on
+    // repart propre.
+    const backup = quarantineDb()
+    console.error('[pcstar-db] store.json illisible — base réinitialisée.', {
+      reason: String(err && err.message ? err.message : err),
+      backup: backup || null
     })
-    if (!Array.isArray(db.orders)) db.orders = []
-    if (!db.stock || typeof db.stock !== 'object') db.stock = {}
-    if (!db.meta) db.meta = emptyDb().meta
-    if (!db.sessions) db.sessions = {}
-    if (!db.oauthPending) db.oauthPending = {}
-    return db
-  } catch {
-    const db = emptyDb()
+    db = emptyDb()
     writeDb(db)
     return db
+  }
+  if (!Array.isArray(db.users)) db.users = [MASTER, ...DEMOS]
+  if (!db.users.some((u) => u.role === 'master')) db.users.unshift(MASTER)
+  DEMOS.forEach((d) => {
+    if (!db.users.some((u) => u.id === d.id || u.email === d.email)) db.users.push({ ...d })
+  })
+  if (!Array.isArray(db.orders)) db.orders = []
+  if (!db.stock || typeof db.stock !== 'object') db.stock = {}
+  if (!db.meta) db.meta = emptyDb().meta
+  if (!db.sessions) db.sessions = {}
+  if (!db.oauthPending) db.oauthPending = {}
+  // P5 (B11) : bornes de croissance — sessions > 7 j, consentements OAuth
+  // abandonnés > 15 min. Écriture uniquement si quelque chose a été purgé.
+  if (purgeExpired(db)) writeDb(db)
+  return db
+}
+
+/**
+ * P5 (B11) : purge les sessions expirées (> 7 jours) et les entrées
+ * `oauthPending` orphelines (consentement abandonné, > 15 min).
+ * @returns {boolean} true si quelque chose a été supprimé
+ */
+export function purgeExpired(db) {
+  const now = Date.now()
+  let changed = false
+  for (const [tok, s] of Object.entries(db.sessions || {})) {
+    if (!s || typeof s.at !== 'number' || now - s.at > SESSION_TTL_MS) {
+      delete db.sessions[tok]
+      changed = true
+    }
+  }
+  for (const [st, p] of Object.entries(db.oauthPending || {})) {
+    if (!p || typeof p.createdAt !== 'number' || now - p.createdAt > PENDING_TTL_MS) {
+      delete db.oauthPending[st]
+      changed = true
+    }
+  }
+  return changed
+}
+
+const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000
+const PENDING_TTL_MS = 15 * 60 * 1000
+
+/** Déplace un store.json illisible sous .corrupt-<stamp> (garde les MAX derniers). */
+function quarantineDb() {
+  if (!fs.existsSync(DB_FILE)) return null
+  // Horodatage + aléatoire : deux corruptions la même milliseconde ne doivent
+  // pas s'écraser l'une l'autre.
+  const stamp = `${Date.now().toString(36)}-${crypto.randomBytes(3).toString('hex')}`
+  const dest = `${DB_FILE}.corrupt-${stamp}`
+  try {
+    fs.copyFileSync(DB_FILE, dest)
+    const stale = fs
+      .readdirSync(DATA_DIR)
+      .filter((f) => f.startsWith('store.json.corrupt-'))
+      .sort()
+    while (stale.length > MAX_CORRUPT_BACKUPS) fs.unlinkSync(path.join(DATA_DIR, stale.shift()))
+    return dest
+  } catch {
+    return null
   }
 }
 
 export function writeDb(db) {
   ensure()
-  fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2))
+  // Écriture atomique : tmp puis rename (même FS) — un crash ne peut pas
+  // laisser un store.json tronqué.
+  fs.writeFileSync(DB_TMP_FILE, JSON.stringify(db, null, 2))
+  fs.renameSync(DB_TMP_FILE, DB_FILE)
 }
 
 export function updateDb(mutator) {

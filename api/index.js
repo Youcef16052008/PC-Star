@@ -17,10 +17,14 @@ export default async function vercelHandler(req, res) {
   }
 }
 
+// P4 (B10) : sizeLimit 10 mo — avec la compression client (6 × ~300 Ko de
+// JPEG ≈ 2,5 Mo de JSON), la limite 4 mo d'origine provoquait des 413 sur
+// Vercel dès 6 photos. Réponse : aucun endpoint ne dépasse ~1 Mo (catalogue
+// ≈ 500 Ko), 4 mo reste large.
 export const config = {
   api: {
     bodyParser: {
-      sizeLimit: '4mb'
+      sizeLimit: '10mb'
     },
     responseLimit: '4mb'
   }

@@ -27,6 +27,25 @@ export function specRows(product, t) {
 }
 
 /**
+ * P10 (P7-13) : variantes de chargement d'une photo produit.
+ * Le sibling `.webp` NEXISTE QUE pour le catalogue statique (`/photos/*.jpg`
+ * générés) — jamais pour les uploads du master (`/photos/uploads/…` ni
+ * `/api/upload-file`). Avant : on sondait le webp pour TOUTE photo → un 404
+ * systématique par vignette d'upload (2 requêtes au lieu de 1).
+ * Renvoie `[webp, src]` (on tente le webp en premier, repli src) ou `[src]`.
+ */
+export function photoCandidates(src) {
+  if (!src) return []
+  const s = String(src)
+  const isStaticCatalog = s.startsWith('/photos/') && !s.includes('/uploads/')
+  if (isStaticCatalog) {
+    const webp = s.replace(/\.(jpe?g|png)$/i, '.webp')
+    if (webp !== s) return [webp, s]
+  }
+  return [s]
+}
+
+/**
  * Related products: prefer declared related, then same socket/memory/category in stock.
  */
 export function relatedProducts(product, catalog, limit = 4) {
@@ -64,9 +83,4 @@ export function relatedProducts(product, catalog, limit = 4) {
     seen.add(p.id)
   }
   return out.slice(0, limit)
-}
-
-/** Skeleton placeholder class helper */
-export function photoSkeletonClass(loading) {
-  return loading ? 'photo-skeleton' : ''
 }

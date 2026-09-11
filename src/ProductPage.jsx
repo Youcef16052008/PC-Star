@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { money, starText, STORE, REVIEWS } from './data.js'
 import PartThumb from './PartThumb.jsx'
 import { relatedProducts, specRows } from './media.js'
@@ -8,10 +9,10 @@ function stockLabel(n, t) {
   return { text: `${n} ${t('inStore')}`, cls: 'stock-ok' }
 }
 
-function Stars({ product }) {
+function Stars({ product, t }) {
   if (!product || !product.rating) return null
   return (
-    <div className="stars" title={`${product.rating} from ${product.reviews} reviews`}>
+    <div className="stars" title={`${product.rating} ${t('xReviews', { n: product.reviews })}`}>
       <span>{starText(product.rating)}</span>
       <em>{product.rating.toFixed(1)}</em>
       <span className="rev">({product.reviews})</span>
@@ -47,6 +48,13 @@ export default function ProductPage({ t, product, photoIndex, setPhotoIndex, lef
   const photos = product.photos || []
   const also = relatedProducts(product, catalog, 4)
   const specs = specRows(product, t)
+  // P11 : le bloc coloré « coincé » à la place de la photo — l'événement `load`
+  // de l'image pouvait être perdu (URL déjà en cache, nœud DOM réutilisé) et la
+  // classe skeleton n'était alors jamais retirée. Désormais : le fond skeleton
+  // est permanent CONTRE le conteneur (il passe derrière l'image chargée), la
+  // <img> porte une `key` (nœud neuf à chaque produit/photo → événements
+  // garantis) et `onError` bascule sur le logo de la pièce (PartThumb).
+  const [failed, setFailed] = useState({})
 
   return (
     <main id="main-content" className="container page py-4" tabIndex={-1}>
@@ -57,8 +65,11 @@ export default function ProductPage({ t, product, photoIndex, setPhotoIndex, lef
         <div className="col-md-6">
           <div className="card border-0 shadow-sm overflow-hidden">
             <div className="ratio ratio-1x1 photo-frame position-relative pdp-zoom photo-skeleton">
-              {photos.length > 0 ? (
+              {photos.length > 0 && failed[photoIndex] ? (
+                <PartThumb product={product} eager />
+              ) : photos.length > 0 ? (
                 <img
+                  key={product.id + '-' + photoIndex}
                   src={photos[photoIndex]}
                   alt={product.name}
                   className="w-100 h-100"
@@ -67,6 +78,7 @@ export default function ProductPage({ t, product, photoIndex, setPhotoIndex, lef
                   decoding="async"
                   width={800}
                   height={800}
+                  onError={() => setFailed((f) => ({ ...f, [photoIndex]: true }))}
                 />
               ) : (
                 <PartThumb product={product} eager />
@@ -96,7 +108,7 @@ export default function ProductPage({ t, product, photoIndex, setPhotoIndex, lef
             {product.sku} · {product.brand}
           </div>
           <h1 className="h3 mb-2">{product.name}</h1>
-          <Stars product={product} />
+          <Stars product={product} t={t} />
           <p className="text-secondary">{product.short}</p>
           <div className="fs-4 fw-bold text-success mb-2">{money(product.price)}</div>
           <SpecBadges product={product} t={t} />
@@ -114,7 +126,11 @@ export default function ProductPage({ t, product, photoIndex, setPhotoIndex, lef
               </table>
             </div>
           )}
-          {product.needs && <div className={`alert py-2 ${left <= 0 ? 'alert-danger' : 'alert-secondary'}`}>{product.needs}</div>}
+          {(product.needsKey || product.needs) && (
+            <div className={`alert py-2 ${left <= 0 ? 'alert-danger' : 'alert-secondary'}`}>
+              {product.needsKey ? t(product.needsKey) : product.needs}
+            </div>
+          )}
 
           <div className="d-none d-md-flex flex-wrap gap-2 mt-3">
             <button className="btn btn-success btn-lg" type="button" disabled={left <= 0} onClick={onAdd}>
@@ -122,7 +138,7 @@ export default function ProductPage({ t, product, photoIndex, setPhotoIndex, lef
             </button>
             <a
               className="btn btn-outline-secondary"
-              href={`https://wa.me/${STORE.whatsapp}?text=${encodeURIComponent(`Salam, I want ${product.name} (${product.sku}) — ${money(product.price)}`)}`}
+              href={`https://wa.me/${STORE.whatsapp}?text=${encodeURIComponent(t('pdpWaMsg', { name: product.name, sku: product.sku, price: money(product.price) }))}`}
               target="_blank"
               rel="noreferrer"
             >
@@ -156,7 +172,7 @@ export default function ProductPage({ t, product, photoIndex, setPhotoIndex, lef
                       <strong>{r.name}</strong>
                       <span className="text-secondary">{r.city}</span>
                     </div>
-                    <p className="mb-0 small">{r.text}</p>
+                    <p className="mb-0 small">{r.textKey ? t(r.textKey) : r.text}</p>
                   </div>
                 </article>
               </div>
@@ -185,7 +201,7 @@ export default function ProductPage({ t, product, photoIndex, setPhotoIndex, lef
                           {p.name}
                         </button>
                       </h3>
-                      <Stars product={p} />
+                      <Stars product={p} t={t} />
                       <div className="fw-bold text-success mb-2">{money(p.price)}</div>
                       <button className="btn btn-sm btn-success mt-auto" type="button" disabled={l <= 0} onClick={() => onAddRelated(p)}>
                         {l <= 0 ? t('soldOut') : t('add')}
