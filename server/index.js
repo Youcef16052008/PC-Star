@@ -30,6 +30,7 @@ import {
   listMasterProducts,
   ordersToCsv,
   savePhotoDataUrls,
+  unlinkUpload,
   updateProduct
 } from './masterApi.js'
 
@@ -470,27 +471,21 @@ export async function handler(req, res) {
       if (!auth || auth.user.role !== 'master') return send(res, 403, { ok: false, error: 'forbidden' })
       const body = await readBody(req)
       let result = null
+      // P5 (B12) : id pré-généré UNE fois → photos sauvées directement sous le
+      // vrai id du produit. Plus de double-écriture `tmp-*` ni d'orphelins.
+      const hasDataUrls = Array.isArray(body.photoDataUrls) && body.photoDataUrls.length > 0
+      const newProductId = hasDataUrls ? newId('sku') : null
+      const saved = hasDataUrls ? savePhotoDataUrls(newProductId, body.photoDataUrls) : []
       updateDb((db) => {
-        // optional dataURL photos
-        if (Array.isArray(body.photoDataUrls) && body.photoDataUrls.length) {
-          const idHint = 'tmp'
-          const paths = savePhotoDataUrls(idHint, body.photoDataUrls)
-          body.photos = [...(body.photos || []), ...paths].slice(0, 6)
-        }
-        result = createProduct(db, body)
-        if (result.ok && Array.isArray(body.photoDataUrls) && body.photoDataUrls.length) {
-          // re-save under real id
-          const paths = savePhotoDataUrls(result.product.id, body.photoDataUrls)
-          if (paths.length) {
-            result.product.photos = paths
-            const extras = db.meta.extraProducts
-            const i = extras.findIndex((x) => x.id === result.product.id)
-            if (i >= 0) extras[i].photos = paths
-          }
-        }
+        if (saved.length) body.photos = [...(body.photos || []), ...saved].slice(0, 6)
+        result = createProduct(db, body, newProductId)
         return db
       })
-      if (!result?.ok) return send(res, 400, { ok: false, error: result?.error || 'invalid' })
+      if (!result?.ok) {
+        // échec de création → ne pas laisser les fichiers orphelins
+        for (const p of saved) unlinkUpload(p)
+        return send(res, 400, { ok: false, error: result?.error || 'invalid' })
+      }
       return send(res, 201, { ok: true, product: result.product })
     }
 

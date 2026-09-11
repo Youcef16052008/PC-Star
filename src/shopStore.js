@@ -4,24 +4,6 @@ export const MASTER = {
   name: 'PC Star Desk'
 }
 
-export const ACCENTS = [
-  { id: 'green', hex: '#22c55e', on: '#052e16' },
-  { id: 'blue', hex: '#38bdf8', on: '#082f49' },
-  { id: 'red', hex: '#f87171', on: '#450a0a' },
-  { id: 'gold', hex: '#fbbf24', on: '#422006' }
-]
-
-export const AVATARS = [
-  { id: 'chip', label: 'CPU', mark: 'CPU' },
-  { id: 'card', label: 'GPU', mark: 'GPU' },
-  { id: 'board', label: 'Board', mark: 'MB' },
-  { id: 'stick', label: 'RAM', mark: 'RAM' },
-  { id: 'disk', label: 'SSD', mark: 'SSD' },
-  { id: 'pad', label: 'Pad', mark: 'PAD' },
-  { id: 'star', label: 'Star', mark: 'PS' },
-  { id: 'case', label: 'Case', mark: 'PC' }
-]
-
 const KEY_USERS = 'pcstar-users'
 const KEY_META = 'pcstar-catalog'
 const KEY_SESSION = 'pcstar-session'
@@ -126,7 +108,7 @@ export const DEMO_CUSTOMERS = [
     email: 'yacine.pc@demo.dz',
     passwordPlain: 'yacine31',
     name: 'Yacine M.',
-    phone: '0770650387',
+    phone: '0770650388',
     avatar: 'pad',
     accent: 'red',
     provider: 'email',
@@ -234,63 +216,6 @@ export function loginEmail(users, { email, password } = {}) {
   return { ok: true, user }
 }
 
-export function startSms(users, { phone } = {}) {
-  const p = normalizePhone(phone)
-  if (!isDzPhone(p)) return { ok: false, error: 'phone' }
-  const code = String(100000 + Math.floor(Math.random() * 900000))
-  return {
-    ok: true,
-    code,
-    users,
-    pending: { phone: p, code, until: Date.now() + 10 * 60 * 1000 }
-  }
-}
-
-export function verifySms(users, { phone, code, pending } = {}) {
-  const p = normalizePhone(phone)
-  if (!pending || pending.phone !== p || String(code) !== String(pending.code)) {
-    return { ok: false, error: 'code' }
-  }
-  let user = users.find((u) => u.phone === p)
-  let next = users
-  if (!user) {
-    user = {
-      id: nowId('u'),
-      role: 'customer',
-      email: '',
-      password: '',
-      name: `0${p.slice(1, 4)}…`,
-      phone: p,
-      avatar: 'pad',
-      accent: 'green',
-      provider: 'sms'
-    }
-    next = [...users, user]
-  }
-  return { ok: true, user, users: next }
-}
-
-export function loginGoogle(users) {
-  const email = 'google.demo@pcstar.dz'
-  let user = users.find((u) => u.email === email)
-  let next = users
-  if (!user) {
-    user = {
-      id: nowId('g'),
-      role: 'customer',
-      email,
-      password: '',
-      name: 'Google Demo',
-      phone: '',
-      avatar: 'star',
-      accent: 'green',
-      provider: 'google'
-    }
-    next = [...users, user]
-  }
-  return { ok: true, user, users: next }
-}
-
 export function updateUser(users, id, patch) {
   const idx = users.findIndex((u) => u.id === id)
   if (idx < 0) return { ok: false, error: 'missing' }
@@ -300,9 +225,8 @@ export function updateUser(users, id, patch) {
     const p = String(patch.phone).trim()
     allowed.phone = p ? normalizePhone(p) : ''
   }
-  if (patch.avatar && AVATARS.some((a) => a.id === patch.avatar)) allowed.avatar = patch.avatar
-  if (patch.accent && ACCENTS.some((a) => a.id === patch.accent)) allowed.accent = patch.accent
   if (patch.wilaya != null) allowed.wilaya = String(patch.wilaya).trim() || users[idx].wilaya || 'Oran'
+
   const user = { ...users[idx], ...allowed }
   const next = users.slice()
   next[idx] = user
@@ -385,7 +309,6 @@ export function setProductPhotos(meta, id, photos) {
   const overrides = { ...(meta.photoOverrides || {}), [id]: nextPhotos }
   return { ok: true, meta: { ...meta, photoOverrides: overrides } }
 }
-
 
 export function addPanel(meta, { titles, categories } = {}) {
   const cats = (categories || []).filter(Boolean)

@@ -521,7 +521,9 @@ export default function App() {
 
   function setQty(id, qty) {
     const product = catalog.find((p) => p.id === id)
-    const max = product ? product.stock : 1
+    // P5 (B20) : plafond = stock VRAIMENT dispo = stock live (stockMap, incluant
+    // ce qui est déjà dans le panier) — pas le product.stock statique.
+    const max = product ? liveStock(product) + (cart.find((i) => i.id === id)?.qty || 0) : 1
     setCart((prev) =>
       prev
         .map((i) => (i.id === id ? { ...i, qty: Math.min(max, Math.max(1, qty)) } : i))
@@ -609,8 +611,8 @@ export default function App() {
 
     // Local fallback — still decrement local stockMap view
     for (const line of base.items) {
-      const left = liveStock({ id: line.id, stock: stockMap[line.id] ?? catalog.find((p) => p.id === line.id)?.stock ?? 0 })
-      // liveStock subtracts cart; for final check use raw
+      // P5 (B14) : on compare le stock BRUT (pas liveStock qui soustrait le
+      // panier — la ligne en cours de checkout fait partie du stock réservé)
       const raw = stockMap[line.id] != null ? stockMap[line.id] : catalog.find((p) => p.id === line.id)?.stock ?? 0
       if (raw < line.qty) {
         setToast(t('stockShort'))

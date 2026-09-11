@@ -9,7 +9,7 @@
     "dev:all": "node server/index.js & vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "node --test src/shopStore.test.js src/api.smoke.test.js src/orderLogic.test.js src/masterApi.test.js src/authCrypto.test.js src/dbIntegrity.test.js src/apiServer.test.js src/i18n.coverage.test.js src/compat.i18n.test.js src/photoCompress.test.js",
+    "test": "node --test src/shopStore.test.js src/api.smoke.test.js src/orderLogic.test.js src/masterApi.test.js src/authCrypto.test.js src/dbIntegrity.test.js src/apiServer.test.js src/i18n.coverage.test.js src/compat.i18n.test.js src/photoCompress.test.js src/uploadFlow.test.js",
     "start:api": "node server/index.js",
     "backup": "node scripts/backupDb.mjs",
     "photos:check": "node scripts/ingestSkuPhotos.mjs",

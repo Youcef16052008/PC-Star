@@ -1,8 +1,6 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  ACCENTS,
-  AVATARS,
   MASTER,
   addPanel,
   addProduct,
@@ -16,17 +14,14 @@ import {
   loadMeta,
   loadUsers,
   loginEmail,
-  loginGoogle,
   normalizePhone,
   phoneCarrier,
   registerEmail,
   saveMeta,
   saveUsers,
   setProductPhotos,
-  startSms,
   togglePanel,
   updateUser,
-  verifySms,
   DEMO_CUSTOMERS
 } from './shopStore.js'
 
@@ -97,35 +92,6 @@ describe('email accounts', () => {
   })
 })
 
-describe('sms and google demo', () => {
-  it('starts an SMS code and verifies it', () => {
-    const started = startSms([], { phone: '0669174617' })
-    assert.equal(started.ok, true)
-    assert.match(started.code, /^\d{6}$/)
-    const done = verifySms(started.users, {
-      phone: '0669174617',
-      code: started.code,
-      pending: started.pending
-    })
-    assert.equal(done.ok, true)
-    assert.equal(done.user.phone, '0669174617')
-    assert.equal(done.user.role, 'customer')
-  })
-
-  it('rejects a wrong SMS code', () => {
-    const started = startSms([], { phone: '0669174617' })
-    const done = verifySms(started.users, { phone: '0669174617', code: '000000', pending: started.pending })
-    assert.equal(done.ok, false)
-  })
-
-  it('creates a google demo customer', () => {
-    const res = loginGoogle([])
-    assert.equal(res.ok, true)
-    assert.equal(res.user.provider, 'google')
-    assert.equal(res.user.role, 'customer')
-  })
-})
-
 describe('master vs customer', () => {
   it('lets master delete a customer but not itself', () => {
     const seeded = loadUsers(createMemoryStorage())
@@ -142,13 +108,27 @@ describe('master vs customer', () => {
     assert.equal(deleteCustomer(users, user, user.id).ok, false)
   })
 
-  it('saves profile avatar and accent', () => {
+  it('saves profile name and wilaya', () => {
     const { users, user } = registerEmail([], { email: 'a@b.dz', password: 'secret99', name: 'Amina' })
-    const next = updateUser(users, user.id, { avatar: AVATARS[1].id, accent: ACCENTS[2].id, name: 'Amina B' })
+    const next = updateUser(users, user.id, { name: 'Amina B', wilaya: 'Mascara' })
     assert.equal(next.ok, true)
-    assert.equal(next.user.avatar, AVATARS[1].id)
-    assert.equal(next.user.accent, ACCENTS[2].id)
     assert.equal(next.user.name, 'Amina B')
+    assert.equal(next.user.wilaya, 'Mascara')
+  })
+})
+
+// P5 (B19) : plus aucun téléphone partagé entre master et comptes démo —
+// un login SMS local ne doit jamais retomber sur le master.
+describe('demo phone uniqueness (B19)', () => {
+  it('master + démos : téléphones uniques', () => {
+    const seeded = loadUsers(createMemoryStorage())
+    const phones = seeded
+      .filter((u) => u.phone)
+      .map((u) => u.phone)
+    assert.equal(new Set(phones).size, phones.length, 'téléphone dupliqué → ' + phones.join(', '))
+    const master = seeded.find((u) => u.role === 'master')
+    assert.ok(master.phone)
+    assert.ok(!seeded.some((u) => u.role !== 'master' && u.phone === master.phone))
   })
 })
 

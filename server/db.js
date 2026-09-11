@@ -88,7 +88,7 @@ const DEMOS = [
     email: 'yacine.pc@demo.dz',
     passwordHash: hashPassLegacy('yacine31'),
     name: 'Yacine M.',
-    phone: '0770650387',
+    phone: '0770650388',
     avatar: 'pad',
     accent: 'red',
     provider: 'email',
@@ -150,8 +150,37 @@ export function readDb() {
   if (!db.meta) db.meta = emptyDb().meta
   if (!db.sessions) db.sessions = {}
   if (!db.oauthPending) db.oauthPending = {}
+  // P5 (B11) : bornes de croissance — sessions > 7 j, consentements OAuth
+  // abandonnés > 15 min. Écriture uniquement si quelque chose a été purgé.
+  if (purgeExpired(db)) writeDb(db)
   return db
 }
+
+/**
+ * P5 (B11) : purge les sessions expirées (> 7 jours) et les entrées
+ * `oauthPending` orphelines (consentement abandonné, > 15 min).
+ * @returns {boolean} true si quelque chose a été supprimé
+ */
+export function purgeExpired(db) {
+  const now = Date.now()
+  let changed = false
+  for (const [tok, s] of Object.entries(db.sessions || {})) {
+    if (!s || typeof s.at !== 'number' || now - s.at > SESSION_TTL_MS) {
+      delete db.sessions[tok]
+      changed = true
+    }
+  }
+  for (const [st, p] of Object.entries(db.oauthPending || {})) {
+    if (!p || typeof p.createdAt !== 'number' || now - p.createdAt > PENDING_TTL_MS) {
+      delete db.oauthPending[st]
+      changed = true
+    }
+  }
+  return changed
+}
+
+const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000
+const PENDING_TTL_MS = 15 * 60 * 1000
 
 /** Déplace un store.json illisible sous .corrupt-<stamp> (garde les MAX derniers). */
 function quarantineDb() {

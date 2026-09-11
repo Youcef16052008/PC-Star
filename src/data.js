@@ -827,19 +827,3 @@ export const BUILDER_SLOTS = BUILDER_ORDER.map((id) => {
     pick: line.match
   }
 })
-
-export const COMPARE_FIELDS = [
-  { key: 'sku', label: 'SKU', value: (p) => p.sku },
-  { key: 'brand', label: 'Brand', value: (p) => p.brand },
-  { key: 'kind', label: 'Type', value: (p) => ({ part: 'PC part', accessory: 'Accessory', machine: 'Laptop / PC', service: 'Repair' }[p.kind] || p.kind) },
-  { key: 'category', label: 'Category', value: (p) => CATEGORIES.find((c) => c.id === p.category)?.label || p.category },
-  { key: 'price', label: 'Price', value: (p) => money(p.price) },
-  { key: 'pay', label: 'Payment', value: () => 'Cash at desk' },
-  { key: 'rating', label: 'Rating', value: (p) => `${p.rating.toFixed(1)} · ${p.reviews} reviews` },
-  { key: 'stock', label: 'In store', value: (p) => (p.stock > 0 ? `${p.stock}` : 'Out of stock') },
-  { key: 'socket', label: 'Socket', value: (p) => (Array.isArray(p.compat?.socket) ? p.compat.socket.join(' / ') : p.compat?.socket || '—') },
-  { key: 'memory', label: 'Memory', value: (p) => p.compat?.memory || '—' },
-  { key: 'psu', label: 'PSU', value: (p) => (p.compat?.psuWatts ? `${p.compat.psuWatts}W` : p.compat?.psuMin ? `${p.compat.psuMin}W min` : '—') },
-  { key: 'form', label: 'Form', value: (p) => p.compat?.form || '—' },
-  { key: 'needs', label: 'Needs', value: (p) => p.needs }
-]

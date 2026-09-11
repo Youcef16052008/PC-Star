@@ -65,8 +65,3 @@ export function relatedProducts(product, catalog, limit = 4) {
   }
   return out.slice(0, limit)
 }
-
-/** Skeleton placeholder class helper */
-export function photoSkeletonClass(loading) {
-  return loading ? 'photo-skeleton' : ''
-}

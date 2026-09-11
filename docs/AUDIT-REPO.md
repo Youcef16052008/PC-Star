@@ -116,17 +116,17 @@ sur Vercel, alors que ça passe en local (node pur, sans limite). À vérifier/d
 
 ### 🔵 Faible / mineur
 
-- **B11.** Sessions qui n'expireront jamais : `db.sessions` croît sans limite (`server/oauth.js:117`, `server/db.js`) ; `db.oauthPending` orphelin si l'utilisateur abandonne l'écran de consentement (`server/oauth.js:37`, suppression seulement à L118).
-- **B12.** Fichiers photo orphelins `tmp-*` : `server/index.js:486-499` — les photos sont d'abord enregistrées sous l'id `tmp`, puis ré-enregistrées sous le vrai id ; les fichiers `tmp-*` ne sont jamais supprimés (fuite disque à chaque création de produit avec photos).
+- **B11.** Sessions qui n'expireront jamais : `db.sessions` croît sans limite (`server/oauth.js:117`, `server/db.js`) ; `db.oauthPending` orphelin si l'utilisateur abandonne l'écran de consentement (`server/oauth.js:37`, suppression seulement à L118). — ✅ CORRIGÉ (P5)
+- **B12.** Fichiers photo orphelins `tmp-*` : `server/index.js:486-499` — les photos sont d'abord enregistrées sous l'id `tmp`, puis ré-enregistrées sous le vrai id ; les fichiers `tmp-*` ne sont jamais supprimés (fuite disque à chaque création de produit avec photos). — ✅ CORRIGÉ (P5)
 - **B13.** `DELETE /api/customers/:id` (`server/index.js:604-617`) : supprime l'utilisateur sans nettoyer ses sessions (tokens restant valides) ni réinitialiser `userId` dans ses commandes. — ✅ CORRIGÉ (P1)
-- **B14.** Code mort : `src/icons.jsx` (jamais importé) ; `COMPARE_FIELDS` (`src/data.js:~840`, feature compare supprimée) ; `photoSkeletonClass` (`src/media.js:70`, non utilisée) ; `startSms`/`verifySms`/`loginGoogle`/`ACCENTS`/`AVATARS` (`src/shopStore.js`, features retirées de l'UI mais encore testées dans `src/shopStore.test.js`) ; variable `left` inutile dans `reserve()` (`src/App.jsx:~590`).
-- **B15.** `src/ProfilePage.jsx` : carte « commandes » toujours vide en mode local (seul l'API fetch `/api/me/orders`) ; le formulaire n'est pas re-synchronisé au changement d'utilisateur (masqué par la navigation login→boutique).
-- **B16.** `src/index.css:2-24` : `:root` = thème sombre appliqué avant le JS → **flash sombre** au premier rendu pour les utilisateurs en thème clair.
+- **B14.** Code mort : `src/icons.jsx` (jamais importé) ; `COMPARE_FIELDS` (`src/data.js:~840`, feature compare supprimée) ; `photoSkeletonClass` (`src/media.js:70`, non utilisée) ; `startSms`/`verifySms`/`loginGoogle`/`ACCENTS`/`AVATARS` (`src/shopStore.js`, features retirées de l'UI mais encore testées dans `src/shopStore.test.js`) ; variable `left` inutile dans `reserve()` (`src/App.jsx:~590`). — ✅ CORRIGÉ (P5)
+- **B15.** `src/ProfilePage.jsx` : carte « commandes » toujours vide en mode local (seul l'API fetch `/api/me/orders`) ; le formulaire n'est pas re-synchronisé au changement d'utilisateur (masqué par la navigation login→boutique). — ✅ CORRIGÉ (P5)
+- **B16.** `src/index.css:2-24` : `:root` = thème sombre appliqué avant le JS → **flash sombre** au premier rendu pour les utilisateurs en thème clair. — ✅ CORRIGÉ (P5)
 - **B17.** `index.html:22-24` : Bootstrap CSS + Google Fonts servis par CDN (jsdelivr) → site **sans style** si le CDN est bloqué (prod) ; SRI présent mais la dépendance externe reste. — ✅ CORRIGÉ (P4)
 - **B18.** Mode local : les décrets de stock sont en mémoire uniquement (`stockMap`) → perdus au rechargement (les réservations locales sont persistées, pas le stock). Contrainte de conception — à documenter.
-- **B19.** Téléphone du master = téléphone du démo yacine (`0770650387`, `src/shopStore.js:2,120`) → un login SMS local sur ce numéro retombe sur le **master** (premier match dans la liste des users).
-- **B20.** `src/App.jsx:~545` `setQty` : le max est `product.stock` (statique) ; en mode API si le stock serveur a baissé, le client peut mettre plus dans le panier que le disponible réel (le serveur bloque ensuite au 409 — gardé, mais UX confuse).
-- **B21.** Docs datées (PR #2) : `docs/ARCHITECTURE.md` §2 (routage par hash — faux, le site est une SPA à pages d'état) ; `docs/PROBLEMS-SOLUTIONS.md` entrée 20 (citation « §7 »).
+- **B19.** Téléphone du master = téléphone du démo yacine (`0770650387`, `src/shopStore.js:2,120`) → un login SMS local sur ce numéro retombe sur le **master** (premier match dans la liste des users). — ✅ CORRIGÉ (P5)
+- **B20.** `src/App.jsx:~545` `setQty` : le max est `product.stock` (statique) ; en mode API si le stock serveur a baissé, le client peut mettre plus dans le panier que le disponible réel (le serveur bloque ensuite au 409 — gardé, mais UX confuse). — ✅ CORRIGÉ (P5)
+- **B21.** Docs datées (PR #2) : `docs/ARCHITECTURE.md` §2 (routage par hash — faux, le site est une SPA à pages d'état) ; `docs/PROBLEMS-SOLUTIONS.md` entrée 20 (citation « §7 ») — citation validée OK, seule la claim §2 était obsolète. — ✅ CORRIGÉ (P5)
 - **B22.** (Info) Identifiants master/démo présents dans le bundle client (`src/shopStore.js`) et le serveur — par conception démo, documentés, mais à garder en tête pour la prod réelle.
 - **B23.** (Info) `server/catalog.js:~79` : historique des commandes plafonné à 500 (`.slice(0, 500)`) — au-delà, les plus anciennes disparaissent. En Vercel, `/tmp` est éphémère de toute façon (documenté).
 
@@ -207,11 +207,16 @@ sur Vercel, alors que ça passe en local (node pur, sans limite). À vérifier/d
 - 7 tests unitaires (scaleToMaxDim, downscale, passthrough, options, erreurs, non-image).
 
 ### B11 — Expiration
-- Dans `readDb()` (ou `updateDb`) : purger `db.sessions` avec `at < now - 7 j` et `db.oauthPending` avec `createdAt < now - 15 min`. Coût nul, borne la croissance.
+- ✅ Fait (P5) : `purgeExpired(db)` dans `server/db.js`, appelé à chaque `readDb()` ;
+  sessions > 7 j + oauthPending > 15 min + entrées malformées supprimées ; persistance
+  seulement si changement. 2 tests dans `dbIntegrity.test.js`.
 
 ### B12 — Orphelins `tmp-*`
-- `server/index.js:486-499` : `savePhotoDataUrls` retourne les paths ; ajouter l'unlink des fichiers
-  `tmp-*` correspondants après le re-save (ou faire écrire directement sous le vrai id en 2 temps avec l'id connu avant `createProduct` — l'id est généré par `newId` dans `createProduct` : le déplacer avant le save photos).
+- ✅ Fait (P5) : solution « id connu avant » — la route POST `/api/master/products`
+  génère `newId('sku)` UNE fois, `savePhotoDataUrls(id, …)` écrit directement sous le
+  vrai id, `createProduct(db, body, id)` reçoit l'id (param optionnel + garde collision).
+  Échec de création → `unlinkUpload` de chaque fichier. Plus aucun `tmp-*`. Fichier de
+  test dédié `src/uploadFlow.test.js` (unit + bout en bout HTTP).
 
 ### B13 — Nettoyage suppression client
 - Dans `DELETE /api/customers/:id` : supprimer aussi les sessions de cet utilisateur
@@ -219,14 +224,21 @@ sur Vercel, alors que ça passe en local (node pur, sans limite). À vérifier/d
   dans ses commandes (le nom/téléphone sont déjà snapshotés dans la commande).
 
 ### B14 — Code mort
-- Supprimer : `src/icons.jsx`, `COMPARE_FIELDS`, `photoSkeletonClass`, `startSms`/`verifySms`/`loginGoogle`/`ACCENTS`/`AVATARS` + les blocs de tests associés (les tests de téléphone/email/master restent), variable `left` dans `reserve()`.
+- ✅ Fait (P5) : `src/icons.jsx` supprimé, `COMPARE_FIELDS` + `photoSkeletonClass` retirés
+  (data.js / media.js), `startSms`/`verifySms`/`loginGoogle`/`ACCENTS`/`AVATARS` + leurs
+  tests retirés de shopStore.js, `updateUser` ne valide plus avatar/accent (jamais rendus
+  par l'UI), variable `left` morte retirée de `reserve()`.
 
 ### B15 — Profile local
-- Carte commandes en mode local : filtrer `reservations` (localStorage `pcstar-orders`) par `userId === user.id` (les commandes locales stockent déjà `userId`).
-- `useEffect([user])` pour re-synchroniser nom/tél/wilaya du formulaire.
+- ✅ Fait (P5) : la carte commandes merge `loadOrders()` (localStorage `pcstar-orders`,
+  filtré `userId === user.id`) avec `/api/me/orders` (dé-dup par code) — mode local
+  affiché seul quand l'API est absente. Le formulaire se re-synchronise sur
+  `user?.id` (changement de compte) sans être réinitialisé pendant la saisie.
 
 ### B16 — Flash sombre
-- Script inline dans `<head>` d'`index.html` (1 ligne) : lire `pcstar-theme` de localStorage et poser `data-theme` avant le premier paint.
+- ✅ Fait (P5) : script inline dans `<head>` (`index.html`) qui applique `data-theme` +
+  `color-scheme` AVANT le premier paint — miroir exact de `resolveTheme()` (pref explicite
+  > `prefers-color-scheme` > fallback dark).
 
 ### B17 — Bootstrap local
 - ✅ Fait (P4) : `import 'bootstrap/dist/css/bootstrap.min.css'` dans `src/main.jsx`
@@ -235,13 +247,20 @@ sur Vercel, alors que ça passe en local (node pur, sans limite). À vérifier/d
   `dist/assets/index-*.css` (bootstrap + thème) ; 0 ref jsdelivr dans le HTML.
 
 ### B19 — Téléphones démo
-- Rendre les 4 numéros uniques (ex: yacine → `0770650388` — vérifier les tests qui hardcodent le numéro : `shopStore.test.js` utilise `0770650387` pour le carrier djezzy → garder un numéro qui passe le test ou l'ajuster).
+- ✅ Fait (P5) : yacine démo → `0770650388` (shopStore.js + server/db.js) ; le master
+  garde `0770650387`. Les tests de chaîne qui usaient `0770650387` (carrier djezzy,
+  normalisation) restent valides. Nouveau test d'unicité dans `shopStore.test.js`.
 
 ### B20 — `setQty`
-- `max = liveStock(product) + qtyActuelle` (borné au stock live, cohérent avec le 409 serveur).
+- ✅ Fait (P5) : `max = liveStock(product) + qtyActuelle` — le plafond lit le stock live
+  (`stockMap`, synchronisé avec l'API) au lieu du `product.stock` statique ; cohérent
+  avec le 409 serveur.
 
 ### B21 — Docs
-- Corriger `ARCHITECTURE.md` §2 (routage SPA par état, pas de hash) et la citation §7 de `PROBLEMS-SOLUTIONS.md`.
+- ✅ Fait (P5) : `ARCHITECTURE.md` §2 corrigée (navigation par état, **pas** de hash
+  fragments — vérifié : 0 `location.hash` dans `src/`). La citation « §7 » de
+  `PROBLEMS-SOLUTIONS.md` s'est révélée **valide** (DEPLOY-VERCEL.md §7 « Limites honnêtes »)
+  → laissée telle quelle.
 
 B18/B22/B23 : documentation seule (contraintes de conception démo, pas de code).
 
@@ -280,4 +299,8 @@ testable indépendamment.
 - **P4 — Fait** : B10, B17 (durcissement Vercel). `npm test` **64/64** (7 nouveaux :
   photoCompress), build OK (CSS en bundle `dist/assets/index-*.css`, 0 ref jsdelivr),
   smoke OK, upload live via API (2 photos JPEG → 201, fichiers servis).
-- **P5 — À faire** : B11, B12, B14, B15, B16, B19, B20, B21 (mineurs & nettoyage).
+- **P5 — Fait** : B11, B12, B14, B15, B16, B19, B20, B21 (mineurs & nettoyage).
+  `npm test` **71/71** (7 nouveaux : `uploadFlow.test.js` — id pré-généré, zéro `tmp-*`,
+  orphelins purgés sur échec — + purge B11 + unicité téléphones B19), build OK
+  (419,35 kB / 125,14 kB gzip, code mort retiré), smoke e2e OK.
+  Récapitulatif complet : `docs/BUGS-AND-FIXES.md`.

@@ -54,3 +54,52 @@ describe('intégrité de la base (B1)', () => {
     assert.equal(fs.readdirSync(dir).filter((f) => f.startsWith('store.json.corrupt-')).length, before)
   })
 })
+
+// P5 (B11) : bornes de croissance — la base ne gonfle plus à l'infini.
+describe('purge des entrées expirées (B11)', () => {
+  const DAY = 24 * 60 * 60 * 1000
+  const MIN = 60 * 1000
+
+  it('sessions > 7 j purgées, récentes conservées, entrées malformées supprimées', () => {
+    const now = Date.now()
+    const d = {
+      sessions: {
+        old: { userId: 'u1', at: now - 8 * DAY },
+        fresh: { userId: 'u2', at: now - 1 * DAY },
+        brokenAt: { userId: 'u3', at: 'hier' },
+        nullEntry: null
+      },
+      oauthPending: {
+        s1: { createdAt: now - 2 * DAY },
+        s2: { createdAt: now - 20 * MIN },
+        s3: { createdAt: now - 2 * MIN },
+        broken: { createdAt: undefined }
+      }
+    }
+    assert.equal(db.purgeExpired(d), true)
+    assert.deepEqual(Object.keys(d.sessions), ['fresh'])
+    assert.deepEqual(Object.keys(d.oauthPending), ['s3'])
+    // idempotent : 2e passe → plus aucun changement
+    assert.equal(db.purgeExpired(d), false)
+  })
+
+  it('readDb purge une base sur le disque et persiste le résultat', () => {
+    const now = Date.now()
+    fs.writeFileSync(
+      dbFile,
+      JSON.stringify({
+        users: db.readDb().users,
+        orders: [],
+        stock: {},
+        meta: {},
+        sessions: { old: { userId: 'u1', at: now - 8 * DAY }, fresh: { userId: 'u2', at: now } },
+        oauthPending: { old: { createdAt: now - 16 * MIN } }
+      })
+    )
+    const d = db.readDb()
+    assert.deepEqual(Object.keys(d.sessions), ['fresh'])
+    assert.deepEqual(Object.keys(d.oauthPending), [])
+    // persisté : le prochain readDb (sans purge) voit la même chose
+    assert.deepEqual(Object.keys(db.readDb().sessions), ['fresh'])
+  })
+})

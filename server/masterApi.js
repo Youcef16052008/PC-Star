@@ -10,9 +10,12 @@ import { PRODUCTS } from '../src/data.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const IS_SERVERLESS = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME)
-const UPLOAD_DIR = IS_SERVERLESS
-  ? path.join('/tmp', 'pcstar-uploads')
-  : path.join(__dirname, '../public/photos/uploads')
+// Override PCSTAR_UPLOAD_DIR : tests isolés / déploiements exotiques.
+const UPLOAD_DIR = process.env.PCSTAR_UPLOAD_DIR
+  ? path.resolve(process.env.PCSTAR_UPLOAD_DIR)
+  : IS_SERVERLESS
+    ? path.join('/tmp', 'pcstar-uploads')
+    : path.join(__dirname, '../public/photos/uploads')
 const MAX_BYTES = 2.5 * 1024 * 1024
 const MAX_PHOTOS = 6
 /** Public URL prefix — on serverless uploads are not CDN-stable until Blob is wired. */
@@ -40,7 +43,11 @@ export function listMasterProducts(db) {
   return [...base, ...extras]
 }
 
-export function createProduct(db, body) {
+/**
+ * @param {string} [id] P5 (B12) : id pré-généré — permet de sauver les photos
+ * directement sous le vrai id avant la création (plus de fichiers `tmp-*`).
+ */
+export function createProduct(db, body, id) {
   ensureStock(db)
   if (!db.meta) db.meta = { extraProducts: [], hiddenProductIds: [], extraPanels: [], hiddenPanelIds: [] }
   if (!Array.isArray(db.meta.extraProducts)) db.meta.extraProducts = []
@@ -48,11 +55,12 @@ export function createProduct(db, body) {
   const name = String(body.name || '').trim()
   const price = Math.max(0, Number(body.price) || 0)
   if (!name || price <= 0) return { ok: false, error: 'invalid' }
+  if (id && db.meta.extraProducts.some((p) => p.id === id)) return { ok: false, error: 'invalid' }
 
-  const id = newId('sku')
+  const finalId = id || newId('sku')
   const product = {
-    id,
-    sku: String(body.sku || id).trim(),
+    id: finalId,
+    sku: String(body.sku || finalId).trim(),
     name,
     brand: String(body.brand || 'PC Star').trim(),
     kind: body.kind || 'part',
@@ -69,7 +77,7 @@ export function createProduct(db, body) {
     tags: Array.isArray(body.tags) ? body.tags : []
   }
   db.meta.extraProducts = [product, ...db.meta.extraProducts]
-  setStock(db, id, product.stock)
+  setStock(db, finalId, product.stock)
   return { ok: true, product }
 }
 
@@ -151,6 +159,20 @@ export function savePhotoDataUrls(productId, dataUrls = []) {
     out.push(IS_SERVERLESS ? `/api/upload-file?name=${encodeURIComponent(name)}` : `/photos/uploads/${name}`)
   }
   return out
+}
+
+/** P5 (B12) : supprime un fichier d'upload à partir de son URL publique. */
+export function unlinkUpload(publicPath) {
+  try {
+    const raw = String(publicPath || '')
+    const name = raw.includes('name=')
+      ? decodeURIComponent(raw.split('name=')[1])
+      : raw.split('/').pop()
+    if (!name || name.includes('..') || name.includes('/')) return
+    fs.unlinkSync(path.join(UPLOAD_DIR, name))
+  } catch {
+    /* best effort — jamais bloquant */
+  }
 }
 
 export function ordersToCsv(orders, { day = null } = {}) {

@@ -3,6 +3,7 @@ import { isDzPhone, phoneCarrier, updateUser } from './shopStore.js'
 import { WILAYAS_NEAR, money } from './data.js'
 import * as api from './api.js'
 import { statusLabelKey } from './orderLogic.js'
+import { loadOrders } from './prefs.js'
 
 export default function ProfilePage({ t, user, users, onUsers, onUser, setToast, onBack, apiOnline, mode }) {
   const [name, setName] = useState(user.name || '')
@@ -18,12 +19,32 @@ export default function ProfilePage({ t, user, users, onUsers, onUser, setToast,
   const carrierLabel =
     carrier === 'mobilis' ? t('carrierMobilis') : carrier === 'ooredoo' ? t('carrierOoredoo') : carrier === 'djezzy' ? t('carrierDjezzy') : null
 
+  // P5 (B15) : resynchronise le formulaire quand on passe à un autre compte.
+  useEffect(() => {
+    setName(user.name || '')
+    setPhone(user.phone || '')
+    setWilaya(user.wilaya || 'Oran')
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id])
+
   useEffect(() => {
     let cancelled = false
+    // P5 (B15) : les commandes passées hors API sont persistées localement
+    // (pcstar-orders, filtrées par userId) — on les affiche aussi.
+    const local = loadOrders().filter((o) => o.userId === user.id)
     ;(async () => {
-      if (!(apiOnline && mode === 'api')) return
+      if (!(apiOnline && mode === 'api')) {
+        if (!cancelled) setOrders(local)
+        return
+      }
       const r = await api.myOrders()
-      if (!cancelled && r.ok && Array.isArray(r.data?.orders)) setOrders(r.data.orders)
+      if (cancelled) return
+      if (r.ok && Array.isArray(r.data?.orders)) {
+        const seen = new Set(r.data.orders.map((o) => o.code))
+        setOrders([...r.data.orders, ...local.filter((o) => !seen.has(o.code))])
+      } else {
+        setOrders(local)
+      }
     })()
     return () => {
       cancelled = true

@@ -79,7 +79,7 @@ Vue d'ensemble du système : **front SPA React** / **API Node (serverless-ready)
 | `PartThumb.jsx` | `<picture>` WebP + lazy + sizes pour les vignettes |
 | `api.js` | Client fetch : tous les `/api/*`, tokens, `oauthStart` |
 
-**Routage :** navigation par état (`page`) — pas de dépendance router ; hash fragments (`#search`, `#builder`) pour le SEO/sitemap.
+**Routage :** navigation par état (`page`) — pas de dépendance router, pas de hash fragments (les ancres profondes sont gérées par le SEO/sitemap au niveau de la page unique).
 
 **Thème :** ☀/☾/◐ (clair/sombre/système) via token CSS + `prefers-color-scheme`.
 
