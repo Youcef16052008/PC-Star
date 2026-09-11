@@ -3,8 +3,6 @@ import { Offcanvas } from 'bootstrap'
 import {
   BRANDS_DZ_PRIORITY,
   CATEGORIES,
-  DEALS,
-  GUIDES,
   PART_LINES,
   PRODUCTS,
   REVIEWS,
@@ -12,7 +10,6 @@ import {
   SHOP_SERVICES,
   STORE,
   STORE_LINKS,
-  WILAYAS_NEAR,
   checkCompatibility,
   money,
   splitWarnings,
@@ -25,6 +22,7 @@ import BuilderPage from './BuilderPage.jsx'
 import PartThumb from './PartThumb.jsx'
 import AuthPanel from './AuthPanel.jsx'
 import ProfilePage from './ProfilePage.jsx'
+import OrdersPage from './OrdersPage.jsx'
 import MasterPage from './MasterPage.jsx'
 import DeskPage from './DeskPage.jsx'
 import ProductPage from './ProductPage.jsx'
@@ -554,7 +552,7 @@ export default function App() {
     setAuthMode('local')
     persistSession(null)
     setToast(t('navLogout'))
-    if (page === 'desk' || page === 'master' || page === 'profile' || page === 'help') {
+    if (page === 'desk' || page === 'master' || page === 'profile' || page === 'help' || page === 'orders') {
       setPage('shop')
       window.scrollTo({ top: 0 })
     }
@@ -680,7 +678,16 @@ export default function App() {
       const r = await api.postOrder(base)
       if (r.ok && r.data?.order) {
         const order = { ...r.data.order, status: r.data.order.status || 'new' }
-        setReservations((prev) => [order, ...prev])
+        // P11 : on persiste AUSSI localement la copie navigateur — avant, seul
+        // le repli hors-ligne faisait saveOrders(), donc après un succès API la
+        // commande « disparaissait » (aucune trace locale ; un guest n'avait
+        // nulle part où la retrouver). La page « Commandes » croise maintenant
+        // cette copie avec le serveur.
+        setReservations((prev) => {
+          const next = [order, ...prev.filter((o) => o.code !== order.code)]
+          saveOrders(storage, next)
+          return next
+        })
         setReserved(order)
         setCart([])
         setCartStep(0)
@@ -806,7 +813,10 @@ export default function App() {
                 ['shop', t('navShop'), page === 'shop' || page === 'product'],
                 ['search', t('navSearch'), page === 'search'],
                 ['builder', t('navBuilder'), page === 'builder'],
-                ['about', t('navAbout'), page === 'about']
+                ['about', t('navAbout'), page === 'about'],
+                // P11 : bouton « Commandes » dans le menu (page unique, tous
+                // clients — un guest voit celles passées depuis cet appareil).
+                ['orders', t('navOrders'), page === 'orders']
               ].map(([id, label, on]) => (
                 <li className="nav-item" key={id}>
                   <button type="button" className={`nav-link btn btn-link ${on ? 'active fw-semibold' : ''}`} onClick={() => go(id)}>
@@ -893,25 +903,11 @@ export default function App() {
             </div>
           </section>
 
+          {/* P11 : panneaux « Pièces PC » et « Config PC » supprimés sur
+              demande — seul « Hits DZ » reste (largeur pleine). */}
           <section className="mb-4">
             <div className="row g-3">
-              <div className="col-md-4">
-                <button type="button" className="card h-100 shadow-sm border-0 text-start w-100 btn p-0" onClick={() => go('search')}>
-                  <div className="card-body">
-                    <h2 className="h6 text-success">{t('pathParts')}</h2>
-                    <p className="small text-secondary mb-0">{t('pathPartsBody')}</p>
-                  </div>
-                </button>
-              </div>
-              <div className="col-md-4">
-                <button type="button" className="card h-100 shadow-sm border-0 text-start w-100 btn p-0" onClick={() => go('builder')}>
-                  <div className="card-body">
-                    <h2 className="h6 text-success">{t('pathBuilder')}</h2>
-                    <p className="small text-secondary mb-0">{t('pathBuilderBody')}</p>
-                  </div>
-                </button>
-              </div>
-              <div className="col-md-4">
+              <div className="col-12">
                 <button type="button" className="card h-100 shadow-sm border-0 text-start w-100 btn p-0" onClick={() => { setBrandFilter(null); setCategory('all'); go('shop'); setTimeout(() => document.getElementById('dz-hits')?.scrollIntoView({ behavior: 'smooth' }), 50) }}>
                   <div className="card-body">
                     <h2 className="h6 text-success">{t('pathHits')}</h2>
@@ -919,37 +915,6 @@ export default function App() {
                   </div>
                 </button>
               </div>
-            </div>
-          </section>
-
-          <section className="mb-4">
-            <h2 className="h4 mb-3">{t('thisWeek')}</h2>
-            <div className="row g-3">
-              {DEALS.map((d) => {
-                const p = catalog.find((x) => x.id === d.id)
-                if (!p) return null
-                return (
-                  <div className="col-12 col-sm-6 col-lg-3" key={d.id}>
-                    <div className="card h-100 shadow-sm product-bs-card">
-                      <span className="badge text-bg-danger position-absolute m-2 z-1">{d.tag}</span>
-                      <button type="button" className="btn p-0 border-0 bg-transparent" onClick={() => openProduct(p.id)}>
-                        <div className="ratio ratio-1x1 photo-frame rounded-top overflow-hidden">
-                          <PartThumb product={p} eager />
-                        </div>
-                      </button>
-                      <div className="card-body">
-                        <h3 className="h6 card-title">
-                          <button type="button" className="btn btn-link p-0 text-start text-decoration-none text-body" onClick={() => openProduct(p.id)}>
-                            {p.name}
-                          </button>
-                        </h3>
-                        <div className="fw-bold text-success">{money(p.price)}</div>
-                        <p className="card-text small text-secondary mb-0">{t(d.noteKey)}</p>
-                      </div>
-                    </div>
-                  </div>
-                )
-              })}
             </div>
           </section>
 
@@ -982,21 +947,7 @@ export default function App() {
             </section>
           )}
 
-          <section className="mb-4">
-            <h2 className="h4 mb-3">{t('starConfigs')}</h2>
-            <div className="row g-3">
-              {GUIDES.map((g) => (
-                <div className="col-md-6 col-lg-4" key={g.id}>
-                  <div className="card h-100 border-0 shadow-sm">
-                    <div className="card-body">
-                      <h3 className="h6 card-title">{t(g.titleKey)}</h3>
-                      <p className="card-text small text-secondary mb-0">{t(g.bodyKey)}</p>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </section>
+          {/* P11 : section « Configs Star » + ses cartes supprimées sur demande. */}
 
           <div className="d-flex flex-wrap gap-2 align-items-center mb-3">
             <span className="small fw-semibold text-secondary">{t('dzBrands')}</span>
@@ -1085,6 +1036,7 @@ export default function App() {
 
       {page === 'product' && selected && (
         <ProductPage
+          key={selected.id}
           t={t}
           product={selected}
           photoIndex={photoIndex}
@@ -1275,7 +1227,19 @@ export default function App() {
           onBack={() => go('shop')}
           apiOnline={apiOnline}
           mode={authMode}
+        />
+      )}
+
+      {/* P11 : page unique « Commandes » (bouton du menu) — accessible aussi
+          aux guests (commandes passées depuis cet appareil). */}
+      {page === 'orders' && (
+        <OrdersPage
+          t={t}
+          user={user}
+          apiOnline={apiOnline}
+          mode={authMode}
           onCancelOrder={cancelMyOrder}
+          onBack={() => go('shop')}
         />
       )}
 
@@ -1487,14 +1451,8 @@ export default function App() {
                     {carrier === 'djezzy' && ` · ${t('carrierDjezzy')}`}
                   </div>
                 </div>
-                <div className="mb-2">
-                  <label className="form-label small mb-1" htmlFor="wilaya">{t('wilaya')}</label>
-                  <select id="wilaya" className="form-select" value={pickup.wilaya} onChange={(e) => setPickup({ ...pickup, wilaya: e.target.value })}>
-                    {WILAYAS_NEAR.map((w) => (
-                      <option key={w} value={w}>{w}</option>
-                    ))}
-                  </select>
-                </div>
+                {/* P11 : champ wilaya retiré du panier sur demande — la wilaya
+                    reste transmise (profil du client ou « Oran » par défaut). */}
                 <div className="mb-2">
                   <label className="form-label small mb-1">{t('paymentMethod')}</label>
                   <div className="form-control bg-success-subtle border-success-subtle fw-semibold">{t('payCash')}</div>

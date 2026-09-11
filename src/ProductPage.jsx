@@ -48,7 +48,13 @@ export default function ProductPage({ t, product, photoIndex, setPhotoIndex, lef
   const photos = product.photos || []
   const also = relatedProducts(product, catalog, 4)
   const specs = specRows(product, t)
-  const [loadedIdx, setLoadedIdx] = useState(-1)
+  // P11 : le bloc coloré « coincé » à la place de la photo — l'événement `load`
+  // de l'image pouvait être perdu (URL déjà en cache, nœud DOM réutilisé) et la
+  // classe skeleton n'était alors jamais retirée. Désormais : le fond skeleton
+  // est permanent CONTRE le conteneur (il passe derrière l'image chargée), la
+  // <img> porte une `key` (nœud neuf à chaque produit/photo → événements
+  // garantis) et `onError` bascule sur le logo de la pièce (PartThumb).
+  const [failed, setFailed] = useState({})
 
   return (
     <main id="main-content" className="container page py-4" tabIndex={-1}>
@@ -58,9 +64,12 @@ export default function ProductPage({ t, product, photoIndex, setPhotoIndex, lef
       <div className="row g-4">
         <div className="col-md-6">
           <div className="card border-0 shadow-sm overflow-hidden">
-            <div className={`ratio ratio-1x1 photo-frame position-relative pdp-zoom ${loadedIdx === photoIndex ? '' : 'photo-skeleton'}`.trim()}>
-              {photos.length > 0 ? (
+            <div className="ratio ratio-1x1 photo-frame position-relative pdp-zoom photo-skeleton">
+              {photos.length > 0 && failed[photoIndex] ? (
+                <PartThumb product={product} eager />
+              ) : photos.length > 0 ? (
                 <img
+                  key={product.id + '-' + photoIndex}
                   src={photos[photoIndex]}
                   alt={product.name}
                   className="w-100 h-100"
@@ -69,7 +78,7 @@ export default function ProductPage({ t, product, photoIndex, setPhotoIndex, lef
                   decoding="async"
                   width={800}
                   height={800}
-                  onLoad={() => setLoadedIdx(photoIndex)}
+                  onError={() => setFailed((f) => ({ ...f, [photoIndex]: true }))}
                 />
               ) : (
                 <PartThumb product={product} eager />

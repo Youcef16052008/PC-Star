@@ -790,6 +790,78 @@ avec leur solution, non implémentés).
 
 ---
 
+## P11 — Demandes client (2026-09-11) : image PDP, nettoyage home, commandes
+
+### P11-1 — Image PDP « coincée » (bloc coloré au lieu de la photo)
+- Cause : la `<img>` principale du PDP n'avait ni `key` ni `onError`, et la
+  classe `photo-skeleton` n'était retirée que si l'événement `load` était
+  capturé. Image déjà en cache (URL identique aux vignettes) + nœud DOM
+  réutilisé → `load` perdu → skeleton éternel ; URL morte → idem, sans
+  repli.
+- Fix (`src/ProductPage.jsx` + `App.jsx`) :
+  - fond skeleton **permanent** sur le conteneur (il passe derrière l'image,
+    plus d'état « coincé » possible) ;
+  - `key={product.id + '-' + photoIndex}` sur la `<img>` → nœud neuf à
+    chaque produit/photo, événements garantis ;
+  - `onError` → repli `PartThumb` (logo/vignette de la pièce, jamais de
+    bloc mort) ;
+  - `key={selected.id}` sur `<ProductPage>` dans `App.jsx` → état propre à
+    chaque produit.
+- Vérifié en E2E jsdom live : src = trio SKU exact, thumb 2 → `-2.jpg`,
+  `error` synthétique → fallback PartThumb.
+
+### P11-2 — Home : suppression des panneaux « Pièces PC » et « Config PC »
+- Les 2 cartes (`pathParts`/`pathBuilder`) sont supprimées de l'accueil ;
+  **« Hits DZ » est conservé** (carte pleine largeur `col-12`).
+- L'accès au builder reste par le menu et le bouton hero « Config PC »
+  (non demandés à la suppression).
+- Imports morts retirés (`DEALS`, `GUIDES` de `App.jsx`).
+
+### P11-3 — Home : suppression de « Cette semaine » + produits
+- Section `thisWeek` (liste `DEALS`) supprimée de l'accueil. Les produits
+  eux-mêmes restent au catalogue ; seule la mise en avant disparaît.
+
+### P11-4 — Home : suppression de « Configs Star » + liste
+- Section `starConfigs` (listes `GUIDES`/`DZ_GUIDES`) supprimée de l'accueil.
+
+### P11-5 — Panier : retrait du champ « wilaya »
+- Le select `#wilaya` est retiré du formulaire de retrait. La wilaya reste
+  transmise à la commande (profil du client, sinon défaut `Oran`) — vérifié
+  en E2E (commande guest sauvegardée avec `wilaya: 'Oran'`).
+- Le champ wilaya du **profil** est conservé (pré-remplissage, pas demandé).
+
+### P11-6 — Commandes : page unique + bouton menu + bug « introuvable »
+- **Bug** : après un succès `POST /api/orders`, `reserve()` ne faisait
+  `saveOrders()` que sur le repli hors-ligne → aucune copie locale ; un
+  **guest** (sans profil) n'avait nulle part où retrouver sa commande, et un
+  client reconnecté ailleurs perdait la vue locale.
+- **Fix** (`App.jsx`) : le chemin succès API persiste aussi la copie
+  navigateur (dé-dupliquée par code).
+- **Nouvelle page « Commandes »** (`src/OrdersPage.jsx`) :
+  - client connecté + API : commandes serveur (`/api/orders/mine`, qui
+    inclut les commandes guest passées au même téléphone) + copie locale,
+    dédoublonnées par code ;
+  - guest / hors-ligne : copie locale de l'appareil (note explicative
+    affichée) ;
+  - annulation des commandes « neuves » (même logique que l'ancienne) ;
+  - **bouton « Commandes » dans le menu** (visible par tous) ;
+  - redirection vers la boutique au déconnexion si on est sur la page.
+- **« Mes commandes » supprimé du profil** (`src/ProfilePage.jsx`) :
+  colonne, effet de chargement et prop `onCancelOrder` retirés ; le profil
+  garde formulaire + mot de passe + comptes liés.
+- i18n : `navOrders`, `ordersPageBody`, `ordersLoading`, `ordersGuestNote`
+  × 3 (couverture testée).
+
+### Vérification P11
+- `npm test` → **113/113**.
+- `npm run build` → OK (426,19 kB JS / 127,27 kB gzip).
+- E2E jsdom live (vite + API réelles) : **31/31** — home nettoyé, PDP
+  (src SKU / thumb / fallback erreur), panier sans wilaya, commande guest
+  → persistée + visible sur la page Commandes, login démo → profil sans
+  « Mes commandes », page Commandes connectée.
+
+---
+
 ## Juges non-bugs (documentés, pas de code)
 
 - **B18** — Mode local : les décrets de stock sont en mémoire (`stockMap`) → perdus au
