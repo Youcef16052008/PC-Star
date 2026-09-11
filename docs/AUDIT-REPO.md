@@ -299,7 +299,7 @@ testable indépendamment.
 - **P4 — Fait** : B10, B17 (durcissement Vercel). `npm test` **64/64** (7 nouveaux :
   photoCompress), build OK (CSS en bundle `dist/assets/index-*.css`, 0 ref jsdelivr),
   smoke OK, upload live via API (2 photos JPEG → 201, fichiers servis).
-- **P5 — Fait** : B11, B12, B14, B15, B16, B19, B20, B21 (mineurs & nettoyage).
+- **P5 — Fait** (commit `823df13`) : B11, B12, B14, B15, B16, B19, B20, B21 (mineurs & nettoyage).
   `npm test` **71/71** (7 nouveaux : `uploadFlow.test.js` — id pré-généré, zéro `tmp-*`,
   orphelins purgés sur échec — + purge B11 + unicité téléphones B19), build OK
   (419,35 kB / 125,14 kB gzip, code mort retiré), smoke e2e OK.

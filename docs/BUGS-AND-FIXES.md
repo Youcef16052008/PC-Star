@@ -10,7 +10,7 @@ configs) conduit à **24 bugs** (B1–B24). Tous les bugs de code ont été corr
 | P2 | `a8adb11` | B2, B4, B5, B6, B9, B24 | Cohérence API multi-device |
 | P3 | `eece1eb` | B7, B8 | i18n complet (ar/fr/en) |
 | P4 | `5d6f736` | B10, B17 | Durcissement Vercel |
-| P5 | (cet arbre) | B11, B12, B14, B15, B16, B19, B20, B21 | Mineurs & nettoyage |
+| P5 | `823df13` | B11, B12, B14, B15, B16, B19, B20, B21 | Mineurs & nettoyage |
 
 L'audit initial et le plan détaillé : [`AUDIT-REPO.md`](./AUDIT-REPO.md).
 B18/B22/B23 : jugés **non-bugs** (contraintes de conception démo, documentées).
