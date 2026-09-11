@@ -224,6 +224,7 @@ a:focus-visible {
 .cat-motherboard { background: linear-gradient(145deg, #1b6b3a, #0c331c); }
 .cat-memory { background: linear-gradient(145deg, #1f4aa8, #16357a); }
 .cat-case { background: linear-gradient(145deg, #3a4658, #1c2430); }
+.cat-cooling { background: linear-gradient(145deg, #2d7d8a, #143d47); }
 .cat-accessories { background: linear-gradient(145deg, #5c5c5c, #2a2a2a); }
 .cat-laptop { background: linear-gradient(145deg, #2d5a8a, #16344f); }
 .cat-ready { background: linear-gradient(145deg, #3d4a62, #1c2430); }

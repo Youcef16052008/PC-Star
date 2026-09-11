@@ -62,3 +62,33 @@ test('chaque avertissement se rend sans variable résiduelle (ar/fr/en)', () => 
   // 17 clés déclenchées (pcieDowngrade défensive + socketShort dans le JSX).
   assert.ok(seen.size >= 15, `combos couvrent ${seen.size} clés` + ' : ' + [...seen].join(', '))
 })
+
+test('P10 (P7-17) — catégorie cooling dédiée (plus de cooler sous « Boîtier & PSU »)', async () => {
+  const { PART_LINES, CATEGORIES, specOf } = await import('./data.js')
+  const dz = await import('./dzCatalog.js')
+  const ex = await import('./extraCatalog.js')
+  const all = [...PRODUCTS, ...(dz.DZ_EXTRA || []), ...(ex.EXTRA || [])]
+  const byId = new Map(all.map((p) => [p.id, p]))
+
+  // 1) tous les coolers (socket array) sont en catégorie 'cooling'
+  const coolers = all.filter((p) => Array.isArray(p.compat?.socket))
+  assert.ok(coolers.length >= 10, `attend >= 10 coolers, obtenu ${coolers.length}`)
+  assert.ok(coolers.every((p) => p.category === 'cooling'), 'chaque cooler est en catégorie cooling')
+  assert.ok(!all.some((p) => p.category === 'case' && Array.isArray(p.compat?.socket)), 'aucun « case » n\'a un socket array')
+
+  // 2) la ligne shop « cooler » matche TOUS les coolers (aucun orphelin)
+  const coolerLine = PART_LINES.find((l) => l.id === 'cooler')
+  assert.ok(coolerLine, 'ligne cooler présente')
+  assert.ok(coolers.every((p) => coolerLine.match(p)), 'chaque cooler match la ligne cooler')
+
+  // 3) le cooler NH-D15 (base) est bien « cooling » et garde ses specs
+  const noctua = byId.get('cooler')
+  assert.equal(noctua.category, 'cooling')
+  assert.ok(specOf(noctua).cool > 0, 'specOf détecte toujours le cooler')
+
+  // 4) CATEGORIES expose « cooling » (chips shop + form master) et la clé i18n existe × 3
+  assert.ok(CATEGORIES.some((c) => c.id === 'cooling'))
+  for (const lang of LANGS) {
+    assert.notEqual(t(lang, 'cat_cooling'), 'cat_cooling', `cat_cooling traduit en ${lang}`)
+  }
+})

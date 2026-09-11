@@ -7,6 +7,8 @@ export const MASTER = {
 const KEY_USERS = 'pcstar-users'
 const KEY_META = 'pcstar-catalog'
 const KEY_SESSION = 'pcstar-session'
+const KEY_SAVED_SEARCHES = 'pcstar-saved-searches'
+const MAX_SAVED_SEARCHES = 10
 
 export function hashPass(password) {
   let h = 2166136261
@@ -158,6 +160,26 @@ export function phoneCarrier(value) {
 
 export function saveUsers(storage, users) {
   storage?.setItem?.(KEY_USERS, JSON.stringify(users))
+}
+
+/** P10 (P7-14) : recherches sauvées persistées (bornées à 10). */
+export function loadSavedSearches(storage = typeof localStorage !== 'undefined' ? localStorage : null) {
+  try {
+    const raw = storage?.getItem?.(KEY_SAVED_SEARCHES)
+    if (!raw) return []
+    const list = JSON.parse(raw)
+    return Array.isArray(list) ? list.slice(0, MAX_SAVED_SEARCHES) : []
+  } catch {
+    return []
+  }
+}
+
+export function saveSavedSearches(storage = typeof localStorage !== 'undefined' ? localStorage : null, list = []) {
+  try {
+    storage?.setItem?.(KEY_SAVED_SEARCHES, JSON.stringify((list || []).slice(0, MAX_SAVED_SEARCHES)))
+  } catch {
+    /* quota/iframe : les recherches sauvées restent en mémoire */
+  }
 }
 
 export function loadSession(storage) {

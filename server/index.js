@@ -23,6 +23,9 @@ import {
   setOrderStatus
 } from './catalog.js'
 import { rateLimit, clientKey } from './rateLimit.js'
+// P10 (P7-18) : liste connue des wilayas servies par le shop (source partagée
+// src/data.js, déjà importée côté master via PRODUCTS).
+import { WILAYAS_NEAR } from '../src/data.js'
 import {
   backupStore,
   createProduct,
@@ -57,6 +60,11 @@ function send(res, status, body, headers = {}) {
   res.end(payload)
 }
 
+// P10 (P7-10) : corps de requête borné (~6 photos compressées en base64 +
+// marge). Sans limite, un corps de plusieurs centaines de Mo = OOM en local
+// (Vercel impose ses propres limites d'entrée).
+const MAX_BODY_BYTES = 15 * 1024 * 1024
+
 function readBody(req) {
   return new Promise((resolve, reject) => {
     // Vercel / some adapters may already parse JSON
@@ -71,8 +79,23 @@ function readBody(req) {
       }
     }
     const chunks = []
-    req.on('data', (c) => chunks.push(c))
+    let total = 0
+    let aborted = false
+    req.on('data', (c) => {
+      if (aborted) return
+      total += c.length
+      if (total > MAX_BODY_BYTES) {
+        aborted = true
+        const err = new Error('body too large')
+        err.code = 'BODY_TOO_LARGE'
+        reject(err)
+        req.resume() // drainer sans destroy (pas d'erreur en cascade)
+        return
+      }
+      chunks.push(c)
+    })
     req.on('end', () => {
+      if (aborted) return
       const raw = Buffer.concat(chunks).toString('utf8')
       if (!raw) return resolve({})
       const ct = req.headers['content-type'] || ''
@@ -240,6 +263,10 @@ export async function handler(req, res) {
       if (body.phone && String(body.phone).trim() && !isDzPhone(body.phone)) {
         return send(res, 400, { ok: false, error: 'phone' })
       }
+      // P10 (P7-18) : wilaya bornée — liste connue (le select client ne propose
+      // que ces valeurs) + troncature 32 ; sinon on garde l'existant/'Oran'.
+      // Avant : n'importe quelle chaîne libre était stockée.
+      const rawWilaya = body.wilaya == null ? null : String(body.wilaya).trim().slice(0, 32)
       let user = null
       updateDb((db) => {
         const u = db.users.find((x) => x.id === auth.user.id)
@@ -248,7 +275,9 @@ export async function handler(req, res) {
         if (body.phone != null) u.phone = body.phone ? normalizePhone(body.phone) : ''
         if (body.avatar) u.avatar = body.avatar
         if (body.accent) u.accent = body.accent
-        if (body.wilaya) u.wilaya = String(body.wilaya)
+        if (rawWilaya != null) {
+          u.wilaya = WILAYAS_NEAR.includes(rawWilaya) ? rawWilaya : (u.wilaya || 'Oran')
+        }
         user = u
         return db
       })
@@ -262,8 +291,11 @@ export async function handler(req, res) {
       const db = readDb()
       const uid = auth.user.id
       const phone = auth.user.phone || ''
+      // P10 (P7-15) : le match par téléphone ne s'applique qu'aux commandes
+      // GUEST (userId null) — avant, deux comptes au même numéro voyaient (et
+      // annulaient) les commandes de l'autre.
       const orders = (db.orders || []).filter(
-        (o) => o.userId === uid || (phone && o.phone === phone)
+        (o) => o.userId === uid || (o.userId == null && phone && o.phone === phone)
       )
       return send(res, 200, { ok: true, orders })
     }
@@ -276,7 +308,10 @@ export async function handler(req, res) {
       const db0 = readDb()
       const uid = auth.user.id
       const phone = auth.user.phone || ''
-      const mine = (db0.orders || []).find((o) => o.code === code && (o.userId === uid || (phone && o.phone === phone)))
+      // P10 (P7-15) : même règle que GET — guest (userId null) ou propriétaire
+      const mine = (db0.orders || []).find(
+        (o) => o.code === code && (o.userId === uid || (o.userId == null && phone && o.phone === phone))
+      )
       if (!mine) return send(res, 404, { ok: false, error: 'not_found' })
       if (mine.status !== 'new' && mine.status !== 'pending') {
         return send(res, 409, { ok: false, error: 'status' })
@@ -610,7 +645,9 @@ export async function handler(req, res) {
         'Content-Disposition': `attachment; filename="pcstar-orders${day ? '-' + day : ''}.csv"`,
         'Access-Control-Allow-Origin': FRONT_ORIGIN
       })
-      return res.end(csv)
+      // P10 (P7-12) : BOM UTF-8 — sans lui, Excel (Windows) lit en ANSI et
+      // les accents FR/AR deviennent illisibles sur le comptoir.
+      return res.end('\uFEFF' + csv)
     }
 
     // Manual backup
@@ -686,6 +723,10 @@ export async function handler(req, res) {
 
     return send(res, 404, { ok: false, error: 'not_found' })
   } catch (err) {
+    // P10 (P7-10) : corps trop gros → 413 explicite (pas un 500/OOM)
+    if (err && err.code === 'BODY_TOO_LARGE') {
+      return send(res, 413, { ok: false, error: 'too_large' })
+    }
     console.error(err)
     return send(res, 500, { ok: false, error: 'server', message: String(err.message || err) })
   }

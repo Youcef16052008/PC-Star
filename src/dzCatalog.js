@@ -171,13 +171,13 @@ export const DZ_EXTRA = [
     'AX1800', {}),
 
   // ——— Coolers DeepCool / CM (prix DZ) ———
-  p('dc-ak400', 'DC-AK400', 'DeepCool AK400 digital', 'DeepCool', 'part', 'case', 8900, 9,
+  p('dc-ak400', 'DC-AK400', 'DeepCool AK400 digital', 'DeepCool', 'part', 'cooling', 8900, 9,
     'Air cooler · AM5/LGA1700', { compat: { socket: ['AM5', 'LGA1700'] }, tags: ['dz-hit'] }),
-  p('dc-ag400', 'DC-AG400', 'DeepCool AG400', 'DeepCool', 'part', 'case', 5500, 11,
+  p('dc-ag400', 'DC-AG400', 'DeepCool AG400', 'DeepCool', 'part', 'cooling', 5500, 11,
     'Air budget', { compat: { socket: ['AM5', 'LGA1700'] }, tags: ['budget'] }),
-  p('dc-ls520', 'DC-LS520', 'DeepCool LS520 240 AIO', 'DeepCool', 'part', 'case', 18500, 4,
+  p('dc-ls520', 'DC-LS520', 'DeepCool LS520 240 AIO', 'DeepCool', 'part', 'cooling', 18500, 4,
     'AIO 240 · RGB', { compat: { socket: ['AM5', 'LGA1700'] } }),
-  p('cm-212', 'CM-212S', 'Cooler Master Hyper 212 Spectrum', 'Cooler Master', 'part', 'case', 6500, 10,
+  p('cm-212', 'CM-212S', 'Cooler Master Hyper 212 Spectrum', 'Cooler Master', 'part', 'cooling', 6500, 10,
     'Classique air', { compat: { socket: ['AM5', 'LGA1700'] }, tags: ['budget'] }),
 
   // ——— Manettes / console DZ ———

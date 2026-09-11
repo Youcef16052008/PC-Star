@@ -1,9 +1,12 @@
+import { photoCandidates } from './media.js'
+
 const MARK = {
   cpu: 'CPU',
   gpu: 'GPU',
   motherboard: 'MB',
   memory: 'RAM',
   case: 'CASE',
+  cooling: 'COOL',
   accessories: 'ACC',
   laptop: 'LAP',
   ready: 'PC',
@@ -12,13 +15,6 @@ const MARK = {
   repair: 'FIX'
 }
 
-/** Prefer webp sibling when browser supports it via <picture>. */
-function photoCandidates(src) {
-  if (!src) return []
-  const webp = src.replace(/\.(jpe?g|png)$/i, '.webp')
-  if (webp !== src) return [webp, src]
-  return [src]
-}
 
 /**
  * If the chosen candidate fails to load (missing .webp sibling, network…),

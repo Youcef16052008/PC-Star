@@ -64,6 +64,7 @@ export const CATEGORIES = [
   { id: 'motherboard', label: 'Motherboard' },
   { id: 'memory', label: 'RAM & SSD' },
   { id: 'case', label: 'Case & PSU' },
+  { id: 'cooling', label: 'Cooling' },
   { id: 'laptop', label: 'Laptops' },
   { id: 'ready', label: 'Ready PCs' },
   { id: 'usb', label: 'USB & flash' },
@@ -85,7 +86,7 @@ export const PART_LINES = [
   { id: 'hdd', label: 'HDD', group: 'parts', match: (p) => p.category === 'memory' && /hdd/.test(hay(p)) },
   { id: 'case', label: 'Case', group: 'parts', match: (p) => p.category === 'case' && p.compat?.form },
   { id: 'psu', label: 'PSU', group: 'parts', match: (p) => Boolean(p.compat?.psuWatts) },
-  { id: 'cooler', label: 'Cooler', group: 'parts', match: (p) => p.category === 'case' && Array.isArray(p.compat?.socket) },
+  { id: 'cooler', label: 'Cooler', group: 'parts', match: (p) => p.category === 'cooling' },
   { id: 'fan', label: 'Fan', group: 'parts', match: (p) => p.category === 'case' && /fan/.test(hay(p)) && !Array.isArray(p.compat?.socket) && !p.compat?.form && !p.compat?.psuWatts },
   { id: 'keyboard', label: 'Keyboard', group: 'accessories', match: (p) => p.category === 'accessories' && /keyboard|clavier|apex|huntsman|alloy/.test(hay(p)) },
   { id: 'mouse', label: 'Mouse', group: 'accessories', match: (p) => p.category === 'accessories' && /mouse|souris|viper|rival|haste/.test(hay(p)) && !/pad/.test(hay(p)) },
@@ -395,7 +396,7 @@ const PRODUCTS_CORE = [
     name: 'Noctua NH-D15 CPU cooler',
     brand: 'Noctua',
     kind: 'part',
-    category: 'case',
+    category: 'cooling',
     price: 24900,
     stock: 6,
     rating: 4.9,
@@ -623,7 +624,7 @@ export function specOf(p) {
     }
   }
 
-  if (p.category === 'case' && Array.isArray(c.socket)) {
+  if (p.category === 'cooling' && Array.isArray(c.socket)) {
     return {
       ...c,
       ...firstMatch(n, [
@@ -668,7 +669,7 @@ export function checkCompatibility(items) {
   const rams = list.filter((i) => i.compat && i.compat.memory && i.category === 'memory')
   const gpus = list.filter((i) => i.category === 'gpu')
   const psus = list.filter((i) => i.compat && i.compat.psuWatts)
-  const coolers = list.filter((i) => i.category === 'case' && Array.isArray(i.compat?.socket))
+  const coolers = list.filter((i) => i.category === 'cooling' && Array.isArray(i.compat?.socket))
   const cases = list.filter((i) => i.compat?.form && !i.compat?.psuWatts && !Array.isArray(i.compat?.socket))
 
   if (cpus.length && boards.length) {

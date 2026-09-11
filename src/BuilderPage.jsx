@@ -346,8 +346,15 @@ export default function BuilderPage({ t, products, build, setBuild, liveStock, o
                   onClick={() => {
                     const lines = BUILDER_SLOTS.map((s) => build[s.key]).filter(Boolean).map((p) => `- ${p.name} (${money(p.price)})`).join('\n')
                     const text = t('buildCopyMsg', { lines, total: money(total) })
-                    navigator.clipboard?.writeText?.(text)
-                    setToast(t('copied'))
+                    // P10 (P7-16) : gestion de l'échec (iframe sans permission
+                    // clipboard → la promesse rejetait sans être gérée) + toast
+                    // honnête au lieu de « copié » systématique.
+                    const p = navigator.clipboard?.writeText?.(text)
+                    if (p && typeof p.catch === 'function') {
+                      p.then(() => setToast(t('copied'))).catch(() => setToast(t('copyBlocked')))
+                    } else {
+                      setToast(t('copyBlocked'))
+                    }
                   }}
                 >
                   {t('copyBuild')}

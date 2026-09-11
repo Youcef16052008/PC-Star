@@ -12,6 +12,8 @@ import {
   isDzPhone,
   isEmail,
   loadMeta,
+  loadSavedSearches,
+  saveSavedSearches,
   loadUsers,
   loginEmail,
   normalizePhone,
@@ -222,5 +224,28 @@ describe('storage roundtrip', () => {
     const meta = addProduct(loadMeta(storage), { name: 'X', price: 10, category: 'usb', brand: 'A', stock: 1, short: 's' }).meta
     saveMeta(storage, meta)
     assert.equal(loadMeta(storage).extraProducts.length, 1)
+  })
+})
+
+describe('P10 (P7-14) — recherches sauvées persistées', () => {
+  it('vide par défaut, round-trip, bornées à 10', () => {
+    const st = createMemoryStorage()
+    assert.deepEqual(loadSavedSearches(st), [])
+    const list = [{ id: 's-1', title: 'CPU · AM5', filters: { q: '' } }]
+    saveSavedSearches(st, list)
+    assert.deepEqual(loadSavedSearches(st), list)
+    // 15 entrées → seules les 10 plus récentes (début de liste) survivent
+    const big = Array.from({ length: 15 }, (_, i) => ({ id: `s-${i}`, title: `t${i}`, filters: {} }))
+    saveSavedSearches(st, big)
+    const loaded = loadSavedSearches(st)
+    assert.equal(loaded.length, 10)
+    assert.equal(loaded[0].id, 's-0')
+    assert.equal(loaded[9].id, 's-9')
+  })
+  it('storage cassé / illisible → [] (jamais d\'exception)', () => {
+    const st = createMemoryStorage()
+    st.setItem('pcstar-saved-searches', '{pas du json')
+    assert.deepEqual(loadSavedSearches(st), [])
+    saveSavedSearches(null, [{ id: 'x' }]) // storage null : silencieux
   })
 })

@@ -4,6 +4,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import http from 'node:http'
+import { photoCandidates } from './media.js'
 
 // P5 (B12) : flux de création produit + photos, sans fichiers `tmp-*`.
 // Les env doivent être posés AVANT l'import des modules serveur (ils lisent
@@ -147,5 +148,24 @@ describe('POST /api/master/products (B12, bout en bout)', () => {
     })
     assert.equal(r.status, 400)
     assert.equal(listing().length, before, 'les fichiers de la tentative échouée doivent être supprimés')
+  })
+})
+
+describe('P10 (P7-13) — photoCandidates : plus de sonde webp sur les uploads', () => {
+  it('catalogue statique → webp d\'abord, repli original', () => {
+    assert.deepEqual(photoCandidates('/photos/cpu.jpg'), ['/photos/cpu.webp', '/photos/cpu.jpg'])
+    assert.deepEqual(photoCandidates('/photos/sku/cpu-1.jpg'), ['/photos/sku/cpu-1.webp', '/photos/sku/cpu-1.jpg'])
+    assert.deepEqual(photoCandidates('/photos/psu.png'), ['/photos/psu.webp', '/photos/psu.png'])
+  })
+  it('uploads du master → JAMAIS de sonde webp (le fichier n\'existe pas)', () => {
+    assert.deepEqual(photoCandidates('/photos/uploads/cpu-5600-abc1.jpg'), ['/photos/uploads/cpu-5600-abc1.jpg'])
+    // serverless (Vercel)
+    assert.deepEqual(photoCandidates('/api/upload-file?name=cpu-5600-abc1.jpg'), ['/api/upload-file?name=cpu-5600-abc1.jpg'])
+  })
+  it('déjà webp / dataURL / vide → seul le src (pas de double requête)', () => {
+    assert.deepEqual(photoCandidates('/photos/cpu.webp'), ['/photos/cpu.webp'])
+    assert.deepEqual(photoCandidates('data:image/jpeg;base64,AAAA'), ['data:image/jpeg;base64,AAAA'])
+    assert.deepEqual(photoCandidates(''), [])
+    assert.deepEqual(photoCandidates(null), [])
   })
 })

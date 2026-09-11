@@ -16,7 +16,8 @@ commit. Une **6e phase (P6)** a traité les 7 bugs reportés en conditions réel
 | P6 | (11/09) | C1–C7 | Bugs terrain & gestion des commandes |
 | P7 | (11/09) | P7-1 → P7-18 | 2ᵉ audit complet : bugs identifiés + solutions conçues |
 | P8 | (11/09) | P7-1, P7-2, P7-3 | Correction des 3 bugs critiques 🔴 |
-| P9 | (11/09) | P7-4 → P7-8 | Correction des 5 bugs opérationnels 🟠 (restent P7-9→P7-18) |
+| P9 | (11/09) | P7-4 → P7-8 | Correction des 5 bugs opérationnels 🟠 |
+| P10 | (11/09) | P7-9 → P7-18 | Correction des 10 derniers 🟡/⚪ (17/18 corrigés, 1 réanalysé) |
 
 L'audit initial et le plan détaillé : [`AUDIT-REPO.md`](./AUDIT-REPO.md).
 B18/B22/B23 : jugés **non-bugs** (contraintes de conception démo, documentées).
@@ -365,9 +366,10 @@ ciblées, chaque flux re-vérifié **en live** (API réelle) et en E2E jsdom (Vi
 Nouveau passage **ligne par ligne, fichier par fichier** (`src/*`, `server/*`,
 configs, scripts) après la P6. **18 bugs** identifiés et hiérarchisés, chacun avec
 sa solution conçue. Les 3 critiques 🔴 (**P7-1, P7-2, P7-3**) ont été **corrigés
-en P8**, les 5 opérationnels 🟠 (**P7-4 → P7-8**) en **P9** ; les 10 restants
-(🟡/⚪, P7-9 → P7-18) restent identifiés avec leur solution, à traiter si
-demandé. Les références `fichier:ligne` pointent le commit `7e9b5e7`.
+en P8**, les 5 opérationnels 🟠 (**P7-4 → P7-8**) en **P9**, les 10 derniers
+🟡/⚪ (**P7-9 → P7-18**) en **P10** — soit **17/18 corrigés** (P7-14a
+réanalysé : non-bug, voir la section P10). Les références `fichier:ligne`
+pointent le commit `7e9b5e7`.
 
 Priorité : 🔴 = intégrité de données / argent / vie privée · 🟠 = justesse
 opérationnelle · 🟡 = robustesse · ⚪ = cosmétique / contrainte documentée.
@@ -471,7 +473,7 @@ opérationnelle · 🟡 = robustesse · ⚪ = cosmétique / contrainte document�
   merge de champs validés façon `PUT /api/master/panels` (types vérifiés,
   slice bornée).
 
-### 🟡 P7-9. Rate-limit : `Map` de buckets sans bornage
+### 🟡 P7-9. Rate-limit : `Map` de buckets sans bornage ✅ corrigé (P10)
 - **Où** : `server/rateLimit.js:2`.
 - **Mécanisme** : une entrée par IP (`x-forwarded-for`) n'est jamais purgée — sur
   une instance longue durée (déploiement public) la mémoire croît lentement sans
@@ -480,7 +482,7 @@ opérationnelle · 🟡 = robustesse · ⚪ = cosmétique / contrainte document�
   buckets dont `now - start > windowMs` (ou balayage à chaque appel si
   `buckets.size > 10 000`, éviction du plus ancien).
 
-### 🟡 P7-10. `readBody` sans limite de taille
+### 🟡 P7-10. `readBody` sans limite de taille ✅ corrigé (P10)
 - **Où** : `server/index.js:60`.
 - **Mécanisme** : l'accumulation des chunks est **illimitée** : un corps de 500 Mo
   (6 photos non compressées × 6 uploads, ou simple malveillance) = OOM en local
@@ -489,7 +491,7 @@ opérationnelle · 🟡 = robustesse · ⚪ = cosmétique / contrainte document�
   marge) et répondre `413 { error: 'too_large' }` ; le client a déjà la
   compression P4 (B10), la limite est large.
 
-### 🟡 P7-11. Catalogue serveur vide → repli statique silencieux
+### 🟡 P7-11. Catalogue serveur vide → repli statique silencieux ✅ corrigé (P10)
 - **Où** : `src/App.jsx:180` (`catalog = useMemo(...)`).
 - **Mécanisme** : `apiOnline && serverCatalog.length` — si l'API répond mais que
   **tout est masqué ou en rupture** (0 produit), le shop bascule **silencieusement**
@@ -501,7 +503,7 @@ opérationnelle · 🟡 = robustesse · ⚪ = cosmétique / contrainte document�
   préparation » avec le logo, comme le fait déjà MasterPage avec
   `productsLoading`) — le repli ne se déclenche que sur offline.
 
-### 🟡 P7-12. CSV sans BOM UTF-8 → accents illisibles dans Excel
+### 🟡 P7-12. CSV sans BOM UTF-8 → accents illisibles dans Excel ✅ corrigé (P10)
 - **Où** : `server/masterApi.js:178` (`ordersToCsv`), réponse `server/index.js`.
 - **Mécanisme** : le CSV UTF-8 n'a pas de BOM : Excel (Windows) interprète en
   ANSI → noms français/arabes en accents **illisibles** sur le comptoir
@@ -509,7 +511,7 @@ opérationnelle · 🟡 = robustesse · ⚪ = cosmétique / contrainte document�
 - **Solution** : préfixer `'\uFEFF'` au début du CSV (`ordersToCsv` ou au
   `res.end`) — Excel le reconnaît en UTF-8, les autres lecteurs l'ignorent.
 
-### 🟡 P7-13. `PartThumb` : sonde `.webp` en 404 garanti par photo uploadée
+### 🟡 P7-13. `PartThumb` : sonde `.webp` en 404 garanti par photo uploadée ✅ corrigé (P10)
 - **Où** : `src/PartThumb.jsx:15-19`.
 - **Mécanisme** : chaque vignette tente d'abord la variante `.webp` ; les
   catalogues statiques l'ont, les **uploads du master non** → un 404 systématique
@@ -519,7 +521,7 @@ opérationnelle · 🟡 = robustesse · ⚪ = cosmétique / contrainte document�
   `Map<url, variant>` peuplé au premier `onerror` — plus de 404 répétés même en
   statique.
 
-### 🟡 P7-14. Recherche : filtre « En stock » inopérant + recherches sauvées perdues
+### 🟡 P7-14. Recherche : filtre « En stock » inopérant + recherches sauvées perdues ✅ partiel (P10) — voir réanalyse
 - **Où** : `src/SearchPage.jsx:17` (inStock), `:33` (saved).
 - **Mécanisme** : (a) en mode API le catalogue public **exclut déjà les ruptures**
   → le filtre « En stock » ne fait rien (illusion de fonctionnalité) ; (b) les
@@ -530,7 +532,7 @@ opérationnelle · 🟡 = robustesse · ⚪ = cosmétique / contrainte document�
   persister `saved` dans `localStorage` (`pcstar-saved-searches`) à la manière du
   panier, bornée (10 entrées).
 
-### 🟡 P7-15. Commandes « les miennes » : match par téléphone entre comptes
+### 🟡 P7-15. Commandes « les miennes » : match par téléphone entre comptes ✅ corrigé (P10)
 - **Où** : `server/index.js:259` (`GET /api/me/orders`) + annulation (même
   condition `o.userId === uid || o.phone === phone`).
 - **Mécanisme** : deux comptes **différents** partageant un même numéro (famille)
@@ -540,7 +542,7 @@ opérationnelle · 🟡 = robustesse · ⚪ = cosmétique / contrainte document�
 - **Solution** : `o.userId === uid || (o.userId == null && phone && o.phone === phone)` —
   une commande liée à un autre compte n'apparaît plus qu'au sien.
 
-### ⚪ P7-16. Builder « copier la config » : promesse `clipboard` non gérée
+### ⚪ P7-16. Builder « copier la config » : promesse `clipboard` non gérée ✅ corrigé (P10)
 - **Où** : `src/BuilderPage.jsx:349`.
 - **Mécanisme** : `navigator.clipboard?.writeText?.(text)` sans `.catch` — dans
   une iframe (preview) sans permission clipboard la promesse **rejette**
@@ -550,7 +552,7 @@ opérationnelle · 🟡 = robustesse · ⚪ = cosmétique / contrainte document�
   (+ clé i18n) — ou fallback `document.execCommand('copy')` dans une textarea
   éphémère.
 
-### ⚪ P7-17. Radiateur NH-D15 classé « case » → affiché sous « Boîtier & PSU »
+### ⚪ P7-17. Radiateur NH-D15 classé « case » → affiché sous « Boîtier & PSU » ✅ corrigé (P10)
 - **Où** : `src/data.js:393` (`category: 'case'`).
 - **Mécanisme** : le modèle réutilise `case` comme bac « pièces » : le builder le
   sépare proprement (slot dédié via `pick`), mais dans la **boutique** le
@@ -559,7 +561,7 @@ opérationnelle · 🟡 = robustesse · ⚪ = cosmétique / contrainte document�
   `PART_LINES` ajusté ; ou, à minima, renommer la ligne `cat_case` en
   « Boîtier, PSU & Cooling ».
 
-### ⚪ P7-18. `PUT /api/me` : `wilaya` libre, sans whitelist
+### ⚪ P7-18. `PUT /api/me` : `wilaya` libre, sans whitelist ✅ corrigé (P10)
 - **Où** : `server/index.js:251`.
 - **Mécanisme** : le client restreint via le select `WILAYAS_NEAR`, l'API accepte
   **n'importe quelle chaîne** → une valeur arbitraire (ou une chaîne longue)
@@ -690,6 +692,101 @@ avec leur solution, non implémentés).
 - `npm run build` → OK (426,85 kB JS / 127,10 kB gzip).
 - E2E live : P7-4 (code daté à la journée + CSV), P7-5 (meta publique
   réduite / master 403+200), P7-8 (404).
+
+---
+
+## P10 — Correction des 10 derniers bugs (P7-9 → P7-18)
+
+### P7-9 — Rate-limit borné en mémoire (`server/rateLimit.js`)
+- `sweepExpired()` : balayage des buckets expirés, déclenché **opportuniste-
+  ment** quand la Map dépasse 1024 clés (jamais un passage complet gratuit).
+- Paramètre `now` injectable (tests déterministes) ; comportement 429
+  inchangé.
+- Tests : 2 cas (comptage/`retryAfter` + accumulation de 1200 buckets
+  expirés → purgés au passage suivant).
+
+### P7-10 — Corps de requête bornés à 15 Mo (`server/index.js`)
+- `readBody` : accumulation bornée (`MAX_BODY_BYTES` = 15 Mo ≈ 6 photos
+  compressées en base64 + marge) ; au-delà → rejet `BODY_TOO_LARGE` +
+  drain (`req.resume()`), catch central → **`413 { error: 'too_large' }`**
+  (plus de 500/OOM). Le chemin Vercel (body pré-parsé) reste couvert par
+  les limites plateforme.
+- Vérifié en live : POST 16 Mo → **413** (test E2E inclus).
+
+### P7-11 — Catalogue serveur vide ≠ offline (`src/App.jsx`)
+- Nouvel état `serverCatalogReady` : posé dès que le serveur a **répondu**
+  au fetch catalogue (200 **ou** 5xx) — seul l'`offline` le laisse à false.
+- `catalog` : `apiOnline && serverCatalogReady` → **le catalogue serveur est
+  la vérité, même vide** (boutique vide plutôt que le catalogue statique qui
+  réaffichait les produits masqués avec des prix désuets). Phase de chargement
+  (pas encore de réponse) → repli statique actuel (pas de flash vide).
+- Vérifié par le build + relecture (scénario « tout masquer » = 0 produit).
+
+### P7-12 — BOM UTF-8 sur l'export CSV (`server/index.js`)
+- `res.end('\uFEFF' + csv)` — Excel (Windows) reconnaît l'UTF-8, accents FR/AR
+  lisibles ; les autres lecteurs ignorent le BOM. `ordersToCsv` reste pur
+  (BOM au niveau HTTP, pas dans la fonction testée).
+- Vérifié en live : premiers bytes = **`EF BB BF`** + `code,status,`
+  (test E2E sur les bytes bruts — `res.text()` du fetch SUPPRIME le BOM).
+
+### P7-13 — Plus de sonde `.webp` sur les uploads (`src/media.js`, `PartThumb.jsx`)
+- `photoCandidates()` migré dans `media.js` (pur, testé) : le sibling webp est
+  proposé **uniquement** pour le catalogue statique (`/photos/…` hors
+  `/uploads/`) — jamais pour `/photos/uploads/…` ni `/api/upload-file`
+  (serverless). Une vignette d'upload = 1 requête au lieu de 2.
+- Tests : 3 cas (statique → webp+repli ; uploads/serverless → jamais de sonde ;
+  déjà-webp/dataURL/vide → src seul).
+
+### P7-14 — Recherches sauvées persistées (+ réanalyse du filtre « En stock »)
+- **(b) corrigé** : `loadSavedSearches`/`saveSavedSearches` (`shopStore.js`)
+  → `localStorage` (`pcstar-saved-searches`), bornées à **10**, storage cassé
+  → `[]` sans exception. SearchPage charge/sauve par ces helpers.
+- **(a) réanalysé → NON-BUG** : le filtre « En stock » n'est pas inopérant —
+  `liveStock()` soustrait la **quantité déjà au panier**, donc le filtre masque
+  les produits intégralement réservés au panier, en mode API comme en local.
+  Le catalogue exclut déjà les ruptures (P6), d'où l'impression « ne fait
+  rien » quand le panier est vide : comportement cohéret, **aucun changement**.
+- Tests : 2 cas (round-trip + bornage 10, storage illisible).
+
+### P7-15 — Commandes « les miennes » : match téléphone limité au guest
+- `GET /api/me/orders` et annulation : `o.userId === uid || (o.userId == null
+  && phone && o.phone === phone)` — le match par téléphone ne s'applique plus
+  qu'aux commandes **guest** (`userId` null) : migration guest→compte
+  préservée, mais deux comptes au même numéro ne voient/annulent plus les
+  commandes de l'autre.
+- Vérifié en live : A commande, B (même numéro) ne voit pas son ordre (liste)
+  et son annulation → **404** ; A annule le sien → 200. Test E2E inclus.
+
+### P7-16 — Clipboard géré dans le builder (`src/BuilderPage.jsx`)
+- `writeText` promisifié : `.then` → toast « copié », `.catch` → nouveau toast
+  « copie bloquée par ce navigateur » (clé `copyBlocked` ar/fr/en) — plus
+  d'unhandled rejection en iframe, plus de « copié » mensonger. API absente →
+  même toast honnête.
+- Vérifié par le build + relecture (comportement dépend du navigateur).
+
+### P7-17 — Catégorie `cooling` dédiée (`src/data.js`, i18n, CSS)
+- Les **10 coolers** (1 base + 5 `extraCatalog` + 4 `dzCatalog`) passent en
+  `category: 'cooling'` ; `PART_LINES` (ligne shop), `specOf` et
+  `checkCompatibility` détectent désormais la catégorie (plus le pattern
+  « case + socket array »).
+- `CATEGORIES` expose `cooling` (chips shop + formulaire master) ; i18n
+  `cat_cooling` × 3 (forcé par le test de couverture) ; `.cat-cooling` +
+  `MARK.cooling = 'COOL'` (vignette de repli).
+- Vérifié en live : catalogue public = 10 produits `cooling`, NH-D15
+  `cooling` (test unitaire inclus : 10 coolers matchés, 0 orphelin).
+
+### P7-18 — `wilaya` bornée dans `PUT /api/me` (`server/index.js`)
+- Validation : `trim` + **troncature 32** + appartenance à `WILAYAS_NEAR`
+  (liste partagée `src/data.js`, celle du select client) — sinon on garde
+  l'existant (sinon `'Oran'`). Plus de chaîne libre en base.
+- Vérifié en live : « Mars, la planète » → `Oran` ; `Mostaganem` → conservé.
+  Test E2E inclus (invalide/valide/trop long).
+
+### Vérification P10
+- `npm test` → **113/113** (101 avant + 12 nouveaux).
+- `npm run build` → OK (427,77 kB JS / 127,27 kB gzip).
+- E2E live : P7-10 (413), P7-12 (BOM `EF BB BF`), P7-15 (isolement
+  inter-comptes), P7-17 (10 produits cooling), P7-18 (wilaya).
 
 ---
 

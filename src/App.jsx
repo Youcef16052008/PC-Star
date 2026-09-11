@@ -172,6 +172,9 @@ export default function App() {
   const [brandFilter, setBrandFilter] = useState(null)
   const [stockMap, setStockMap] = useState({}) // id -> live server stock
   const [serverCatalog, setServerCatalog] = useState([]) // produits complets servis par l'API (mode API)
+  // P10 (P7-11) : le fetch catalogue a abouti côté serveur (ok ou 5xx) — auquel
+  // cas c'est la vérité, MÊME vide. Seul l'offline justifie le repli statique.
+  const [serverCatalogReady, setServerCatalogReady] = useState(false)
   const [cartStep, setCartStep] = useState(0) // 0 cart, 1 info (when items)
   const cartElRef = useRef(null)
   const cartOcRef = useRef(null)
@@ -207,9 +210,12 @@ export default function App() {
   // Rupture (stock live = 0) → produit invisible au client (le master le
   // voit toujours dans sa vue complète).
   const catalog = useMemo(() => {
-    if (apiOnline && serverCatalog.length) return serverCatalog.map(ensureProductPhotos)
+    // P10 (P7-11) : API en ligne + catalogue chargé → c'est la vérité, même
+    // vide (tous masqués/rupture) — plus de repli SILENCIEUX sur le catalogue
+    // statique (produits masqués réapparaissaient, prix désuets).
+    if (apiOnline && serverCatalogReady) return serverCatalog.map(ensureProductPhotos)
     return shopView.products.filter((p) => (stockMap[p.id] != null ? stockMap[p.id] : p.stock) > 0)
-  }, [apiOnline, serverCatalog, shopView.products, stockMap])
+  }, [apiOnline, serverCatalogReady, serverCatalog, shopView.products, stockMap])
   // Le produit affiché peut sortir du catalogue pendant la visite (rupture /
   // masquage) : on garde la dernière référence pour ne pas vider la PDP.
   const selectedFound = catalog.find((p) => p.id === selectedId)
@@ -320,11 +326,16 @@ export default function App() {
       setApiOnline(Boolean(h?.ok))
       if (h?.ok) {
         const cat = await api.getCatalog()
-        if (!cancelled && cat.ok && Array.isArray(cat.data?.products)) {
-          setServerCatalog(cat.data.products)
-          const map = {}
-          for (const pr of cat.data.products) map[pr.id] = pr.stock
-          setStockMap(map)
+        if (!cancelled) {
+          if (cat.ok && Array.isArray(cat.data?.products)) {
+            setServerCatalog(cat.data.products)
+            const map = {}
+            for (const pr of cat.data.products) map[pr.id] = pr.stock
+            setStockMap(map)
+          }
+          // P10 (P7-11) : le serveur a répondu (200 ou 5xx) → son catalogue
+          // est la vérité, même vide. Seul l'OFFLINE garde le repli statique.
+          if (!cat.offline) setServerCatalogReady(true)
         }
         // Panneaux (P6) : le serveur est la source de vérité pour
         // extraPanels/hiddenPanelIds → le shop est cohérent multi-appareils.

@@ -340,3 +340,88 @@ describe('P9 — bugs opérationnels (P7-4 / P7-5 / P7-8)', () => {
     assert.equal(cancel.status, 200)
   })
 })
+
+describe('P10 — robustesse (P7-10 / P7-12 / P7-15 / P7-18)', () => {
+  it('P7-10 : corps > 15 Mo → 413 (pas un 500/OOM)', async () => {
+    // ~16 Mo de padding dans un champ inoffensif
+    const pad = 'x'.repeat(16 * 1024 * 1024)
+    const res = await fetch(base + '/api/auth/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: 'big@test.dz', password: 'secret1', name: pad })
+    })
+    assert.equal(res.status, 413)
+    const data = await res.json()
+    assert.equal(data.ok, false)
+    assert.equal(data.error, 'too_large')
+  })
+
+  it('P7-12 : export CSV préfixé du BOM UTF-8 (lisible dans Excel)', async () => {
+    const master = await call('POST', '/api/auth/login', {
+      body: { email: 'pcstar.info31@gmail.com', password: 'star31' }
+    })
+    const res = await fetch(base + '/api/orders/export.csv', {
+      headers: { Authorization: `Bearer ${master.data.token}` }
+    })
+    assert.equal(res.status, 200)
+    // NB : res.text() SUPPRIME le BOM (spec WHATWG) → on vérifie les bytes bruts
+    const buf = new Uint8Array(await res.arrayBuffer())
+    assert.equal(buf[0], 0xef, 'byte 1 du BOM UTF-8 (EF BB BF)')
+    assert.equal(buf[1], 0xbb, 'byte 2 du BOM')
+    assert.equal(buf[2], 0xbf, 'byte 3 du BOM')
+    const text = new TextDecoder('utf-8').decode(buf.slice(3))
+    assert.match(text, /^code,status/)
+  })
+
+  it('P7-15 : deux comptes au même numéro — les commandes ne se croisent pas', async () => {
+    // A et B partagent le même téléphone
+    const phone = '0550000111'
+    const a = await call('POST', '/api/auth/register', { body: { email: 'a.same@test.dz', password: 'secret1', name: 'A', phone } })
+    const b = await call('POST', '/api/auth/register', { body: { email: 'b.same@test.dz', password: 'secret1', name: 'B', phone } })
+    assert.equal(a.status, 201)
+    assert.equal(b.status, 201)
+    // A passe une commande (liée à A)
+    const order = await call('POST', '/api/orders', {
+      token: a.data.token,
+      body: {
+        name: 'A',
+        phone,
+        wilaya: 'Oran',
+        slot: '14:00',
+        items: [{ id: 'ssd-1t', sku: 'ssd-1t', name: 'SSD 1 To', qty: 1, price: 9900 }]
+      }
+    })
+    assert.equal(order.status, 201)
+    const code = order.data.order.code
+    // B (même tél) ne voit PAS la commande de A
+    const bOrders = await call('GET', '/api/me/orders', { token: b.data.token })
+    assert.ok(!bOrders.data.orders.some((o) => o.code === code), 'B ne voit pas l\'ordre de A')
+    // B ne peut PAS annuler la commande de A
+    const bCancel = await call('POST', `/api/me/orders/${code}/cancel`, { token: b.data.token })
+    assert.equal(bCancel.status, 404)
+    // A voit toujours sa propre commande et peut l'annuler
+    const aOrders = await call('GET', '/api/me/orders', { token: a.data.token })
+    assert.ok(aOrders.data.orders.some((o) => o.code === code))
+    const aCancel = await call('POST', `/api/me/orders/${code}/cancel`, { token: a.data.token })
+    assert.equal(aCancel.status, 200)
+  })
+
+  it('P7-18 : wilaya bornée (liste connue + troncature, sinon Oran/existant)', async () => {
+    const u = await call('POST', '/api/auth/register', { body: { email: 'wilaya@test.dz', password: 'secret1', name: 'W', phone: '0550000222' } })
+    assert.equal(u.status, 201)
+    const tok = u.data.token
+    // valeur inconnue → repli (existant/'Oran'), pas de chaîne libre
+    const bad = await call('PUT', '/api/me', { token: tok, body: { wilaya: 'Mars, la planète' } })
+    assert.equal(bad.status, 200)
+    assert.equal(bad.data.user.wilaya, 'Oran')
+    // valeur de la liste connue → acceptée
+    const good = await call('PUT', '/api/me', { token: tok, body: { wilaya: 'Mostaganem' } })
+    assert.equal(good.status, 200)
+    assert.equal(good.data.user.wilaya, 'Mostaganem')
+    // chaîne très longue → tronquée à 32 puis rejetée (repli Oran/existant)
+    const long = await call('PUT', '/api/me', { token: tok, body: { wilaya: 'A'.repeat(80) } })
+    assert.equal(long.status, 200)
+    assert.notEqual(long.data.user.wilaya, 'A'.repeat(80))
+    assert.ok(long.data.user.wilaya.length <= 32 || long.data.user.wilaya === 'Mostaganem')
+  })
+})
