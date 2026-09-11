@@ -345,7 +345,7 @@ export default function BuilderPage({ t, products, build, setBuild, liveStock, o
                   className="btn btn-sm btn-outline-secondary"
                   onClick={() => {
                     const lines = BUILDER_SLOTS.map((s) => build[s.key]).filter(Boolean).map((p) => `- ${p.name} (${money(p.price)})`).join('\n')
-                    const text = `PC Star build\n${lines}\nTotal ${money(total)}`
+                    const text = t('buildCopyMsg', { lines, total: money(total) })
                     navigator.clipboard?.writeText?.(text)
                     setToast(t('copied'))
                   }}
@@ -355,9 +355,10 @@ export default function BuilderPage({ t, products, build, setBuild, liveStock, o
                 <a
                   className="btn btn-sm btn-outline-success"
                   href={`https://wa.me/${STORE.whatsapp}?text=${encodeURIComponent(
-                    `Salam PC Star, config:\n` +
-                      BUILDER_SLOTS.map((s) => build[s.key]).filter(Boolean).map((p) => `- ${p.name}`).join('\n') +
-                      `\nTotal ${money(total)}`
+                    t('buildShareMsg', {
+                      lines: BUILDER_SLOTS.map((s) => build[s.key]).filter(Boolean).map((p) => `- ${p.name}`).join('\n'),
+                      total: money(total)
+                    })
                   )}`}
                   target="_blank"
                   rel="noreferrer"

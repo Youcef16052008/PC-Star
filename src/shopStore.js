@@ -263,14 +263,15 @@ function cleanPhotos(list) {
   return out.slice(0, 12)
 }
 
-export function addProduct(meta, { name, price, category, brand, stock, short, photos } = {}) {
+export function addProduct(meta, { name, price, category, brand, stock, short, photos, sku } = {}) {
   const title = String(name || '').trim()
   const n = Number(price)
   if (!title || !Number.isFinite(n) || n < 0) return { ok: false, error: 'product' }
   const cat = String(category || 'accessories')
   const product = {
     id: nowId('sku'),
-    sku: `PS-${title.slice(0, 8).toUpperCase().replace(/\s+/g, '')}`,
+    // P6 : numéro de produit (SKU) saisi par le master, sinon généré.
+    sku: String(sku || '').trim() || `PS-${title.slice(0, 8).toUpperCase().replace(/\s+/g, '')}`,
     name: title,
     short: String(short || title),
     brand: String(brand || 'PC Star'),

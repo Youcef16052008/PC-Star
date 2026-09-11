@@ -5,13 +5,14 @@ import * as api from './api.js'
 import { statusLabelKey } from './orderLogic.js'
 import { loadOrders } from './prefs.js'
 
-export default function ProfilePage({ t, user, users, onUsers, onUser, setToast, onBack, apiOnline, mode }) {
+export default function ProfilePage({ t, user, users, onUsers, onUser, setToast, onBack, apiOnline, mode, onCancelOrder }) {
   const [name, setName] = useState(user.name || '')
   const [phone, setPhone] = useState(user.phone || '')
   const [wilaya, setWilaya] = useState(user.wilaya || 'Oran')
   const [err, setErr] = useState('')
   const [busy, setBusy] = useState(false)
   const [orders, setOrders] = useState([])
+  const [cancelTick, setCancelTick] = useState(0)
   const [pw, setPw] = useState('')
   const [pw2, setPw2] = useState('')
 
@@ -49,7 +50,13 @@ export default function ProfilePage({ t, user, users, onUsers, onUser, setToast,
     return () => {
       cancelled = true
     }
-  }, [apiOnline, mode, user?.id])
+  }, [apiOnline, mode, user?.id, cancelTick])
+
+  // P6 : annulation d'une commande « neuve » (stock rétabli par App).
+  async function doCancel(code) {
+    const ok = await onCancelOrder?.(code)
+    if (ok) setCancelTick((x) => x + 1)
+  }
 
   async function save(e) {
     e.preventDefault()
@@ -247,7 +254,20 @@ export default function ProfilePage({ t, user, users, onUsers, onUser, setToast,
                           </li>
                         ))}
                       </ul>
-                      <div className="fw-semibold text-success">{money(o.total)}</div>
+                      <div className="d-flex justify-content-between align-items-center">
+                        <div className="fw-semibold text-success">{money(o.total)}</div>
+                        {/* P6 : annulation possible tant que la commande est « neuve » */}
+                        {(o.status === 'new' || o.status === 'pending') && (
+                          <button
+                            type="button"
+                            className="btn btn-sm btn-outline-danger"
+                            onClick={() => doCancel(o.code)}
+                            title={t('orderOnlyNew')}
+                          >
+                            {t('orderCancel')}
+                          </button>
+                        )}
+                      </div>
                     </article>
                   ))}
                 </div>

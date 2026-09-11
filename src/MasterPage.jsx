@@ -5,6 +5,12 @@ import PartThumb from './PartThumb.jsx'
 import * as api from './api.js'
 import { compressDataUrl } from './photoCompress.js'
 
+function errToast(setToast, t, r, fallbackKey) {
+  // P6 : message d'erreur honnête — offline ≠ refus serveur.
+  if (r?.offline || !r) setToast(t('backendOffline'))
+  else setToast(t(fallbackKey))
+}
+
 // P4 (B10) : compression canvas avant envoi (800 px / JPEG q0.8) → le body
 // d'upload passe de ~20 Mo max à ~2 Mo (Vercel 413 évité, latence réduite).
 // Limite d'entrée relevée à 10 Mo : la sortie compressée reste bien plus petite.
@@ -27,7 +33,7 @@ function readFilesAsDataUrls(fileList) {
   ).then((list) => list.filter(Boolean))
 }
 
-export default function MasterPage({ t, lang, user, users, onUsers, products, meta, onMeta, basePanels, setToast, onBack, apiOnline, onStockRefresh }) {
+export default function MasterPage({ t, lang, user, users, onUsers, products, masterCatalog, meta, onMeta, basePanels, setToast, onBack, apiOnline, onStockRefresh }) {
   const [tab, setTab] = useState('products')
   const [form, setForm] = useState({
     name: '',
@@ -36,6 +42,7 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, me
     category: 'accessories',
     brand: 'PC Star',
     short: '',
+    sku: '',
     photos: []
   })
   const [panelTitle, setPanelTitle] = useState({ ar: '', fr: '', en: '' })
@@ -43,6 +50,8 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, me
   const [editId, setEditId] = useState(null)
   const [editPhotos, setEditPhotos] = useState([])
   const [apiCustomers, setApiCustomers] = useState([])
+  const [apiProducts, setApiProducts] = useState([])
+  const [apiTick, setApiTick] = useState(0)
 
   // Mode API : la liste des clients vient du serveur (les clients créés via
   // l'API n'existent pas dans le store local).
@@ -56,6 +65,23 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, me
       cancelled = true
     }
   }, [apiOnline])
+
+  // P6 : la vue master API = /api/master/products — TOUS les produits
+  // (masqués et rupture inclus, avec le drapeau `hidden`), contrairement au
+  // catalogue public filtré. Re-chargée après chaque mutation (apiTick).
+  useEffect(() => {
+    if (!apiOnline) return undefined
+    let cancelled = false
+    api.masterProducts().then((r) => {
+      if (!cancelled && r.ok && Array.isArray(r.data?.products)) setApiProducts(r.data.products)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [apiOnline, apiTick])
+
+  const productsLoading = apiOnline && apiProducts.length === 0
+  const productsShown = apiOnline ? apiProducts : (masterCatalog || products || [])
 
   const customers = useMemo(
     () => (apiOnline ? apiCustomers : users.filter((u) => u.role !== 'master')),
@@ -103,14 +129,16 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, me
         category: form.category,
         brand: form.brand,
         short: form.short,
+        sku: form.sku || undefined,
         photoDataUrls: form.photos
       })
       if (!r.ok) {
-        setToast(t('masterCreateFail'))
+        errToast(setToast, t, r, 'masterCreateFail')
         return
       }
-      setForm({ name: '', price: '', stock: '1', category: form.category, brand: 'PC Star', short: '', photos: [] })
+      setForm({ name: '', price: '', stock: '1', category: form.category, brand: 'PC Star', short: '', sku: '', photos: [] })
       setToast(t('masterAdded'))
+      setApiTick((x) => x + 1)
       onStockRefresh?.()
       return
     }
@@ -121,6 +149,7 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, me
       category: form.category,
       brand: form.brand,
       short: form.short,
+      sku: form.sku || undefined,
       photos: form.photos
     })
     if (!res.ok) {
@@ -128,7 +157,7 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, me
       return
     }
     onMeta(res.meta)
-    setForm({ name: '', price: '', stock: '1', category: form.category, brand: 'PC Star', short: '', photos: [] })
+    setForm({ name: '', price: '', stock: '1', category: form.category, brand: 'PC Star', short: '', sku: '', photos: [] })
     setToast(t('masterAdded'))
   }
 
@@ -146,15 +175,23 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, me
       let photos = paths
       if (dataUrls.length) {
         const up = await api.masterPhotos(editId, dataUrls)
-        if (up.ok && up.data?.product?.photos) photos = up.data.product.photos
+        if (!up.ok) {
+          errToast(setToast, t, up, 'masterActionFail')
+          return
+        }
+        if (up.data?.product?.photos) photos = up.data.product.photos
       } else {
         const r = await api.masterUpdateProduct(editId, { photos: paths })
-        if (!r.ok) return
+        if (!r.ok) {
+          errToast(setToast, t, r, 'masterActionFail')
+          return
+        }
         photos = r.data?.product?.photos || paths
       }
       setEditId(null)
       setEditPhotos([])
       setToast(t('masterPhotosSaved'))
+      setApiTick((x) => x + 1)
       onStockRefresh?.()
       return
     }
@@ -166,19 +203,26 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, me
     setToast(t('masterPhotosSaved'))
   }
 
-  async function doHide(id) {
+  // P6 : masquer ↔ afficher (toggle). En mode API, le produit masqué reste
+  // visible dans cette liste (fournie par /api/master/products) — on peut
+  // donc le réafficher, au lieu de disparaître définitivement de la vue.
+  async function doToggleHidden(id, isHidden) {
     if (apiOnline) {
-      const r = await api.masterHideProduct(id, true)
+      const r = await api.masterHideProduct(id, !isHidden)
       if (!r.ok) {
-        setToast(t('masterActionFail'))
+        errToast(setToast, t, r, 'masterActionFail')
         return
       }
-      setToast(t('masterHidden'))
+      setToast(isHidden ? t('masterShown') : t('masterHidden'))
+      setApiTick((x) => x + 1)
       onStockRefresh?.()
       return
     }
-    onMeta(hideProduct(meta, id))
-    setToast(t('masterHidden'))
+    const next = isHidden
+      ? { ...meta, hiddenProductIds: (meta.hiddenProductIds || []).filter((x) => x !== id) }
+      : hideProduct(meta, id)
+    onMeta(next)
+    setToast(isHidden ? t('masterShown') : t('masterHidden'))
   }
 
   function doDeleteCustomer(id) {
@@ -189,7 +233,7 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, me
           setApiCustomers((prev) => prev.filter((c) => c.id !== id))
           setToast(t('masterCustomerGone'))
         } else {
-          setToast(t('masterActionFail'))
+          errToast(setToast, t, r, 'masterActionFail')
         }
       })
       return
@@ -203,23 +247,38 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, me
     setToast(t('masterCustomerGone'))
   }
 
-  function doTogglePanel(id, on) {
+  // P6 : panneaux synchronisés avec le serveur (/api/master/panels) —
+  // visibles sur tous les appareils, plus seulement en local.
+  async function doTogglePanel(id, on) {
     if (apiOnline) {
-      setToast(t('panelsLocalOnly'))
+      const current = new Set(meta.hiddenPanelIds || [])
+      if (on) current.delete(id)
+      else current.add(id)
+      const r = await api.putPanels({ hiddenPanelIds: [...current] })
+      if (!r.ok) {
+        errToast(setToast, t, r, 'masterActionFail')
+        return
+      }
+      onMeta({ ...meta, hiddenPanelIds: [...current] })
       return
     }
     onMeta(togglePanel(meta, id, on))
   }
 
-  function submitPanel(e) {
+  async function submitPanel(e) {
     e.preventDefault()
-    if (apiOnline) {
-      setToast(t('panelsLocalOnly'))
-      return
-    }
     const res = addPanel(meta, { titles: panelTitle, categories: [panelCat] })
     if (!res.ok) return
-    onMeta(res.meta)
+    if (apiOnline) {
+      const r = await api.putPanels({ extraPanels: [...(meta.extraPanels || []), res.panel] })
+      if (!r.ok) {
+        errToast(setToast, t, r, 'masterActionFail')
+        return
+      }
+      onMeta(res.meta)
+    } else {
+      onMeta(res.meta)
+    }
     setPanelTitle({ ar: '', fr: '', en: '' })
     setToast(t('masterAdded'))
   }
@@ -266,6 +325,10 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, me
                 <div className="mb-2">
                   <label className="form-label small">{t('masterName')}</label>
                   <input className="form-control" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required />
+                </div>
+                <div className="mb-2">
+                  <label className="form-label small">{t('masterSku')}</label>
+                  <input className="form-control" value={form.sku} placeholder={t('masterSkuPh')} onChange={(e) => setForm({ ...form, sku: e.target.value })} />
                 </div>
                 <div className="row g-2 mb-2">
                   <div className="col-6">
@@ -324,16 +387,22 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, me
           </div>
 
           <div className="col-lg-8">
+            {productsLoading ? (
+              <p className="text-secondary">…</p>
+            ) : (
             <div className="d-flex flex-column gap-2">
-              {products.map((p) => (
-                <div className="card shadow-sm" key={p.id}>
+              {productsShown.map((p) => (
+                <div className={`card shadow-sm ${p.hidden ? 'opacity-75' : ''}`} key={p.id}>
                   <div className="card-body">
                     <div className="d-flex flex-wrap gap-3 align-items-center">
                       <div style={{ width: 56, height: 56 }} className="rounded overflow-hidden bg-body-secondary flex-shrink-0">
                         <PartThumb product={p} />
                       </div>
                       <div className="flex-grow-1">
-                        <div className="small text-secondary">{p.sku}</div>
+                        <div className="small text-secondary">
+                          {p.sku}
+                          {p.hidden ? ` · ${t('masterHiddenBadge')}` : ''}
+                        </div>
                         <strong>{p.name}</strong>
                         <div className="small text-secondary">
                           {money(p.price)} · {p.stock} · {t(`cat_${p.category}`) || p.category} · {(p.photos || []).length} img
@@ -343,8 +412,12 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, me
                         <button type="button" className="btn btn-sm btn-outline-secondary" onClick={() => openEdit(p)}>
                           {t('masterEditPhotos')}
                         </button>
-                        <button type="button" className="btn btn-sm btn-outline-danger" onClick={() => doHide(p.id)}>
-                          {t('masterHide')}
+                        <button
+                          type="button"
+                          className={`btn btn-sm ${p.hidden ? 'btn-outline-success' : 'btn-outline-danger'}`}
+                          onClick={() => doToggleHidden(p.id, Boolean(p.hidden))}
+                        >
+                          {p.hidden ? t('masterShow') : t('masterHide')}
                         </button>
                       </div>
                     </div>
@@ -387,6 +460,7 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, me
                 </div>
               ))}
             </div>
+            )}
           </div>
         </div>
       )}
@@ -419,9 +493,6 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, me
 
       {tab === 'panels' && (
         <>
-        {apiOnline && (
-          <div className="alert alert-info py-2">{t('panelsLocalOnlyNote')}</div>
-        )}
         <div className="row g-4">
           <div className="col-lg-4">
             <form className="card shadow-sm border-0" onSubmit={submitPanel}>

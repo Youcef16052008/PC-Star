@@ -52,14 +52,25 @@ export default function DeskPage({ t, lang, reservations, onStatus, setToast }) 
     }
   }
 
-  function waReady(r) {
-    const msg = t('deskWaReady', {
-      code: r.code,
-      name: r.name,
-      slot: r.slot || '',
-      total: money(r.total)
-    })
-    return `https://wa.me/213${String(r.phone || '').replace(/\D/g, '').replace(/^0/, '')}?text=${encodeURIComponent(msg)}`
+  // wa.me exige le format international (213XXXXXXXXX) — on normalise
+  // 0X…, +213…, 213… et les 9 chiffres.
+  function waPhoneHref(phone) {
+    let d = String(phone || '').replace(/\D/g, '')
+    if (d.startsWith('00')) d = d.slice(2)
+    if (d.startsWith('213')) d = d.slice(3)
+    if (d.length === 9 && /^[567]/.test(d)) d = `213${d}`
+    return d
+  }
+
+  function waLink(r) {
+    const num = waPhoneHref(r.phone)
+    if (!num) return null
+    const st = r.status === 'pending' ? 'new' : r.status || 'new'
+    const msg =
+      st === 'ready'
+        ? t('deskWaReady', { code: r.code, name: r.name, slot: r.slot || '', total: money(r.total) })
+        : t('deskWaContact', { code: r.code, name: r.name, status: t(statusLabelKey(st)), slot: r.slot || '', total: money(r.total) })
+    return `https://wa.me/${num}?text=${encodeURIComponent(msg)}`
   }
 
   return (
@@ -180,19 +191,21 @@ export default function DeskPage({ t, lang, reservations, onStatus, setToast }) 
                         </button>
                       )}
                       {st === 'ready' && (
-                        <>
-                          <button
-                            type="button"
-                            className="btn btn-sm btn-success"
-                            disabled={busy}
-                            onClick={() => changeStatus(r.code, 'picked')}
-                          >
-                            {t('deskMarkPicked')}
-                          </button>
-                          <a className="btn btn-sm btn-outline-success" href={waReady(r)} target="_blank" rel="noreferrer">
-                            WhatsApp
-                          </a>
-                        </>
+                        <button
+                          type="button"
+                          className="btn btn-sm btn-success"
+                          disabled={busy}
+                          onClick={() => changeStatus(r.code, 'picked')}
+                        >
+                          {t('deskMarkPicked')}
+                        </button>
+                      )}
+                      {/* P6 : contact WhatsApp client disponible à tout moment
+                          (avant : uniquement au statut « prêt ») */}
+                      {st !== 'cancelled' && st !== 'picked' && waLink(r) && (
+                        <a className="btn btn-sm btn-outline-success" href={waLink(r)} target="_blank" rel="noreferrer">
+                          WhatsApp
+                        </a>
                       )}
                       {st !== 'cancelled' && st !== 'picked' && (
                         <button

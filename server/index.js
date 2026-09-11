@@ -268,6 +268,28 @@ export async function handler(req, res) {
       return send(res, 200, { ok: true, orders })
     }
 
+    // Customer cancels ONE of his own orders (new/pending only) → restock.
+    if (req.method === 'POST' && pathname.startsWith('/api/me/orders/') && pathname.endsWith('/cancel')) {
+      const auth = userFromReq(req)
+      if (!auth) return send(res, 401, { ok: false, error: 'auth' })
+      const code = decodeURIComponent(pathname.split('/').slice(-2, -1)[0])
+      const db0 = readDb()
+      const uid = auth.user.id
+      const phone = auth.user.phone || ''
+      const mine = (db0.orders || []).find((o) => o.code === code && (o.userId === uid || (phone && o.phone === phone)))
+      if (!mine) return send(res, 404, { ok: false, error: 'not_found' })
+      if (mine.status !== 'new' && mine.status !== 'pending') {
+        return send(res, 409, { ok: false, error: 'status' })
+      }
+      let result = null
+      updateDb((db) => {
+        result = cancelOrder(db, code)
+        return db
+      })
+      if (!result?.ok) return send(res, 400, { ok: false, error: result?.error })
+      return send(res, 200, { ok: true, order: result.order })
+    }
+
     // Password change (authenticated)
     if (req.method === 'POST' && pathname === '/api/me/password') {
       const auth = userFromReq(req)
@@ -538,6 +560,41 @@ export async function handler(req, res) {
       })
       if (!result?.ok) return send(res, 400, { ok: false, error: result?.error })
       return send(res, 200, { ok: true, product: result.product })
+    }
+
+    // Panels (master) : persiste extraPanels + hiddenPanelIds dans db.meta —
+    // les panneaux du shop sont alors cohérents sur TOUS les appareils
+    // (avant : sauvegarde locale uniquement, invisibles avec le serveur).
+    if (req.method === 'PUT' && pathname === '/api/master/panels') {
+      const auth = userFromReq(req)
+      if (!auth || auth.user.role !== 'master') return send(res, 403, { ok: false, error: 'forbidden' })
+      const body = await readBody(req)
+      let error = null
+      let out = null
+      updateDb((db) => {
+        if (body.hiddenPanelIds != null) {
+          if (!Array.isArray(body.hiddenPanelIds) || body.hiddenPanelIds.some((x) => typeof x !== 'string')) {
+            error = 'panels'
+            return db
+          }
+          db.meta.hiddenPanelIds = [...new Set(body.hiddenPanelIds)]
+        }
+        if (body.extraPanels != null) {
+          const okPanels = Array.isArray(body.extraPanels) &&
+            body.extraPanels.every((p) => p && typeof p.id === 'string' && p.id &&
+              p.titles && typeof p.titles === 'object' &&
+              Array.isArray(p.categories) && p.categories.every((c) => typeof c === 'string'))
+          if (!okPanels) {
+            error = 'panels'
+            return db
+          }
+          db.meta.extraPanels = body.extraPanels.slice(0, 12)
+        }
+        out = { hiddenPanelIds: db.meta.hiddenPanelIds || [], extraPanels: db.meta.extraPanels || [] }
+        return db
+      })
+      if (error) return send(res, 400, { ok: false, error })
+      return send(res, 200, { ok: true, meta: out })
     }
 
     // Orders CSV export (master)

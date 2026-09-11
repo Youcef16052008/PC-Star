@@ -119,6 +119,10 @@ export async function putMeta(meta) {
   return req('/api/meta', { method: 'PUT', body: { meta } })
 }
 
+export async function putPanels(meta) {
+  return req('/api/master/panels', { method: 'PUT', body: meta })
+}
+
 export async function masterProducts() {
   return req('/api/master/products')
 }
@@ -182,6 +186,10 @@ export async function oauthUnlink(provider) {
 
 export async function myOrders() {
   return req('/api/me/orders')
+}
+
+export async function cancelMyOrder(code) {
+  return req(`/api/me/orders/${encodeURIComponent(code)}/cancel`, { method: 'POST' })
 }
 
 export async function changePassword(password) {

@@ -129,7 +129,7 @@ export default function ProductPage({ t, product, photoIndex, setPhotoIndex, lef
             </button>
             <a
               className="btn btn-outline-secondary"
-              href={`https://wa.me/${STORE.whatsapp}?text=${encodeURIComponent(`Salam, I want ${product.name} (${product.sku}) — ${money(product.price)}`)}`}
+              href={`https://wa.me/${STORE.whatsapp}?text=${encodeURIComponent(t('pdpWaMsg', { name: product.name, sku: product.sku, price: money(product.price) }))}`}
               target="_blank"
               rel="noreferrer"
             >

@@ -186,6 +186,12 @@ export function purgeUser(db, id) {
 }
 
 /** Public catalog with live stock + meta hide/extra. */
+/**
+ * Catalogue public (client) :
+ * - produits masqués par le master (hiddenProductIds) exclus ;
+ * - produits RUPTURE (stock live = 0) exclus automatiquement — seuls le
+ *   comptoir et la vue master (`listMasterProducts`) restent les voir.
+ */
 export function publicCatalog(db) {
   ensureStock(db)
   const hidden = new Set(db.meta?.hiddenProductIds || [])
@@ -204,5 +210,5 @@ export function publicCatalog(db) {
       ...p,
       stock: liveStockOf(db, p.id)
     }))
-  return [...base, ...extras]
+  return [...base, ...extras].filter((p) => (Number(p.stock) || 0) > 0)
 }

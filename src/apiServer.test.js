@@ -49,7 +49,9 @@ describe('routes (P2) — handler HTTP réel', () => {
     const { status, data } = await call('GET', '/api/catalog')
     assert.equal(status, 200)
     assert.ok(data.ok)
-    assert.ok(data.products.length >= 250)
+    // 250 SKUs de base, dont `speakers` en rupture (stock 0) filtrée (P6) → 249
+    assert.ok(data.products.length >= 249)
+    assert.ok(data.products.length < 251)
     const cpu = data.products.find((p) => p.id === 'cpu-7800x3d')
     assert.ok(cpu, 'cpu-7800x3d présent')
     assert.equal(cpu.compat.socket, 'AM5')
@@ -57,6 +59,120 @@ describe('routes (P2) — handler HTTP réel', () => {
     assert.ok(cpu.needsKey, 'needsKey présent (plus de sous-ensemble de champs)')
     assert.ok(cpu.rating > 0)
     assert.ok(Array.isArray(cpu.photos) && cpu.photos.length > 0)
+  })
+
+  it('P6 : rupture (stock 0) invisible au client, visible au master', async () => {
+    const cat = await call('GET', '/api/catalog')
+    assert.ok(!cat.data.products.some((p) => p.id === 'speakers'), 'speakers (stock 0) absente du catalogue public')
+    const master = await call('POST', '/api/auth/login', {
+      body: { email: 'pcstar.info31@gmail.com', password: 'star31' }
+    })
+    const list = await call('GET', '/api/master/products', { token: master.data.token })
+    const sp = list.data.products.find((p) => p.id === 'speakers')
+    assert.ok(sp, 'speakers visible dans la vue master')
+    assert.equal(sp.stock, 0)
+
+    // un produit en stock passe… puis disparaît quand le stock tombe à 0
+    const created = await call('POST', '/api/master/products', {
+      token: master.data.token,
+      body: { name: 'P6 OOS', price: 100, stock: 1, category: 'usb' }
+    })
+    const id = created.data.product.id
+    let c = await call('GET', '/api/catalog')
+    assert.ok(c.data.products.some((p) => p.id === id), 'visible avec stock 1')
+    const upd = await call('PUT', `/api/master/products/${id}`, {
+      token: master.data.token,
+      body: { stock: 0 }
+    })
+    assert.equal(upd.status, 200)
+    c = await call('GET', '/api/catalog')
+    assert.ok(!c.data.products.some((p) => p.id === id), 'invisible à stock 0')
+    const list2 = await call('GET', '/api/master/products', { token: master.data.token })
+    assert.ok(list2.data.products.find((p) => p.id === id), 'toujours visible côté master')
+  })
+
+  it('P6 : le client annule SA commande neuve (restock), pas celle d’autrui', async () => {
+    const email = `p6-${Date.now()}@demo.dz`
+    const reg = await call('POST', '/api/auth/register', {
+      body: { email, password: 'azerty12345', name: 'P6', phone: '0550987654' }
+    })
+    assert.equal(reg.status, 201)
+    const tok = reg.data.token
+    // stock de départ du produit testé
+    const stock0 = (await call('GET', '/api/stock/ssd-1t')).data.stock
+    const ord = await call('POST', '/api/orders', {
+      token: tok,
+      body: { name: 'P6', phone: '0550987654', items: [{ id: 'ssd-1t', sku: 'SN770', name: 'SN770', qty: 1, price: 1 }] }
+    })
+    assert.equal(ord.status, 201)
+    const code = ord.data.order.code
+    assert.equal((await call('GET', '/api/stock/ssd-1t')).data.stock, stock0 - 1)
+
+    // un autre client ne voit pas / n’annule pas cette commande
+    const other = await call('POST', '/api/auth/register', {
+      body: { email: `p6b-${Date.now()}@demo.dz`, password: 'azerty12345', name: 'P6b' }
+    })
+    const foreign = await call('POST', `/api/me/orders/${code}/cancel`, { token: other.data.token })
+    assert.equal(foreign.status, 404)
+
+    // la commande passe « preparing » : plus annulable par le client
+    const master = await call('POST', '/api/auth/login', {
+      body: { email: 'pcstar.info31@gmail.com', password: 'star31' }
+    })
+    const prepping = await call('PATCH', `/api/orders/${code}`, { token: master.data.token, body: { status: 'preparing' } })
+    assert.equal(prepping.status, 200)
+    const late = await call('POST', `/api/me/orders/${code}/cancel`, { token: tok })
+    assert.equal(late.status, 409)
+
+    // le master annule → le stock est rétabli
+    const cancel = await call('POST', `/api/orders/${code}/cancel`, { token: master.data.token })
+    assert.equal(cancel.status, 200)
+    assert.equal(cancel.data.order.status, 'cancelled')
+    assert.equal((await call('GET', '/api/stock/ssd-1t')).data.stock, stock0)
+
+    // et sur une commande « neuve » : le client peut s’annuler lui-même
+    const ord2 = await call('POST', '/api/orders', {
+      token: tok,
+      body: { name: 'P6', phone: '0550987654', items: [{ id: 'ssd-1t', sku: 'SN770', name: 'SN770', qty: 1, price: 1 }] }
+    })
+    assert.equal(ord2.status, 201)
+    const self = await call('POST', `/api/me/orders/${ord2.data.order.code}/cancel`, { token: tok })
+    assert.equal(self.status, 200)
+    assert.equal(self.data.order.status, 'cancelled')
+    assert.equal((await call('GET', '/api/stock/ssd-1t')).data.stock, stock0)
+  })
+
+  it('P6 : panneaux synchronisés via /api/master/panels (master only, borné)', async () => {
+    const master = await call('POST', '/api/auth/login', {
+      body: { email: 'pcstar.info31@gmail.com', password: 'star31' }
+    })
+    const tok = master.data.token
+    // non-master → 403
+    const anon = await call('PUT', '/api/master/panels', { body: { hiddenPanelIds: ['desk'] } })
+    assert.equal(anon.status, 403)
+
+    // shape invalide → 400
+    const bad = await call('PUT', '/api/master/panels', { token: tok, body: { hiddenPanelIds: 'non' } })
+    assert.equal(bad.status, 400)
+
+    // toggle + panneau custom → persistés (lisibles via /api/meta)
+    const put = await call('PUT', '/api/master/panels', {
+      token: tok,
+      body: {
+        hiddenPanelIds: ['desk'],
+        extraPanels: [{ id: 'panel-test1', titles: { ar: 'لوحة', fr: 'Panneau', en: 'Panel' }, categories: ['usb'] }]
+      }
+    })
+    assert.equal(put.status, 200)
+    assert.deepEqual(put.data.meta.hiddenPanelIds, ['desk'])
+    assert.equal(put.data.meta.extraPanels.length, 1)
+    const meta = await call('GET', '/api/meta')
+    assert.equal(meta.status, 200)
+    assert.deepEqual(meta.data.meta.hiddenPanelIds, ['desk'])
+    assert.equal(meta.data.meta.extraPanels.length, 1)
+    // les clés produit du meta ne sont PAS écrasées par cet endpoint
+    const products = await call('GET', '/api/master/products', { token: tok })
+    assert.ok(products.data.products.length >= 250)
   })
 
   it('GET /api/customers : 403 sans master, 200 avec master', async () => {

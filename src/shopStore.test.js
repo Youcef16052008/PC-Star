@@ -166,6 +166,26 @@ describe('catalog paneaux', () => {
     assert.equal(view.products.some((p) => p.name === 'Flash 64 Go'), true)
   })
 
+  it('P6 : SKU saisi par le master est conservé (sinon généré)', () => {
+    const withSku = addProduct({ extraProducts: [] }, {
+      name: 'Câble HDMI 2.1',
+      price: 900,
+      category: 'usb',
+      stock: 5,
+      sku: 'HDMI-15M'
+    })
+    assert.equal(withSku.ok, true)
+    assert.equal(withSku.product.sku, 'HDMI-15M')
+    const withoutSku = addProduct({ extraProducts: [] }, {
+      name: 'Souris sans fil',
+      price: 700,
+      category: 'usb',
+      stock: 2
+    })
+    assert.equal(withoutSku.ok, true)
+    assert.match(withoutSku.product.sku, /^PS-/)
+  })
+
   it('overrides catalog photos and keeps custom product photos', () => {
     let meta = { extraProducts: [], hiddenProductIds: [], extraPanels: [], hiddenPanelIds: [], photoOverrides: {} }
     const ov = setProductPhotos(meta, 'cpu-1', ['/photos/lib/cpu-1.jpg', '/photos/lib/cpu-2.jpg', '/photos/lib/cpu-3.jpg'])

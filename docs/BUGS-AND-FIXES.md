@@ -2,7 +2,9 @@
 
 Audit **ligne par ligne, fichier par fichier** (`src/*`, `server/*`, `api/*`, `scripts/*`,
 configs) conduit à **24 bugs** (B1–B24). Tous les bugs de code ont été corrigés en
-**5 phases**, chacune = un commit sur la branche `5d6f736` (PR #2), tests verts avant commit.
+**5 phases**, chacune = un commit sur la branche `5d6f736` (PR #2), tests verts avant
+commit. Une **6e phase (P6)** a traité les 7 bugs reportés en conditions réelles le
+11/09 (C1–C7) + les fuites i18n trouvées au passage.
 
 | Phase | Commit | Bugs | Thème |
 |---|---|---|---|
@@ -11,6 +13,7 @@ configs) conduit à **24 bugs** (B1–B24). Tous les bugs de code ont été corr
 | P3 | `eece1eb` | B7, B8 | i18n complet (ar/fr/en) |
 | P4 | `5d6f736` | B10, B17 | Durcissement Vercel |
 | P5 | `823df13` | B11, B12, B14, B15, B16, B19, B20, B21 | Mineurs & nettoyage |
+| P6 | (11/09) | C1–C7 | Bugs terrain & gestion des commandes |
 
 L'audit initial et le plan détaillé : [`AUDIT-REPO.md`](./AUDIT-REPO.md).
 B18/B22/B23 : jugés **non-bugs** (contraintes de conception démo, documentées).
@@ -241,6 +244,118 @@ B18/B22/B23 : jugés **non-bugs** (contraintes de conception démo, documentées
 - **Vérif** : grep `location.hash` / `#search` / `#builder` dans `src/` → 0 occurrence.
 
 ---
+
+## P6 — Bugs terrain & gestion des commandes (report utilisateur, 11/09)
+
+Sept comportements signalés en conditions réelles. Analyse ligne par ligne, corrections
+ciblées, chaque flux re-vérifié **en live** (API réelle) et en E2E jsdom (Vite + API).
+
+### C1. « Masquer un produit » → Échec, et produit disparu de la vue master 🔴
+- **Diagnostic** : le hide serveur fonctionnait (vérifié live, produit extra ET
+  catalogue), MAIS la liste master de `MasterPage` était le **catalogue public**
+  (filtré) : après masquage, le produit **disparaissait définitivement** de la vue —
+  impossible de le réafficher. Et quand l'API est momentanément injoignable, le toast
+  disait « Action échouée » sans distinguer offline / refus serveur.
+- **Fix** :
+  - `MasterPage` (mode API) charge `/api/master/products` (`listMasterProducts`) :
+    **tous** les produits, masqués et rupture inclus, avec le drapeau `hidden`.
+  - Bouton **Masquer ↔ Afficher** (toggle) — le produit masqué reste visible
+    (opacité réduite + badge) et se réaffiche d'un clic.
+  - Toasts honnêtes : `offline` → « backend hors ligne », sinon l'erreur action.
+- **Vérif** : E2E jsdom mode API réel — masquer → toast « Produit masqué » → produit
+  toujours visible avec « Afficher » → réaffichage « Produit de nouveau visible » ;
+  curl live sur produit extra ET catalogue ; tests HTTP existants (B24) toujours verts.
+
+### C2. Panneaux : « sauvegardés en local uniquement (indisponible avec le serveur) »
+- **Diagnostic** : en mode API, les toggles/panneaux custom n'écrivaient que le
+  localStorage local — invisibles sur les autres appareils (le schéma serveur
+  `db.meta.extraPanels/hiddenPanelIds` existait déjà mais aucun endpoint).
+- **Fix** :
+  - Serveur : `PUT /api/master/panels` (master only, validation de shape, borné 12
+    panneaux) — n'écrit que `extraPanels` + `hiddenPanelIds` (ne peut pas écraser les
+    clés produit du meta).
+  - `App` : au démarrage (mode API), `GET /api/meta` → les clés panneaux serveur sont
+    mergées dans le meta local → le shop est **cohérent multi-appareils**.
+  - `MasterPage` : toggle + création de panneau passent par `PUT /api/master/panels`
+    (repli local si offline) ; l'alerte « local uniquement » est retirée.
+- **Vérif** : 3 tests HTTP (403 non-master, 400 shape invalide, persistance lisible via
+  `/api/meta` + non-écrasement du meta produit) ; E2E jsdom : toggle sans alerte.
+
+### C3. Bouton WhatsApp « ne marche pas » / contact
+- **Diagnostic** : les liens `wa.me` étaient au bon format international, MAIS le
+  bouton WhatsApp du **desk n'existait qu'au statut « prêt »** — sur une commande
+  « neuve »/« préparation » il n'y avait aucun bouton (d'où « ne marche pas »).
+- **Fix** :
+  - `DeskPage` : bouton WhatsApp **sur tous les statuts actifs** (neuve, préparation,
+    prêt) ; message adapté au statut (`deskWaReady` / `deskWaContact` nouveau).
+  - Normalisation robuste du numéro (`0X…`, `+213…`, `213…`, 9 chiffres) — plus
+    jamais d'URL `wa.me` invalide.
+  - Liens footer/panier/PDP/builder inchangés (déjà valides) — le `target="_blank"`
+    peut être bloqué dans certains iframes de preview : dans un navigateur normal il
+    ouvre WhatsApp directement.
+- **Vérif** : E2E + curl : URL générée valide pour chaque format de téléphone.
+
+### C4. Config PC confirmée → « disparaît » du panier, impossible de la revoir
+- **Diagnostic** : le flux builder → panier est **correct** (reproduit jsdom : les
+  pièces atterrissent bien au panier). Le vrai problème : après **confirmation**
+  (réservation), le panier est vidé (normal) mais il n'y avait **aucun endroit** pour
+  retrouver, annuler ou suivre sa commande (hors compte connecté, profil).
+- **Fix** :
+  - Écran de confirmation : bouton **« Voir mes commandes »** → profil (section
+    commandes).
+  - `ProfilePage` : bouton **Annuler** sur chaque commande « neuve » (stock rétabli) —
+    API : nouveau `POST /api/me/orders/:code/cancel` (sa commande uniquement, état
+    `new`/`pending` seulement → 404 sinon, 409 si déjà en préparation) ; local :
+    statut + rétablissement du stock local.
+  - Modifier = annuler + re-commander (comportement honnête, pas de mutation partielle
+    d'une réservation).
+- **Vérif** : 2 tests HTTP (annulation propre + restock, refus autrui/preparing) ;
+  curl live : stock 10 → 9 → annulation → 10.
+
+### C5. Desk : « préparé / prêt au retrait / annuler » → « Mise à jour impossible »
+- **Diagnostic** : les endpoints `PATCH /api/orders/:code` et
+  `POST /api/orders/:code/cancel` fonctionnaient (vérifiés live) ; l'échec venait du
+  même motif que C1 — API momentanément injoignable sans message distinct.
+- **Fix** : toasts d'erreur distincts (offline vs refus) sur tout le desk et la vue
+  master ; re-vérification live des 3 transitions (preparing → ready → cancelled) +
+  restock.
+- **Vérif** : curl live complet ; E2E.
+
+### C6. Rupture (stock 0) → invisible au client, visible au master
+- **Diagnostic** : les produits à stock 0 restaient affichés (bouton « Rupture »
+  désactivé) — l'utilisateur veut qu'ils **disparaissent** de la boutique.
+- **Fix** :
+  - Serveur : `publicCatalog` **filtre le stock live = 0** (`listMasterProducts` et le
+    desk ne sont pas affectés — le master les voit toujours).
+  - Client (mode local) : même filtre sur le catalogue client (stock live local).
+  - `MasterPage` : vue complète non filtrée (prop `masterCatalog`) + vue API complète.
+  - Garde-fou PDP : si le produit sort du catalogue pendant la visite, la dernière
+    référence est conservée (page pas vidée).
+- **Vérif** : `speakers` (stock 0 de base) absente du public, présente côté master
+  (curl + jsdom) ; test HTTP : produit créé stock 1 → visible, stock 0 → invisible
+  (public) mais toujours en vue master. Smoke : catalogue 249 (250 − speakers).
+
+### C7. Numéro de produit (SKU) à la création
+- **Fix** : champ **« Numéro produit / SKU »** (optionnel) dans le formulaire de
+  création master — API (`createProduct` déjà prêt : `body.sku`) ET local
+  (`addProduct` accepte désormais `sku`, sinon SKU généré `PS-…`).
+- **Vérif** : curl live (création `HDMI-15M` → SKU conservé) ; test unitaire local.
+
+### Fuites i18n corrigées au passage
+- `ProductPage` : message WhatsApp durci en anglais → `t('pdpWaMsg', …)`.
+- `BuilderPage` : textes « Copier la config » / « Partager » (clipboard + wa.me)
+  → `t('buildCopyMsg')` / `t('buildShareMsg')`.
+- **14 nouvelles clés × ar/fr/en** (masquer/afficher, SKU, annulation, WhatsApp desk,
+  voir mes commandes, messages builder/PDP) — test de couverture i18n : 0 clé manquante.
+
+### Vérification finale P6
+- `npm test` → **75/75** (4 nouveaux : rupture, auto-annulation, panneaux, SKU).
+- `npm run build` → OK (425,31 kB JS / 126,62 kB gzip).
+- `npm run smoke` (live) → OK, catalogue 249.
+- E2E jsdom **mode API réel** (Vite live + API live) : login master → 254 produits en
+  vue master (masqués/rupture inclus) → masquer/réafficher → panneaux synchronisés
+  sans alerte ; builder → panier régression (6 pièces) ; boutique offline : rupture
+  masquée.
 
 ## Juges non-bugs (documentés, pas de code)
 

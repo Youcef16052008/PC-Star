@@ -175,11 +175,18 @@ export default function App() {
   // Mode API : le catalogue serveur est la source de vérité (masquages et
   // créations du master, stock live, overrides de prix). Offline : repli
   // sur le catalogue statique + meta local.
+  // Rupture (stock live = 0) → produit invisible au client (le master le
+  // voit toujours dans sa vue complète).
   const catalog = useMemo(() => {
     if (apiOnline && serverCatalog.length) return serverCatalog.map(ensureProductPhotos)
-    return shopView.products
-  }, [apiOnline, serverCatalog, shopView.products])
-  const selected = catalog.find((p) => p.id === selectedId)
+    return shopView.products.filter((p) => (stockMap[p.id] != null ? stockMap[p.id] : p.stock) > 0)
+  }, [apiOnline, serverCatalog, shopView.products, stockMap])
+  // Le produit affiché peut sortir du catalogue pendant la visite (rupture /
+  // masquage) : on garde la dernière référence pour ne pas vider la PDP.
+  const selectedFound = catalog.find((p) => p.id === selectedId)
+  const selectedRef = useRef(null)
+  if (selectedFound) selectedRef.current = selectedFound
+  const selected = selectedFound || (selectedRef.current?.id === selectedId ? selectedRef.current : null)
 
   useEffect(() => {
     const metaL = langMeta(lang)
@@ -290,6 +297,17 @@ export default function App() {
           for (const pr of cat.data.products) map[pr.id] = pr.stock
           setStockMap(map)
         }
+        // Panneaux (P6) : le serveur est la source de vérité pour
+        // extraPanels/hiddenPanelIds → le shop est cohérent multi-appareils.
+        const m = await api.getMeta()
+        if (!cancelled && m.ok && m.data?.meta) {
+          const sm = m.data.meta
+          persistMeta({
+            ...loadMeta(storage),
+            hiddenPanelIds: Array.isArray(sm.hiddenPanelIds) ? sm.hiddenPanelIds : [],
+            extraPanels: Array.isArray(sm.extraPanels) ? sm.extraPanels : []
+          })
+        }
       }
       const token = api.getToken()
       if (token) {
@@ -373,6 +391,47 @@ export default function App() {
       saveOrders(storage, next)
       return next
     })
+    return true
+  }
+
+  // P6 : le client annule une de SES commandes (état « neuve » uniquement)
+  // → le stock est rétabli (serveur ou local).
+  async function cancelMyOrder(code) {
+    if (apiOnline && authMode === 'api' && user) {
+      let r = null
+      try {
+        r = await api.cancelMyOrder(code)
+      } catch {
+        r = { ok: false, offline: true }
+      }
+      if (r?.ok && r.data?.order) {
+        setReservations((prev) => prev.map((o) => (o.code === code ? { ...o, ...r.data.order } : o)))
+        await refreshStock()
+        setToast(t('orderCancelled'))
+        return true
+      }
+      setToast(t(r?.offline || !r ? 'backendOffline' : 'orderCancelFail'))
+      return false
+    }
+    const target = (reservations || []).find((o) => o.code === code)
+    if (!target || (target.status !== 'new' && target.status !== 'pending')) {
+      setToast(t('orderOnlyNew'))
+      return false
+    }
+    setReservations((prev) => {
+      const next = prev.map((o) => (o.code === code ? { ...o, status: 'cancelled', cancelledAt: new Date().toISOString() } : o))
+      saveOrders(storage, next)
+      return next
+    })
+    setStockMap((prev) => {
+      const next = { ...prev }
+      for (const line of target.items || []) {
+        const cur = next[line.id] != null ? next[line.id] : catalog.find((p) => p.id === line.id)?.stock ?? 0
+        next[line.id] = Math.max(0, cur + (Number(line.qty) || 0))
+      }
+      return next
+    })
+    setToast(t('orderCancelled'))
     return true
   }
 
@@ -1172,6 +1231,7 @@ export default function App() {
           onBack={() => go('shop')}
           apiOnline={apiOnline}
           mode={authMode}
+          onCancelOrder={cancelMyOrder}
         />
       )}
 
@@ -1183,6 +1243,7 @@ export default function App() {
           users={users}
           onUsers={persistUsers}
           products={catalog}
+          masterCatalog={shopView.products}
           meta={meta}
           onMeta={persistMeta}
           basePanels={BASE_PANELS}
@@ -1258,6 +1319,19 @@ export default function App() {
                 <div className="fs-5 fw-bold text-success mt-2">{money(reserved.total)}</div>
               </div>
               <div className="d-grid gap-2">
+                {user && (
+                  <button
+                    className="btn btn-outline-dark"
+                    type="button"
+                    onClick={() => {
+                      setReserved(null)
+                      setCartOpen(false)
+                      go('profile')
+                    }}
+                  >
+                    {t('viewMyOrders')}
+                  </button>
+                )}
                 <a className="btn btn-outline-success btn-sm" href={STORE.mapUrl} target="_blank" rel="noreferrer">
                   {t('openMaps')}
                 </a>
