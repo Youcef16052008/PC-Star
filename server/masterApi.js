@@ -184,7 +184,9 @@ export function ordersToCsv(orders, { day = null } = {}) {
   const rows = [['code', 'status', 'at', 'name', 'phone', 'carrier', 'wilaya', 'slot', 'total', 'items']]
   for (const o of orders || []) {
     if (day) {
-      const d = String(o.at || '').slice(0, 10)
+      // P9 (P7-4) : la « journée » = o.day (date locale du client, P9) —
+      // repli sur la date d'`at` (UTC) pour les anciennes commandes.
+      const d = o.day || String(o.at || '').slice(0, 10)
       if (d !== day) continue
     }
     const items = (o.items || []).map((i) => `${i.qty}x ${i.name}`).join(' | ')
@@ -210,11 +212,35 @@ function csvEscape(v) {
   return s
 }
 
+/**
+ * P9 (P7-7) : borne le répertoire de backups aux `keep` plus récents
+ * (les noms `store-<timestamp>` sont triables chronologiquement).
+ */
+export function capBackups(backupDir, keep = 14) {
+  if (!fs.existsSync(backupDir)) return 0
+  const all = fs
+    .readdirSync(backupDir)
+    .filter((f) => f.startsWith('store-') && f.endsWith('.json'))
+    .sort()
+  let removed = 0
+  while (all.length > keep) {
+    const f = all.shift()
+    try {
+      fs.unlinkSync(path.join(backupDir, f))
+      removed += 1
+    } catch {
+      /* best effort */
+    }
+  }
+  return removed
+}
+
 export function backupStore(dbPath, backupDir) {
   fs.mkdirSync(backupDir, { recursive: true })
   if (!fs.existsSync(dbPath)) return null
   const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
   const dest = path.join(backupDir, `store-${stamp}.json`)
   fs.copyFileSync(dbPath, dest)
+  capBackups(backupDir) // P9 (P7-7) : plus de croissance infinie (timer 6 h + manuels)
   return dest
 }

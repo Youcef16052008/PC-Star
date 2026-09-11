@@ -432,6 +432,8 @@ export async function handler(req, res) {
             phone: normalizePhone(body.phone),
             carrier: phoneCarrier(body.phone),
             wilaya: body.wilaya || 'Oran',
+            // P9 (P7-4) : « journée » locale du client (validée dans placeOrder)
+            day: body.day || '',
             payment: 'cash',
             slot: body.slot || '',
             items: body.items,
@@ -620,21 +622,32 @@ export async function handler(req, res) {
       return send(res, 200, { ok: true, file: dest ? path.basename(dest) : null })
     }
 
-        // Catalog meta (master)
+    // Catalog meta — P9 (P7-5) : route PUBLIQUE réduite aux seuls champs que
+    // le shop consomme (panneaux). Avant : tout le meta était public
+    // (extraProducts = fiches des produits masqués, productOverrides…).
     if (req.method === 'GET' && pathname === '/api/meta') {
+      const meta = readDb().meta || {}
+      return send(res, 200, {
+        ok: true,
+        meta: {
+          extraPanels: meta.extraPanels || [],
+          hiddenPanelIds: meta.hiddenPanelIds || []
+        }
+      })
+    }
+
+    // P9 (P7-5) : méta complète = master uniquement.
+    if (req.method === 'GET' && pathname === '/api/master/meta') {
+      const auth = userFromReq(req)
+      if (!auth || auth.user.role !== 'master') return send(res, 403, { ok: false, error: 'forbidden' })
       return send(res, 200, { ok: true, meta: readDb().meta })
     }
 
-    if (req.method === 'PUT' && pathname === '/api/meta') {
-      const auth = userFromReq(req)
-      if (!auth || auth.user.role !== 'master') return send(res, 403, { ok: false, error: 'forbidden' })
-      const body = await readBody(req)
-      updateDb((db) => {
-        db.meta = { ...db.meta, ...body.meta }
-        return db
-      })
-      return send(res, 200, { ok: true, meta: readDb().meta })
-    }
+    // P9 (P7-8) : PUT /api/meta SUPPRIMÉ — l'écriture `db.meta = {...db.meta,
+    // ...body.meta}` sans validation permettait d'écraser extraProducts /
+    // productOverrides d'un coup. Les panneaux passent par
+    // PUT /api/master/panels (validé, borné) ; les produits par
+    // /api/master/products.
 
     // Customers (master)
     if (req.method === 'GET' && pathname === '/api/customers') {

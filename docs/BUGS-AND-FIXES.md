@@ -15,7 +15,8 @@ commit. Une **6e phase (P6)** a traité les 7 bugs reportés en conditions réel
 | P5 | `823df13` | B11, B12, B14, B15, B16, B19, B20, B21 | Mineurs & nettoyage |
 | P6 | (11/09) | C1–C7 | Bugs terrain & gestion des commandes |
 | P7 | (11/09) | P7-1 → P7-18 | 2ᵉ audit complet : bugs identifiés + solutions conçues |
-| P8 | (11/09) | P7-1, P7-2, P7-3 | Correction des 3 bugs critiques 🔴 (les P7-4→P7-18 restent à traiter) |
+| P8 | (11/09) | P7-1, P7-2, P7-3 | Correction des 3 bugs critiques 🔴 |
+| P9 | (11/09) | P7-4 → P7-8 | Correction des 5 bugs opérationnels 🟠 (restent P7-9→P7-18) |
 
 L'audit initial et le plan détaillé : [`AUDIT-REPO.md`](./AUDIT-REPO.md).
 B18/B22/B23 : jugés **non-bugs** (contraintes de conception démo, documentées).
@@ -364,8 +365,9 @@ ciblées, chaque flux re-vérifié **en live** (API réelle) et en E2E jsdom (Vi
 Nouveau passage **ligne par ligne, fichier par fichier** (`src/*`, `server/*`,
 configs, scripts) après la P6. **18 bugs** identifiés et hiérarchisés, chacun avec
 sa solution conçue. Les 3 critiques 🔴 (**P7-1, P7-2, P7-3**) ont été **corrigés
-en P8** ; les 15 autres (🟠/🟡/⚪) restent identifiés avec leur solution, à
-traiter si demandé. Les références `fichier:ligne` pointent le commit `7e9b5e7`.
+en P8**, les 5 opérationnels 🟠 (**P7-4 → P7-8**) en **P9** ; les 10 restants
+(🟡/⚪, P7-9 → P7-18) restent identifiés avec leur solution, à traiter si
+demandé. Les références `fichier:ligne` pointent le commit `7e9b5e7`.
 
 Priorité : 🔴 = intégrité de données / argent / vie privée · 🟠 = justesse
 opérationnelle · 🟡 = robustesse · ⚪ = cosmétique / contrainte documentée.
@@ -415,7 +417,7 @@ opérationnelle · 🟡 = robustesse · ⚪ = cosmétique / contrainte document�
 - **Solution** : dans le même effet, `if (!user) { setPickup({ name: '', phone: '',
   wilaya: 'Oran', slot: '' }); return }`.
 
-### 🟠 P7-4. Export CSV « aujourd'hui » : date UTC vs date locale (1 h par jour en Oran)
+### 🟠 P7-4. Export CSV « aujourd'hui » : date UTC vs date locale (1 h par jour en Oran) ✅ corrigé (P9)
 - **Où** : `src/DeskPage.jsx:115` vs `server/catalog.js` (`makeOrderCode`).
 - **Mécanisme** : le client envoie `day = new Date().toISOString().slice(0,10)`
   (**UTC**), alors que le code de commande est daté à la date **locale du
@@ -428,7 +430,7 @@ opérationnelle · 🟡 = robustesse · ⚪ = cosmétique / contrainte document�
   résout « today » dans **sa** locale (ou rien = export complet). Filtre client
   et code partagent alors la même date par construction.
 
-### 🟠 P7-5. `GET /api/meta` publique — fuite des produits masqués
+### 🟠 P7-5. `GET /api/meta` publique — fuite des produits masqués ✅ corrigé (P9)
 - **Où** : `server/index.js:624`.
 - **Mécanisme** : pas de contrôle d'auth — tout visiteur récupère la **méta
   complète** : `extraProducts` (fiche entière des produits masqués/ajoutés),
@@ -439,7 +441,7 @@ opérationnelle · 🟡 = robustesse · ⚪ = cosmétique / contrainte document�
   la méta complète reste accessible via une route master dédiée si besoin
   (`/api/master/meta`). Le client (`api.getMeta()`) ne change pas de contrat.
 
-### 🟠 P7-6. Biper du comptoir : un `AudioContext` par commande, jamais fermé
+### 🟠 P7-6. Biper du comptoir : un `AudioContext` par commande, jamais fermé ✅ corrigé (P9)
 - **Où** : `src/App.jsx:462`.
 - **Mécanisme** : `new AudioContext()` à chaque nouvelle commande, jamais
   `close()`d. Chrome plafonne à ~6 contextes actifs par page : après ~6
@@ -448,7 +450,7 @@ opérationnelle · 🟡 = robustesse · ⚪ = cosmétique / contrainte document�
   `ctx.resume()` au premier geste utilisateur (politique autoplay), oscillateur
   recréé à chaque bipe, `close()` au `beforeunload`.
 
-### 🟠 P7-7. Backups de `store.json` non bornés
+### 🟠 P7-7. Backups de `store.json` non bornés ✅ corrigé (P9)
 - **Où** : `server/index.js:693` (setInterval 6 h + backup au startup),
   `server/masterApi.js:208` (`backupStore`), `POST /api/master/backup`.
 - **Mécanisme** : `backupStore` copie sans jamais nettoyer : sur une machine
@@ -459,7 +461,7 @@ opérationnelle · 🟡 = robustesse · ⚪ = cosmétique / contrainte document�
   horodatage, suppression des plus anciens) appelé à la fin de `backupStore` —
   le script et le timer passent par le même chemin.
 
-### 🟠 P7-8. `PUT /api/meta` : écrasement total sans validation (pied de fusil)
+### 🟠 P7-8. `PUT /api/meta` : écrasement total sans validation (pied de fusil) ✅ corrigé (P9)
 - **Où** : `server/index.js:628` ; exposé par `src/api.js` (`putMeta`).
 - **Mécanisme** : `db.meta = { ...db.meta, ...body.meta }` — un seul corps
   malformé suffit à **écraser `extraProducts` / `productOverrides`** (produits
@@ -631,6 +633,63 @@ avec leur solution, non implémentés).
 - `npm run build` → OK (426,60 kB JS / 127,00 kB gzip).
 - E2E live : P7-1 démontré ci-dessus ; contrat 429 vérifié (16 requêtes).
 - i18n : couverture 0 clé manquante (2 nouvelles clés × 3 langues).
+
+---
+
+## P9 — Correction des 5 bugs opérationnels (P7-4 → P7-8)
+
+### P7-4 — La « journée » du shop = date locale du client, unique référence
+- Nouveau helper pur `localDay()` (`src/orderLogic.js`) — date locale
+  `YYYY-MM-DD`, jamais UTC.
+- `reserve()` (`App.jsx`) envoie `day: localDay()` avec la commande ; la route
+  `POST /api/orders` (`server/index.js`) la transmet à `placeOrder` qui la
+  **valide** (`/^\d{4}-\d{2}-\d{2}$/`, repli date locale serveur sinon) et :
+  - la stocke sur la commande (`order.day`) ;
+  - l'intègre au **code** : `makeOrderCode(db, dayStr)` → `PS-<journée>-NNNN`
+    (la séquence continue sur cette journée).
+- `ordersToCsv` filtre sur `o.day` (repli `o.at` pour les commandes legacy).
+- `DeskPage` exporte avec `localDay()` (avant : `toISOString()` = UTC).
+- **Vérifié en live** : commande `day: 2027-01-05` → code `PS-20270105-0001`,
+  présente dans l'export `?day=2027-01-05`, absente de l'export du jour courant.
+- Tests : 5 cas (localDay, placeOrder day valide/invalide, séquence par
+  journée, CSV Oran 00h30 vs legacy).
+
+### P7-5 — `GET /api/meta` publique réduite aux panneaux
+- La route publique ne renvoie plus que `{ extraPanels, hiddenPanelIds }`
+  (les seuls champs consommés par le shop) — plus de fuite des fiches des
+  produits masqués (`extraProducts`), ni des `productOverrides`.
+- Méta complète : nouvelle route **`GET /api/master/meta`** (master only).
+- Tests E2E : publique = 2 clés seulement ; master 403 anonyme / 200 avec
+  override visible ; override invisible côté publique.
+
+### P7-6 — Beep comptoir : un seul `AudioContext` partagé
+- `deskBeep()` (module App.jsx) : contexte créé une fois à la demande,
+  `resume()` si « suspended » (politique autoplay), réutilisé à chaque bipe —
+  plus de plafond de ~6 contextes Chrome, plus de fuite.
+- (Non unit-testable : dépend `window.AudioContext` ; vérifié par le build +
+  la relecture — la logique de limite était purement cumulative avant.)
+
+### P7-7 — Backups bornés à 14, un seul chemin
+- `capBackups(dir, keep=14)` (`server/masterApi.js`) : supprime les plus
+  anciens (noms `store-<timestamp>` = triable chronologiquement).
+- `backupStore` l'appelle **à chaque backup** (timer 6 h, startup, endpoint
+  manuel) ; `scripts/backupDb.mjs` passe par le même chemin (plus de logique
+  dupliquée).
+- Tests : 3 cas (20→5 fichiers, sous la limite = 0 supprimé, 16 backups
+  successifs bornés à 14).
+
+### P7-8 — `PUT /api/meta` supprimé
+- La route (écrasement `db.meta = {...db.meta, ...body.meta}` sans validation)
+  et le client mort `api.putMeta` sont supprimés → **404**.
+- Les écritures existent déjà sur des routes validées : panneaux
+  (`PUT /api/master/panels`) et produits (`/api/master/products`).
+- Test E2E : PUT master **et** anonyme → 404.
+
+### Vérification P9
+- `npm test` → **101/101** (89 avant + 12 nouveaux).
+- `npm run build` → OK (426,85 kB JS / 127,10 kB gzip).
+- E2E live : P7-4 (code daté à la journée + CSV), P7-5 (meta publique
+  réduite / master 403+200), P7-8 (404).
 
 ---
 

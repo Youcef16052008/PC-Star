@@ -61,6 +61,18 @@ export function statusLabelKey(status) {
 }
 
 /**
+ * P9 (P7-4) : date LOCALE (YYYY-MM-DD) de `date` — unique référence de la
+ * « journée » du shop (création de commande + export CSV). Avant : le client
+ * envoyait la date UTC (toISOString) → décalage d'une heure par jour en Oran.
+ */
+export function localDay(date = new Date()) {
+  const y = date.getFullYear()
+  const m = String(date.getMonth() + 1).padStart(2, '0')
+  const d = String(date.getDate()).padStart(2, '0')
+  return `${y}-${m}-${d}`
+}
+
+/**
  * P8 (P7-2) : classification d'un échec de `api.postOrder`.
  * - 'offline'  : backend injoignable → SEUL cas où le repli local est légitime.
  * - 'stock'    : 409/rupture → message stock, stock actualisé.

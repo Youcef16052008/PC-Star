@@ -115,9 +115,8 @@ export async function getMeta() {
   return req('/api/meta')
 }
 
-export async function putMeta(meta) {
-  return req('/api/meta', { method: 'PUT', body: { meta } })
-}
+// P9 (P7-8) : putMeta supprimé — PUT /api/meta (écrasement total du meta
+// sans validation) n'existait plus ; rien ne l'appelait.
 
 export async function putPanels(meta) {
   return req('/api/master/panels', { method: 'PUT', body: meta })

@@ -8,13 +8,15 @@ import {
   buildPowerRecap,
   canTransition,
   checkStock,
+  localDay,
   makeOrderCode,
   nextLocalOrderCode,
   orderApiFailure,
   pickupForUser,
   BUILD_PRESETS
 } from './orderLogic.js'
-import { placeOrder, cancelOrder, liveStockOf, priceOf, purgeUser, setOrderStatus } from '../server/catalog.js'
+import { makeOrderCode as makeServerOrderCode, placeOrder, cancelOrder, liveStockOf, priceOf, purgeUser, setOrderStatus } from '../server/catalog.js'
+import { ordersToCsv } from '../server/masterApi.js'
 import { PRODUCTS } from './data.js'
 
 describe('order codes', () => {
@@ -288,5 +290,71 @@ describe('P8 (P7-3) — pickupForUser : reset au logout, reprise au login', () =
     const user = { name: 'Amina K.' }
     const prev = { name: '', phone: '0550123456', slot: 'S2', wilaya: 'Oran', payment: 'cash' }
     assert.equal(pickupForUser(user, prev, DEF).phone, '0550123456')
+  })
+})
+
+describe('P9 (P7-4) — la « journée » = date locale du client, partagée code+CSV', () => {
+  it('localDay : date locale YYYY-MM-DD (jamais UTC)', () => {
+    // 2026-09-11T23:30 UTC = 2026-09-12T00:30 à Oran (UTC+1) :
+    // le client oranaise DOIT produire 2026-09-12 (sa journée), pas 2026-09-11
+    assert.equal(localDay(new Date(2026, 8, 12, 0, 30)), '2026-09-12')
+    assert.equal(localDay(new Date(2026, 8, 1, 23, 59)), '2026-09-01')
+  })
+
+  it('placeOrder : body.day valide → stocké + intégré au code', () => {
+    const id = PRODUCTS[0].id
+    const db = { orders: [], stock: { [id]: 2 }, meta: {} }
+    const ok = placeOrder(
+      db,
+      {
+        name: 'T',
+        phone: '0550123456',
+        day: '2026-12-25',
+        items: [{ id, sku: 'X', name: 'P', qty: 1, price: 1000 }]
+      },
+      {}
+    )
+    assert.equal(ok.ok, true)
+    assert.equal(ok.order.day, '2026-12-25')
+    assert.equal(ok.order.code, 'PS-20261225-0001')
+  })
+
+  it('placeOrder : day invalide/absent → repli date locale serveur (jamais crash)', () => {
+    const id = PRODUCTS[0].id
+    const db = { orders: [], stock: { [id]: 2 }, meta: {} }
+    const ok = placeOrder(
+      db,
+      { name: 'T', phone: '0550123456', day: 'hack;drop', items: [{ id, sku: 'X', name: 'P', qty: 1, price: 1000 }] },
+      {}
+    )
+    assert.equal(ok.ok, true)
+    assert.match(ok.order.day, /^\d{4}-\d{2}-\d{2}$/)
+    assert.equal(ok.order.code.slice(3, 11), ok.order.day.replace(/-/g, ''))
+  })
+
+  it('makeOrderCode serveur : séquence continue sur la journée donnée', () => {
+    const db = {
+      orders: [
+        { code: 'PS-20261225-0001', at: 'x' },
+        { code: 'PS-20261225-0002', at: 'x' },
+        { code: 'PS-20261224-0099', at: 'x' }
+      ]
+    }
+    assert.equal(makeServerOrderCode(db, '2026-12-25'), 'PS-20261225-0003')
+  })
+
+  it('ordersToCsv : la commande oranaise de 00h30 reste dans SA journée (o.day)', () => {
+    // 00:30 le 26/12 à Oran (UTC+1) = 23:30 UTC le 25/12 — la date d'`at`
+    // (UTC) est trompeuse : seul o.day (date locale du client) est juste.
+    const orders = [
+      { code: 'PS-20261226-0001', day: '2026-12-26', at: '2026-12-25T23:30:00.000Z', name: 'A', phone: '0550000001' },
+      { code: 'PS-20261225-0002', at: '2026-12-25T12:00:00.000Z', name: 'B', phone: '0550000002' } // legacy : pas de day
+    ]
+    const csv26 = ordersToCsv(orders, { day: '2026-12-26' })
+    assert.match(csv26, /PS-20261226-0001/) // grâce à o.day (avant : perdue, at=25/12)
+    assert.doesNotMatch(csv26, /PS-20261225-0002/)
+    const csv25 = ordersToCsv(orders, { day: '2026-12-25' })
+    assert.match(csv25, /PS-20261225-0002/) // legacy : repli sur la date d'at
+    assert.doesNotMatch(csv25, /PS-20261226-0001/)
   })
 })

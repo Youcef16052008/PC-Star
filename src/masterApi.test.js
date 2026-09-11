@@ -1,6 +1,11 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
 import {
+  backupStore,
+  capBackups,
   createProduct,
   hideProductMaster,
   listMasterProducts,
@@ -129,5 +134,63 @@ describe('P8 (P7-1) — la vue master reflète les productOverrides', () => {
     const base = listMasterProducts(db).find((p) => p.id === 'gpu-4060')
     assert.equal(base.hidden, false)
     assert.ok(base.price > 0)
+  })
+})
+
+describe('P9 (P7-7) — bornage des backups (capBackups / backupStore)', () => {
+  function tmpDir() {
+    return fs.mkdtempSync(path.join(os.tmpdir(), 'pcstar-bk-'))
+  }
+
+  it('capBackups garde les N plus récents, supprime les plus anciens', () => {
+    const dir = tmpDir()
+    try {
+      // 20 backups horodatés croissants (tri lexicographique = chronologique)
+      for (let i = 1; i <= 20; i += 1) {
+        fs.writeFileSync(path.join(dir, `store-2026-09-01T10-00-${String(i).padStart(2, '0')}.json`), '{}')
+      }
+      const removed = capBackups(dir, 5)
+      const left = fs.readdirSync(dir).sort()
+      assert.equal(removed, 15)
+      assert.equal(left.length, 5)
+      // les 5 restants sont bien les plus récents (16..20)
+      assert.deepEqual(
+        left.map((f) => f.match(/(\d{2})\.json$/)[1]),
+        ['16', '17', '18', '19', '20']
+      )
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('capBackups : rien à supprimer si sous la limite', () => {
+    const dir = tmpDir()
+    try {
+      fs.writeFileSync(path.join(dir, 'store-a.json'), '{}')
+      fs.writeFileSync(path.join(dir, 'store-b.json'), '{}')
+      assert.equal(capBackups(dir, 14), 0)
+      assert.equal(fs.readdirSync(dir).length, 2)
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('backupStore applique le bornage automatiquement (plus de croissance infinie)', () => {
+    const dir = tmpDir()
+    const dbPath = path.join(dir, 'store.json')
+    fs.writeFileSync(dbPath, '{"ok":1}')
+    try {
+      // 16 backups successifs → le répertoire doit rester borné à 14
+      for (let i = 0; i < 16; i += 1) {
+        const dest = backupStore(dbPath, dir)
+        assert.ok(dest && fs.existsSync(dest))
+      }
+      const left = fs.readdirSync(dir).filter((f) => f.startsWith('store-2026') || f.startsWith('store-'))
+      // store.json (source) + les 14 backups bornés au maximum
+      const backups = left.filter((f) => f !== 'store.json')
+      assert.ok(backups.length <= 14, `attend <=14 backups, obtenu ${backups.length}`)
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true })
+    }
   })
 })

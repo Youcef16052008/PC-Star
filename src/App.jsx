@@ -29,7 +29,7 @@ import MasterPage from './MasterPage.jsx'
 import DeskPage from './DeskPage.jsx'
 import ProductPage from './ProductPage.jsx'
 import LegalPage from './LegalPage.jsx'
-import { nextLocalOrderCode, orderApiFailure, pickupForUser } from './orderLogic.js'
+import { localDay, nextLocalOrderCode, orderApiFailure, pickupForUser } from './orderLogic.js'
 import { t as translate, LANGS, langMeta } from './i18n.js'
 import {
   applyDocumentChrome,
@@ -85,6 +85,30 @@ const BASE_PANELS = [
   { id: 'desk', titleKey: 'panelDesk' },
   { id: 'accessories', titleKey: 'panelAccessories' }
 ]
+
+// P9 (P7-6) : UN SEUL AudioContext partagé (créé à la demande), réutilisé à
+// chaque bipe. Avant : `new AudioContext()` par commande — Chrome plafonne à
+// ~6 contextes actifs par page, au-delà plus aucun son + fuite mémoire.
+let deskAudioCtx = null
+function deskBeep() {
+  try {
+    const AC = window.AudioContext || window.webkitAudioContext
+    if (!AC) return
+    if (!deskAudioCtx || deskAudioCtx.state === 'closed') deskAudioCtx = new AC()
+    // autoplay : un contexte peut naître « suspended » → le réveiller.
+    if (deskAudioCtx.state === 'suspended') deskAudioCtx.resume()
+    const o = deskAudioCtx.createOscillator()
+    const g = deskAudioCtx.createGain()
+    o.connect(g)
+    g.connect(deskAudioCtx.destination)
+    o.frequency.value = 880
+    g.gain.value = 0.04
+    o.start()
+    o.stop(deskAudioCtx.currentTime + 0.12)
+  } catch {
+    /* ignore */
+  }
+}
 
 function stockLabel(n, t) {
   if (n <= 0) return { text: t('outOfStock'), cls: 'stock-out' }
@@ -459,19 +483,7 @@ export default function App() {
       if (cancelled || !r.ok || !Array.isArray(r.data?.orders)) return
       const next = r.data.orders
       if (prevOrderCount.current && next.length > prevOrderCount.current && page === 'desk') {
-        try {
-          const ctx = new (window.AudioContext || window.webkitAudioContext)()
-          const o = ctx.createOscillator()
-          const g = ctx.createGain()
-          o.connect(g)
-          g.connect(ctx.destination)
-          o.frequency.value = 880
-          g.gain.value = 0.04
-          o.start()
-          o.stop(ctx.currentTime + 0.12)
-        } catch {
-          /* ignore */
-        }
+        deskBeep() // P9 (P7-6) : contexte unique partagé, jamais de leak
         setToast(t('deskNewOrder'))
       }
       prevOrderCount.current = next.length
@@ -637,6 +649,9 @@ export default function App() {
       phone: normalizePhone(pickup.phone),
       carrier: phoneCarrier(pickup.phone),
       wilaya: pickup.wilaya,
+      // P9 (P7-4) : « journée » = date LOCALE du client (Oran) — le serveur
+      // l'intègre au code de commande et à l'export CSV (plus de décalage UTC).
+      day: localDay(new Date()),
       payment: 'cash',
       slot: pickup.slot,
       items: cart.map((i) => ({

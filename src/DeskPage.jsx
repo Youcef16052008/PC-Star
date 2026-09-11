@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { money } from './data.js'
-import { statusLabelKey } from './orderLogic.js'
+import { localDay, statusLabelKey } from './orderLogic.js'
 import * as api from './api.js'
 
 const FILTERS = ['all', 'new', 'preparing', 'ready', 'picked', 'cancelled']
@@ -111,9 +111,11 @@ export default function DeskPage({ t, lang, reservations, onStatus, setToast }) 
           <button
             type="button"
             className="btn btn-sm btn-outline-secondary"
-            onClick={async () => {
-              const day = new Date().toISOString().slice(0, 10)
-              const r = await api.downloadOrdersCsv(day)
+              onClick={async () => {
+                // P9 (P7-4) : date LOCALE (avant : UTC → les commandes de
+                // 00:00–01:00 en Oran n'apparaissaient pas dans « aujourd'hui »)
+                const day = localDay(new Date())
+                const r = await api.downloadOrdersCsv(day)
               if (!r.ok) setToast?.(t('deskStatusFail'))
               else setToast?.(t('deskExportOk'))
             }}

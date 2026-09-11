@@ -101,8 +101,14 @@ export function placeOrder(db, body, { userId = null } = {}) {
 
   const total = normalized.reduce((s, i) => s + i.qty * i.price, 0)
 
+  // P9 (P7-4) : « journée » = date LOCALE du client (Oran), validée côté
+  // serveur ; le code de commande et l'export CSV partagent cette date
+  // (avant : date locale du serveur = UTC sur Vercel → décalage 1 h).
+  const day = /^\d{4}-\d{2}-\d{2}$/.test(String(body.day || '')) ? String(body.day) : localDayOf(new Date())
+
   const order = {
-    code: makeOrderCode(db),
+    code: makeOrderCode(db, day),
+    day,
     name: String(body.name || '').trim(),
     phone: String(body.phone || ''),
     carrier: body.carrier || null,
@@ -119,12 +125,27 @@ export function placeOrder(db, body, { userId = null } = {}) {
   return { ok: true, order }
 }
 
-export function makeOrderCode(db) {
-  const d = new Date()
+/** Date locale (YYYY-MM-DD) d'un Date — équivalent serveur de `localDay`. */
+function localDayOf(d) {
   const y = d.getFullYear()
   const m = String(d.getMonth() + 1).padStart(2, '0')
   const day = String(d.getDate()).padStart(2, '0')
-  const prefix = `PS-${y}${m}${day}-`
+  return `${y}-${m}-${day}`
+}
+
+/**
+ * P9 (P7-4) : code PS-YYYYMMDD-NNNN daté à la « journée » de la commande
+ * (date locale du client transmise par `placeOrder`, sinon date locale du
+ * serveur). `dayStr` : 'YYYY-MM-DD' valide.
+ */
+export function makeOrderCode(db, dayStr) {
+  let prefix
+  if (/^\d{4}-\d{2}-\d{2}$/.test(String(dayStr || ''))) {
+    prefix = `PS-${String(dayStr).replace(/-/g, '')}-`
+  } else {
+    const d = new Date()
+    prefix = `PS-${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}-`
+  }
   const sameDay = (db.orders || []).filter((o) => String(o.code || '').startsWith(prefix)).length
   const seq = String(sameDay + 1).padStart(4, '0')
   return `${prefix}${seq}`

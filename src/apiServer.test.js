@@ -268,3 +268,75 @@ describe('routes (P2) — handler HTTP réel', () => {
     assert.equal(after.status, 401)
   })
 })
+
+describe('P9 — bugs opérationnels (P7-4 / P7-5 / P7-8)', () => {
+  it('P7-5 : GET /api/meta publique = panneaux uniquement (plus de fuite produits)', async () => {
+    const meta = await call('GET', '/api/meta')
+    assert.equal(meta.status, 200)
+    const m = meta.data.meta
+    // seuls les champs consommés par le shop
+    assert.ok(Array.isArray(m.extraPanels))
+    assert.ok(Array.isArray(m.hiddenPanelIds))
+    // et RIEN d'autre : plus de fiches de produits masqués ni d'overrides
+    assert.equal(m.extraProducts, undefined)
+    assert.equal(m.productOverrides, undefined)
+    assert.equal(m.hiddenProductIds, undefined)
+  })
+
+  it('P7-5 : GET /api/master/meta = méta complète, master only', async () => {
+    const anon = await call('GET', '/api/master/meta')
+    assert.equal(anon.status, 403)
+    const master = await call('POST', '/api/auth/login', {
+      body: { email: 'pcstar.info31@gmail.com', password: 'star31' }
+    })
+    // un override existe → observable dans le meta complet…
+    const put = await call('PUT', '/api/master/products/cpu-5600', {
+      token: master.data.token,
+      body: { short: 'visible seulement au master ici' }
+    })
+    assert.equal(put.status, 200)
+    const full = await call('GET', '/api/master/meta', { token: master.data.token })
+    assert.equal(full.status, 200)
+    assert.ok(full.data.meta.hiddenProductIds !== undefined)
+    assert.ok(full.data.meta.productOverrides['cpu-5600'], 'override visible en master')
+    // …et toujours invisible via la route publique
+    const pub = await call('GET', '/api/meta')
+    assert.equal(pub.data.meta.productOverrides, undefined)
+    assert.equal(pub.data.meta.hiddenProductIds, undefined)
+  })
+
+  it('P7-8 : PUT /api/meta supprimé (plus d\'écrasement du meta)', async () => {
+    const master = await call('POST', '/api/auth/login', {
+      body: { email: 'pcstar.info31@gmail.com', password: 'star31' }
+    })
+    const put = await call('PUT', '/api/meta', { token: master.data.token, body: { meta: { hiddenPanelIds: ['desk'] } } })
+    assert.equal(put.status, 404)
+    // même sans auth → 404 (la route n'existe plus, pas un 403)
+    const putAnon = await call('PUT', '/api/meta', { body: { meta: {} } })
+    assert.equal(putAnon.status, 404)
+  })
+
+  it('P7-4 : commande avec « journée » locale → code daté à cette journée + CSV cohérent', async () => {
+    const master = await call('POST', '/api/auth/login', {
+      body: { email: 'pcstar.info31@gmail.com', password: 'star31' }
+    })
+    // journée future fixe : le code DOIT porter cette date (pas la date serveur)
+    const day = '2027-01-05'
+    const ok = await call('POST', '/api/orders', {
+      body: {
+        name: 'Jour Test',
+        phone: '0550999888',
+        day,
+        wilaya: 'Oran',
+        slot: '14:00',
+        items: [{ id: 'ssd-1t', sku: 'ssd-1t', name: 'SSD 1 To', qty: 1, price: 9900 }]
+      }
+    })
+    assert.equal(ok.status, 201)
+    assert.equal(ok.data.order.day, day)
+    assert.ok(ok.data.order.code.startsWith('PS-20270105-'), `code = ${ok.data.order.code}`)
+    // annulée pour ne pas polluer le stock
+    const cancel = await call('POST', `/api/orders/${ok.data.order.code}/cancel`, { token: master.data.token })
+    assert.equal(cancel.status, 200)
+  })
+})
