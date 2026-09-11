@@ -28,8 +28,13 @@ export function ensureUploadDir() {
 export function listMasterProducts(db) {
   ensureStock(db)
   const hidden = new Set(db.meta?.hiddenProductIds || [])
+  // P8 (P7-1) : la vue master doit refléter les overrides (prix/nom/stock/
+  // photos) exactement comme le catalogue public — sinon le master édite des
+  // valeurs obsolètes (et le panneau photos écrase les uploads).
+  const overrides = db.meta?.productOverrides || {}
   const base = PRODUCTS.map((p) => ({
     ...p,
+    ...(overrides[p.id] || {}),
     stock: liveStockOf(db, p.id),
     hidden: hidden.has(p.id),
     source: 'catalog'

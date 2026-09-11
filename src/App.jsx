@@ -29,7 +29,7 @@ import MasterPage from './MasterPage.jsx'
 import DeskPage from './DeskPage.jsx'
 import ProductPage from './ProductPage.jsx'
 import LegalPage from './LegalPage.jsx'
-import { makeOrderCode } from './orderLogic.js'
+import { nextLocalOrderCode, orderApiFailure, pickupForUser } from './orderLogic.js'
 import { t as translate, LANGS, langMeta } from './i18n.js'
 import {
   applyDocumentChrome,
@@ -68,6 +68,15 @@ function loadCartFor(st, uid) {
   } catch {
     return []
   }
+}
+
+/** P8 (P7-3) : formulaire de retrait — valeurs vides d'origine. */
+const PICKUP_DEFAULTS = {
+  name: '',
+  phone: '',
+  slot: SLOTS[2],
+  wilaya: 'Oran',
+  payment: 'cash'
 }
 
 const BASE_PANELS = [
@@ -123,13 +132,9 @@ export default function App() {
   const [query, setQuery] = useState('')
   const [cart, setCartState] = useState(() => loadCartFor(storage, loadSession(storage)?.userId))
   const [toast, setToast] = useState('')
-  const [pickup, setPickup] = useState({
-    name: '',
-    phone: '',
-    slot: SLOTS[2],
-    wilaya: 'Oran',
-    payment: 'cash'
-  })
+  // P8 (P7-3) : état vide du formulaire de retrait — unique source, réutilisé
+  // au logout pour ne JAMAIS laisser les infos du client précédent.
+  const [pickup, setPickup] = useState(PICKUP_DEFAULTS)
   const [phoneErr, setPhoneErr] = useState('')
   const [reservations, setReservations] = useState(() => loadOrders(storage))
   const [reserved, setReserved] = useState(null)
@@ -441,13 +446,9 @@ export default function App() {
   // ni les infos du précédent).
   useEffect(() => {
     setCartState(loadCartFor(storage, authId))
-    if (!user) return
-    setPickup((p) => ({
-      ...p,
-      name: user.name || p.name,
-      phone: user.phone || p.phone,
-      wilaya: user.wilaya || p.wilaya
-    }))
+    // P8 (P7-3) : sans compte → formulaire VIDE (plus les nom/tél du client
+    // précédent) ; avec compte → reprise depuis le profil.
+    setPickup((p) => pickupForUser(user, p, PICKUP_DEFAULTS))
   }, [authId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
@@ -661,11 +662,25 @@ export default function App() {
         await refreshStock()
         return
       }
-      if (r.status === 409 || r.data?.error === 'stock') {
+      // P8 (P7-2) : seul un échec OFFLINE (backend injoignable) déclenche le
+      // repli local — un 429 (rate-limit) ou un 5xx est signalé honnêtement,
+      // le panier reste intact (avant : repli local silencieux = commande
+      // invisible au shop + code en collision avec le serveur).
+      const fail = orderApiFailure(r)
+      if (fail.kind === 'stock') {
         setToast(t('stockShort'))
         await refreshStock()
         return
       }
+      if (fail.kind === 'rate') {
+        setToast(t('orderRateLimit', { n: fail.retryAfter || 60 }))
+        return
+      }
+      if (fail.kind === 'server') {
+        setToast(t('orderServerError'))
+        return
+      }
+      // fail.kind === 'offline' → repli local ci-dessous
     }
 
     // Local fallback — still decrement local stockMap view
@@ -687,7 +702,10 @@ export default function App() {
       return next
     })
     const order = {
-      code: makeOrderCode(new Date(), reservations.length + 1),
+      // P8 (P7-2) : séquence = max des codes locaux du jour + 1 (jamais
+      // `reservations.length + 1`) → plus de collision si la liste client est
+      // partielle.
+      code: nextLocalOrderCode(reservations.map((o) => o.code)),
       ...base,
       status: 'new',
       at: new Date().toISOString()

@@ -14,7 +14,8 @@ commit. Une **6e phase (P6)** a traité les 7 bugs reportés en conditions réel
 | P4 | `5d6f736` | B10, B17 | Durcissement Vercel |
 | P5 | `823df13` | B11, B12, B14, B15, B16, B19, B20, B21 | Mineurs & nettoyage |
 | P6 | (11/09) | C1–C7 | Bugs terrain & gestion des commandes |
-| P7 | (11/09) | P7-1 → P7-18 | 2ᵉ audit complet : bugs identifiés + solutions conçues (**non implémentés**) |
+| P7 | (11/09) | P7-1 → P7-18 | 2ᵉ audit complet : bugs identifiés + solutions conçues |
+| P8 | (11/09) | P7-1, P7-2, P7-3 | Correction des 3 bugs critiques 🔴 (les P7-4→P7-18 restent à traiter) |
 
 L'audit initial et le plan détaillé : [`AUDIT-REPO.md`](./AUDIT-REPO.md).
 B18/B22/B23 : jugés **non-bugs** (contraintes de conception démo, documentées).
@@ -362,14 +363,14 @@ ciblées, chaque flux re-vérifié **en live** (API réelle) et en E2E jsdom (Vi
 
 Nouveau passage **ligne par ligne, fichier par fichier** (`src/*`, `server/*`,
 configs, scripts) après la P6. **18 bugs** identifiés et hiérarchisés, chacun avec
-sa solution conçue — **aucun n'est implémenté** (sur demande : trouver les bugs
-+ leurs solutions, pas les corriger). Les références `fichier:ligne` pointent le
-commit `7e9b5e7`.
+sa solution conçue. Les 3 critiques 🔴 (**P7-1, P7-2, P7-3**) ont été **corrigés
+en P8** ; les 15 autres (🟠/🟡/⚪) restent identifiés avec leur solution, à
+traiter si demandé. Les références `fichier:ligne` pointent le commit `7e9b5e7`.
 
 Priorité : 🔴 = intégrité de données / argent / vie privée · 🟠 = justesse
 opérationnelle · 🟡 = robustesse · ⚪ = cosmétique / contrainte documentée.
 
-### 🔴 P7-1. Vue master ignorée par les overrides — affichage obsolète + édition destructrice
+### 🔴 P7-1. Vue master ignorée par les overrides — affichage obsolète + édition destructrice ✅ corrigé (P8)
 - **Où** : `server/masterApi.js:28` (`listMasterProducts`).
 - **Mécanisme** : la liste master ne merge pas `db.meta.productOverrides` sur les
   produits du catalogue de base. Après `PUT /api/master/products/:id` (prix, nom,
@@ -387,7 +388,7 @@ opérationnelle · 🟡 = robustesse · ⚪ = cosmétique / contrainte document�
   `PUT` prix/override → `GET /api/master/products` renvoie la valeur override ;
   le panneau photos master doit afficher les photos uploadées.
 
-### 🔴 P7-2. Panier : échec API 429/5xx → repli local silencieux + code de commande en collision
+### 🔴 P7-2. Panier : échec API 429/5xx → repli local silencieux + code de commande en collision ✅ corrigé (P8)
 - **Où** : `src/App.jsx:626` (`reserve()`), repli local ~L663-690.
 - **Mécanisme** : après `api.postOrder`, seuls `r.ok` et `409/stock` traitent ;
   un **429** (rate-limit : 15 cmd/min par IP — partagé entre l'iframe de preview,
@@ -405,7 +406,7 @@ opérationnelle · 🟡 = robustesse · ⚪ = cosmétique / contrainte document�
   ou dériver la séquence du max des codes du jour déjà présents (client +
   serveur), jamais `length + 1`.
 
-### 🔴 P7-3. Formulaire de retrait non réinitialisé au logout (PII entre comptes)
+### 🔴 P7-3. Formulaire de retrait non réinitialisé au logout (PII entre comptes) ✅ corrigé (P8)
 - **Où** : `src/App.jsx:438` (effet `[authId]`).
 - **Mécanisme** : `if (!user) return` — à la déconnexion l'effet charge le panier
   guest mais **ne vide pas `pickup`** : nom, téléphone, wilaya du client
@@ -580,6 +581,56 @@ conservées `userId=null`), `updateProduct` (merge, pas écrasement),
 `savePhotoDataUrls`/`unlinkUpload` (bornés, anti-traversal), `hashPass` scrypt +
 legacy, `canTransition`, `checkCompatibility`, `photoCompress`, `.gitignore`
 (`server/data/` hors git), sitemap/robots.
+
+---
+
+## P8 — Correction des 3 bugs critiques (P7-1, P7-2, P7-3)
+
+Sur demande : correction des 🔴 uniquement (les P7-4→P7-18 restent documentés
+avec leur solution, non implémentés).
+
+### P7-1 — `listMasterProducts` merge `productOverrides` (`server/masterApi.js`)
+- Pour chaque produit du catalogue de base : `{ ...p, ...(overrides[p.id] || {}),
+  stock: liveStockOf(db, p.id), hidden, source }` — la vue master affiche
+  désormais **exactement** les valeurs du public (prix, nom, photos…) + les
+  flags serveur (`stock` live, `hidden`), jamais l'inverse.
+- Le panneau « Éditer les photos » de MasterPage part donc de la bonne liste :
+  plus d'écrasement des photos uploadées par les photos de base.
+- **Vérifié en live** : `PUT price=99999,name=RYZEN TEST` → public **et** master
+  affichent `99999 | RYZEN TEST` (avant : master restait `24500`) ; reset propre.
+- Tests : 3 cas dans `src/masterApi.test.js` (prix/nom, photos, et
+  stock/hidden non écrasés par l'override).
+
+### P7-2 — Repli local uniquement en offline + code sans collision (`src/App.jsx`, `src/orderLogic.js`)
+- Nouveau helper pur `orderApiFailure(r)` (`orderLogic.js`) : classifie l'échec
+  `postOrder` en `offline | stock | rate | server`.
+- `reserve()` : seul `offline` (backend injoignable) déclenche le repli local.
+  - **429** → toast « Trop de commandes — réessayez dans N s » (`retryAfter`
+    serveur, clé i18n `orderRateLimit` ar/fr/en) ;
+  - **5xx/autre** → toast « Serveur momentanément indisponible » (clé
+    `orderServerError`) ;
+  - **panier conservé** dans les deux cas (aucune commande fantôme locale).
+- Code local : `nextLocalOrderCode(codes)` = **max des codes du jour + 1**
+  (jamais `reservations.length + 1`) → plus de collision quand la liste client
+  est partielle.
+- Tests : 11 cas (`orderApiFailure` ×4, `nextLocalOrderCode` ×4, dont « liste
+  partielle »). Contrat 429 vérifié en live : 16ᵉ commande/min →
+  `429 {error:'rate', retryAfter:60}`.
+
+### P7-3 — Formulaire de retrait vidé au logout (`src/App.jsx`, `src/orderLogic.js`)
+- Nouveau helper pur `pickupForUser(user, prev, defaults)` : `user` absent →
+  `defaults` (état vide : nom/tél vides, slot par défaut, wilaya Oran, cash) ;
+  compte → reprise nom/tél/wilaya du profil, **slot/payment conservés**.
+- `PICKUP_DEFAULTS` unique source (module App.jsx), utilisé à l'init **et** à
+  chaque changement de compte (login, logout, switch).
+- Tests : 3 cas (reset complet au logout, reprise login + slot conservé,
+  téléphone absent conservé).
+
+### Vérification P8
+- `npm test` → **89/89** (75 avant + 14 nouveaux).
+- `npm run build` → OK (426,60 kB JS / 127,00 kB gzip).
+- E2E live : P7-1 démontré ci-dessus ; contrat 429 vérifié (16 requêtes).
+- i18n : couverture 0 clé manquante (2 nouvelles clés × 3 langues).
 
 ---
 

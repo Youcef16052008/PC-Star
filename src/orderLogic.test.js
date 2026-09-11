@@ -9,6 +9,9 @@ import {
   canTransition,
   checkStock,
   makeOrderCode,
+  nextLocalOrderCode,
+  orderApiFailure,
+  pickupForUser,
   BUILD_PRESETS
 } from './orderLogic.js'
 import { placeOrder, cancelOrder, liveStockOf, priceOf, purgeUser, setOrderStatus } from '../server/catalog.js'
@@ -223,5 +226,67 @@ describe('purgeUser (B13)', () => {
     assert.equal(purgeUser(db, 'm').ok, false)
     assert.equal(purgeUser(db, 'inconnu').ok, false)
     assert.equal(db.users.length, 1)
+  })
+})
+
+describe('P8 (P7-2) — orderApiFailure : seul l\'offline justifie le repli local', () => {
+  it('offline (backend injoignable) → repli local', () => {
+    assert.equal(orderApiFailure({ ok: false, status: 0, data: null, offline: true }).kind, 'offline')
+    assert.equal(orderApiFailure(null).kind, 'offline')
+  })
+  it('409 / stock → stock (pas de repli)', () => {
+    assert.equal(orderApiFailure({ ok: false, status: 409, data: { error: 'stock', shortages: [{ id: 'x' }] } }).kind, 'stock')
+    assert.equal(orderApiFailure({ ok: false, status: 500, data: { error: 'stock' } }).kind, 'stock')
+  })
+  it('429 → rate avec retryAfter (pas de repli)', () => {
+    const r = orderApiFailure({ ok: false, status: 429, data: { error: 'rate', retryAfter: 42 } })
+    assert.equal(r.kind, 'rate')
+    assert.equal(r.retryAfter, 42)
+  })
+  it('5xx / 4xx divers → server (pas de repli)', () => {
+    assert.equal(orderApiFailure({ ok: false, status: 500, data: { error: 'server' } }).kind, 'server')
+    assert.equal(orderApiFailure({ ok: false, status: 502, data: null }).kind, 'server')
+    assert.equal(orderApiFailure({ ok: false, status: 400, data: { error: 'phone' } }).kind, 'server')
+  })
+})
+
+describe('P8 (P7-2) — nextLocalOrderCode : séquence sans collision', () => {
+  const d = new Date('2026-09-11T10:00:00')
+  it('aucune commande du jour → 0001', () => {
+    assert.equal(nextLocalOrderCode([], d), 'PS-20260911-0001')
+  })
+  it('max du jour + 1 (jamais length + 1)', () => {
+    assert.equal(nextLocalOrderCode(['PS-20260911-0007', 'PS-20260911-0002'], d), 'PS-20260911-0008')
+  })
+  it('liste partielle : le trou (0003 manquant) ne provoque aucune collision', () => {
+    // le serveur a fait 0001..0005, le client ne voit que 0001 et 0004
+    assert.equal(nextLocalOrderCode(['PS-20260911-0001', 'PS-20260911-0004'], d), 'PS-20260911-0005')
+  })
+  it('les autres jours / formats sont ignorés', () => {
+    assert.equal(nextLocalOrderCode(['PS-20260910-0099', 'ABC', 'PS-20260911-0001'], d), 'PS-20260911-0002')
+  })
+})
+
+describe('P8 (P7-3) — pickupForUser : reset au logout, reprise au login', () => {
+  const DEF = { name: '', phone: '', slot: 'S2', wilaya: 'Oran', payment: 'cash' }
+  it('pas de compte → valeurs vides (plus les infos du précédent)', () => {
+    const prev = { name: 'Karim B.', phone: '0550123456', slot: 'S1', wilaya: 'Oran', payment: 'cash' }
+    assert.deepEqual(pickupForUser(null, prev, DEF), DEF)
+  })
+  it('compte → reprise profil, slot conservé', () => {
+    const user = { name: 'Amina K.', phone: '0669174617', wilaya: 'Oran' }
+    const prev = { name: 'Karim B.', phone: '0550123456', slot: 'S1', wilaya: 'Sétif', payment: 'cash' }
+    assert.deepEqual(pickupForUser(user, prev, DEF), {
+      name: 'Amina K.',
+      phone: '0669174617',
+      slot: 'S1',
+      wilaya: 'Oran',
+      payment: 'cash'
+    })
+  })
+  it('compte sans téléphone → téléphone précédent conservé', () => {
+    const user = { name: 'Amina K.' }
+    const prev = { name: '', phone: '0550123456', slot: 'S2', wilaya: 'Oran', payment: 'cash' }
+    assert.equal(pickupForUser(user, prev, DEF).phone, '0550123456')
   })
 })
