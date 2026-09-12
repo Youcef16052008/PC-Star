@@ -36,7 +36,9 @@ const results = await Promise.all(
   })
 )
 
-assert.equal(results.filter((r) => r?.ok).length, 1, JSON.stringify(results))
+console.log('Concurrent reservation results:', JSON.stringify(results))
+const accepted = results.filter((r) => r?.ok).length
+assert.equal(accepted, 1, JSON.stringify(results))
 const finalDb = await readDbAsync()
 assert.equal(finalDb.stock[productId], 0)
 console.log('NEON CONCURRENCY OK: exactly one reservation accepted; stock=0')
