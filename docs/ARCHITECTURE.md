@@ -29,7 +29,7 @@ Vue d'ensemble du système : **front SPA React** / **API Node (serverless-ready)
         /api/(.*) → /api   ·  SPA → /index.html                 │
                                          ▼                      ▼
         ┌──────────────────────────────────────────┐   ┌────────────────────────┐
-        │  API Node 20 — server/index.js (673 L)   │   │  STATIC (repo → build) │
+        │  API Node 20 — server/index.js (767 L)   │   │  STATIC (repo → build) │
         │  node:http, zéro framework, serverless-  │   │  dist/ (Vite)          │
         │  ready (VERCEL_URL, req.body préparsé)   │   │  public/photos/        │
         ├──────────────────────────────────────────┤   │  · lib/   105 shots    │
@@ -51,7 +51,7 @@ Vue d'ensemble du système : **front SPA React** / **API Node (serverless-ready)
         └──────────────────────────────────────────┘
 ```
 
-**Principe directeur :** le catalogue est **statique** (250 SKUs dans `src/data.js`, images dans le repo) → persiste sur Vercel sans base. La **donnée volatile** (users, orders, overrides stock, produits ajoutés) vit dans `store.json` → éphémère sur Vercel Hobby, durable en local. Le code est découpé pour brancher KV/Turso/Blob sans réécrire (`server/db.js` isole le fichier).
+**Principe directeur :** le catalogue est **statique** (251 SKU de base / 249 publics quand speakers est en rupture dans `src/data.js`, images dans le repo) → persiste sur Vercel sans base. La **donnée volatile** (users, orders, overrides stock, produits ajoutés) vit dans `store.json` → éphémère sur Vercel Hobby, durable en local. Le code est découpé pour brancher KV/Turso/Blob sans réécrire (`server/db.js` isole le fichier).
 
 ---
 
@@ -59,8 +59,8 @@ Vue d'ensemble du système : **front SPA React** / **API Node (serverless-ready)
 
 | Fichier | Rôle |
 |---------|------|
-| `App.jsx` (1369 L) | Shell : nav, thème, langue, session, cart, résa, toast, API vs local |
-| `data.js` (866 L) | **Catalogue 250 SKUs** (core + EXTRA + DZ_EXTRA), prix DA, specs, `specOf()` |
+| `App.jsx` (1526 L) | Shell : nav, thème, langue, session, cart, résa, toast, API vs local |
+| `data.js` (830 L) | **Catalogue 251 SKU de base / 249 publics quand speakers est en rupture** (core + EXTRA + DZ_EXTRA), prix DA, specs, `specOf()` |
 | `dzCatalog.js` | Marques marché algérien, guides, deals, wilayas, hints paiement |
 | `extraCatalog.js` | SKUs supplémentaires (combos, services) |
 | `productPhotos.js` | **3 photos/SKU déterministes** (hash id → rotation d'un pool par famille) |
@@ -69,7 +69,7 @@ Vue d'ensemble du système : **front SPA React** / **API Node (serverless-ready)
 | `shopStore.js` | État boutique + fallback localStorage (`○ local`) |
 | `media.js` | `specRows()` (table PDP), `relatedProducts()` (scoring compat + stock) |
 | `BuilderPage.jsx` | Config PC : socket/mémoire/form factor, wattage, alertes surchauffe, presets |
-| `SearchPage.jsx` | Filtres ligne/marque/prix, offcanvas mobile, 250 SKUs |
+| `SearchPage.jsx` | Filtres ligne/marque/prix, offcanvas mobile, 251 SKU de base / 249 publics quand speakers est en rupture |
 | `ProductPage.jsx` | PDP : galerie, zoom, specs, CTA sticky mobile, photos lazy + skeleton |
 | `DeskPage.jsx` | Comptoir : résas, filtres statut, poll 20 s + beep + toast, print CSS, WA |
 | `MasterPage.jsx` | Admin : CRUD produits, masquer, photos, clients, backup, CSV |
@@ -132,7 +132,7 @@ Un seul fichier d'entrée `server/index.js` (routeur `node:http`), modules dédi
 
 | Pool | Fichiers | Usage |
 |------|---------:|-------|
-| `lib/` | 105 | shots famille (cpu-1..3, gpu-local-1..2, kb-1..3, …) — attribués aux 250 SKUs |
+| `lib/` | 105 | shots famille (cpu-1..3, gpu-local-1..2, kb-1..3, …) — attribués aux 251 SKU de base / 249 publics quand speakers est en rupture |
 | `sku/` | 753 | shots par SKU (`{id}-1…3.jpg`) pour les produits prioritaires |
 | legacy racine | 56 | `.jpg`/`.png` historiques (case, chair, cooler, …) |
 | `uploads/` | — | photos master upload (dataURL) |

@@ -17,7 +17,7 @@
   2. clés OAuth live si passage en `OAUTH_DEMO=0` (Google/Meta déjà câblés),
   3. persistance cloud (Vercel KV / Turso) pour des orders survivant aux cold starts,
   4. mesure Lighthouse en prod HTTPS (cible Perf mobile ≥ 90).
-- **Cas d’usage Oran : exploitable** — catalogue 250 SKUs persistant, stock API multi-écrans, desk comptoir, AR/FR/EN, HTTPS sur Vercel sans VPS.
+- **Cas d’usage Oran : exploitable** — catalogue 251 SKU de base persistant, stock API multi-écrans, desk comptoir, AR/FR/EN, HTTPS sur Vercel sans VPS.
 - Lire aussi : [PORTFOLIO.md](PORTFOLIO.md) · [PROBLEMS-SOLUTIONS.md](PROBLEMS-SOLUTIONS.md) · [ARCHITECTURE.md](ARCHITECTURE.md) · [README.md](README.md) (index doc).
 
 ---
@@ -41,7 +41,7 @@ client trouve un produit → construit un PC compatible → réserve en espèces
 
 ## Phase 0 — Baseline (fait)
 
-- [x] 250 SKUs, 3 photos/SKU
+- [x] 251 SKU de base, 3 photos/SKU
 - [x] Cash-only pickup Oran
 - [x] Builder + compat
 - [x] Comptes + master desk

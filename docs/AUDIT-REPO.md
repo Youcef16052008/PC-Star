@@ -1,16 +1,16 @@
-# Audit complet du repository PC Star — 10/09/2026
+# Audit complet du repository PC Star — 11/09/2026
 
 Audit ligne par ligne, fichier par fichier : `src/*` (21 fichiers), `server/*` (7), `api/*` (1),
 `scripts/*` (4), config (`index.html`, `vite.config.js`, `vercel.json`, `.gitignore`, `.env.example`,
 `.vercelignore`, `package.json`), 5 fichiers de test, 1800 photos (`public/photos`).
 
 **Vérifications exécutées pendant l'audit :**
-- `npm test` → **34/34 OK** (node:test)
+- `npm test` → **113/113 OK** (node:test)
 - `npm run build` → OK (395.9 kB JS / 118 kB gzip)
-- `npm run smoke` (e2e live : health, catalogue 250, login, commande PS-20260910-0001, me-orders, master, OAuth, front, robots) → **OK**
+- `npm run smoke` (e2e live : health, catalogue 249 public, login, commande PS-20260910-0001, me-orders, master, OAuth, front, robots) → **OK**
 - Créé un produit en live via l'API master (`TEST AUDIT`, stock 7) → bien servi par `/api/catalog` (stock correct, route `/api/upload-file` présente)
 - i18n : 239 clés statiques + toutes les clés dynamiques (`cat_*`, `line_*`, `tag_*`) → **complètes en ar/fr/en**
-- Catalogue : 250 SKUs, aucun `related` orphelin, ids des presets builder existent, 1800 photos présentes
+- Catalogue : 251 SKU de base / 249 publics en smoke, les tests de compatibilité et les références liées passent, ids des presets builder existent, 1800 photos présentes
 - PartThumb (fallback webp→jpg), placeOrder (réservation atomique + rollback), codes `PS-YYYYMMDD-XXXX`, CSV, backup, rate-limit, OAuth démo → **corrects**
 
 **Invalides (vérifiés, ce ne sont PAS des bugs) :**
@@ -300,7 +300,7 @@ testable indépendamment.
   photoCompress), build OK (CSS en bundle `dist/assets/index-*.css`, 0 ref jsdelivr),
   smoke OK, upload live via API (2 photos JPEG → 201, fichiers servis).
 - **P5 — Fait** (commit `823df13`) : B11, B12, B14, B15, B16, B19, B20, B21 (mineurs & nettoyage).
-  `npm test` **71/71** (7 nouveaux : `uploadFlow.test.js` — id pré-généré, zéro `tmp-*`,
+  `npm test` **113/113** (7 nouveaux : `uploadFlow.test.js` — id pré-généré, zéro `tmp-*`,
   orphelins purgés sur échec — + purge B11 + unicité téléphones B19), build OK
   (419,35 kB / 125,14 kB gzip, code mort retiré), smoke e2e OK.
   Récapitulatif complet : `docs/BUGS-AND-FIXES.md`.

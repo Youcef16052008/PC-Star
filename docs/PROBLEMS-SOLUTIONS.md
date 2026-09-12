@@ -160,7 +160,7 @@ Légende des domaines : **D** données & multi-appareils · **S** sécurité & a
 
 **Problème.** Oran parle arabe (souvent darja écritée) : un site FR-only = la moitié de la conversion perdue.
 
-**Solution.** **i18n AR/FR/EN complète** (1172 lignes de traductions), **arabe par défaut avec `dir="rtl"`** et `lang`/`dir` synchronisés sur le document, produits/catalogue traduits où pertinent, thème clair/sombre/système, typographie Noto Naskh Arabic.
+**Solution.** **i18n AR/FR/EN complète** (1523 lignes de traductions), **arabe par défaut avec `dir="rtl"`** et `lang`/`dir` synchronisés sur le document, produits/catalogue traduits où pertinent, thème clair/sombre/système, typographie Noto Naskh Arabic.
 
 **Code.** `src/i18n.js` · `index.html` (`lang="ar" dir="rtl"`) · `src/prefs.js` (persistance choix).
 

@@ -9,8 +9,8 @@ import {
   newId,
   newToken,
   publicUser,
-  readDb,
-  updateDb,
+  readDbAsync,
+  updateDbAsync,
   verifyPass
 } from './db.js'
 import { completeDemo, demoConsentHtml, oauthConfig, startOAuth, unlinkProvider } from './oauth.js'
@@ -128,10 +128,10 @@ function bearer(req) {
   return m ? m[1].trim() : null
 }
 
-function userFromReq(req) {
+async function userFromReq(req) {
   const token = bearer(req)
   if (!token) return null
-  const db = readDb()
+  const db = await readDbAsync()
   const sess = db.sessions[token]
   if (!sess) return null
   const user = db.users.find((u) => u.id === sess.userId)
@@ -181,7 +181,7 @@ export async function handler(req, res) {
 
     // session
     if (req.method === 'GET' && pathname === '/api/me') {
-      const auth = userFromReq(req)
+      const auth = await userFromReq(req)
       if (!auth) return send(res, 401, { ok: false, error: 'auth' })
       return send(res, 200, { ok: true, user: publicUser(auth.user) })
     }
@@ -197,7 +197,7 @@ export async function handler(req, res) {
       if (body.phone && !isDzPhone(body.phone)) return send(res, 400, { ok: false, error: 'phone' })
       let token = null
       let user = null
-      const result = updateDb((db) => {
+      const result = await updateDbAsync((db) => {
         if (db.users.some((u) => u.email === email)) {
           db._err = 'exists'
           return db
@@ -232,13 +232,13 @@ export async function handler(req, res) {
         .trim()
         .toLowerCase()
       const password = String(body.password || '')
-      const db = readDb()
+      const db = await readDbAsync()
       const user = db.users.find((u) => u.email === email)
       if (!user || !verifyPass(password, user.passwordHash)) {
         return send(res, 401, { ok: false, error: 'auth' })
       }
       const token = newToken()
-      updateDb((d) => {
+      await updateDbAsync((d) => {
         d.sessions[token] = { userId: user.id, at: Date.now() }
         return d
       })
@@ -248,7 +248,7 @@ export async function handler(req, res) {
     if (req.method === 'POST' && pathname === '/api/auth/logout') {
       const token = bearer(req)
       if (token) {
-        updateDb((db) => {
+        await updateDbAsync((db) => {
           delete db.sessions[token]
           return db
         })
@@ -257,7 +257,7 @@ export async function handler(req, res) {
     }
 
     if (req.method === 'PUT' && pathname === '/api/me') {
-      const auth = userFromReq(req)
+      const auth = await userFromReq(req)
       if (!auth) return send(res, 401, { ok: false, error: 'auth' })
       const body = await readBody(req)
       if (body.phone && String(body.phone).trim() && !isDzPhone(body.phone)) {
@@ -268,7 +268,7 @@ export async function handler(req, res) {
       // Avant : n'importe quelle chaîne libre était stockée.
       const rawWilaya = body.wilaya == null ? null : String(body.wilaya).trim().slice(0, 32)
       let user = null
-      updateDb((db) => {
+      await updateDbAsync((db) => {
         const u = db.users.find((x) => x.id === auth.user.id)
         if (!u) return db
         if (body.name != null) u.name = String(body.name).trim() || u.name
@@ -286,9 +286,9 @@ export async function handler(req, res) {
 
     // Customer own orders
     if (req.method === 'GET' && pathname === '/api/me/orders') {
-      const auth = userFromReq(req)
+      const auth = await userFromReq(req)
       if (!auth) return send(res, 401, { ok: false, error: 'auth' })
-      const db = readDb()
+      const db = await readDbAsync()
       const uid = auth.user.id
       const phone = auth.user.phone || ''
       // P10 (P7-15) : le match par téléphone ne s'applique qu'aux commandes
@@ -302,10 +302,10 @@ export async function handler(req, res) {
 
     // Customer cancels ONE of his own orders (new/pending only) → restock.
     if (req.method === 'POST' && pathname.startsWith('/api/me/orders/') && pathname.endsWith('/cancel')) {
-      const auth = userFromReq(req)
+      const auth = await userFromReq(req)
       if (!auth) return send(res, 401, { ok: false, error: 'auth' })
       const code = decodeURIComponent(pathname.split('/').slice(-2, -1)[0])
-      const db0 = readDb()
+      const db0 = await readDbAsync()
       const uid = auth.user.id
       const phone = auth.user.phone || ''
       // P10 (P7-15) : même règle que GET — guest (userId null) ou propriétaire
@@ -317,7 +317,7 @@ export async function handler(req, res) {
         return send(res, 409, { ok: false, error: 'status' })
       }
       let result = null
-      updateDb((db) => {
+      await updateDbAsync((db) => {
         result = cancelOrder(db, code)
         return db
       })
@@ -327,12 +327,12 @@ export async function handler(req, res) {
 
     // Password change (authenticated)
     if (req.method === 'POST' && pathname === '/api/me/password') {
-      const auth = userFromReq(req)
+      const auth = await userFromReq(req)
       if (!auth) return send(res, 401, { ok: false, error: 'auth' })
       const body = await readBody(req)
       const next = String(body.password || '')
       if (next.length < 6) return send(res, 400, { ok: false, error: 'password' })
-      updateDb((db) => {
+      await updateDbAsync((db) => {
         const u = db.users.find((x) => x.id === auth.user.id)
         if (u) u.passwordHash = hashPass(next)
         return db
@@ -342,7 +342,7 @@ export async function handler(req, res) {
 
     // Master reset customer password (demo/store desk)
     if (req.method === 'POST' && pathname.startsWith('/api/master/customers/') && pathname.endsWith('/reset-password')) {
-      const auth = userFromReq(req)
+      const auth = await userFromReq(req)
       if (!auth || auth.user.role !== 'master') return send(res, 403, { ok: false, error: 'forbidden' })
       const parts = pathname.split('/')
       const id = decodeURIComponent(parts[parts.length - 2])
@@ -350,7 +350,7 @@ export async function handler(req, res) {
       const next = String(body.password || 'client31')
       if (next.length < 6) return send(res, 400, { ok: false, error: 'password' })
       let ok = false
-      updateDb((db) => {
+      await updateDbAsync((db) => {
         const u = db.users.find((x) => x.id === id && x.role !== 'master')
         if (u) {
           u.passwordHash = hashPass(next)
@@ -364,8 +364,8 @@ export async function handler(req, res) {
     // OAuth start
     if (req.method === 'POST' && pathname === '/api/oauth/start') {
       const body = await readBody(req)
-      const auth = userFromReq(req)
-      const resStart = startOAuth(body.provider, {
+      const auth = await userFromReq(req)
+      const resStart = await startOAuth(body.provider, {
         userId: body.intent === 'link' ? auth?.user?.id : null,
         intent: body.intent === 'link' ? 'link' : 'login',
         returnUrl: body.returnUrl || null
@@ -384,7 +384,7 @@ export async function handler(req, res) {
     if (req.method === 'POST' && /^\/api\/oauth\/(google|meta)\/demo$/.test(pathname)) {
       const provider = pathname.includes('google') ? 'google' : 'meta'
       const body = await readBody(req)
-      const done = completeDemo(provider, body.state, { name: body.name, email: body.email })
+      const done = await completeDemo(provider, body.state, { name: body.name, email: body.email })
       if (!done.ok) return send(res, 400, done)
       const front = done.returnUrl || process.env.FRONT_URL || 'http://127.0.0.1:5173'
       const redir = `${String(front).replace(/\/$/, '')}/?oauth_token=${encodeURIComponent(done.token)}&oauth_provider=${provider}`
@@ -393,10 +393,10 @@ export async function handler(req, res) {
     }
 
     if (req.method === 'POST' && pathname === '/api/oauth/unlink') {
-      const auth = userFromReq(req)
+      const auth = await userFromReq(req)
       if (!auth) return send(res, 401, { ok: false, error: 'auth' })
       const body = await readBody(req)
-      const out = unlinkProvider(auth.user.id, body.provider)
+      const out = await unlinkProvider(auth.user.id, body.provider)
       if (!out.ok) return send(res, 400, out)
       return send(res, 200, out)
     }
@@ -426,22 +426,22 @@ export async function handler(req, res) {
     // : le front consomme directement cette liste (mode API), il ne lit plus
     // seulement le stock.
     if (req.method === 'GET' && pathname === '/api/catalog') {
-      const db = readDb()
+      const db = await readDbAsync()
       const products = publicCatalog(db)
       return send(res, 200, { ok: true, products, count: products.length })
     }
 
     if (req.method === 'GET' && pathname.startsWith('/api/stock/')) {
       const id = pathname.split('/').pop()
-      const db = readDb()
+      const db = await readDbAsync()
       return send(res, 200, { ok: true, id, stock: liveStockOf(db, id) })
     }
 
     // Orders
     if (req.method === 'GET' && pathname === '/api/orders') {
-      const auth = userFromReq(req)
+      const auth = await userFromReq(req)
       if (!auth || auth.user.role !== 'master') return send(res, 403, { ok: false, error: 'forbidden' })
-      const db = readDb()
+      const db = await readDbAsync()
       const orders = (db.orders || []).map((o) => ({
         ...o,
         status: o.status === 'pending' ? 'new' : o.status || 'new'
@@ -457,9 +457,9 @@ export async function handler(req, res) {
         return send(res, 400, { ok: false, error: 'order' })
       }
       if (!isDzPhone(body.phone)) return send(res, 400, { ok: false, error: 'phone' })
-      const auth = userFromReq(req)
+      const auth = await userFromReq(req)
       let result = null
-      updateDb((db) => {
+      await updateDbAsync((db) => {
         result = placeOrder(
           db,
           {
@@ -487,13 +487,13 @@ export async function handler(req, res) {
 
     // PATCH /api/orders/:code  { status }
     if (req.method === 'PATCH' && pathname.startsWith('/api/orders/')) {
-      const auth = userFromReq(req)
+      const auth = await userFromReq(req)
       if (!auth || auth.user.role !== 'master') return send(res, 403, { ok: false, error: 'forbidden' })
       const code = decodeURIComponent(pathname.split('/').pop())
       const body = await readBody(req)
       const status = String(body.status || '')
       let result = null
-      updateDb((db) => {
+      await updateDbAsync((db) => {
         result = setOrderStatus(db, code, status)
         return db
       })
@@ -505,12 +505,12 @@ export async function handler(req, res) {
     }
 
     if (req.method === 'POST' && pathname.startsWith('/api/orders/') && pathname.endsWith('/cancel')) {
-      const auth = userFromReq(req)
+      const auth = await userFromReq(req)
       if (!auth || auth.user.role !== 'master') return send(res, 403, { ok: false, error: 'forbidden' })
       const parts = pathname.split('/')
       const code = decodeURIComponent(parts[parts.length - 2])
       let result = null
-      updateDb((db) => {
+      await updateDbAsync((db) => {
         result = cancelOrder(db, code)
         return db
       })
@@ -520,13 +520,13 @@ export async function handler(req, res) {
 
     // Master products CRUD
     if (req.method === 'GET' && pathname === '/api/master/products') {
-      const auth = userFromReq(req)
+      const auth = await userFromReq(req)
       if (!auth || auth.user.role !== 'master') return send(res, 403, { ok: false, error: 'forbidden' })
-      return send(res, 200, { ok: true, products: listMasterProducts(readDb()) })
+      return send(res, 200, { ok: true, products: listMasterProducts(await readDbAsync()) })
     }
 
     if (req.method === 'POST' && pathname === '/api/master/products') {
-      const auth = userFromReq(req)
+      const auth = await userFromReq(req)
       if (!auth || auth.user.role !== 'master') return send(res, 403, { ok: false, error: 'forbidden' })
       const body = await readBody(req)
       let result = null
@@ -535,7 +535,7 @@ export async function handler(req, res) {
       const hasDataUrls = Array.isArray(body.photoDataUrls) && body.photoDataUrls.length > 0
       const newProductId = hasDataUrls ? newId('sku') : null
       const saved = hasDataUrls ? savePhotoDataUrls(newProductId, body.photoDataUrls) : []
-      updateDb((db) => {
+      await updateDbAsync((db) => {
         if (saved.length) body.photos = [...(body.photos || []), ...saved].slice(0, 6)
         result = createProduct(db, body, newProductId)
         return db
@@ -549,12 +549,12 @@ export async function handler(req, res) {
     }
 
     if (req.method === 'PUT' && pathname.startsWith('/api/master/products/')) {
-      const auth = userFromReq(req)
+      const auth = await userFromReq(req)
       if (!auth || auth.user.role !== 'master') return send(res, 403, { ok: false, error: 'forbidden' })
       const id = decodeURIComponent(pathname.split('/').pop())
       const body = await readBody(req)
       let result = null
-      updateDb((db) => {
+      await updateDbAsync((db) => {
         if (Array.isArray(body.photoDataUrls) && body.photoDataUrls.length) {
           const paths = savePhotoDataUrls(id, body.photoDataUrls)
           body.photos = [...(body.photos || []), ...paths].slice(0, 6)
@@ -567,13 +567,13 @@ export async function handler(req, res) {
     }
 
     if (req.method === 'POST' && pathname.startsWith('/api/master/products/') && pathname.endsWith('/hide')) {
-      const auth = userFromReq(req)
+      const auth = await userFromReq(req)
       if (!auth || auth.user.role !== 'master') return send(res, 403, { ok: false, error: 'forbidden' })
       const parts = pathname.split('/')
       const id = decodeURIComponent(parts[parts.length - 2])
       const body = await readBody(req)
       let result = null
-      updateDb((db) => {
+      await updateDbAsync((db) => {
         result = hideProductMaster(db, id, body.hidden !== false)
         return db
       })
@@ -582,7 +582,7 @@ export async function handler(req, res) {
     }
 
     if (req.method === 'POST' && pathname.startsWith('/api/master/products/') && pathname.endsWith('/photos')) {
-      const auth = userFromReq(req)
+      const auth = await userFromReq(req)
       if (!auth || auth.user.role !== 'master') return send(res, 403, { ok: false, error: 'forbidden' })
       const parts = pathname.split('/')
       const id = decodeURIComponent(parts[parts.length - 2])
@@ -590,7 +590,7 @@ export async function handler(req, res) {
       const paths = savePhotoDataUrls(id, body.photoDataUrls || body.photos || [])
       if (!paths.length && !Array.isArray(body.photos)) return send(res, 400, { ok: false, error: 'photos' })
       let result = null
-      updateDb((db) => {
+      await updateDbAsync((db) => {
         const photos = paths.length ? paths : body.photos
         result = updateProduct(db, id, { photos })
         return db
@@ -603,12 +603,12 @@ export async function handler(req, res) {
     // les panneaux du shop sont alors cohérents sur TOUS les appareils
     // (avant : sauvegarde locale uniquement, invisibles avec le serveur).
     if (req.method === 'PUT' && pathname === '/api/master/panels') {
-      const auth = userFromReq(req)
+      const auth = await userFromReq(req)
       if (!auth || auth.user.role !== 'master') return send(res, 403, { ok: false, error: 'forbidden' })
       const body = await readBody(req)
       let error = null
       let out = null
-      updateDb((db) => {
+      await updateDbAsync((db) => {
         if (body.hiddenPanelIds != null) {
           if (!Array.isArray(body.hiddenPanelIds) || body.hiddenPanelIds.some((x) => typeof x !== 'string')) {
             error = 'panels'
@@ -636,10 +636,10 @@ export async function handler(req, res) {
 
     // Orders CSV export (master)
     if (req.method === 'GET' && pathname === '/api/orders/export.csv') {
-      const auth = userFromReq(req)
+      const auth = await userFromReq(req)
       if (!auth || auth.user.role !== 'master') return send(res, 403, { ok: false, error: 'forbidden' })
       const day = url.searchParams.get('day') // YYYY-MM-DD optional
-      const csv = ordersToCsv(readDb().orders || [], { day })
+      const csv = ordersToCsv((await readDbAsync()).orders || [], { day })
       res.writeHead(200, {
         'Content-Type': 'text/csv; charset=utf-8',
         'Content-Disposition': `attachment; filename="pcstar-orders${day ? '-' + day : ''}.csv"`,
@@ -652,7 +652,7 @@ export async function handler(req, res) {
 
     // Manual backup
     if (req.method === 'POST' && pathname === '/api/master/backup') {
-      const auth = userFromReq(req)
+      const auth = await userFromReq(req)
       if (!auth || auth.user.role !== 'master') return send(res, 403, { ok: false, error: 'forbidden' })
       const dbPath = path.join(__dirname, 'data', 'store.json')
       const dest = backupStore(dbPath, path.join(__dirname, 'data', 'backups'))
@@ -663,7 +663,7 @@ export async function handler(req, res) {
     // le shop consomme (panneaux). Avant : tout le meta était public
     // (extraProducts = fiches des produits masqués, productOverrides…).
     if (req.method === 'GET' && pathname === '/api/meta') {
-      const meta = readDb().meta || {}
+      const meta = (await readDbAsync()).meta || {}
       return send(res, 200, {
         ok: true,
         meta: {
@@ -675,9 +675,9 @@ export async function handler(req, res) {
 
     // P9 (P7-5) : méta complète = master uniquement.
     if (req.method === 'GET' && pathname === '/api/master/meta') {
-      const auth = userFromReq(req)
+      const auth = await userFromReq(req)
       if (!auth || auth.user.role !== 'master') return send(res, 403, { ok: false, error: 'forbidden' })
-      return send(res, 200, { ok: true, meta: readDb().meta })
+      return send(res, 200, { ok: true, meta: (await readDbAsync()).meta })
     }
 
     // P9 (P7-8) : PUT /api/meta SUPPRIMÉ — l'écriture `db.meta = {...db.meta,
@@ -688,18 +688,18 @@ export async function handler(req, res) {
 
     // Customers (master)
     if (req.method === 'GET' && pathname === '/api/customers') {
-      const auth = userFromReq(req)
+      const auth = await userFromReq(req)
       if (!auth || auth.user.role !== 'master') return send(res, 403, { ok: false, error: 'forbidden' })
-      const users = readDb().users.filter((u) => u.role !== 'master').map(publicUser)
+      const users = (await readDbAsync()).users.filter((u) => u.role !== 'master').map(publicUser)
       return send(res, 200, { ok: true, customers: users })
     }
 
     if (req.method === 'DELETE' && pathname.startsWith('/api/customers/')) {
-      const auth = userFromReq(req)
+      const auth = await userFromReq(req)
       if (!auth || auth.user.role !== 'master') return send(res, 403, { ok: false, error: 'forbidden' })
       const id = pathname.split('/').pop()
       let ok = false
-      updateDb((db) => {
+      await updateDbAsync((db) => {
         ok = purgeUser(db, id).ok
         return db
       })

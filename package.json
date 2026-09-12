@@ -12,16 +12,21 @@
     "test": "node --test src/shopStore.test.js src/api.smoke.test.js src/orderLogic.test.js src/masterApi.test.js src/authCrypto.test.js src/dbIntegrity.test.js src/apiServer.test.js src/i18n.coverage.test.js src/compat.i18n.test.js src/photoCompress.test.js src/uploadFlow.test.js",
     "start:api": "node server/index.js",
     "backup": "node scripts/backupDb.mjs",
+    "db:migrate:neon": "node scripts/neon-migrate.mjs",
+    "test:neon:concurrency": "node scripts/test-neon-concurrency.mjs",
     "photos:check": "node scripts/ingestSkuPhotos.mjs",
     "photos:fix": "node scripts/ingestSkuPhotos.mjs --fix",
-    "smoke": "node scripts/smoke-e2e.mjs"
+    "smoke": "node scripts/smoke-e2e.mjs",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
+    "@neondatabase/serverless": "^1.1.0",
     "bootstrap": "^5.3.3",
     "react": "^19.1.0",
     "react-dom": "^19.1.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.63.0",
     "@vitejs/plugin-react": "^4.5.2",
     "vite": "^6.3.5"
   },
