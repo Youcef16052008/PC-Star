@@ -15,6 +15,22 @@ DATABASE_URL='postgresql://...' npm run db:migrate:neon
 
 La migration crée `pcstar_state`, une ligne JSON versionnée par `updated_at`. Cette forme conserve temporairement le modèle actuel et réduit le risque de migration destructive.
 
+## Importer les données locales
+
+Après avoir créé la table sur la branche de production, importer une base locale explicitement :
+
+```bash
+DATABASE_URL='postgresql://...' npm run db:import:neon -- server/data/store.json
+```
+
+Le script refuse d'écraser une base qui contient déjà un état. Pour remplacer volontairement l'état après sauvegarde :
+
+```bash
+DATABASE_URL='postgresql://...' npm run db:import:neon -- server/data/store.json --force
+```
+
+Ne lance jamais `--force` sur la production sans export préalable.
+
 ## État exact
 
 Cette étape crée le schéma, mais **ne remplace pas encore** les appels synchrones à `server/db.js`. Le déploiement ne doit donc pas être annoncé comme persistant tant que les étapes suivantes ne sont pas faites :

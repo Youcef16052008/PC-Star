@@ -13,6 +13,7 @@
     "start:api": "node server/index.js",
     "backup": "node scripts/backupDb.mjs",
     "db:migrate:neon": "node scripts/neon-migrate.mjs",
+    "db:import:neon": "node scripts/import-neon.mjs",
     "test:neon:concurrency": "node scripts/test-neon-concurrency.mjs",
     "photos:check": "node scripts/ingestSkuPhotos.mjs",
     "photos:fix": "node scripts/ingestSkuPhotos.mjs --fix",
