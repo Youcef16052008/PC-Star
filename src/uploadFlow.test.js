@@ -1,4 +1,4 @@
-import { describe, it, before, after } from 'node:test'
+import { describe, it, before, beforeEach, after } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -15,7 +15,8 @@ process.env.PCSTAR_UPLOAD_DIR = path.join(root, 'uploads')
 
 const { createProduct, savePhotoDataUrls, unlinkUpload } = await import('../server/masterApi.js')
 const { handler } = await import('../server/index.js')
-const { readDb } = await import('../server/db.js')
+const { readDbAsync, updateDbAsync } = await import('../server/db.js')
+const storePath = path.resolve(process.cwd(), 'server/data/store.json')
 
 // PNG 1×1 valide (70 octets > 32 → accepté par savePhotoDataUrls)
 const PNG_1PX =
@@ -24,11 +25,19 @@ const PNG_1PX =
 let server
 let base
 
+async function resetNeonState() {
+  if (!process.env.DATABASE_URL) return
+  const source = JSON.parse(fs.readFileSync(storePath, 'utf8'))
+  await updateDbAsync(() => source)
+}
+
 before(async () => {
   server = http.createServer(handler)
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
   base = `http://127.0.0.1:${server.address().port}`
 })
+
+beforeEach(resetNeonState)
 
 after(
   () =>
@@ -135,7 +144,7 @@ describe('POST /api/master/products (B12, bout en bout)', () => {
     assert.equal(files.length, 2)
     assert.equal(files.some((f) => f.startsWith('tmp-')), false)
     // la base persiste les mêmes photos (pas de 2e passage tmp→id)
-    const persisted = readDb().meta.extraProducts.find((p) => p.id === product.id)
+    const persisted = (await readDbAsync()).meta.extraProducts.find((p) => p.id === product.id)
     assert.deepEqual(persisted.photos, product.photos)
   })
 

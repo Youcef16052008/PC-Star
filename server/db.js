@@ -50,6 +50,12 @@ export function verifyPass(password, stored) {
     if (check.length !== expect.length) return false
     return crypto.timingSafeEqual(check, expect)
   }
+  if (s.startsWith('sha256$pcstar:')) {
+    const expected = `sha256$pcstar:${String(password)}`
+    const actual = Buffer.from(s)
+    const expectedBuffer = Buffer.from(expected)
+    return actual.length === expectedBuffer.length && crypto.timingSafeEqual(actual, expectedBuffer)
+  }
   return s === hashPassLegacy(password)
 }
 
@@ -98,7 +104,7 @@ const DEMOS = [
   }
 ]
 
-function emptyDb() {
+export function emptyDb() {
   return {
     users: [MASTER, ...DEMOS],
     orders: [],
@@ -200,6 +206,18 @@ function quarantineDb() {
   } catch {
     return null
   }
+}
+
+export async function readDbAsync() {
+  if (!process.env.DATABASE_URL) return readDb()
+  const { readNeonState } = await import('./neonStore.js')
+  return readNeonState(emptyDb)
+}
+
+export async function updateDbAsync(mutator) {
+  if (!process.env.DATABASE_URL) return updateDb(mutator)
+  const { updateNeonState } = await import('./neonStore.js')
+  return updateNeonState(mutator, emptyDb)
 }
 
 export function writeDb(db) {

@@ -1,4 +1,4 @@
-import { describe, it, before, after } from 'node:test'
+import { describe, it, before, beforeEach, after } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -9,15 +9,25 @@ import http from 'node:http'
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pcstar-api-'))
 process.env.PCSTAR_DATA_DIR = dir
 const { handler } = await import('../server/index.js')
+const { readDbAsync, updateDbAsync } = await import('../server/db.js')
+const storePath = path.resolve(process.cwd(), 'server/data/store.json')
 
 let server
 let base
+
+async function resetNeonState() {
+  if (!process.env.DATABASE_URL) return
+  const source = JSON.parse(fs.readFileSync(storePath, 'utf8'))
+  await updateDbAsync(() => source)
+}
 
 before(async () => {
   server = http.createServer(handler)
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
   base = `http://127.0.0.1:${server.address().port}`
 })
+
+beforeEach(resetNeonState)
 
 after(
   () =>
