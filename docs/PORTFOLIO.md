@@ -35,7 +35,7 @@ Contraintes assumées (écrites dans le projet) :
 
 | Phase | Livré |
 |-------|-------|
-| **P0** Baseline | 250 SKUs, cash pickup, builder + compat, comptes + desk, AR/FR/EN, shell Bootstrap, tokens design |
+| **P0** Baseline | 251 SKU de base, cash pickup, builder + compat, comptes + desk, AR/FR/EN, shell Bootstrap, tokens design |
 | **P1** Fiabilité | Stock live via API (source de vérité unique), décrément atomique + rollback, codes `PS-…`, statuts de commande, filtres desk |
 | **P2** UX conversion | Funnel home → PDP → cart 3 étapes → écran succès (code, maps, cash), presets builder, copier/WA config, CTA sticky |
 | **P3** Catalogue & media | Pipeline photos (250+ SKU à 3 shots), `<picture>` WebP + lazy + skeleton, specs table i18n, produits liés par scoring compat |
@@ -51,17 +51,17 @@ Plan + scores : **[ROADMAP-10.md](ROADMAP-10.md)**.
 
 | Indicateur | Valeur |
 |------------|--------|
-| Produits catalogue | **250 SKUs** (prix DA, specs, compat), 3 langues |
-| Photos | **914 fichiers** (`public/photos/` : lib 105 · sku 753 · legacy 56 + uploads) |
-| Code | **~9 300 lignes** (front + API), **zéro dépendance côté API** |
-| Tests | **34 pass** (`node --test`) + smoke e2e API |
+| Produits catalogue | **251 SKU de base** (prix DA, specs, compat), 3 langues |
+| Photos | **1800 fichiers** (`public/photos/` : lib 105 · sku 753 · legacy 56 + uploads) |
+| Code | **~12 000 lignes** (front + API), **zéro dépendance côté API** |
+| Tests | **113 pass** (`node --test`) + smoke e2e API |
 | API | **~30 endpoints** (auth, OAuth, catalog, orders, master, CSV, backup) |
-| Langues | ar (défaut, RTL) · fr · en — **1172 lignes** de traductions |
+| Langues | ar (défaut, RTL) · fr · en — **1523 lignes** de traductions |
 | Déploiement | Vercel : build Vite + API serverless + rewrites + headers, **HTTPS auto, sans VPS** |
 
 ## 5. Décisions techniques marquantes
 
-1. **Catalogue statique, état serveur minimal.** Les 250 SKUs vivent dans le repo → persistants sur Vercel sans base. Seule la donnée volatile (orders, stock overrides) passe par `store.json`, isolée dans `server/db.js` pour brancher KV/Turso plus tard sans réécrire.
+1. **Catalogue statique, état serveur minimal.** Les 251 SKU de base vivent dans le repo → persistants sur Vercel sans base. Seule la donnée volatile (orders, stock overrides) passe par `store.json`, isolée dans `server/db.js` pour brancher KV/Turso plus tard sans réécrire.
 2. **API `node:http` sans framework.** Déployable partout, lisible d'une traite, zéro supply chain côté serveur ; compatible serverless (`VERCEL_URL`, corps pré-parsés, `/tmp`).
 3. **Atomicité de la réservation.** `placeOrder` vérifie toutes les lignes **avant** de décrémenter quoi que ce soit ; sinon HTTP 409 + liste de shortage → le stock ne peut pas passer négatif, même en multi-appareils.
 4. **OAuth honnête.** Mode démo par défaut (`OAUTH_DEMO=1`) : consent simulé, enregistre réel, `state` anti-CSRF — et bascule réel avec `OAUTH_DEMO=0` + clés Google/Meta, sans changer une ligne de UI.

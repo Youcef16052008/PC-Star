@@ -98,7 +98,7 @@ const DEMOS = [
   }
 ]
 
-function emptyDb() {
+export function emptyDb() {
   return {
     users: [MASTER, ...DEMOS],
     orders: [],
@@ -200,6 +200,18 @@ function quarantineDb() {
   } catch {
     return null
   }
+}
+
+export async function readDbAsync() {
+  if (!process.env.DATABASE_URL) return readDb()
+  const { readNeonState } = await import('./neonStore.js')
+  return readNeonState(emptyDb)
+}
+
+export async function updateDbAsync(mutator) {
+  if (!process.env.DATABASE_URL) return updateDb(mutator)
+  const { updateNeonState } = await import('./neonStore.js')
+  return updateNeonState(mutator, emptyDb)
 }
 
 export function writeDb(db) {

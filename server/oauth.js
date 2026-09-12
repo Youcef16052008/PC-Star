@@ -12,7 +12,7 @@
  */
 
 import crypto from 'node:crypto'
-import { newId, newToken, readDb, updateDb, publicUser } from './db.js'
+import { newId, newToken, readDbAsync, updateDbAsync, publicUser } from './db.js'
 
 const DEMO = process.env.OAUTH_DEMO !== '0'
 const BASE =
@@ -28,12 +28,12 @@ export function oauthConfig() {
   }
 }
 
-export function startOAuth(provider, { userId = null, intent = 'login', returnUrl = null } = {}) {
+export async function startOAuth(provider, { userId = null, intent = 'login', returnUrl = null } = {}) {
   if (provider !== 'google' && provider !== 'meta') {
     return { ok: false, error: 'provider' }
   }
   const state = newToken()
-  updateDb((db) => {
+  await updateDbAsync((db) => {
     db.oauthPending[state] = {
       provider,
       userId,
@@ -76,8 +76,8 @@ export function startOAuth(provider, { userId = null, intent = 'login', returnUr
   return { ok: true, demo: false, authorizeUrl: `https://www.facebook.com/v19.0/dialog/oauth?${params}` }
 }
 
-function finishIdentity(provider, identity, pending, stateKey) {
-  return updateDb((db) => {
+async function finishIdentity(provider, identity, pending, stateKey) {
+  return await updateDbAsync((db) => {
     let user = null
     if (pending.intent === 'link' && pending.userId) {
       user = db.users.find((u) => u.id === pending.userId)
@@ -121,8 +121,8 @@ function finishIdentity(provider, identity, pending, stateKey) {
   })
 }
 
-export function completeDemo(provider, state, profile = {}) {
-  const db = readDb()
+export async function completeDemo(provider, state, profile = {}) {
+  const db = await readDbAsync()
   const pending = db.oauthPending[state]
   if (!pending || pending.provider !== provider) return { ok: false, error: 'state' }
 
@@ -142,14 +142,14 @@ export function completeDemo(provider, state, profile = {}) {
         }
 
   const returnUrl = pending.returnUrl || null
-  const next = finishIdentity(provider, identity, pending, state)
+  const next = await finishIdentity(provider, identity, pending, state)
   return { ok: true, token: next._lastAuth.token, user: next._lastAuth.user, returnUrl }
 }
 
-export function unlinkProvider(userId, provider) {
+export async function unlinkProvider(userId, provider) {
   if (provider !== 'google' && provider !== 'meta') return { ok: false, error: 'provider' }
   let user = null
-  updateDb((db) => {
+  await updateDbAsync((db) => {
     const u = db.users.find((x) => x.id === userId)
     if (!u) return db
     u.links = u.links || {}
