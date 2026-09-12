@@ -23,7 +23,8 @@
     "@neondatabase/serverless": "^1.1.0",
     "bootstrap": "^5.3.3",
     "react": "^19.1.0",
-    "react-dom": "^19.1.0"
+    "react-dom": "^19.1.0",
+    "ws": "^8.21.3"
   },
   "devDependencies": {
     "@playwright/test": "^1.63.0",

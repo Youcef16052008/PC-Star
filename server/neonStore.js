@@ -1,4 +1,7 @@
-import { neon, Pool } from '@neondatabase/serverless'
+import { neon, neonConfig, Pool } from '@neondatabase/serverless'
+import ws from 'ws'
+
+neonConfig.webSocketConstructor = ws
 
 let sql
 let pool
