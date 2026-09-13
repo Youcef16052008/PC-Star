@@ -77,7 +77,7 @@ export async function startOAuth(provider, { userId = null, intent = 'login', re
 }
 
 async function finishIdentity(provider, identity, pending, stateKey) {
-  return await updateDbAsync((db) => {
+  return updateDbAsync((db) => {
     let user = null
     if (pending.intent === 'link' && pending.userId) {
       user = db.users.find((u) => u.id === pending.userId)

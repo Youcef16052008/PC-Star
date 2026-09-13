@@ -50,6 +50,12 @@ export function verifyPass(password, stored) {
     if (check.length !== expect.length) return false
     return crypto.timingSafeEqual(check, expect)
   }
+  if (s.startsWith('sha256$pcstar:')) {
+    const expected = `sha256$pcstar:${String(password)}`
+    const actual = Buffer.from(s)
+    const expectedBuffer = Buffer.from(expected)
+    return actual.length === expectedBuffer.length && crypto.timingSafeEqual(actual, expectedBuffer)
+  }
   return s === hashPassLegacy(password)
 }
 
