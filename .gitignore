@@ -113,6 +113,7 @@
 
 # PC Star API local DB
 server/data/
+!server/data/store.json
 
 # Temporary files
 *.tmp
@@ -183,6 +184,5 @@ image-search/
 
 
 # local API runtime
-server/data/store.json
 server/data/backups/
 public/photos/uploads/

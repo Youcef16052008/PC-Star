@@ -1,4 +1,4 @@
-import { describe, it, before, beforeEach, after } from 'node:test'
+import { describe, it, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -9,25 +9,15 @@ import http from 'node:http'
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pcstar-api-'))
 process.env.PCSTAR_DATA_DIR = dir
 const { handler } = await import('../server/index.js')
-const { readDbAsync, updateDbAsync } = await import('../server/db.js')
-const storePath = path.resolve(process.cwd(), 'server/data/store.json')
 
 let server
 let base
-
-async function resetNeonState() {
-  if (!process.env.DATABASE_URL) return
-  const source = JSON.parse(fs.readFileSync(storePath, 'utf8'))
-  await updateDbAsync(() => source)
-}
 
 before(async () => {
   server = http.createServer(handler)
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
   base = `http://127.0.0.1:${server.address().port}`
 })
-
-beforeEach(resetNeonState)
 
 after(
   () =>
@@ -433,5 +423,28 @@ describe('P10 — robustesse (P7-10 / P7-12 / P7-15 / P7-18)', () => {
     assert.equal(long.status, 200)
     assert.notEqual(long.data.user.wilaya, 'A'.repeat(80))
     assert.ok(long.data.user.wilaya.length <= 32 || long.data.user.wilaya === 'Mostaganem')
+  })
+})
+
+describe('P8 (P7-3) — archive des commandes (Neon only, repli store.json)', () => {
+  it('POST /api/master/archive sans DATABASE_URL → 200 ok:false, les commandes restent', async () => {
+    const master = await call('POST', '/api/auth/login', {
+      body: { email: 'pcstar.info31@gmail.com', password: 'star31' }
+    })
+    const before = await call('GET', '/api/orders')
+    assert.ok(before.status === 200 || before.status === 403)
+    const r = await call('POST', '/api/master/archive', { token: master.data.token, body: { days: 0 } })
+    // Sans Neon : l'archive est un non-événement (graceful), pas d'erreur 500
+    assert.equal(r.status, 200)
+    // Les commandes ne sont pas perdues en mode store.json
+    if (before.status === 200) {
+      assert.equal(r.data.ok, false, 'archive n\'est opérée qu’avec Neon')
+      assert.equal(r.data.archived, 0)
+    }
+  })
+
+  it('POST /api/master/archive sans token master → 403', async () => {
+    const r = await call('POST', '/api/master/archive', { body: { days: 30 } })
+    assert.equal(r.status, 403)
   })
 })

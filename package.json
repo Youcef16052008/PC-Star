@@ -13,6 +13,7 @@
     "start:api": "node server/index.js",
     "backup": "node scripts/backupDb.mjs",
     "db:migrate:neon": "node scripts/neon-migrate.mjs",
+    "db:migrate:neon:reset": "node scripts/neon-migrate.mjs --reset",
     "db:import:neon": "node scripts/import-neon.mjs",
     "test:neon:concurrency": "node scripts/test-neon-concurrency.mjs",
     "photos:check": "node scripts/ingestSkuPhotos.mjs",
@@ -22,6 +23,7 @@
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.1.0",
+    "@vercel/blob": "^2.8.0",
     "bootstrap": "^5.3.3",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",

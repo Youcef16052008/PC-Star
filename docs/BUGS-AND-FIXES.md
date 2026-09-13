@@ -884,7 +884,7 @@ avec leur solution, non implémentés).
 
 ## Vérification finale (cumulée, P5)
 
-- `npm test` → **71/71 OK** (node:test — 11 fichiers ; P5 ajoute `uploadFlow.test.js`
+- `npm test` → **113/113 OK** (node:test — 11 fichiers ; P5 ajoute `uploadFlow.test.js`
   + tests purge B11 + unicité téléphones B19).
 - `npm run build` → OK, **419,35 kB JS / 125,14 kB gzip** (code mort retiré), CSS en
   bundle, 0 ref jsdelivr.

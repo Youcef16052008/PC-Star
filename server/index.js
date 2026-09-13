@@ -401,7 +401,8 @@ export async function handler(req, res) {
       return send(res, 200, out)
     }
 
-    // Serve ephemeral uploads (Vercel /tmp) — not durable; use Blob later for prod photos
+    // Serve uploads: filesystem (local / Vercel /tmp fallback) or redirect to
+    // Vercel Blob CDN when the file was uploaded there.
     if (req.method === 'GET' && pathname === '/api/upload-file') {
       const name = path.basename(String(url.searchParams.get('name') || ''))
       if (!name || name.includes('..')) return send(res, 400, { ok: false, error: 'name' })
@@ -409,17 +410,25 @@ export async function handler(req, res) {
         ? path.join('/tmp', 'pcstar-uploads')
         : path.join(__dirname, '../public/photos/uploads')
       const file = path.join(dir, name)
-      if (!fs.existsSync(file)) return send(res, 404, { ok: false, error: 'not_found' })
-      const ext = path.extname(name).toLowerCase()
-      const type =
-        ext === '.png' ? 'image/png' : ext === '.webp' ? 'image/webp' : 'image/jpeg'
-      const buf = fs.readFileSync(file)
-      res.writeHead(200, {
-        'Content-Type': type,
-        'Cache-Control': 'public, max-age=3600',
-        'Access-Control-Allow-Origin': FRONT_ORIGIN
-      })
-      return res.end(buf)
+      if (fs.existsSync(file)) {
+        const ext = path.extname(name).toLowerCase()
+        const type =
+          ext === '.png' ? 'image/png' : ext === '.webp' ? 'image/webp' : 'image/jpeg'
+        const buf = fs.readFileSync(file)
+        res.writeHead(200, {
+          'Content-Type': type,
+          'Cache-Control': 'public, max-age=3600',
+          'Access-Control-Allow-Origin': FRONT_ORIGIN
+        })
+        return res.end(buf)
+      }
+      // Filesystem miss — try Vercel Blob (photos uploaded to Blob, not /tmp)
+      const { resolveBlobUrl } = await import('./blobStore.js')
+      const blobUrl = await resolveBlobUrl(name)
+      if (blobUrl) {
+        return res.writeHead(302, { Location: blobUrl, 'Cache-Control': 'public, max-age=3600' }), res.end()
+      }
+      return send(res, 404, { ok: false, error: 'not_found' })
     }
 
     // Catalog with live stock — objets complets (rating/needs/related/compat…)
@@ -534,15 +543,22 @@ export async function handler(req, res) {
       // vrai id du produit. Plus de double-écriture `tmp-*` ni d'orphelins.
       const hasDataUrls = Array.isArray(body.photoDataUrls) && body.photoDataUrls.length > 0
       const newProductId = hasDataUrls ? newId('sku') : null
-      const saved = hasDataUrls ? savePhotoDataUrls(newProductId, body.photoDataUrls) : []
-      await updateDbAsync((db) => {
-        if (saved.length) body.photos = [...(body.photos || []), ...saved].slice(0, 6)
-        result = createProduct(db, body, newProductId)
-        return db
-      })
+      const saved = hasDataUrls ? await savePhotoDataUrls(newProductId, body.photoDataUrls) : []
+      try {
+        await updateDbAsync((db) => {
+          if (saved.length) body.photos = [...(body.photos || []), ...saved].slice(0, 6)
+          result = createProduct(db, body, newProductId)
+          return db
+        })
+      } catch {
+        // P10 (B12) : échec DB (ex: outage Neon) → compensation : supprimer
+        // les photos déjà uploadées pour ne pas créer d'orphelins.
+        if (saved.length) for (const p of saved) await unlinkUpload(p)
+        return send(res, 500, { ok: false, error: 'server' })
+      }
       if (!result?.ok) {
         // échec de création → ne pas laisser les fichiers orphelins
-        for (const p of saved) unlinkUpload(p)
+        if (saved.length) for (const p of saved) await unlinkUpload(p)
         return send(res, 400, { ok: false, error: result?.error || 'invalid' })
       }
       return send(res, 201, { ok: true, product: result.product })
@@ -553,15 +569,21 @@ export async function handler(req, res) {
       if (!auth || auth.user.role !== 'master') return send(res, 403, { ok: false, error: 'forbidden' })
       const id = decodeURIComponent(pathname.split('/').pop())
       const body = await readBody(req)
+      const newPaths = Array.isArray(body.photoDataUrls) && body.photoDataUrls.length
+        ? await savePhotoDataUrls(id, body.photoDataUrls)
+        : []
       let result = null
-      await updateDbAsync((db) => {
-        if (Array.isArray(body.photoDataUrls) && body.photoDataUrls.length) {
-          const paths = savePhotoDataUrls(id, body.photoDataUrls)
-          body.photos = [...(body.photos || []), ...paths].slice(0, 6)
-        }
-        result = updateProduct(db, id, body)
-        return db
-      })
+      try {
+        await updateDbAsync((db) => {
+          if (newPaths.length) body.photos = [...(body.photos || []), ...newPaths].slice(0, 6)
+          result = updateProduct(db, id, body)
+          return db
+        })
+      } catch {
+        // compensation : rollback des photos uploadées si la persistance a échoué
+        if (newPaths.length) for (const p of newPaths) await unlinkUpload(p)
+        return send(res, 500, { ok: false, error: 'server' })
+      }
       if (!result?.ok) return send(res, result?.error === 'not_found' ? 404 : 400, { ok: false, error: result?.error })
       return send(res, 200, { ok: true, product: result.product })
     }
@@ -587,15 +609,24 @@ export async function handler(req, res) {
       const parts = pathname.split('/')
       const id = decodeURIComponent(parts[parts.length - 2])
       const body = await readBody(req)
-      const paths = savePhotoDataUrls(id, body.photoDataUrls || body.photos || [])
+      const paths = await savePhotoDataUrls(id, body.photoDataUrls || body.photos || [])
       if (!paths.length && !Array.isArray(body.photos)) return send(res, 400, { ok: false, error: 'photos' })
       let result = null
-      await updateDbAsync((db) => {
-        const photos = paths.length ? paths : body.photos
-        result = updateProduct(db, id, { photos })
-        return db
-      })
-      if (!result?.ok) return send(res, 400, { ok: false, error: result?.error })
+      try {
+        await updateDbAsync((db) => {
+          const photos = paths.length ? paths : body.photos
+          result = updateProduct(db, id, { photos })
+          return db
+        })
+      } catch {
+        // compensation : rollback des photos uploadées si la persistance a échoué
+        if (paths.length) for (const p of paths) await unlinkUpload(p)
+        return send(res, 500, { ok: false, error: 'server' })
+      }
+      if (!result?.ok) {
+        if (paths.length) for (const p of paths) await unlinkUpload(p)
+        return send(res, 400, { ok: false, error: result?.error })
+      }
       return send(res, 200, { ok: true, product: result.product })
     }
 
@@ -632,6 +663,36 @@ export async function handler(req, res) {
       })
       if (error) return send(res, 400, { ok: false, error })
       return send(res, 200, { ok: true, meta: out })
+    }
+
+    // Archive des commandes terminées (Neon only) — déplace les commandes
+    // 'picked'/'cancelled' plus anciennes que `days` vers pcstar_archived_orders
+    // pour garder le document JSONB chaud (pcstar_state) léger.
+    if (req.method === 'POST' && pathname === '/api/master/archive') {
+      const auth = await userFromReq(req)
+      if (!auth || auth.user.role !== 'master') return send(res, 403, { ok: false, error: 'forbidden' })
+      const body = await readBody(req)
+      const days = Math.max(0, Number(body.days || 30))
+      let result
+      try {
+        const { archiveOrders } = await import('./neonStore.js')
+        result = await archiveOrders(
+          (orders) => {
+            const cutoff = Date.now() - days * 86400000
+            const archived = (orders || []).filter(
+              (o) => ['picked', 'cancelled'].includes(o.status) && Date.parse(o.at || '') < cutoff
+            )
+            const codes = new Set(archived.map((o) => o.code))
+            const remaining = (orders || []).filter((o) => !codes.has(o.code))
+            return { archived, remaining }
+          },
+          () => ({ archived: 0, via: 'store-json', message: 'archive is a Neon-only feature' })
+        )
+      } catch (err) {
+        console.error('[pcstar-archive]', err)
+        return send(res, 500, { ok: false, error: 'archive' })
+      }
+      return send(res, 200, { ok: result.via === 'neon', archived: result.archived, message: result.message })
     }
 
     // Orders CSV export (master)

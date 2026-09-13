@@ -49,6 +49,46 @@ export async function updateNeonState(mutator, fallback) {
     )
     await conn.query('COMMIT')
     return next
+   } catch (error) {
+    await conn.query('ROLLBACK').catch(() => {})
+    throw error
+  } finally {
+    conn.release()
+  }
+}
+
+/**
+ * Move completed/picked orders into pcstar_archived_orders (Neon only).
+ * `mutator(orders)` must return { archived: Order[], remaining: Order[] }.
+ * Runs under the same row lock as updateNeonState so no reservation is lost.
+ */
+export async function archiveOrders(mutator, fallback) {
+  const p = transactionPool()
+  if (!p) return fallback ? fallback() : { archived: 0, via: 'store-json' }
+  const conn = await p.connect()
+  try {
+    await conn.query('BEGIN')
+    const rows = await conn.query('SELECT data FROM pcstar_state WHERE id = 1 FOR UPDATE')
+    const state = rows.rows[0]?.data
+    if (!state || !Array.isArray(state.orders)) {
+      const result = fallback ? fallback() : { archived: 0, via: 'empty' }
+      await conn.query('ROLLBACK')
+      return result
+    }
+    const { archived, remaining } = mutator(state.orders)
+    for (const order of archived) {
+      await conn.query(
+        'INSERT INTO pcstar_archived_orders (code, data) VALUES ($1, $2::jsonb) ON CONFLICT (code) DO UPDATE SET data = EXCLUDED.data',
+        [order.code, JSON.stringify(order)]
+      )
+    }
+    state.orders = remaining
+    await conn.query(
+      'INSERT INTO pcstar_state (id, data, updated_at) VALUES (1, $1::jsonb, now()) ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data, updated_at = EXCLUDED.updated_at',
+      [JSON.stringify(state)]
+    )
+    await conn.query('COMMIT')
+    return { archived: archived.length, via: 'neon' }
   } catch (error) {
     await conn.query('ROLLBACK').catch(() => {})
     throw error

@@ -93,3 +93,7 @@ npx vite --host     # :5173 proxy /api
 npm run build
 npm run smoke
 ```
+
+## Statut de validation réel
+
+Les instructions ci-dessus sont une procédure, pas la preuve d'un déploiement réalisé. Aucun domaine Vercel, aucune clé OAuth et aucune base cloud ne sont présents dans ce dépôt. La validation production nécessite un projet Vercel accessible, des variables secrètes et une base managée ; elle ne peut pas être simulée honnêtement dans le dépôt local.

@@ -7,6 +7,7 @@ if (!process.env.DATABASE_URL) {
   process.exit(2)
 }
 
+const RESET = process.argv.includes('--reset')
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 let lastError
 for (let attempt = 1; attempt <= 5; attempt += 1) {
@@ -14,8 +15,19 @@ for (let attempt = 1; attempt <= 5; attempt += 1) {
     const sql = neon(process.env.DATABASE_URL)
     await sql`CREATE TABLE IF NOT EXISTS pcstar_state (id integer PRIMARY KEY CHECK (id = 1), data jsonb NOT NULL, updated_at timestamptz NOT NULL DEFAULT now())`
     await sql`CREATE INDEX IF NOT EXISTS pcstar_state_updated_at_idx ON pcstar_state (updated_at)`
-    await sql`INSERT INTO pcstar_state (id, data) VALUES (1, ${JSON.stringify(emptyDb())}::jsonb) ON CONFLICT (id) DO NOTHING`
-    console.log('Neon schema ready: pcstar_state')
+    if (RESET) {
+      // Isolation CI : réinitialise l'état partagé (pollution inter-runs sinon).
+      await sql`INSERT INTO pcstar_state (id, data) VALUES (1, ${JSON.stringify(emptyDb())}::jsonb) ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data`
+    } else {
+      await sql`INSERT INTO pcstar_state (id, data) VALUES (1, ${JSON.stringify(emptyDb())}::jsonb) ON CONFLICT (id) DO NOTHING`
+    }
+    // Archive des commandes archivées hors du document JSONB chaud
+    await sql`CREATE TABLE IF NOT EXISTS pcstar_archived_orders (code text PRIMARY KEY, data jsonb NOT NULL, archived_at timestamptz NOT NULL DEFAULT now())`
+    await sql`CREATE INDEX IF NOT EXISTS pcstar_archived_orders_at_idx ON pcstar_archived_orders (archived_at)`
+    if (RESET) {
+      await sql`DELETE FROM pcstar_archived_orders`
+    }
+    console.log(RESET ? 'Neon schema reset: pcstar_state + pcstar_archived_orders' : 'Neon schema ready: pcstar_state + pcstar_archived_orders')
     process.exit(0)
   } catch (error) {
     lastError = error
