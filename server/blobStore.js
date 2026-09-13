@@ -53,13 +53,32 @@ export function ensureUploadDir() {
 }
 
 /**
+ * P18 : nom de fichier d'upload sûr — aucun séparateur, aucun `..`, borné.
+ * Retourne null si le nom n'est pas utilisable.
+ */
+export function safeUploadName(name) {
+  const base = path
+    .basename(String(name || ''))
+    .replace(/[^A-Za-z0-9._-]/g, '_')
+  if (!base || base === '.' || base === '..' || base.length > 200) return null
+  return base
+}
+
+/**
  * Upload a decoded image buffer.
  * @returns {{ url: string, storage: 'blob'|'fs' }}
  */
 export async function uploadBlob(name, buffer, contentType = 'image/jpeg') {
+  // P18 : `name` est bâti à partir d'un id produit qui vient de l'URL décodée.
+  // Sans contrôle, `PUT /api/master/products/..%2F..%2Fpwnt` écrivait
+  // `public/pwnt-<ts>-1.png` — HORS du répertoire d'uploads, donc servi
+  // publiquement — alors même que la route répondait 404. `deleteBlob` gardait
+  // déjà `..` et `/` ; l'écriture, non.
+  const safe = safeUploadName(name)
+  if (!safe) throw new Error('unsafe upload name')
   const blob = await loadBlob()
   if (blob) {
-    const { url } = await blob.put(`${BLOB_PREFIX}${name}`, buffer, {
+    const { url } = await blob.put(`${BLOB_PREFIX}${safe}`, buffer, {
       contentType,
       access: 'public'
     })
@@ -71,11 +90,14 @@ export async function uploadBlob(name, buffer, contentType = 'image/jpeg') {
   } else {
     ensureUploadDir()
   }
-  const file = path.join(UPLOAD_DIR, name)
+  const file = path.join(UPLOAD_DIR, safe)
+  // Double garde : le chemin résolu doit rester DANS UPLOAD_DIR.
+  const rel = path.relative(UPLOAD_DIR, file)
+  if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) throw new Error('upload path escape')
   fs.writeFileSync(file, buffer)
   const url = IS_SERVERLESS
-    ? `${UPLOAD_PUBLIC_PREFIX}?name=${encodeURIComponent(name)}`
-    : `${UPLOAD_PUBLIC_PREFIX}/${name}`
+    ? `${UPLOAD_PUBLIC_PREFIX}?name=${encodeURIComponent(safe)}`
+    : `${UPLOAD_PUBLIC_PREFIX}/${safe}`
   return { url, storage: 'fs' }
 }
 

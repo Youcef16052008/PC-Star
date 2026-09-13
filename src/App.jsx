@@ -16,6 +16,10 @@ import {
   starText
 } from './data'
 import * as api from './api.js'
+// P19 : flux Desk temps réel (WebSocket + repli polling) et notifications
+// navigateur — une commande ne doit plus attendre la fenêtre de 20 s.
+import { createDeskStream } from './deskStream.js'
+import { notifyNewOrder, requestNotificationPermission } from './notify.js'
 import { ensureProductPhotos } from './productPhotos.js'
 import SearchPage from './SearchPage.jsx'
 import BuilderPage from './BuilderPage.jsx'
@@ -170,13 +174,23 @@ export default function App() {
   const [brandFilter, setBrandFilter] = useState(null)
   const [stockMap, setStockMap] = useState({}) // id -> live server stock
   const [serverCatalog, setServerCatalog] = useState([]) // produits complets servis par l'API (mode API)
-  // P10 (P7-11) : le fetch catalogue a abouti côté serveur (ok ou 5xx) — auquel
-  // cas c'est la vérité, MÊME vide. Seul l'offline justifie le repli statique.
+  // P10 (P7-11) : le catalogue reçu du serveur est la vérité — mais seulement
+  // s'il a bien été REÇU (200 + tableau). Un 5xx / une base injoignable ne
+  // marque plus le catalogue « prêt » : avant, une panne Neon laissait
+  // serverCatalog vide ET ready → vitrine sans aucun produit (B25).
   const [serverCatalogReady, setServerCatalogReady] = useState(false)
+  // P12 (B25) : l'API a répondu mais sa base est injoignable → catalogue de
+  // base servi en mode dégradé (stock d'origine, sans masquages master).
+  const [catalogDegraded, setCatalogDegraded] = useState(false)
+  const [degradedDismissed, setDegradedDismissed] = useState(false)
   const [cartStep, setCartStep] = useState(0) // 0 cart, 1 info (when items)
   const cartElRef = useRef(null)
   const cartOcRef = useRef(null)
   const prevOrderCount = useRef(0)
+  // P19 : codes déjà vus — la détection par longueur ratait une commande
+  // arrivée en même temps qu'une suppression.
+  const seenOrderCodes = useRef(null)
+  const deskStream = useRef(null)
 
   const t = (key, vars) => translate(lang, key, vars)
   const localUser = useMemo(() => {
@@ -325,20 +339,25 @@ export default function App() {
       if (h?.ok) {
         const cat = await api.getCatalog()
         if (!cancelled) {
+          // P12 (B25) : on ne déclare le catalogue « prêt » que sur une vraie
+          // réponse (200 + tableau). Un 500/502/timeout laissait avant
+          // serverCatalogReady=true avec une liste vide → plus AUCUN produit
+          // alors que la base contenait tout.
           if (cat.ok && Array.isArray(cat.data?.products)) {
             setServerCatalog(cat.data.products)
             const map = {}
             for (const pr of cat.data.products) map[pr.id] = pr.stock
             setStockMap(map)
+            setCatalogDegraded(Boolean(cat.data.degraded))
+            setServerCatalogReady(true)
           }
-          // P10 (P7-11) : le serveur a répondu (200 ou 5xx) → son catalogue
-          // est la vérité, même vide. Seul l'OFFLINE garde le repli statique.
-          if (!cat.offline) setServerCatalogReady(true)
         }
         // Panneaux (P6) : le serveur est la source de vérité pour
         // extraPanels/hiddenPanelIds → le shop est cohérent multi-appareils.
+        // P12 (B25) : jamais en mode dégradé — l'API renverrait des panneaux
+        // vides par défaut et écraserait le cache local.
         const m = await api.getMeta()
-        if (!cancelled && m.ok && m.data?.meta) {
+        if (!cancelled && m.ok && !m.data?.degraded && m.data?.meta) {
           const sm = m.data.meta
           persistMeta({
             ...loadMeta(storage),
@@ -398,9 +417,30 @@ export default function App() {
         const map = {}
         for (const pr of cat.data.products) map[pr.id] = pr.stock
         setStockMap(map)
+        setCatalogDegraded(Boolean(cat.data.degraded))
       }
     } catch {
       /* ignore */
+    }
+  }
+
+  // P19 : suppression définitive d'une commande (master). Le serveur rend le
+  // stock, donc on rafraîchit aussi l'état du catalogue.
+  async function handleOrderDelete(code) {
+    if (!(apiOnline && authMode === 'api' && isMaster)) return false
+    try {
+      const r = await api.deleteOrder(code)
+      if (!r.ok) {
+        setToast(t('deskDeleteFail'))
+        return false
+      }
+      setReservations((prev) => prev.filter((o) => o.code !== code))
+      await refreshStock()
+      setToast(t('orderDeleted'))
+      return true
+    } catch {
+      setToast(t('deskDeleteFail'))
+      return false
     }
   }
 
@@ -484,6 +524,15 @@ export default function App() {
     setPickup((p) => pickupForUser(user, p, PICKUP_DEFAULTS))
   }, [authId]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // P19 : demande de permission de notification dès que le master est connecté.
+  // Sans accord explicite, aucune notification navigateur n'est possible. Le
+  // navigateur n'autorise qu'une demande par geste utilisateur : si l'état est
+  // déjà tranché (accordé ou refusé), cet appel ne fait rien.
+  useEffect(() => {
+    if (!isMaster) return
+    requestNotificationPermission().catch(() => {})
+  }, [isMaster])
+
   useEffect(() => {
     if (!isMaster || !apiOnline || authMode !== 'api') return undefined
     let cancelled = false
@@ -491,18 +540,42 @@ export default function App() {
       const r = await api.listOrders()
       if (cancelled || !r.ok || !Array.isArray(r.data?.orders)) return
       const next = r.data.orders
-      if (prevOrderCount.current && next.length > prevOrderCount.current && page === 'desk') {
-        deskBeep() // P9 (P7-6) : contexte unique partagé, jamais de leak
-        setToast(t('deskNewOrder'))
+      // P19 : détection par ensemble de codes (pas par longueur) — une
+      // suppression simultanée masquait auparavant l'arrivée d'une commande.
+      const known = seenOrderCodes.current
+      if (known) {
+        const fresh = next.filter((o) => !known.has(o.code))
+        for (const o of fresh) {
+          if (page === 'desk') {
+            deskBeep() // P9 (P7-6) : contexte unique partagé, jamais de leak
+            setToast(t('deskNewOrder'))
+          }
+          // Notification navigateur : visible même si l'onglet est en
+          // arrière-plan. Silencieuse si la permission n'a pas été accordée.
+          notifyNewOrder(o, t)
+        }
       }
+      seenOrderCodes.current = new Set(next.map((o) => o.code))
       prevOrderCount.current = next.length
       setReservations(next)
     }
     pull()
-    const id = setInterval(pull, 20000)
+    // P19 : socket en temps réel, avec repli automatique sur le polling si le
+    // socket est indisponible (cas de Vercel, où les WebSockets n'existent pas
+    // en serverless). Le pull reste la source de vérité : le socket ne fait
+    // que déclencher un rafraîchissement immédiat.
+    deskStream.current = createDeskStream({
+      getToken: () => api.getToken(),
+      onEvent: () => {},
+      onRefresh: () => {
+        pull()
+      },
+      enabled: true,
+    })
     return () => {
       cancelled = true
-      clearInterval(id)
+      deskStream.current?.close()
+      deskStream.current = null
     }
   }, [isMaster, apiOnline, authMode, page]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -765,6 +838,20 @@ export default function App() {
       <a className="skip-link" href="#main-content">
         {t('skipToContent')}
       </a>
+      {/* P12 (B25) : base injoignable → la vitrine reste debout sur le
+          catalogue de base, mais l'utilisateur doit le savoir (prix/stock
+          d'origine, masquages master ignorés, commandes non persistées). */}
+      {catalogDegraded && !degradedDismissed && (
+        <div className="alert alert-warning rounded-0 mb-0 py-2" role="alert">
+          <div className="container d-flex flex-wrap align-items-center gap-2">
+            <span className="small flex-grow-1">{t('catalogDegraded')}</span>
+            <button type="button" className="btn btn-sm btn-outline-warning" onClick={() => window.location.reload()}>
+              {t('catalogRetry')}
+            </button>
+            <button type="button" className="btn-close" onClick={() => setDegradedDismissed(true)} aria-label={t('close')} />
+          </div>
+        </div>
+      )}
       <div className="topbar text-white small py-2">
         <div className="container d-flex flex-wrap justify-content-between gap-2">
           <span>{STORE.address}</span>
@@ -1205,6 +1292,7 @@ export default function App() {
           lang={lang}
           reservations={reservations}
           onStatus={handleOrderStatus}
+          onDelete={handleOrderDelete}
           setToast={setToast}
         />
       )}
@@ -1518,8 +1606,12 @@ export default function App() {
           onApiUser={onApiUser}
         />
       )}
-      <div className={`api-status ${apiOnline ? 'on' : ''}`} title={apiOnline ? t('backendOnline') : t('backendOffline')} aria-hidden="true">
-        {apiOnline ? '● API' : '○ local'}
+      <div
+        className={`api-status ${apiOnline ? 'on' : ''} ${catalogDegraded ? 'warn' : ''}`}
+        title={catalogDegraded ? t('catalogDegraded') : apiOnline ? t('backendOnline') : t('backendOffline')}
+        aria-hidden="true"
+      >
+        {catalogDegraded ? '▲ DB' : apiOnline ? '● API' : '○ local'}
       </div>
     </div>
   )

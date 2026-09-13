@@ -10,6 +10,7 @@ import {
   checkStock,
   localDay,
   makeOrderCode,
+  waNumber,
   nextLocalOrderCode,
   orderApiFailure,
   pickupForUser,
@@ -356,5 +357,43 @@ describe('P9 (P7-4) — la « journée » = date locale du client, partagée cod
     const csv25 = ordersToCsv(orders, { day: '2026-12-25' })
     assert.match(csv25, /PS-20261225-0002/) // legacy : repli sur la date d'at
     assert.doesNotMatch(csv25, /PS-20261226-0001/)
+  })
+})
+
+// P14 (#3) — WhatsApp du comptoir : la base stocke le format local 0XXXXXXXXX,
+// wa.me exige l'international. L'ancienne conversion (locale au DeskPage) ne
+// traitait que les 9 chiffres → CHAQUE lien du comptoir était mort.
+describe('P14 (#3) — waNumber : formats téléphoniques DZ → wa.me', () => {
+  it('format local stocké (0 + 9 chiffres) → 213XXXXXXXXX', () => {
+    assert.equal(waNumber('0550123456'), '213550123456')
+    assert.equal(waNumber('0669174617'), '213669174617')
+    assert.equal(waNumber('0770650387'), '213770650387')
+  })
+
+  it('variantes saisies par le client', () => {
+    assert.equal(waNumber('550123456'), '213550123456', '9 chiffres nus')
+    assert.equal(waNumber('+213550123456'), '213550123456')
+    assert.equal(waNumber('00213550123456'), '213550123456', 'préfixe 00')
+    assert.equal(waNumber('213550123456'), '213550123456')
+    assert.equal(waNumber('0770 65 03 87'), '213770650387', 'espaces')
+    assert.equal(waNumber('07-70-65-03-87'), '213770650387', 'tirets')
+  })
+
+  it('numéro inexploitable → chaîne vide (pas de lien mort)', () => {
+    assert.equal(waNumber(''), '')
+    assert.equal(waNumber(null), '')
+    assert.equal(waNumber(undefined), '')
+    assert.equal(waNumber('123'), '')
+    assert.equal(waNumber('041234567'), '', 'fixe (hors 05/06/07)')
+    assert.equal(waNumber('33612345678'), '', 'étranger')
+  })
+
+  it('tous les téléphones acceptés par isDzPhone donnent un lien wa.me valide', () => {
+    for (const prefix of ['05', '06', '07']) {
+      for (const tail of ['50123456', '69174617', '70650387']) {
+        const local = prefix + tail
+        assert.match(waNumber(local), /^213[567]\d{8}$/, local)
+      }
+    }
   })
 })

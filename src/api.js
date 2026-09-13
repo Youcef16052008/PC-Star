@@ -99,6 +99,13 @@ export async function cancelOrder(code) {
   return req(`/api/orders/${encodeURIComponent(code)}/cancel`, { method: 'POST' })
 }
 
+// P19 : suppression définitive (master). Distincte de cancelOrder —
+// l'annulation garde la trace dans l'historique et le CSV, la suppression
+// retire la ligne et rend le stock.
+export async function deleteOrder(code) {
+  return req(`/api/orders/${encodeURIComponent(code)}`, { method: 'DELETE' })
+}
+
 export async function getCatalog() {
   return req('/api/catalog')
 }

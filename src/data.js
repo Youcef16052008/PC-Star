@@ -39,7 +39,11 @@ export const STORE_LINKS = [
 ]
 
 export function money(n) {
-  return `${Math.round(n).toLocaleString('fr-DZ')} DA`
+  // P16 : un prix absent/cassé (`undefined`, `"abc"` rescapé d'un override)
+  // affichait « NaN DA » en vitrine. On affiche un tiret plutôt qu'un prix faux.
+  const v = Number(n)
+  if (!Number.isFinite(v)) return '— DA'
+  return `${Math.round(v).toLocaleString('fr-DZ')} DA`
 }
 
 export function third(n) {
@@ -660,6 +664,18 @@ export function splitWarnings(warnings) {
 
 // P3 i18n : chaque avertissement est un objet { key, vars, block? } rendu
 // par t(key, vars) — plus de texte anglais durci dans le code.
+/**
+ * P17 (rapport #5) : deux sockets sont compatibles s'ils se recoupent.
+ * Tolère le mélange string / tableau (les ventirads du catalogue ont déjà
+ * `compat.socket` en tableau). Aucun CPU ni carte mère n'est concerné
+ * aujourd'hui — c'est une garde, pas un correctif de données.
+ */
+export function socketsMatch(a, b) {
+  if (!a || !b) return false
+  const list = (v) => (Array.isArray(v) ? v.map(String) : [String(v)])
+  return list(a).some((x) => list(b).includes(x))
+}
+
 export function checkCompatibility(items) {
   const warnings = []
   const W = (key, vars, block = false) => warnings.push({ key, vars, block })
@@ -675,7 +691,8 @@ export function checkCompatibility(items) {
   if (cpus.length && boards.length) {
     cpus.forEach((cpu) => {
       boards.forEach((board) => {
-        if (cpu.compat.socket && board.compat.socket && cpu.compat.socket !== board.compat.socket) {
+        // P17 (rapport #5) : `!==` aurait signalé à tort un CPU multi-socket.
+        if (cpu.compat.socket && board.compat.socket && !socketsMatch(cpu.compat.socket, board.compat.socket)) {
           W('compatSocketMismatch', { cpu: cpu.name, cpuSocket: cpu.compat.socket, board: board.name, boardSocket: board.compat.socket }, true)
         }
         const cs = specOf(cpu)

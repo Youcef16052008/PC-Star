@@ -175,8 +175,12 @@ export function loadSavedSearches(storage = typeof localStorage !== 'undefined' 
 }
 
 export function saveSavedSearches(storage = typeof localStorage !== 'undefined' ? localStorage : null, list = []) {
+  // P15 (#5) : `null` explicite (c'était l'appel de SearchPage) écrasait le
+  // paramètre par défaut → AUCUNE persistance, toute la feature P7-14 était
+  // inopérante. On retombe sur localStorage quand aucun storage n'est fourni.
+  const store = storage || (typeof localStorage !== 'undefined' ? localStorage : null)
   try {
-    storage?.setItem?.(KEY_SAVED_SEARCHES, JSON.stringify((list || []).slice(0, MAX_SAVED_SEARCHES)))
+    store?.setItem?.(KEY_SAVED_SEARCHES, JSON.stringify((list || []).slice(0, MAX_SAVED_SEARCHES)))
   } catch {
     /* quota/iframe : les recherches sauvées restent en mémoire */
   }
@@ -247,7 +251,9 @@ export function updateUser(users, id, patch) {
     const p = String(patch.phone).trim()
     allowed.phone = p ? normalizePhone(p) : ''
   }
-  if (patch.wilaya != null) allowed.wilaya = String(patch.wilaya).trim() || users[idx].wilaya || 'Oran'
+  // P16 : longueur bornée — une « wilaya » de 100 000 caractères partait en
+  // base et ressortait dans chaque export CSV du comptoir.
+  if (patch.wilaya != null) allowed.wilaya = String(patch.wilaya).trim().slice(0, 40) || users[idx].wilaya || 'Oran'
 
   const user = { ...users[idx], ...allowed }
   const next = users.slice()
@@ -285,6 +291,20 @@ function cleanPhotos(list) {
   return out.slice(0, 12)
 }
 
+/**
+ * P17 (rapport #2) : slug SKU — 8 premiers caractères utiles du nom. Retourne
+ * toujours une chaîne non vide (suffixe horodaté si le nom n'a que des
+ * caractères invisibles).
+ */
+function skuSlug(title) {
+  const s = String(title || '')
+    .slice(0, 12)
+    .toUpperCase()
+    .replace(/[\s\u00a0\u200b-\u200d\ufeff]+/g, '')
+    .slice(0, 8)
+  return s || Date.now().toString(36).toUpperCase().slice(-6)
+}
+
 export function addProduct(meta, { name, price, category, brand, stock, short, photos, sku } = {}) {
   const title = String(name || '').trim()
   const n = Number(price)
@@ -293,7 +313,11 @@ export function addProduct(meta, { name, price, category, brand, stock, short, p
   const product = {
     id: nowId('sku'),
     // P6 : numéro de produit (SKU) saisi par le master, sinon généré.
-    sku: String(sku || '').trim() || `PS-${title.slice(0, 8).toUpperCase().replace(/\s+/g, '')}`,
+    // P17 (rapport #2) : le titre vide est déjà refusé plus haut, mais un nom
+    // composé uniquement de caractères invisibles (BOM, zero-width, espaces
+    // insécables) survivait à `trim()` et donnait un SKU illisible. On retire
+    // ces caractères et on retombe sur un suffixe horodaté — jamais « PS- » seul.
+    sku: String(sku || '').trim() || `PS-${skuSlug(title)}`,
     name: title,
     short: String(short || title),
     brand: String(brand || 'PC Star'),

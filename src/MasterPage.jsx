@@ -153,7 +153,10 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, ma
       photos: form.photos
     })
     if (!res.ok) {
-      setToast(t('authErrorPassword'))
+      // P17 (rapport #1) : copier-coller de la page de connexion — un master en
+      // mode local voyait « 6 caractères minimum » quand la création du produit
+      // échouait (nom vide, prix invalide). Le mode API disait déjà juste.
+      setToast(t('masterCreateFail'))
       return
     }
     onMeta(res.meta)

@@ -5,6 +5,11 @@ import { PRODUCTS } from '../src/data.js'
 
 export const ORDER_STATUSES = ['new', 'preparing', 'ready', 'picked', 'cancelled']
 
+// P16 (#20) : borne de l'historique en mémoire, et plafond absolu au-delà
+// duquel une nouvelle commande est refusée plutôt que de silently écraser.
+export const MAX_ORDERS = 500
+export const MAX_ORDERS_HARD = 2000
+
 export function baseCatalog() {
   return PRODUCTS.map((p) => ({
     id: p.id,
@@ -121,8 +126,31 @@ export function placeOrder(db, body, { userId = null } = {}) {
     at: new Date().toISOString(),
     status: 'new'
   }
-  db.orders = [order, ...db.orders].slice(0, 500)
-  return { ok: true, order }
+  // P16 (#20) : `.slice(0, 500)` jetait en silence la commande la plus
+  // ancienne — de l'historique de comptoir définitivement perdu, sans log ni
+  // retour. On ne retire désormais QUE des commandes terminées
+  // (picked/cancelled), les plus anciennes d'abord, et on remonte la liste.
+  // Au-delà du plafond dur (que des commandes actives), on refuse au lieu de
+  // perdre des données.
+  const next = [order, ...(db.orders || [])]
+  const trimmed = []
+  while (next.length > MAX_ORDERS) {
+    let victim = -1
+    for (let i = next.length - 1; i >= 0; i -= 1) {
+      if (next[i].status === 'picked' || next[i].status === 'cancelled') {
+        victim = i
+        break
+      }
+    }
+    if (victim < 0) break
+    trimmed.push(next.splice(victim, 1)[0].code)
+  }
+  if (next.length > MAX_ORDERS_HARD) return { ok: false, error: 'orders_full' }
+  db.orders = next
+  if (trimmed.length) {
+    console.warn(`[pcstar-orders] historique borné à ${MAX_ORDERS} — commandes terminées retirées : ${trimmed.join(', ')}`)
+  }
+  return { ok: true, order, trimmed }
 }
 
 /** Date locale (YYYY-MM-DD) d'un Date — équivalent serveur de `localDay`. */
@@ -170,6 +198,45 @@ export function cancelOrder(db, code) {
   return { ok: true, order }
 }
 
+// P16 (#19) : avant, seul le statut `cancelled` était gardé — on pouvait
+// passer une commande `picked` (retirée, stock consommé) en `new` et la
+// revendre, ou faire remonter une commande annulée. Les transitions autorisées
+// sont explicites.
+const ORDER_TRANSITIONS = {
+  new: ['preparing', 'ready', 'picked', 'cancelled'],
+  pending: ['preparing', 'ready', 'picked', 'cancelled'],
+  preparing: ['new', 'ready', 'picked', 'cancelled'],
+  ready: ['preparing', 'picked', 'cancelled'],
+  picked: [],
+  cancelled: []
+}
+
+/**
+ * P19 — suppression définitive d'une commande (master uniquement).
+ *
+ * Distincte de `cancelOrder` : l'annulation garde la trace (historique, CSV,
+ * statistiques) alors que la suppression retire la ligne. Le stock est rendu
+ * comme pour une annulation, sinon supprimer une commande « new » perdrait
+ * définitivement les pièces réservées.
+ */
+export function deleteOrder(db, code) {
+  ensureStock(db)
+  const orders = db.orders || []
+  const idx = orders.findIndex((o) => o.code === code)
+  if (idx < 0) return { ok: false, error: 'not_found' }
+  const order = orders[idx]
+  // Une commande déjà annulée a déjà rendu son stock — ne pas le rendre deux fois.
+  if (order.status !== 'cancelled' && order.status !== 'picked') {
+    for (const line of order.items || []) {
+      const left = liveStockOf(db, line.id)
+      setStock(db, line.id, left + (line.qty || 0))
+    }
+  }
+  orders.splice(idx, 1)
+  db.orders = orders
+  return { ok: true, code, status: order.status || 'new', restocked: order.status !== 'cancelled' && order.status !== 'picked' }
+}
+
 export function setOrderStatus(db, code, status) {
   if (!ORDER_STATUSES.includes(status)) return { ok: false, error: 'status' }
   const order = (db.orders || []).find((o) => o.code === code)
@@ -181,6 +248,11 @@ export function setOrderStatus(db, code, status) {
   // Re-cancel guard
   if (order.status === 'cancelled' && status !== 'cancelled') {
     return { ok: false, error: 'cancelled' }
+  }
+  const from = order.status || 'new'
+  const allowed = ORDER_TRANSITIONS[from] || []
+  if (!allowed.includes(status)) {
+    return { ok: false, error: 'transition', from, to: status }
   }
   order.status = status
   order.updatedAt = new Date().toISOString()

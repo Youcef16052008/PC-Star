@@ -448,3 +448,62 @@ describe('P8 (P7-3) — archive des commandes (Neon only, repli store.json)', ()
     assert.equal(r.status, 403)
   })
 })
+
+describe('P12 (B25) — GET /api/db/status (sonde de base, master)', () => {
+  it('sans token → 403', async () => {
+    const r = await call('GET', '/api/db/status')
+    assert.equal(r.status, 403)
+  })
+
+  it('master → 200 : driver, latence et compteurs (diagnostic vitrine vide)', async () => {
+    const master = await call('POST', '/api/auth/login', {
+      body: { email: 'pcstar.info31@gmail.com', password: 'star31' }
+    })
+    const r = await call('GET', '/api/db/status', { token: master.data.token })
+    assert.equal(r.status, 200)
+    assert.equal(r.data.db.driver, 'file')
+    assert.equal(r.data.db.reachable, true)
+    assert.equal(r.data.db.configured, false)
+    assert.equal(typeof r.data.db.ms, 'number')
+    assert.equal(r.data.counts.baseProducts, 250)
+    // Compteurs cohérents — les tests précédents ont pu créer produits/commandes,
+    // donc on vérifie des relations, pas des valeurs figées.
+    assert.ok(r.data.counts.publicProducts > 240, `publicProducts=${r.data.counts.publicProducts}`)
+    assert.ok(
+      r.data.counts.publicProducts <= r.data.counts.baseProducts + r.data.counts.extraProducts,
+      'publics ≤ base + extras'
+    )
+    assert.ok(r.data.counts.zeroStockOverrides <= r.data.counts.stockOverrides)
+    assert.ok(r.data.counts.users >= 4)
+  })
+})
+
+describe('P14 (#1) — inscription : plus d’empoisonnement par db._err', () => {
+  it('doublon → 409, puis nouvel e-mail → 201 (avant : 409 à vie)', async () => {
+    const dup = await call('POST', '/api/auth/register', {
+      body: { email: 'karim.oran@demo.dz', password: 'secret1' }
+    })
+    assert.equal(dup.status, 409)
+    assert.equal(dup.data.error, 'exists')
+
+    const emailA = `p14a-${Date.now()}@test.dz`
+    const fresh = await call('POST', '/api/auth/register', { body: { email: emailA, password: 'secret1' } })
+    assert.equal(fresh.status, 201, `attendu 201 juste après un 409, reçu ${fresh.status}`)
+    assert.equal(fresh.data.user.email, emailA)
+
+    // Le vrai doublon reste refusé…
+    const dup2 = await call('POST', '/api/auth/register', { body: { email: emailA, password: 'secret1' } })
+    assert.equal(dup2.status, 409)
+    // …et n'empoisonne pas l'inscription suivante.
+    const fresh2 = await call('POST', '/api/auth/register', {
+      body: { email: `p14b-${Date.now()}@test.dz`, password: 'secret1' }
+    })
+    assert.equal(fresh2.status, 201)
+  })
+
+  it('aucune clé interne (_err / _lastAuth) dans la base persistée', () => {
+    const raw = fs.readFileSync(path.join(dir, 'store.json'), 'utf8')
+    assert.equal(raw.includes('"_err"'), false, '_err persisté dans store.json')
+    assert.equal(raw.includes('"_lastAuth"'), false, '_lastAuth persisté dans store.json')
+  })
+})

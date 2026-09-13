@@ -111,7 +111,9 @@ export default function SearchPage({ t, products, lines, panels, lang, liveStock
     // P10 (P7-14) : bornée à 10 + persistée (localStorage)
     const next = [{ id: `s-${Date.now()}`, title, filters: { ...filters, brands: [...filters.brands] } }, ...saved].slice(0, 10)
     setSaved(next)
-    saveSavedSearches(null, next)
+    // P15 (#5) : `null` en 1ᵉʳ argument écrasait le storage par défaut → la
+    // recherche n'était JAMAIS retrouvée au rechargement.
+    saveSavedSearches(undefined, next)
     setSaveNote(t('searchSaved'))
     setTimeout(() => setSaveNote(''), 1600)
   }
@@ -272,9 +274,14 @@ export default function SearchPage({ t, products, lines, panels, lang, liveStock
 
               <fieldset>
                 <legend className="form-label fw-semibold small">{t('availability')}</legend>
-                <label className="form-check">
-                  <input className="form-check-input" type="checkbox" checked={filters.inStock} onChange={(e) => set('inStock', e.target.checked)} />
+                <label className="form-check" title={t('inStoreOnlyHint')}>
+                  {/* P17 (rapport #3) : en mode API le catalogue public ne contient
+                      déjà QUE du stock > 0 (`publicCatalog`), donc ce filtre ne
+                      change rien tant que le panier est vide. Le tooltip le dit
+                      au lieu de laisser croire à un filtre cassé. */}
+                  <input className="form-check-input" type="checkbox" checked={filters.inStock} onChange={(e) => set('inStock', e.target.checked)} aria-describedby="in-stock-hint" />
                   <span className="form-check-label small">{t('inStoreOnly')}</span>
+                  <span id="in-stock-hint" className="d-block text-secondary" style={{ fontSize: '0.72rem' }}>{t('inStoreOnlyHint')}</span>
                 </label>
               </fieldset>
             </div>
@@ -400,8 +407,9 @@ export default function SearchPage({ t, products, lines, panels, lang, liveStock
                 </select>
               </div>
               <div className="form-check mb-3">
-                <input className="form-check-input" type="checkbox" id="m-stock" checked={filters.inStock} onChange={(e) => set('inStock', e.target.checked)} />
+                <input className="form-check-input" type="checkbox" id="m-stock" checked={filters.inStock} onChange={(e) => set('inStock', e.target.checked)} aria-describedby="m-in-stock-hint" />
                 <label className="form-check-label" htmlFor="m-stock">{t('inStoreOnly')}</label>
+                <span id="m-in-stock-hint" className="d-block text-secondary" style={{ fontSize: '0.72rem' }}>{t('inStoreOnlyHint')}</span>
               </div>
               <div className="mb-3">
                 <div className="small fw-semibold mb-1">{t('brands')}</div>

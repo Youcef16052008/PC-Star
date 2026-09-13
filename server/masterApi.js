@@ -72,8 +72,63 @@ export function createProduct(db, body, id) {
   return { ok: true, product }
 }
 
-export function updateProduct(db, id, patch) {
+// P16 (#18) : les champs d'un patch produit étaient recopiés TELS QUELS dans
+// `meta.productOverrides` (branche catalogue) puis servis dans le catalogue
+// PUBLIC : `price: "abc"` donnait « NaN DA » en vitrine et `priceOf` → 0, un
+// `name` de 500 caractères cassait les cartes, `photos: "x"` cassait PartThumb.
+// Tout passe maintenant par ici.
+const CATEGORY_SET = new Set(PRODUCTS.map((p) => p.category).filter(Boolean))
+
+export function sanitizeProductPatch(patch = {}) {
+  const out = {}
+  if (patch.name != null) {
+    const name = String(patch.name).trim()
+    if (!name) return { ok: false, error: 'name' }
+    if (name.length > 120) return { ok: false, error: 'name_too_long' }
+    out.name = name
+  }
+  if (patch.price != null) {
+    const price = Number(patch.price)
+    if (!Number.isFinite(price) || price < 0) return { ok: false, error: 'price' }
+    out.price = Math.round(price)
+  }
+  if (patch.brand != null) out.brand = String(patch.brand).trim().slice(0, 60)
+  if (patch.category != null) {
+    const category = String(patch.category)
+    if (!CATEGORY_SET.has(category)) return { ok: false, error: 'category' }
+    out.category = category
+  }
+  if (patch.short != null) out.short = String(patch.short).slice(0, 200)
+  if (patch.sku != null) {
+    const sku = String(patch.sku).trim()
+    if (sku.length > 40 || !/^[\w .\-/]*$/.test(sku)) return { ok: false, error: 'sku' }
+    out.sku = sku
+  }
+  if (patch.photos != null) {
+    if (!Array.isArray(patch.photos)) return { ok: false, error: 'photos' }
+    out.photos = patch.photos
+      .map((u) => String(u).trim())
+      .filter((u) => u.startsWith('/') || /^https?:\/\//.test(u))
+      .slice(0, MAX_PHOTOS)
+  }
+  if (patch.needs != null) {
+    if (!Array.isArray(patch.needs)) return { ok: false, error: 'needs' }
+    out.needs = patch.needs.map((x) => String(x)).slice(0, 12)
+  }
+  if (patch.stock != null) {
+    const stock = Number(patch.stock)
+    if (!Number.isFinite(stock) || stock < 0) return { ok: false, error: 'stock' }
+    out.stock = Math.floor(stock)
+  }
+  if (patch.hidden != null) out.hidden = patch.hidden === true
+  return { ok: true, patch: out }
+}
+
+export function updateProduct(db, id, rawPatch) {
   ensureStock(db)
+  const sane = sanitizeProductPatch(rawPatch || {})
+  if (!sane.ok) return { ok: false, error: sane.error }
+  const patch = sane.patch
   if (!db.meta) db.meta = {}
   // extra product
   const extras = db.meta.extraProducts || []
@@ -135,6 +190,11 @@ export function hideProductMaster(db, id, hidden = true) {
 export async function savePhotoDataUrls(productId, dataUrls = []) {
   const out = []
   let i = 0
+  // P18 : l'id produit vient de l'URL décodée — on n'en garde que [A-Za-z0-9_-].
+  // C'est la première des deux barrières contre l'écriture hors répertoire
+  // (la seconde est `safeUploadName` dans blobStore).
+  const safeId = String(productId || '').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 64) || 'sku'
+  try {
   for (const raw of dataUrls.slice(0, MAX_PHOTOS)) {
     i += 1
     const m = String(raw).match(/^data:(image\/(jpeg|jpg|png|webp));base64,(.+)$/i)
@@ -143,9 +203,16 @@ export async function savePhotoDataUrls(productId, dataUrls = []) {
     const ext = mime === 'png' ? 'png' : mime === 'webp' ? 'webp' : 'jpg'
     const buf = Buffer.from(m[3], 'base64')
     if (buf.length > MAX_BYTES || buf.length < 32) continue
-    const name = `${productId}-${Date.now().toString(36)}-${i}.${ext}`
+    const name = `${safeId}-${Date.now().toString(36)}-${i}.${ext}`
     const { url } = await uploadBlob(name, buf, `image/${ext}`)
     out.push(url)
+  }
+  } catch (err) {
+    // P18 : avant, une erreur en cours de boucle laissait les photos déjà
+    // envoyées orphelines — la compensation de la route ne voyait jamais
+    // `newPaths` puisque la fonction n'était pas revenue.
+    for (const u of out) await unlinkUpload(u)
+    throw err
   }
   return out
 }
@@ -183,7 +250,9 @@ export function ordersToCsv(orders, { day = null } = {}) {
 
 function csvEscape(v) {
   const s = String(v ?? '')
-  if (/[",\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`
+  // P16 : `\r` ajouté — un retour chariot seul sortait de la cellule et
+  // décalait toutes les colonnes suivantes dans Excel.
+  if (/["\,\n\r]/.test(s)) return `"${s.replace(/"/g, '""')}"`
   return s
 }
 

@@ -1,31 +1,48 @@
+// P16 (#16) : `.env` lu AVANT tout le reste — les modules serveur lisent
+// process.env au chargement (PORT, DATABASE_URL, FRONT_ORIGIN, TRUST_PROXY…).
+import './env.js'
 import http from 'node:http'
 import { URL } from 'node:url'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
+  dbPaths,
+  dbUrlDiagnostics,
   hashPass,
   MASTER,
   newId,
   newToken,
   publicUser,
   readDbAsync,
+  readDbSafe,
   updateDbAsync,
   verifyPass
 } from './db.js'
-import { completeDemo, demoConsentHtml, oauthConfig, startOAuth, unlinkProvider } from './oauth.js'
+import {
+  completeDemo,
+  demoConsentHtml,
+  oauthConfig,
+  safeReturnUrl,
+  startOAuth,
+  unlinkProvider
+} from './oauth.js'
 import {
   cancelOrder,
   liveStockOf,
   placeOrder,
   publicCatalog,
   purgeUser,
-  setOrderStatus
+  setOrderStatus,
+  deleteOrder
 } from './catalog.js'
 import { rateLimit, clientKey } from './rateLimit.js'
 // P10 (P7-18) : liste connue des wilayas servies par le shop (source partagée
 // src/data.js, déjà importée côté master via PRODUCTS).
-import { WILAYAS_NEAR } from '../src/data.js'
+import { PRODUCTS, WILAYAS_NEAR } from '../src/data.js'
+// P19 : notification du master (WhatsApp Cloud API + socket Desk).
+import { broadcastDesk, formatOrderMessage, sendWhatsApp, whatsappConfig } from './notify.js'
+import { attachDeskSocket } from './deskSocket.js'
 import {
   backupStore,
   createProduct,
@@ -39,16 +56,26 @@ import {
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const PORT = Number(process.env.PORT || 8787)
+// P16 (#25) : plus de `*` par défaut. En same-origin (proxy Vite en dev,
+// front+API sur le même domaine Vercel) aucun en-tête CORS n'est nécessaire ;
+// si le front est vraiment sur un autre domaine, on le déclare explicitement.
+// Avant, toute la réponse de l'API était lisible par n'importe quel site.
 const FRONT_ORIGIN =
   process.env.FRONT_ORIGIN ||
-  (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : '*')
+  process.env.FRONT_URL ||
+  (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : '')
+
+/** En-têtes CORS : présents uniquement si une origine autorisée est déclarée. */
+function corsHeaders() {
+  return FRONT_ORIGIN ? { 'Access-Control-Allow-Origin': FRONT_ORIGIN, Vary: 'Origin' } : {}
+}
 
 function send(res, status, body, headers = {}) {
   const payload = typeof body === 'string' ? body : JSON.stringify(body)
   const isJson = typeof body !== 'string'
   res.writeHead(status, {
     'Content-Type': isJson ? 'application/json; charset=utf-8' : 'text/html; charset=utf-8',
-    'Access-Control-Allow-Origin': FRONT_ORIGIN,
+    ...corsHeaders(),
     'Access-Control-Allow-Headers': 'Content-Type, Authorization',
     'Access-Control-Allow-Methods': 'GET,POST,PUT,PATCH,DELETE,OPTIONS',
     'X-Content-Type-Options': 'nosniff',
@@ -170,12 +197,24 @@ export async function handler(req, res) {
   try {
     // health
     if (req.method === 'GET' && pathname === '/api/health') {
+      // P12 (B25) : health reste sans sonde DB (il doit répondre même base
+      // morte — c'est justement ce qui distingue « API down » de « base down »),
+      // mais il annonce le driver configuré. La sonde réelle est dans
+      // GET /api/db/status (master) et `npm run db:doctor`.
+      const dbInfo = dbUrlDiagnostics()
       return send(res, 200, {
         ok: true,
         oauth: oauthConfig(),
         master: MASTER.email,
         cors: FRONT_ORIGIN,
-        payments: ['cash']
+        payments: ['cash'],
+        db: {
+          driver: process.env.DATABASE_URL ? 'neon' : 'file',
+          configured: Boolean(dbInfo.configured),
+          // `pooler: false` avec `configured: true` = DATABASE_URL pointe sur
+          // l'endpoint direct → les lectures (driver HTTP) échouent.
+          pooler: dbInfo.configured ? dbInfo.pooler === true : null
+        }
       })
     }
 
@@ -197,9 +236,14 @@ export async function handler(req, res) {
       if (body.phone && !isDzPhone(body.phone)) return send(res, 400, { ok: false, error: 'phone' })
       let token = null
       let user = null
-      const result = await updateDbAsync((db) => {
+      // P14 (#1) : l'erreur passe par une variable de closure. Avant, elle
+      // était posée sur l'objet base (`db._err`) donc PERSISTÉE : toute
+      // inscription suivante ressortait en 409 « exists » alors que
+      // l'utilisateur était quand même créé en silence.
+      let exists = false
+      await updateDbAsync((db) => {
         if (db.users.some((u) => u.email === email)) {
-          db._err = 'exists'
+          exists = true
           return db
         }
         user = {
@@ -220,13 +264,17 @@ export async function handler(req, res) {
         db.sessions[token] = { userId: user.id, at: Date.now() }
         return db
       })
-      if (result._err === 'exists') return send(res, 409, { ok: false, error: 'exists' })
+      if (exists) return send(res, 409, { ok: false, error: 'exists' })
       return send(res, 201, { ok: true, token, user: publicUser(user) })
     }
 
     if (req.method === 'POST' && pathname === '/api/auth/login') {
       const rl = rateLimit({ windowMs: 60_000, max: 20, key: clientKey(req, 'login') })
-      if (!rl.ok) return send(res, 429, { ok: false, error: 'rate', retryAfter: rl.retryAfter })
+      if (!rl.ok)
+        return send(res, 429, { ok: false, error: 'rate', retryAfter: rl.retryAfter }, {
+          // P16 : l'en-tête standard manquait — seul le corps le disait.
+          'Retry-After': String(Math.max(1, rl.retryAfter || 1))
+        })
       const body = await readBody(req)
       const email = String(body.email || '')
         .trim()
@@ -332,6 +380,13 @@ export async function handler(req, res) {
       const body = await readBody(req)
       const next = String(body.password || '')
       if (next.length < 6) return send(res, 400, { ok: false, error: 'password' })
+      // P16 (#13) : le mot de passe ACTUEL est exigé. Avant, un token de
+      // session seul suffisait : un token volé (XSS, URL partagée, ou
+      // `_lastAuth` recopié dans un backup de store.json) permettait de
+      // verrouiller le compte. Le master garde sa voie dédiée (reset-password).
+      if (!verifyPass(String(body.current || ''), auth.user.passwordHash)) {
+        return send(res, 403, { ok: false, error: 'current_password' })
+      }
       await updateDbAsync((db) => {
         const u = db.users.find((x) => x.id === auth.user.id)
         if (u) u.passwordHash = hashPass(next)
@@ -347,7 +402,11 @@ export async function handler(req, res) {
       const parts = pathname.split('/')
       const id = decodeURIComponent(parts[parts.length - 2])
       const body = await readBody(req)
-      const next = String(body.password || 'client31')
+      // P16 (#14) : plus de valeur par défaut. Avant, un corps vide remettait
+      // le mot de passe du client à `client31` — devinable, et le master ne
+      // savait même pas ce qu'il venait de poser. Le nouveau mot de passe doit
+      // être fourni explicitement (≥ 6 caractères).
+      const next = String(body.password || '')
       if (next.length < 6) return send(res, 400, { ok: false, error: 'password' })
       let ok = false
       await updateDbAsync((db) => {
@@ -385,10 +444,26 @@ export async function handler(req, res) {
       const provider = pathname.includes('google') ? 'google' : 'meta'
       const body = await readBody(req)
       const done = await completeDemo(provider, body.state, { name: body.name, email: body.email })
-      if (!done.ok) return send(res, 400, done)
-      const front = done.returnUrl || process.env.FRONT_URL || 'http://127.0.0.1:5173'
+      if (!done.ok) {
+        // P13 (S1/S2) : refus explicite — l'écran de consentement est un
+        // formulaire HTML, on répond en HTML lisible (pas un blob JSON).
+        const msg =
+          done.error === 'master_email'
+            ? 'Cet e-mail est le compte du magasin : il se connecte uniquement par mot de passe.'
+            : done.error === 'demo_email'
+              ? 'Mode démo : seuls les comptes de démonstration peuvent être ouverts par OAuth.'
+              : 'Session de consentement expirée ou invalide.'
+        return send(
+          res,
+          done.error === 'state' ? 400 : 403,
+          `<!doctype html><html lang="fr"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>Connexion refusée · PC Star</title></head><body style="font-family:system-ui,sans-serif;background:#0b1220;color:#f1c0c0;display:grid;place-items:center;min-height:100vh;margin:0"><div style="background:#151d2e;border:1px solid #4c2a36;border-radius:16px;padding:24px;max-width:420px;width:92%"><h1 style="font-size:18px;margin:0 0 8px;color:#f8fafc">Connexion refusée</h1><p style="color:#cbd5e1;font-size:14px;line-height:1.5;margin:0">${msg}</p></div></body></html>`
+        )
+      }
+      // P13 (S2) : re-validation au moment de la redirection (défense en
+      // profondeur) — jamais de token envoyé vers une origine tierce.
+      const front = safeReturnUrl(done.returnUrl) || process.env.FRONT_URL || 'http://127.0.0.1:5173'
       const redir = `${String(front).replace(/\/$/, '')}/?oauth_token=${encodeURIComponent(done.token)}&oauth_provider=${provider}`
-      res.writeHead(302, { Location: redir, 'Access-Control-Allow-Origin': FRONT_ORIGIN })
+      res.writeHead(302, { Location: redir, ...corsHeaders() })
       return res.end()
     }
 
@@ -418,7 +493,7 @@ export async function handler(req, res) {
         res.writeHead(200, {
           'Content-Type': type,
           'Cache-Control': 'public, max-age=3600',
-          'Access-Control-Allow-Origin': FRONT_ORIGIN
+          ...corsHeaders()
         })
         return res.end(buf)
       }
@@ -435,15 +510,53 @@ export async function handler(req, res) {
     // : le front consomme directement cette liste (mode API), il ne lit plus
     // seulement le stock.
     if (req.method === 'GET' && pathname === '/api/catalog') {
-      const db = await readDbAsync()
+      // P12 (B25) : lecture tolérante. Une base injoignable renvoyait avant un
+      // 500, que le front interprétait comme « le catalogue serveur est la
+      // vérité, même vide » → vitrine sans AUCUN produit alors que la base
+      // contenait tout. On sert maintenant le catalogue de base (250 SKU,
+      // stock d'origine, sans overrides/masquages master) et on marque la
+      // réponse `degraded` + `db` pour que l'UI le dise explicitement.
+      const { db, ok, driver, error } = await readDbSafe()
       const products = publicCatalog(db)
-      return send(res, 200, { ok: true, products, count: products.length })
+      return send(res, 200, {
+        ok: true,
+        products,
+        count: products.length,
+        degraded: !ok,
+        db: { driver, reachable: ok, error }
+      })
     }
 
     if (req.method === 'GET' && pathname.startsWith('/api/stock/')) {
       const id = pathname.split('/').pop()
-      const db = await readDbAsync()
-      return send(res, 200, { ok: true, id, stock: liveStockOf(db, id) })
+      const { db, ok } = await readDbSafe()
+      return send(res, 200, { ok: true, id, stock: liveStockOf(db, id), degraded: !ok })
+    }
+
+    // P12 (B25) : sonde de base réservée au master — distingue
+    // « base injoignable » de « base vide » sans ouvrir un terminal SQL.
+    if (req.method === 'GET' && pathname === '/api/db/status') {
+      const auth = await userFromReq(req)
+      if (!auth || auth.user.role !== 'master') return send(res, 403, { ok: false, error: 'forbidden' })
+      const startedAt = Date.now()
+      const { db, ok, driver, error } = await readDbSafe()
+      const stock = db.stock || {}
+      const zeroStock = Object.values(stock).filter((v) => (Number(v) || 0) <= 0).length
+      const products = publicCatalog(db)
+      return send(res, 200, {
+        ok: true,
+        db: { driver, reachable: ok, error, ms: Date.now() - startedAt, ...dbUrlDiagnostics() },
+        counts: {
+          baseProducts: PRODUCTS.length,
+          publicProducts: products.length,
+          extraProducts: (db.meta?.extraProducts || []).length,
+          hiddenProducts: (db.meta?.hiddenProductIds || []).length,
+          stockOverrides: Object.keys(stock).length,
+          zeroStockOverrides: zeroStock,
+          orders: (db.orders || []).length,
+          users: (db.users || []).length
+        }
+      })
     }
 
     // Orders
@@ -460,7 +573,11 @@ export async function handler(req, res) {
 
     if (req.method === 'POST' && pathname === '/api/orders') {
       const rl = rateLimit({ windowMs: 60_000, max: 15, key: clientKey(req, 'order') })
-      if (!rl.ok) return send(res, 429, { ok: false, error: 'rate', retryAfter: rl.retryAfter })
+      if (!rl.ok)
+        return send(res, 429, { ok: false, error: 'rate', retryAfter: rl.retryAfter }, {
+          // P16 : l'en-tête standard manquait — seul le corps le disait.
+          'Retry-After': String(Math.max(1, rl.retryAfter || 1))
+        })
       const body = await readBody(req)
       if (!body.name || !Array.isArray(body.items) || !body.items.length) {
         return send(res, 400, { ok: false, error: 'order' })
@@ -491,7 +608,19 @@ export async function handler(req, res) {
         if (result?.error === 'stock') return send(res, 409, { ok: false, error: 'stock', shortages: result.shortages })
         return send(res, 400, { ok: false, error: result?.error || 'order' })
       }
-      return send(res, 201, { ok: true, order: result.order })
+      // P19 — notifier le master. Jamais bloquant : une panne WhatsApp ou un
+      // socket fermé ne doit pas faire échouer une commande client.
+      const order = result.order
+      broadcastDesk({ type: 'order:new', order })
+      const wa = whatsappConfig()
+      if (wa.enabled) {
+        sendWhatsApp(formatOrderMessage(order))
+          .then((r) => {
+            if (!r.ok) console.warn('[pcstar-notify] WhatsApp non envoyé :', r.error)
+          })
+          .catch((err) => console.warn('[pcstar-notify] WhatsApp erreur :', String(err?.message || err)))
+      }
+      return send(res, 201, { ok: true, order })
     }
 
     // PATCH /api/orders/:code  { status }
@@ -527,11 +656,31 @@ export async function handler(req, res) {
       return send(res, 200, { ok: true, order: result.order })
     }
 
+    // P19 — DELETE /api/orders/:code (master uniquement) : suppression
+    // définitive. Distincte de /cancel : l'annulation garde la trace dans
+    // l'historique et le CSV, la suppression retire la ligne (et rend le stock).
+    if (req.method === 'DELETE' && pathname.startsWith('/api/orders/')) {
+      const auth = await userFromReq(req)
+      if (!auth || auth.user.role !== 'master') return send(res, 403, { ok: false, error: 'forbidden' })
+      const code = decodeURIComponent(pathname.split('/').pop())
+      let result = null
+      await updateDbAsync((db) => {
+        result = deleteOrder(db, code)
+        return db
+      })
+      if (!result?.ok) return send(res, result?.error === 'not_found' ? 404 : 400, { ok: false, error: result?.error })
+      broadcastDesk({ type: 'order:deleted', code })
+      return send(res, 200, { ok: true, code, restocked: result.restocked })
+    }
+
     // Master products CRUD
     if (req.method === 'GET' && pathname === '/api/master/products') {
       const auth = await userFromReq(req)
       if (!auth || auth.user.role !== 'master') return send(res, 403, { ok: false, error: 'forbidden' })
-      return send(res, 200, { ok: true, products: listMasterProducts(await readDbAsync()) })
+      // P12 (B25) : vue master tolérante — base morte ⇒ catalogue de base +
+      // `degraded`, au lieu d'un 500 qui vide aussi le panneau master.
+      const { db, ok } = await readDbSafe()
+      return send(res, 200, { ok: true, degraded: !ok, products: listMasterProducts(db) })
     }
 
     if (req.method === 'POST' && pathname === '/api/master/products') {
@@ -699,7 +848,10 @@ export async function handler(req, res) {
     if (req.method === 'GET' && pathname === '/api/orders/export.csv') {
       const auth = await userFromReq(req)
       if (!auth || auth.user.role !== 'master') return send(res, 403, { ok: false, error: 'forbidden' })
-      const day = url.searchParams.get('day') // YYYY-MM-DD optional
+      // P16 : `day` finit dans Content-Disposition — sans validation, un CRLF
+      // injectait un en-tête (et faisait tomber la route en 500).
+      const rawDay = url.searchParams.get('day') // YYYY-MM-DD optional
+      const day = /^\d{4}-\d{2}-\d{2}$/.test(String(rawDay || '')) ? String(rawDay) : ''
       const csv = ordersToCsv((await readDbAsync()).orders || [], { day })
       res.writeHead(200, {
         'Content-Type': 'text/csv; charset=utf-8',
@@ -715,8 +867,11 @@ export async function handler(req, res) {
     if (req.method === 'POST' && pathname === '/api/master/backup') {
       const auth = await userFromReq(req)
       if (!auth || auth.user.role !== 'master') return send(res, 403, { ok: false, error: 'forbidden' })
-      const dbPath = path.join(__dirname, 'data', 'store.json')
-      const dest = backupStore(dbPath, path.join(__dirname, 'data', 'backups'))
+      // P16 : le chemin était figé sur `server/data/…`, donc avec
+      // PCSTAR_DATA_DIR (tests, conteneur, instance locale) on sauvegardait un
+      // fichier qui n'est PAS la base en cours.
+      const { dbFile, dataDir } = dbPaths()
+      const dest = backupStore(dbFile, path.join(dataDir, 'backups'))
       return send(res, 200, { ok: true, file: dest ? path.basename(dest) : null })
     }
 
@@ -724,9 +879,12 @@ export async function handler(req, res) {
     // le shop consomme (panneaux). Avant : tout le meta était public
     // (extraProducts = fiches des produits masqués, productOverrides…).
     if (req.method === 'GET' && pathname === '/api/meta') {
-      const meta = (await readDbAsync()).meta || {}
+      // P12 (B25) : lecture tolérante — panneaux de base si la base est morte.
+      const { db, ok } = await readDbSafe()
+      const meta = db.meta || {}
       return send(res, 200, {
         ok: true,
+        degraded: !ok,
         meta: {
           extraPanels: meta.extraPanels || [],
           hiddenPanelIds: meta.hiddenPanelIds || []
@@ -795,19 +953,36 @@ export async function handler(req, res) {
 
 function startLocalServer() {
   const server = http.createServer(handler)
+  // P19 : socket Desk — connexion acceptée uniquement pour un token de session
+  // master. Non branché sous Vercel (les WebSockets n'y existent pas en
+  // serverless) : le front retombe alors sur le polling.
+  attachDeskSocket(server, async (token) => {
+    try {
+      const db = await readDbAsync()
+      const sess = db.sessions?.[token]
+      if (!sess) return false
+      return db.users.some((u) => u.id === sess.userId && u.role === 'master')
+    } catch {
+      return false
+    }
+  })
   server.listen(PORT, '0.0.0.0', () => {
     console.log(`PC Star API on http://0.0.0.0:${PORT}`)
+    console.log('WhatsApp master:', whatsappConfig().enabled ? 'configuré' : 'non configuré (WHATSAPP_TOKEN / WHATSAPP_PHONE_NUMBER_ID)')
     console.log('OAuth:', oauthConfig())
+    // P16 : mêmes chemins que le reste de l'API (dbPaths respecte
+    // PCSTAR_DATA_DIR) — sinon le backup local copiait un fichier qui n'est
+    // pas la base en cours.
+    const { dbFile, dataDir } = dbPaths()
     try {
-      const dbPath = path.join(__dirname, 'data', 'store.json')
-      const dest = backupStore(dbPath, path.join(__dirname, 'data', 'backups'))
+      const dest = backupStore(dbFile, path.join(dataDir, 'backups'))
       if (dest) console.log('Backup:', dest)
     } catch (e) {
       console.warn('Backup skipped', e.message)
     }
     setInterval(() => {
       try {
-        backupStore(path.join(__dirname, 'data', 'store.json'), path.join(__dirname, 'data', 'backups'))
+        backupStore(dbFile, path.join(dataDir, 'backups'))
       } catch {
         /* ignore */
       }

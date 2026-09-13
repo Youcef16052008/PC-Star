@@ -1,3 +1,5 @@
+import { specOf } from './data.js'
+
 /**
  * Pure order helpers (shared client tests + local fallback).
  */
@@ -58,6 +60,28 @@ export function canTransition(from, to) {
 export function statusLabelKey(status) {
   const s = status === 'pending' ? 'new' : status
   return `orderStatus_${s}`
+}
+
+/**
+ * P14 (#3) — Numéro au format attendu par `wa.me` : international sans « + »
+ * et sans le 0 local (`213XXXXXXXXX`).
+ *
+ * La base stocke le format local `0[567]XXXXXXXX` (`normalizePhone` côté
+ * serveur). L'ancienne fonction locale du Desk ne traitait que le cas 9
+ * chiffres : **chaque** bouton WhatsApp du comptoir partait donc sur
+ * `wa.me/0550123456`, invalide. Partagée ici pour être testée sans DOM.
+ *
+ * @returns {string} le numéro international, ou `''` si inexploitable
+ *   (le Desk n'affiche alors aucun bouton plutôt qu'un lien mort).
+ */
+export function waNumber(phone) {
+  let d = String(phone || '').replace(/\D/g, '')
+  if (d.startsWith('00')) d = d.slice(2)
+  if (d.startsWith('213')) d = d.slice(3)
+  // Format local stocké : 0 + 9 chiffres.
+  if (d.length === 10 && d.startsWith('0')) d = d.slice(1)
+  if (d.length === 9 && /^[567]/.test(d)) return `213${d}`
+  return ''
 }
 
 /**
@@ -140,8 +164,19 @@ export function buildPowerRecap(parts) {
     if (c.form) form = c.form
     if (c.psuMin) psuMinGpu = Math.max(psuMinGpu, c.psuMin)
     if (c.psuWatts) psuWatts = Math.max(psuWatts, c.psuWatts)
-    if (p.category === 'cpu' && p.tdp) tdp += p.tdp
-    else if (typeof c.tdp === 'number') tdp += c.tdp
+    // P17 (rapport #6, mais la cause est autre) : le TDP n'est JAMAIS un champ
+    // du produit — il est dérivé par `specOf()` (motifs sur id/nom/SKU).
+    // `p.tdp` était donc toujours `undefined` et `c.tdp` jamais posé :
+    // l'estimation ignorait complètement le CPU et retombait sur un plancher
+    // de 150 W. Mesuré avant correctif : 14700K + Z790 → 150 W
+    // (`specOf(cpu-14700k).tdp` vaut pourtant 125, donc ~275 W attendus).
+    const explicitTdp = Number(c.tdp)
+    if (Number.isFinite(explicitTdp)) {
+      tdp += explicitTdp
+    } else if (p.category === 'cpu' || p.category === 'gpu') {
+      const derived = Number(specOf(p).tdp)
+      if (Number.isFinite(derived)) tdp += derived
+    }
   }
   const estimate = Math.max(tdp + 150, psuMinGpu || 0)
   return {
