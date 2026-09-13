@@ -25,20 +25,33 @@ const body = (email) => ({
   items: [{ id: productId, qty: 1, price: 1 }]
 })
 
-const results = await Promise.all(
-  ['concurrency-a@test.invalid', 'concurrency-b@test.invalid'].map(async (email) => {
-    let result
-    await updateDbAsync((db) => {
-      result = placeOrder(db, body(email), { userId: email })
-      return db
+let results
+try {
+  results = await Promise.all(
+    ['concurrency-a@test.invalid', 'concurrency-b@test.invalid'].map(async (email) => {
+      let result
+      await updateDbAsync((db) => {
+        result = placeOrder(db, body(email), { userId: email })
+        return db
+      })
+      return result
     })
-    return result
-  })
-)
+  )
 
-console.log('Concurrent reservation results:', JSON.stringify(results))
-const accepted = results.filter((r) => r?.ok).length
-assert.equal(accepted, 1, JSON.stringify(results))
-const finalDb = await readDbAsync()
-assert.equal(finalDb.stock[productId], 0)
-console.log('NEON CONCURRENCY OK: exactly one reservation accepted; stock=0')
+  console.log('Concurrent reservation results:', JSON.stringify(results))
+  const accepted = results.filter((r) => r?.ok).length
+  assert.equal(accepted, 1, JSON.stringify(results))
+  const finalDb = await readDbAsync()
+  assert.equal(finalDb.stock[productId], 0)
+  console.log('NEON CONCURRENCY OK: exactly one reservation accepted; stock=0')
+} finally {
+  // Isolation CI : ne pas polluer la suite (catalogue mousepad + commandes).
+  // Restaure le stock de base et purge les commandes de test (day 2099-01-01).
+  await updateDbAsync((db) => {
+    if (db.stock) delete db.stock[productId]
+    if (Array.isArray(db.orders)) {
+      db.orders = db.orders.filter((o) => o?.day !== '2099-01-01')
+    }
+    return db
+  }).catch(() => {})
+}

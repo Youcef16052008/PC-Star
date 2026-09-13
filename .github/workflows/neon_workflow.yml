@@ -65,6 +65,10 @@ jobs:
         env:
           DATABASE_URL: ${{ steps.create_neon_branch.outputs.db_url_pooled }}
         run: npm run test:neon:concurrency
+      - name: Reset Neon state before full suite
+        env:
+          DATABASE_URL: ${{ steps.create_neon_branch.outputs.db_url_pooled }}
+        run: npm run db:migrate:neon:reset
       - name: Run full test suite against Neon
         env:
           DATABASE_URL: ${{ steps.create_neon_branch.outputs.db_url_pooled }}

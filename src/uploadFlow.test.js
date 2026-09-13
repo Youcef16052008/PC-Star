@@ -16,7 +16,7 @@ process.env.PCSTAR_UPLOAD_DIR = path.join(root, 'uploads')
 const { createProduct, savePhotoDataUrls, unlinkUpload } = await import('../server/masterApi.js')
 const { uploadBlob, deleteBlob, isBlobUrl, hasBlob, UPLOAD_DIR } = await import('../server/blobStore.js')
 const { handler } = await import('../server/index.js')
-const { readDb } = await import('../server/db.js')
+const { readDb, readDbAsync } = await import('../server/db.js')
 
 // PNG 1×1 valide (70 octets > 32 → accepté par savePhotoDataUrls)
 const PNG_1PX =
@@ -136,7 +136,10 @@ describe('POST /api/master/products (B12, bout en bout)', () => {
     assert.equal(files.length, 2)
     assert.equal(files.some((f) => f.startsWith('tmp-')), false)
     // la base persiste les mêmes photos (pas de 2e passage tmp→id)
-    const persisted = readDb().meta.extraProducts.find((p) => p.id === product.id)
+    // Neon-aware : le handler écrit dans Neon quand DATABASE_URL est posé.
+    const dbNow = process.env.DATABASE_URL ? await readDbAsync() : readDb()
+    const persisted = dbNow.meta.extraProducts.find((p) => p.id === product.id)
+    assert.ok(persisted, 'produit persisté en base')
     assert.deepEqual(persisted.photos, product.photos)
   })
 
