@@ -1,4 +1,4 @@
-import { describe, it, before, beforeEach, after } from 'node:test'
+import { describe, it, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -14,9 +14,9 @@ process.env.PCSTAR_DATA_DIR = path.join(root, 'data')
 process.env.PCSTAR_UPLOAD_DIR = path.join(root, 'uploads')
 
 const { createProduct, savePhotoDataUrls, unlinkUpload } = await import('../server/masterApi.js')
+const { uploadBlob, deleteBlob, isBlobUrl, hasBlob, UPLOAD_DIR } = await import('../server/blobStore.js')
 const { handler } = await import('../server/index.js')
-const { readDbAsync, updateDbAsync } = await import('../server/db.js')
-const storePath = path.resolve(process.cwd(), 'server/data/store.json')
+const { readDb } = await import('../server/db.js')
 
 // PNG 1×1 valide (70 octets > 32 → accepté par savePhotoDataUrls)
 const PNG_1PX =
@@ -25,19 +25,11 @@ const PNG_1PX =
 let server
 let base
 
-async function resetNeonState() {
-  if (!process.env.DATABASE_URL) return
-  const source = JSON.parse(fs.readFileSync(storePath, 'utf8'))
-  await updateDbAsync(() => source)
-}
-
 before(async () => {
   server = http.createServer(handler)
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
   base = `http://127.0.0.1:${server.address().port}`
 })
-
-beforeEach(resetNeonState)
 
 after(
   () =>
@@ -96,24 +88,24 @@ describe('createProduct avec id pré-généré (B12)', () => {
 })
 
 describe('savePhotoDataUrls + unlinkUpload (B12)', () => {
-  it('fichier nommé <productId>-… ; unlinkUpload le retire', () => {
-    const paths = savePhotoDataUrls('sku-test-123', [PNG_1PX])
+  it('fichier nommé <productId>-… ; unlinkUpload le retire', async () => {
+    const paths = await savePhotoDataUrls('sku-test-123', [PNG_1PX])
     assert.equal(paths.length, 1)
     assert.match(paths[0], /^\/photos\/uploads\/sku-test-123-.*\.png$/)
     const file = paths[0].split('/').pop()
     assert.ok(fs.existsSync(path.join(process.env.PCSTAR_UPLOAD_DIR, file)))
-    unlinkUpload(paths[0])
+    await unlinkUpload(paths[0])
     assert.equal(fs.existsSync(path.join(process.env.PCSTAR_UPLOAD_DIR, file)), false)
   })
 
-  it('refuse une URL malformée (pas de ../, pas de slash)', () => {
-    const created = savePhotoDataUrls('sku-x', [PNG_1PX])
+  it('refuse une URL malformée (pas de ../, pas de slash)', async () => {
+    const created = await savePhotoDataUrls('sku-x', [PNG_1PX])
     const before = listing().length
-    unlinkUpload('/photos/uploads/../../etc/passwd')
-    unlinkUpload('/photos/uploads')
+    await unlinkUpload('/photos/uploads/../../etc/passwd')
+    await unlinkUpload('/photos/uploads')
     assert.equal(listing().length, before)
     // nettoyage : ne rien laisser pour les suites suivantes
-    for (const p of created) unlinkUpload(p)
+    for (const p of created) await unlinkUpload(p)
     assert.equal(listing().length, before - 1)
   })
 })
@@ -144,7 +136,7 @@ describe('POST /api/master/products (B12, bout en bout)', () => {
     assert.equal(files.length, 2)
     assert.equal(files.some((f) => f.startsWith('tmp-')), false)
     // la base persiste les mêmes photos (pas de 2e passage tmp→id)
-    const persisted = (await readDbAsync()).meta.extraProducts.find((p) => p.id === product.id)
+    const persisted = readDb().meta.extraProducts.find((p) => p.id === product.id)
     assert.deepEqual(persisted.photos, product.photos)
   })
 
@@ -177,4 +169,30 @@ describe('P10 (P7-13) — photoCandidates : plus de sonde webp sur les uploads',
     assert.deepEqual(photoCandidates(''), [])
     assert.deepEqual(photoCandidates(null), [])
   })
+
+describe('blobStore fallback (sans BLOB_READ_WRITE_TOKEN)', () => {
+  it('hasBlob() est false en local → filesystem', () => {
+    assert.equal(hasBlob(), false)
+  })
+
+  it('uploadBlob → filesystem + URL /photos/uploads ; deleteBlob le retire', async () => {
+    const buf = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46])
+    const { url, storage } = await uploadBlob('sku-blob-test-1.jpg', buf, 'image/jpeg')
+    assert.equal(storage, 'fs')
+    assert.match(url, /^\/photos\/uploads\/sku-blob-test-1\.jpg$/)
+    const name = url.split('/').pop()
+    assert.ok(fs.existsSync(path.join(UPLOAD_DIR, name)))
+    // isBlobUrl → false pour les URLs filesystem
+    assert.equal(isBlobUrl(url), false)
+    // suppression
+    assert.equal(await deleteBlob(url), true)
+    assert.equal(fs.existsSync(path.join(UPLOAD_DIR, name)), false)
+  })
+
+  it('deleteBlob gère les URLs orphelines sans lever', async () => {
+    assert.equal(await deleteBlob(null), false)
+    assert.equal(await deleteBlob(''), false)
+    assert.equal(await deleteBlob('/photos/uploads/../../etc/passwd'), false)
+  })
+})
 })

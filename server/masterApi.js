@@ -7,23 +7,9 @@ import { fileURLToPath } from 'node:url'
 import { newId } from './db.js'
 import { ensureStock, setStock, liveStockOf } from './catalog.js'
 import { PRODUCTS } from '../src/data.js'
+import { uploadBlob, deleteBlob, MAX_BYTES, MAX_PHOTOS } from './blobStore.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
-const IS_SERVERLESS = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME)
-// Override PCSTAR_UPLOAD_DIR : tests isolés / déploiements exotiques.
-const UPLOAD_DIR = process.env.PCSTAR_UPLOAD_DIR
-  ? path.resolve(process.env.PCSTAR_UPLOAD_DIR)
-  : IS_SERVERLESS
-    ? path.join('/tmp', 'pcstar-uploads')
-    : path.join(__dirname, '../public/photos/uploads')
-const MAX_BYTES = 2.5 * 1024 * 1024
-const MAX_PHOTOS = 6
-/** Public URL prefix — on serverless uploads are not CDN-stable until Blob is wired. */
-export const UPLOAD_PUBLIC_PREFIX = IS_SERVERLESS ? '/api/upload-file' : '/photos/uploads' 
-
-export function ensureUploadDir() {
-  fs.mkdirSync(UPLOAD_DIR, { recursive: true })
-}
 
 export function listMasterProducts(db) {
   ensureStock(db)
@@ -146,38 +132,27 @@ export function hideProductMaster(db, id, hidden = true) {
   return updateProduct(db, id, { hidden })
 }
 
-/** Save data URL or raw base64 images to /photos/uploads and return public paths. */
-export function savePhotoDataUrls(productId, dataUrls = []) {
-  ensureUploadDir()
+export async function savePhotoDataUrls(productId, dataUrls = []) {
   const out = []
   let i = 0
   for (const raw of dataUrls.slice(0, MAX_PHOTOS)) {
     i += 1
     const m = String(raw).match(/^data:(image\/(jpeg|jpg|png|webp));base64,(.+)$/i)
     if (!m) continue
-    const ext = m[2].toLowerCase() === 'png' ? 'png' : m[2].toLowerCase() === 'webp' ? 'webp' : 'jpg'
+    const mime = m[2].toLowerCase()
+    const ext = mime === 'png' ? 'png' : mime === 'webp' ? 'webp' : 'jpg'
     const buf = Buffer.from(m[3], 'base64')
     if (buf.length > MAX_BYTES || buf.length < 32) continue
     const name = `${productId}-${Date.now().toString(36)}-${i}.${ext}`
-    const file = path.join(UPLOAD_DIR, name)
-    fs.writeFileSync(file, buf)
-    out.push(IS_SERVERLESS ? `/api/upload-file?name=${encodeURIComponent(name)}` : `/photos/uploads/${name}`)
+    const { url } = await uploadBlob(name, buf, `image/${ext}`)
+    out.push(url)
   }
   return out
 }
 
-/** P5 (B12) : supprime un fichier d'upload à partir de son URL publique. */
-export function unlinkUpload(publicPath) {
-  try {
-    const raw = String(publicPath || '')
-    const name = raw.includes('name=')
-      ? decodeURIComponent(raw.split('name=')[1])
-      : raw.split('/').pop()
-    if (!name || name.includes('..') || name.includes('/')) return
-    fs.unlinkSync(path.join(UPLOAD_DIR, name))
-  } catch {
-    /* best effort — jamais bloquant */
-  }
+/** P5 (B12) : supprime un fichier d'upload à partir de son URL publique ou Blob CDN. */
+export async function unlinkUpload(publicPath) {
+  await deleteBlob(publicPath)
 }
 
 export function ordersToCsv(orders, { day = null } = {}) {
