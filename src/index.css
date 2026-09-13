@@ -353,6 +353,10 @@ html[data-theme='dark'] .text-bg-light {
 .social-whatsapp {
   background: #128c7e;
 }
+/* P20 : second numéro WhatsApp — même identité visuelle. */
+.social-whatsapp2 {
+  background: #128c7e;
+}
 
 .social-maps {
   background: #1f4aa8;

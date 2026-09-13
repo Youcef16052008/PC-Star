@@ -34,12 +34,27 @@ if (!token) { console.log(out.join('\n')); process.exit(1) }
 const wsUrl = `ws://127.0.0.1:8787/api/desk-stream?token=${encodeURIComponent(token)}`
 const ws = new WebSocket(wsUrl)
 const events = []
+// Le gestionnaire `message` doit être posé AVANT d'attendre `open` : le serveur
+// envoie `hello` dès la connexion établie, et il arrivait avant l'attachement
+// (course perdue de façon intermittente → faux « FAIL socket master »).
+ws.on('message', (raw) => {
+  try {
+    events.push(JSON.parse(String(raw)))
+  } catch {
+    /* ignore */
+  }
+})
 await new Promise((resolve, reject) => {
   const to = setTimeout(() => reject(new Error('timeout ouverture socket')), 8000)
-  ws.on('open', () => { clearTimeout(to); resolve() })
-  ws.on('error', (e) => { clearTimeout(to); reject(e) })
+  ws.on('open', () => {
+    clearTimeout(to)
+    resolve()
+  })
+  ws.on('error', (e) => {
+    clearTimeout(to)
+    reject(e)
+  })
 })
-ws.on('message', (raw) => { try { events.push(JSON.parse(String(raw))) } catch { /* ignore */ } })
 await new Promise((r) => setTimeout(r, 400))
 ok('socket master ouvert + hello', events.some((e) => e.type === 'hello'), JSON.stringify(events[0] || null))
 

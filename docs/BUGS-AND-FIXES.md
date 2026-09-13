@@ -21,6 +21,7 @@ commit. Une **6e phase (P6)** a traité les 7 bugs reportés en conditions réel
 | P11 | (11/09) | P11-1 → P11-6 | Demandes client (PDP, home, panier, page commandes) |
 | P12 | (13/09) | B25 | Base injoignable ⇒ **vitrine sans aucun produit** 🔴 |
 | P13 | (13/09) | S1–S4 | **Lot 1 sécurité** : escalade master OAuth, open redirect, tokens persistés, rate-limit contournable 🔴 |
+| **P20** | (13/09) | contact | **Le second numéro (06…) ignoré** : un seul bouton WhatsApp sur « À propos » et une seule alerte par commande — désormais deux boutons et les **deux** numéros notifiés (3 alertes au total) 🟠 |
 | **P19** | (13/09) | commandes | **Le maître n'était pas averti d'une commande et ne pouvait pas la supprimer** : notification navigateur + WhatsApp Cloud API + WebSocket (repli polling) + `DELETE /api/orders/:code` 🟠 |
 | **P18** | (13/09) | uploads | **Écriture hors répertoire d'uploads** via un id produit en traversal (authentifié master) 🔴 |
 | **P17** | (13/09) | rapport #1-#7 | **Vérification d'un second rapport d'analyse** : 2 bugs confirmés, 1 piège UX, 2 durcissements, **3 affirmations réfutées par mesure** 🟡 |
@@ -1538,6 +1539,79 @@ Sur **Vercel**, pas de WebSocket : une commande peut mettre jusqu'à 20 s à
 apparaître au comptoir. Le WhatsApp, lui, fonctionne partout. Pour du temps
 réel en production il faudrait un hébergement longue durée (VPS, Fly.io,
 Railway) — documenté dans `docs/DEPLOY-VERCEL.md`.
+
+## P20 — Le second numéro (06…) ignoré : un seul bouton WhatsApp, une seule alerte 🟠
+
+Demande du comptoir : le magasin a **deux** numéros et le second (`0669 17 46 17`)
+est tout aussi important que le premier. Il faut donc deux boutons WhatsApp sur
+la page « À propos », et une commande doit notifier **les deux** numéros — le
+maître reçoit alors **trois** alertes : une dans le navigateur (Desk) et deux
+WhatsApp.
+
+### Avant
+
+| Manque | Preuve mesurée |
+|--------|----------------|
+| Le 06… n'était pas joignable en WhatsApp | `STORE.phone2 = '0669 17 46 17'` existait dans `src/data.js`, mais **aucun** `whatsapp2` ; `STORE.whatsapp` (le 07…) était le seul numéro WhatsApp du dépôt |
+| Un seul bouton WhatsApp sur « À propos » | `STORE_LINKS` ne contenait qu'**une** entrée `whatsapp` |
+| Une seule alerte WhatsApp par commande | `whatsappConfig()` renvoyait un `recipient` **unique** (`String(env.WHATSAPP_RECIPIENT \|\| STORE.whatsapp)`) |
+
+Le numéro existait donc déjà côté données — il n'était simplement exposé ni en
+bouton, ni comme destinataire de notification.
+
+### Correctifs
+
+**1. Source unique des numéros** (`src/data.js`) — `STORE.whatsapp2` +
+`STORE_WHATSAPP`, une liste `[{number,label}]` filtrée sur `^\d{8,15}$`. Le
+front (boutons) et le serveur (envois) lisent **la même liste** : ajouter un
+troisième numéro ne demande qu'une ligne ici.
+
+**2. Deux boutons WhatsApp sur « À propos »** — seconde entrée dans
+`STORE_LINKS` (`id: 'whatsapp2'`), chacun sous-titré par son numéro pour qu'ils
+soient distinguables, plus la règle `.social-whatsapp2` (même vert). La page
+mappe déjà `STORE_LINKS`, donc les deux boutons apparaissent sans changer le JSX.
+
+**3. Envoi aux deux numéros** (`server/notify.js`) — `whatsappRecipients()`
+accepte plusieurs numéros (virgule, point-virgule ou espace) et, **sans
+variable**, prend les deux numéros du magasin. `sendWhatsApp()` boucle sur la
+liste et renvoie `{ok, sent, total, results}`. Les envois sont **indépendants
+et séquentiels** : si un numéro échoue (non inscrit sur WhatsApp, quota…),
+l'autre part quand même, et la réponse client reste `201`.
+
+**4. Trace honnête** — `[pcstar-notify] WhatsApp envoyé à 2/2 numéro(s)`, et le
+log de démarrage affiche les destinataires réels.
+
+### Régression trouvée par les tests en écrivant ce lot
+
+Mon premier `whatsappRecipients()` découpait sur **tous** les espaces
+(`/[,;\s]+/`) : un numéro tapé normalement `' 213 550 123 456 '` devenait
+quatre jetons de 3 chiffres, **tous rejetés** par la borne de longueur →
+`recipient` vide, donc plus aucun envoi. C'est le test P19 « activé dès que le
+token et le phone_number_id sont présents » qui l'a attrapé
+(`'' !== '213550123456'`). Corrigé : on découpe sur `,`/`;`, on recolle les
+chiffres d'un numéro, et ce n'est que si le résultat dépasse 15 chiffres qu'on
+le re-découpe sur les espaces (cas « deux numéros séparés par un espace »).
+
+```
+défaut (rien)          → ["213770650387","213669174617"]
+un numéro espacé       → ["213550123456"]
+deux numéros virgule   → ["213770650387","213669174617"]
+deux numéros espace    → ["213770650387","213669174617"]
+mélange sale + doublon → ["213770650387","213669174617"]
+```
+
+### Vérification exécutée
+
+`src/whatsappTwo.test.js` — **14 tests** : cohérence `waNumber(STORE.phone2) ===
+STORE.whatsapp2`, les deux numéros au format `wa.me` (jamais de `0` initial),
+deux entrées `STORE_LINKS` distinctes aux `href` attendus, `id` uniques (ce sont
+des classes CSS), les 5 formes de saisie de `WHATSAPP_RECIPIENT`, **deux appels
+HTTP réels** avec `to` = chaque numéro, échec partiel (le second part quand
+même, `sent:1/total:2`), non-configuré toujours silencieux, liste invalide →
+aucun appel réseau.
+
+Compte des alertes pour une commande : **3** — 1 notification navigateur
+(`notifyNewOrder`) + 2 WhatsApp (un par numéro).
 
 ## Juges non-bugs (documentés, pas de code)
 

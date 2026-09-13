@@ -12,6 +12,10 @@ export const STORE = {
   phone2: '0669 17 46 17',
   phone2Href: 'tel:+213669174617',
   whatsapp: '213770650387',
+  // P20 : le second numéro (06…) est tout aussi important que le premier.
+  // Les deux reçoivent les notifications de commande et les deux sont
+  // proposés en bouton WhatsApp sur la page « À propos ».
+  whatsapp2: '213669174617',
   email: 'pcstar.info31@gmail.com',
   instagram: 'pcstar31',
   instagramUrl: 'https://www.instagram.com/pcstar31/',
@@ -24,6 +28,19 @@ export const STORE = {
   // storeWarranty, storeNote. STORE ne garde que les données (tél, adresse, URLs).
 }
 
+/**
+ * P20 — Les numéros WhatsApp du magasin, dans l'ordre d'affichage.
+ *
+ * Source unique : le serveur (notifications de commande) et le front (boutons)
+ * lisent la même liste, donc ajouter un troisième numéro ne demande qu'une
+ * ligne ici. Format international sans « + » — c'est ce qu'exige `wa.me`
+ * (P14 #3 : un numéro local en `0…` donne un lien mort).
+ */
+export const STORE_WHATSAPP = [
+  { number: STORE.whatsapp, label: STORE.phone },
+  { number: STORE.whatsapp2, label: STORE.phone2 }
+].filter((n) => n.number && /^\d{8,15}$/.test(n.number))
+
 export const SHOP_SERVICES = [
   { id: 'parts', titleKey: 'svcPartsTitle', bodyKey: 'svcPartsBody' },
   { id: 'machines', titleKey: 'svcMachinesTitle', bodyKey: 'svcMachinesBody' },
@@ -34,7 +51,9 @@ export const SHOP_SERVICES = [
 export const STORE_LINKS = [
   { id: 'instagram', label: 'Instagram', sub: '@pcstar31', href: 'https://www.instagram.com/pcstar31/' },
   { id: 'facebook', label: 'Facebook', sub: 'PC Star Informatique', href: 'https://www.facebook.com/pcstar31' },
-  { id: 'whatsapp', label: 'WhatsApp', sub: '0770 65 03 87', href: 'https://wa.me/213770650387' },
+  // P20 : deux boutons WhatsApp, un par numéro du magasin.
+  { id: 'whatsapp', label: 'WhatsApp', sub: STORE.phone, href: `https://wa.me/${STORE.whatsapp}` },
+  { id: 'whatsapp2', label: 'WhatsApp', sub: STORE.phone2, href: `https://wa.me/${STORE.whatsapp2}` },
   { id: 'maps', label: 'Google Maps', sub: 'Les Castors, Oran', href: 'https://www.google.com/maps/search/?api=1&query=Rue+Mimoune+Bouadjimi+El+Makari+Les+Castors+Oran' }
 ]
 

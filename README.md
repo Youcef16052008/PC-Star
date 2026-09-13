@@ -67,7 +67,16 @@ Photos: keep shipping under `public/photos/sku/` — add pro shots later, push, 
 `DATABASE_URL` (Neon) **must** be the **pooled** string (`ep-…-pooler.…`) — see
 [docs/NEON-MIGRATION.md](docs/NEON-MIGRATION.md).
 
-## Derniers correctifs (P11 → P19)
+## Derniers correctifs (P11 → P20)
+
+- **P20 (les deux numéros du magasin)** — le second numéro (`0669 17 46 17`)
+  existait dans les données mais n'était exposé **nulle part** en WhatsApp : un
+  seul bouton sur « À propos », une seule alerte par commande. Ajout de
+  `STORE_WHATSAPP` (source unique partagée par les boutons et le serveur),
+  **deux boutons WhatsApp** sur la page « À propos », et notification des
+  **deux** numéros à chaque commande — le maître reçoit **3 alertes** : une dans
+  le navigateur et deux WhatsApp. Les envois sont indépendants : si un numéro
+  échoue, l'autre part quand même et la commande client passe normalement.
 
 - **P19 (commandes : alerte + suppression)** — le maître est maintenant
   **prévenu dès qu'une commande arrive** : poussée temps réel sur le Desk

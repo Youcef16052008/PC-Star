@@ -614,9 +614,12 @@ export async function handler(req, res) {
       broadcastDesk({ type: 'order:new', order })
       const wa = whatsappConfig()
       if (wa.enabled) {
+        // P20 : les DEUX numéros du magasin sont notifiés. `sent/total` dit
+        // combien sont partis — un échec partiel ne bloque pas la commande.
         sendWhatsApp(formatOrderMessage(order))
           .then((r) => {
-            if (!r.ok) console.warn('[pcstar-notify] WhatsApp non envoyé :', r.error)
+            if (r.ok) console.log(`[pcstar-notify] WhatsApp envoyé à ${r.sent}/${r.total} numéro(s)`)
+            else console.warn(`[pcstar-notify] WhatsApp ${r.sent ?? 0}/${r.total ?? 0} numéro(s) :`, r.error)
           })
           .catch((err) => console.warn('[pcstar-notify] WhatsApp erreur :', String(err?.message || err)))
       }
@@ -968,7 +971,14 @@ function startLocalServer() {
   })
   server.listen(PORT, '0.0.0.0', () => {
     console.log(`PC Star API on http://0.0.0.0:${PORT}`)
-    console.log('WhatsApp master:', whatsappConfig().enabled ? 'configuré' : 'non configuré (WHATSAPP_TOKEN / WHATSAPP_PHONE_NUMBER_ID)')
+    {
+      const wa = whatsappConfig()
+      console.log(
+        'WhatsApp master:',
+        wa.enabled ? `configuré → ${wa.recipients.join(', ')}` : 'non configuré (WHATSAPP_TOKEN / WHATSAPP_PHONE_NUMBER_ID)',
+        `| destinataires par défaut : ${whatsappConfig({}).recipients.join(', ')}`
+      )
+    }
     console.log('OAuth:', oauthConfig())
     // P16 : mêmes chemins que le reste de l'API (dbPaths respecte
     // PCSTAR_DATA_DIR) — sinon le backup local copiait un fichier qui n'est

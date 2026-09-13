@@ -13,24 +13,63 @@
  * Configuration WhatsApp (variables d'environnement) :
  *   WHATSAPP_TOKEN             jeton permanent de l'app Meta
  *   WHATSAPP_PHONE_NUMBER_ID   identifiant du numéro émetteur
- *   WHATSAPP_RECIPIENT         numéro du master (défaut : STORE.whatsapp)
+ *   WHATSAPP_RECIPIENT         destinataire(s), séparés par virgule ou espace.
+ *                              Défaut : les DEUX numéros du magasin
+ *                              (STORE_WHATSAPP) — le 07… et le 06….
  *   WHATSAPP_API_VERSION       défaut v21.0
+ *
+ * P20 : le second numéro (06…) est tout aussi important que le premier. Une
+ * commande déclenche donc **trois** notifications pour le maître : une dans le
+ * navigateur (Desk) et deux WhatsApp, une par numéro.
  */
-import { STORE, money } from '../src/data.js'
+import { STORE, STORE_WHATSAPP, money } from '../src/data.js'
 // P14 (#3) : wa.me exige l'international 213XXXXXXXXX — jamais le 0 local.
 import { waNumber } from '../src/orderLogic.js'
 
 const GRAPH_BASE = 'https://graph.facebook.com'
 
+/**
+ * Liste des destinataires, dédupliquée et nettoyée.
+ *
+ * `WHATSAPP_RECIPIENT` accepte plusieurs numéros (virgule, espace ou
+ * point-virgule) ; sans la variable, on prend **les deux numéros du magasin**
+ * définis dans `src/data.js` — source unique partagée avec les boutons de la
+ * page « À propos ».
+ */
+export function whatsappRecipients(env = process.env) {
+  const raw = String(env.WHATSAPP_RECIPIENT || '').trim()
+  const source = raw ? raw.split(/[,;]+/) : STORE_WHATSAPP.map((n) => n.number)
+  const out = []
+  const push = (value) => {
+    const num = String(value || '').replace(/\D/g, '')
+    // Un numéro fait 9 chiffres en local ou 11 à 13 en international ; on borne
+    // largement pour accepter les indicatifs tout en refusant les résidus.
+    if (num.length >= 8 && num.length <= 15 && !out.includes(num)) out.push(num)
+  }
+  for (const part of source) {
+    const joined = String(part || '').replace(/\D/g, '')
+    // Un SEUL numéro peut contenir des espaces (« 213 550 123 456 ») : on le
+    // recolle d'abord. Si le résultat dépasse 15 chiffres, c'est en réalité
+    // plusieurs numéros séparés par des espaces → on les prend un par un.
+    if (joined.length <= 15) push(joined)
+    else for (const token of String(part || '').trim().split(/\s+/)) push(token)
+  }
+  return out
+}
+
 /** Configuration WhatsApp courante. `enabled` = les 2 jetons obligatoires sont là. */
 export function whatsappConfig(env = process.env) {
   const token = String(env.WHATSAPP_TOKEN || '').trim()
   const phoneNumberId = String(env.WHATSAPP_PHONE_NUMBER_ID || '').trim()
+  const recipients = whatsappRecipients(env)
   return {
     enabled: Boolean(token && phoneNumberId),
     token,
     phoneNumberId,
-    recipient: String(env.WHATSAPP_RECIPIENT || STORE.whatsapp || '').replace(/\D/g, ''),
+    // P20 : `recipients` est la liste réelle ; `recipient` reste le premier
+    // numéro pour compatibilité (logs, anciens appels).
+    recipients,
+    recipient: recipients[0] || '',
     apiVersion: String(env.WHATSAPP_API_VERSION || 'v21.0').trim()
   }
 }
@@ -63,18 +102,8 @@ export function formatOrderMessage(order, { lang = 'fr' } = {}) {
   return parts.join('\n') + wa
 }
 
-/**
- * Envoie un message texte via la WhatsApp Cloud API.
- * @returns {Promise<{ok:boolean, error?:string, skipped?:boolean}>} — ne rejette jamais.
- */
-export async function sendWhatsApp(text, { env = process.env, fetchImpl } = {}) {
-  const cfg = whatsappConfig(env)
-  const body = String(text || '').trim()
-  if (!cfg.enabled) return { ok: false, skipped: true, error: 'not_configured' }
-  if (!body) return { ok: false, skipped: true, error: 'empty' }
-  if (!cfg.recipient) return { ok: false, skipped: true, error: 'no_recipient' }
-  const doFetch = fetchImpl || globalThis.fetch
-  if (typeof doFetch !== 'function') return { ok: false, error: 'no_fetch' }
+/** Envoi unitaire vers un numéro. Ne rejette jamais. */
+async function sendToOne(cfg, to, body, doFetch) {
   try {
     const res = await doFetch(`${GRAPH_BASE}/${encodeURIComponent(cfg.apiVersion)}/${encodeURIComponent(cfg.phoneNumberId)}/messages`, {
       method: 'POST',
@@ -85,7 +114,7 @@ export async function sendWhatsApp(text, { env = process.env, fetchImpl } = {}) 
       body: JSON.stringify({
         messaging_product: 'whatsapp',
         recipient_type: 'individual',
-        to: cfg.recipient,
+        to,
         type: 'text',
         text: { preview_url: true, body: body.slice(0, 4000) }
       })
@@ -97,12 +126,45 @@ export async function sendWhatsApp(text, { env = process.env, fetchImpl } = {}) 
       } catch {
         /* corps non-JSON */
       }
-      return { ok: false, error: `http_${res.status}${detail ? ` ${detail}` : ''}` }
+      return { ok: false, to, error: `http_${res.status}${detail ? ` ${detail}` : ''}` }
     }
-    return { ok: true }
+    return { ok: true, to }
   } catch (err) {
-    return { ok: false, error: String(err?.message || err) }
+    return { ok: false, to, error: String(err?.message || err) }
   }
+}
+
+/**
+ * Envoie un message texte via la WhatsApp Cloud API, **à chaque destinataire**.
+ *
+ * P20 : les deux numéros du magasin sont servis. Les envois sont indépendants —
+ * si le premier échoue (numéro non enregistré sur WhatsApp, quota…), le second
+ * part quand même : le maître ne perd pas l'alerte. `ok` n'est vrai que si tous
+ * les envois ont réussi, et `error` rapporte le premier échec.
+ *
+ * @returns {Promise<{ok:boolean, sent?:number, total?:number, results?:Array, error?:string, skipped?:boolean}>}
+ *          — ne rejette jamais.
+ */
+export async function sendWhatsApp(text, { env = process.env, fetchImpl } = {}) {
+  const cfg = whatsappConfig(env)
+  const body = String(text || '').trim()
+  if (!cfg.enabled) return { ok: false, skipped: true, error: 'not_configured' }
+  if (!body) return { ok: false, skipped: true, error: 'empty' }
+  if (!cfg.recipients.length) return { ok: false, skipped: true, error: 'no_recipient' }
+  const doFetch = fetchImpl || globalThis.fetch
+  if (typeof doFetch !== 'function') return { ok: false, error: 'no_fetch' }
+
+  // Séquentiel volontaire : deux appels parallèles vers la même app Meta
+  // risquent un refus pour limite de débit, et l'ordre d'arrivée n'a aucune
+  // importance ici.
+  const results = []
+  for (const to of cfg.recipients) {
+    results.push(await sendToOne(cfg, to, body, doFetch))
+  }
+  const failures = results.filter((r) => !r.ok)
+  const out = { ok: failures.length === 0, sent: results.length - failures.length, total: results.length, results }
+  if (failures.length) out.error = failures[0].error
+  return out
 }
 
 /* ------------------------------------------------------------------ */

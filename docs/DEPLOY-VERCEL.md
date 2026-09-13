@@ -28,7 +28,7 @@ Project → **Settings → Environment Variables** (Production + Preview) :
 | `OAUTH_DEMO` | `1` |
 | `WHATSAPP_TOKEN` | `EAAG…` (optionnel, P19) |
 | `WHATSAPP_PHONE_NUMBER_ID` | `109876543210` (optionnel, P19) |
-| `WHATSAPP_RECIPIENT` | `213770650387` (optionnel, défaut = numéro du site) |
+| `WHATSAPP_RECIPIENT` | `213770650387,213669174617` (optionnel, défaut = **les deux** numéros du site) |
 
 `FRONT_URL` / `OAUTH_REDIRECT_BASE` servent aussi de **liste blanche de
 redirection OAuth** (P13-S2) : un `returnUrl` d'une autre origine est ignoré.
@@ -49,6 +49,15 @@ total, articles, lien de rappel). Configuration :
 Sans ces variables, **rien ne casse** : l'envoi est ignoré silencieusement
 (`not_configured`) et la commande passe normalement. Le maître reste notifié
 par le Desk et par la notification navigateur.
+
+**P20 — les deux numéros du magasin.** Le `07…` et le `06…` reçoivent tous les
+deux l'alerte : une commande déclenche **trois** notifications pour le maître,
+une dans le navigateur (Desk) et deux WhatsApp. Les numéros viennent d'une
+source unique, `STORE_WHATSAPP` dans `src/data.js`, partagée par les boutons de
+la page « À propos » et par l'envoi serveur — ajouter un troisième numéro ne
+demande qu'une ligne là. Les envois sont **indépendants** : si un numéro échoue
+(non inscrit sur WhatsApp, quota…), l'autre part quand même, et la réponse
+reste `201` pour le client.
 
 > ⚠️ **Les WebSockets ne fonctionnent pas sur Vercel** (serverless). Le socket
 > Desk `/api/desk-stream` n'est actif que sur un serveur Node longue durée.
