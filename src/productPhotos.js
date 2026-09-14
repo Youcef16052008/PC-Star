@@ -12,7 +12,7 @@ const STUDIO_IDS = [
   'cpu-7800x3d', 'cpu-14700k', 'gpu-4070s', 'gpu-7800xt', 'mb-b650',
   'mb-z790', 'ram-32', 'ssd-1t', 'case-atx', 'psu-750', 'cooler',
   'headset', 'controller', 'keyboard', 'mouse', 'monitor', 'webcam',
-  'mic', 'mousepad'
+  'mic', 'mousepad', 'speakers'
 ]
 const STUDIO = (id) => `/photos/studio/${id}.jpg`
 

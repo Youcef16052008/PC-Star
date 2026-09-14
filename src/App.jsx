@@ -113,6 +113,20 @@ function stockLabel(n, t) {
   return { text: `${n} ${t('inStore')}`, cls: 'stock-ok' }
 }
 
+/** Un lien externe DOIT s'ouvrir même dans un environnement qui bloque les
+    popups (aperçus iframe) : window.open d'abord, repli même onglet ensuite
+    (même pattern que ContactPicker). */
+function openExternal(e, href) {
+  e.preventDefault()
+  let w = null
+  try {
+    w = window.open(href, '_blank')
+  } catch {
+    w = null
+  }
+  if (!w) window.location.href = href
+}
+
 function cartMessage(cart, total, pickup, t) {
   const lines = cart.map((i) => `${i.qty} x ${i.name} (${i.sku})`).join('\n')
   const who = pickup.name ? `${t('waName')}: ${pickup.name}\n` : ''
@@ -159,6 +173,7 @@ export default function App() {
   // au logout pour ne JAMAIS laisser les infos du client précédent.
   const [pickup, setPickup] = useState(PICKUP_DEFAULTS)
   const [phoneErr, setPhoneErr] = useState('')
+  const [nameErr, setNameErr] = useState('')
   const [reservations, setReservations] = useState(() => loadOrders(storage))
   const [reserved, setReserved] = useState(null)
   const [build, setBuild] = useState({})
@@ -646,7 +661,17 @@ export default function App() {
 
   async function reserve(e) {
     e.preventDefault()
-    if (!pickup.name.trim() || cart.length === 0) return
+    // BUGFIX : plus de retour silencieux — chaque blocage de validation est
+    // signalé (avant : clic « sans effet » si nom vide ou panier vide).
+    if (cart.length === 0) {
+      setToast(t('cartEmpty'))
+      return
+    }
+    if (!pickup.name.trim()) {
+      setNameErr(t('required'))
+      return
+    }
+    setNameErr('')
     if (!isDzPhone(pickup.phone)) {
       setPhoneErr(t('phoneInvalid'))
       return
@@ -1190,7 +1215,14 @@ export default function App() {
               </ul>
               <div className="d-flex flex-wrap gap-2">
                 {STORE_LINKS.map((l) => (
-                  <a key={l.id} className={`btn btn-sm social-btn social-${l.css || l.id} text-white`} href={l.href} target="_blank" rel="noreferrer">
+                  <a
+                    key={l.id}
+                    className={`btn btn-sm social-btn social-${l.css || l.id} text-white`}
+                    href={l.href}
+                    target="_blank"
+                    rel="noreferrer"
+                    onClick={(e) => openExternal(e, l.href)}
+                  >
                     <strong>{l.label}</strong>
                     <span className="d-block small opacity-75">{l.sub}</span>
                   </a>
@@ -1203,7 +1235,7 @@ export default function App() {
                   <iframe title="PC Star map" src={STORE.mapEmbed} loading="lazy" referrerPolicy="no-referrer-when-downgrade" className="border-0" />
                 </div>
                 <div className="card-body">
-                  <a className="btn btn-outline-success btn-sm" href={STORE.mapUrl} target="_blank" rel="noreferrer">
+                  <a className="btn btn-outline-success btn-sm" href={STORE.mapUrl} target="_blank" rel="noreferrer" onClick={(e) => openExternal(e, STORE.mapUrl)}>
                     Google Maps
                   </a>
                 </div>
@@ -1505,7 +1537,17 @@ export default function App() {
                 </div>
                 <div className="mb-2">
                   <label className="form-label small mb-1" htmlFor="name">{t('yourName')}</label>
-                  <input id="name" className="form-control" value={pickup.name} onChange={(e) => setPickup({ ...pickup, name: e.target.value })} required />
+                  <input
+                    id="name"
+                    className={`form-control ${nameErr ? 'is-invalid' : ''}`}
+                    value={pickup.name}
+                    onChange={(e) => {
+                      setPickup({ ...pickup, name: e.target.value })
+                      setNameErr('')
+                    }}
+                    required
+                  />
+                  {nameErr && <div className="invalid-feedback d-block">{nameErr}</div>}
                 </div>
                 <div className="mb-2">
                   <label className="form-label small mb-1" htmlFor="phone">{t('phone')}</label>

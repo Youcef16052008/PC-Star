@@ -36,6 +36,7 @@ export default function DeskPage({ t, lang, reservations, onStatus, setToast }) 
     try {
       const ok = await onStatus(code, status)
       if (!ok) setToast?.(t('deskStatusFail'))
+      else setToast?.(t('deskStatusOk'))
     } finally {
       setBusy(null)
     }
