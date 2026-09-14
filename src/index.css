@@ -324,19 +324,21 @@ html[data-theme='dark'] .text-bg-light {
 
 /* Palette 3 couleurs : les pastilles sociales passent au bleu/rouge de la
    marque (seuls les pictos rappellent le réseau, par le libellé). */
-.social-instagram {
+/* Spécificité .social-btn.social-X : doit battre `.btn { background:
+   transparent }` de cyber.css (chargé après), sinon pastilles invisibles. */
+.social-btn.social-instagram {
   background: linear-gradient(135deg, #d81f26, #2947d0);
 }
 
-.social-facebook {
+.social-btn.social-facebook {
   background: #2947d0;
 }
 
-.social-whatsapp {
+.social-btn.social-whatsapp {
   background: #1d38b0;
 }
 
-.social-maps {
+.social-btn.social-maps {
   background: #101a33;
 }
 

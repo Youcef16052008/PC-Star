@@ -65,25 +65,30 @@ export default function ProductPage({ t, product, photoIndex, setPhotoIndex, lef
       <div className="row g-4">
         <div className="col-md-6">
           <div className="card border-0 shadow-sm overflow-hidden">
-            <div className="ratio ratio-1x1 photo-frame position-relative pdp-zoom photo-skeleton">
-              {photos.length > 0 && failed[photoIndex] ? (
-                <PartThumb product={product} eager />
-              ) : photos.length > 0 ? (
-                <img
-                  key={product.id + '-' + photoIndex}
-                  src={photos[photoIndex]}
-                  alt={product.name}
-                  className="w-100 h-100"
-                  style={{ objectFit: 'contain' }}
-                  loading="eager"
-                  decoding="async"
-                  width={800}
-                  height={800}
-                  onError={() => setFailed((f) => ({ ...f, [photoIndex]: true }))}
-                />
-              ) : (
-                <PartThumb product={product} eager />
-              )}
+            {/* BUGFIX : le badge stock doit rester HORS de .ratio — Bootstrap
+                étire tout enfant direct de .ratio en absolute 100×100, ce qui
+                transformait le badge opaque en bloc géant cachant la photo. */}
+            <div className="position-relative">
+              <div className="ratio ratio-1x1 photo-frame pdp-zoom photo-skeleton">
+                {photos.length > 0 && failed[photoIndex] ? (
+                  <PartThumb product={product} eager />
+                ) : photos.length > 0 ? (
+                  <img
+                    key={product.id + '-' + photoIndex}
+                    src={photos[photoIndex]}
+                    alt={product.name}
+                    className="w-100 h-100"
+                    style={{ objectFit: 'contain' }}
+                    loading="eager"
+                    decoding="async"
+                    width={800}
+                    height={800}
+                    onError={() => setFailed((f) => ({ ...f, [photoIndex]: true }))}
+                  />
+                ) : (
+                  <PartThumb product={product} eager />
+                )}
+              </div>
               <span className={`badge position-absolute top-0 end-0 m-2 ${badge}`}>{st.text}</span>
             </div>
           </div>
