@@ -380,3 +380,111 @@ html[data-theme='light'] .navbar-toggler-icon {
 .stars {
   color: var(--warn);
 }
+
+/* ────────────────────────────────────────────────────────────────────────────
+   LOT L4 : pages intérieures (produit, recherche, configurateur, commandes,
+   profil, mentions légales).
+   ──────────────────────────────────────────────────────────────────────────── */
+
+/* ── 1. Variantes outline restantes : les valeurs Sass d'origine sont
+      illisibles sur fond sombre (--bs-btn-* pilotés par tokens). ── */
+.btn-outline-dark {
+  --bs-btn-color: var(--ink);
+  --bs-btn-border-color: var(--line-hi);
+  --bs-btn-hover-bg: var(--soft);
+  --bs-btn-hover-color: var(--ink);
+  --bs-btn-hover-border-color: var(--ink);
+  --bs-btn-active-bg: var(--soft);
+  --bs-btn-active-color: var(--ink);
+  --bs-btn-active-border-color: var(--ink);
+}
+
+.btn-outline-primary {
+  --bs-btn-color: var(--blue);
+  --bs-btn-border-color: var(--blue);
+  --bs-btn-hover-bg: var(--blue);
+  --bs-btn-hover-border-color: var(--blue);
+  --bs-btn-hover-color: var(--blue-on);
+  --bs-btn-active-bg: var(--blue-2);
+  --bs-btn-active-border-color: var(--blue-2);
+  --bs-btn-active-color: var(--blue-on);
+}
+
+.btn-outline-danger {
+  --bs-btn-color: var(--danger);
+  --bs-btn-border-color: var(--danger);
+  --bs-btn-hover-bg: var(--danger);
+  --bs-btn-hover-border-color: var(--danger);
+  --bs-btn-hover-color: var(--blue-on);
+  --bs-btn-active-bg: var(--danger);
+  --bs-btn-active-border-color: var(--danger);
+  --bs-btn-active-color: var(--blue-on);
+}
+
+/* ── 2. Formulaires : cases/options sur l'accent (Sass figé #0d6efd). ── */
+.form-check-input:checked {
+  background-color: var(--blue);
+  border-color: var(--blue);
+}
+
+.form-check-input:focus {
+  border-color: var(--blue);
+  box-shadow: 0 0 0 0.2rem color-mix(in srgb, var(--blue) 25%, transparent);
+}
+
+/* Alertes (erreurs de formulaire builder/commandes). */
+.alert-danger {
+  --bs-alert-color: var(--danger);
+  --bs-alert-bg: color-mix(in srgb, var(--danger) 10%, var(--bg));
+  --bs-alert-border-color: color-mix(in srgb, var(--danger) 35%, var(--line));
+}
+
+/* États vides : filet renforcé (§ 6.1). */
+.empty-state {
+  border-color: var(--line-hi);
+}
+
+/* Coins nets partout (le biseau reste réservé aux panneaux/cartes). */
+.rounded {
+  border-radius: 2px;
+}
+
+/* ── 3. Fiche produit : cadre galerie biseauté (élément non focusable),
+      tableau de specs « terminal », CTA collant au filet renforcé. ── */
+.pdp-zoom {
+  clip-path: var(--chamf);
+}
+
+.pdp-sticky-cta {
+  border-top-color: var(--line-hi);
+}
+
+.spec-table th {
+  color: var(--muted);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+/* ── 4. Configurateur / recherche : le récap collant (border-0) reçoit tout
+      de même un contour biseauté pour se détacher du fond. ── */
+.app .card.sticky-lg-top::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -2;
+  clip-path: var(--chamf);
+  background: var(--line-hi);
+}
+
+/* ── 5. Correctif § 4.3 ② (rattrapé ici) : Safari iOS ZOOME au focus de tout
+      champ dont le font-size est < 16 px. Le 12 px monospace de la maquette
+      ferait « sauter » chaque champ du formulaire de commande sur iPhone.
+      La police mono reste, seule la taille change. ── */
+@media (max-width: 575.98px) {
+  input,
+  select,
+  textarea {
+    font-size: 16px;
+  }
+}

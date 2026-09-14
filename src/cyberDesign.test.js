@@ -277,6 +277,21 @@ test('T7 responsive : aucune largeur px fixe sur cartes/colonnes', () => {
   }
 })
 
+/* ── T10 : anti-zoom iOS (§ 4.3 ②) — champs ≥ 16px sous 576px ── */
+const FORM_FIELD = /\b(input|select|textarea)\b/
+test('T10 iOS : champs de formulaire ≥ 16px sous 575.98px', () => {
+  let found = 0
+  for (const rule of cyberRules.filter(inMobile)) {
+    if (!FORM_FIELD.test(rule.selector)) continue
+    found++
+    const fs = rule.declarations.find((d) => d.prop === 'font-size')
+    assert.ok(fs, `règle de champ sans font-size sous 576px : ${rule.selector}`)
+    const px = parseFloat(fs.value)
+    assert.ok(px >= 16, `font-size ${fs.value} < 16px → zoom iOS au focus : ${rule.selector}`)
+  }
+  assert.ok(found > 0, 'aucune règle input/select/textarea sous 575.98px (§ 4.3 ② supprimé ?)')
+})
+
 /* ── T8 : clip-path = tokens symétriques seulement (RTL-safe) ── */
 test('T8 RTL : clip-path uniquement via var(--chamf) / var(--chamf-sm) / var(--chamf-top)', () => {
   const clipRules = cyberRules.filter((r) => r.declarations.some((d) => d.prop === 'clip-path'))
