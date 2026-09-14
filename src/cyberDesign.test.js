@@ -221,6 +221,10 @@ test('T5 focus : aucun clip-path sur un sélecteur :focus', () => {
 })
 
 /* ── T6 : aucune couleur en dur dans cyber.css ── */
+/* Exception assumée (L5) : le bloc @media print est volontairement
+   A-thématique (papier blanc / encre noire, économie d'encre) — les couleurs
+   en dur y sont autorisées, et seulement là. */
+const inPrint = ({ media }) => media.some((mq) => /print/.test(mq))
 const NAMED_COLORS = new Set([
   'aliceblue', 'antiquewhite', 'aqua', 'aquamarine', 'azure', 'beige', 'bisque',
   'black', 'blanchedalmond', 'blue', 'blueviolet', 'brown', 'burlywood',
@@ -250,8 +254,8 @@ const NAMED_COLORS = new Set([
   'tomato', 'turquoise', 'violet', 'wheat', 'white', 'whitesmoke', 'yellow',
   'yellowgreen'
 ])
-test('T6 cyber.css : aucune couleur en dur (var(--…) uniquement)', () => {
-  for (const rule of cyberRules) {
+test('T6 cyber.css : aucune couleur en dur (var(--…) uniquement, hors @media print)', () => {
+  for (const rule of cyberRules.filter((r) => !inPrint(r))) {
     for (const d of rule.declarations) {
       const value = d.value.replace(/url\([\s\S]*?\)/g, '')
       assert.ok(!/#[0-9a-fA-F]{3,8}\b/.test(value), `couleur hex en dur (${d.prop}: ${d.value}) dans ${rule.selector}`)
@@ -292,9 +296,43 @@ test('T10 iOS : champs de formulaire ≥ 16px sous 575.98px', () => {
   assert.ok(found > 0, 'aucune règle input/select/textarea sous 575.98px (§ 4.3 ② supprimé ?)')
 })
 
+/* ── T11 : impression (§ 4.4, lot L5) ──
+   Les tickets de commande partent en imprimante thermique/guichet : le
+   biseautage et les fonds sombres sont interdits à l'impression. Vérifié
+   mécaniquement plutôt qu'à l'œil (pas de navigateur ici). */
+test('T11 impression : clip-path neutralisé + couches biseautées retirées + fond blanc', () => {
+  const printRules = cyberRules.filter(inPrint)
+  assert.ok(printRules.length > 0, 'aucun bloc @media print dans cyber.css')
+
+  // 1) clip-path: none !important global
+  const clipNone = printRules.some(
+    (r) =>
+      /\*/.test(r.selector) &&
+      r.declarations.some((d) => d.prop === 'clip-path' && /^none\s*!important$/.test(d.value))
+  )
+  assert.ok(clipNone, '@media print doit déclarer clip-path: none !important sur *')
+
+  // 2) les pseudo-couches biseautées sont retirées à l'impression
+  const pseudoOff = printRules.some(
+    (r) =>
+      /::(before|after)/.test(r.selector) &&
+      /\.app \.card/.test(r.selector) &&
+      r.declarations.some((d) => d.prop === 'display' && /^none\s*!important$/.test(d.value))
+  )
+  assert.ok(pseudoOff, 'les couches ::before/::after des cartes doivent passer en display: none à l\'impression')
+
+  // 3) fond blanc forcé
+  const whiteBg = printRules.some((r) =>
+    r.declarations.some((d) => d.prop === 'background' && /#fff(\s*!important)?$/.test(d.value))
+  )
+  assert.ok(whiteBg, 'l\'impression doit forcer un fond blanc (économie d\'encre)')
+})
+
 /* ── T8 : clip-path = tokens symétriques seulement (RTL-safe) ── */
 test('T8 RTL : clip-path uniquement via var(--chamf) / var(--chamf-sm) / var(--chamf-top)', () => {
-  const clipRules = cyberRules.filter((r) => r.declarations.some((d) => d.prop === 'clip-path'))
+  // Hors impression : en @media print, `clip-path: none !important` est
+  // l'objectif même du garde-fou (T11).
+  const clipRules = cyberRules.filter((r) => !inPrint(r) && r.declarations.some((d) => d.prop === 'clip-path'))
   assert.ok(clipRules.length > 0, 'cyber.css devrait appliquer le biseautage (var(--chamf…))')
   for (const rule of clipRules) {
     for (const d of rule.declarations.filter((x) => x.prop === 'clip-path')) {

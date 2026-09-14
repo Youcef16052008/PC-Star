@@ -488,3 +488,68 @@ html[data-theme='light'] .navbar-toggler-icon {
     font-size: 16px;
   }
 }
+
+/* ────────────────────────────────────────────────────────────────────────────
+   LOT L5 : back-office (master + desk) & impression des tickets.
+   À l'écran, desk/master n'utilisent que des composants déjà habillés
+   (cards, list-group, nav-pills, form-controls, boutons tokenisés L1-L4).
+   Le vrai chantier L5 = l'impression (§ 4.4), contrôlée par le test T11.
+   ──────────────────────────────────────────────────────────────────────────── */
+
+/* Règle d'or amendée (test T6) : ce bloc @media print est le SEUL endroit de
+   cyber.css autorisé à contenir des couleurs en dur — l'impression est
+   volontairement A-thématique : papier blanc, encre noire, quel que soit le
+   thème affiché (économie d'encre, tickets lisibles aux guichets). */
+@media print {
+  /* Le biseautage et les effets rognent/assombrissent l'impression :
+     neutralisation générale (§ 4.4). */
+  *,
+  *::before,
+  *::after {
+    clip-path: none !important;
+    filter: none !important;
+    box-shadow: none !important;
+    text-shadow: none !important;
+  }
+
+  html,
+  body {
+    background: #fff !important;
+  }
+
+  body {
+    -webkit-print-color-adjust: auto;
+    print-color-adjust: auto;
+  }
+
+  /* Les couches biseautées (::before bordure / ::after fond) rendraient des
+     panneaux gris foncé pleins : on les retire et on rend un fond blanc à
+     encadrement net. */
+  .app .card::before,
+  .app .card::after,
+  .app .card.sticky-lg-top::before,
+  .modal-content::before,
+  .modal-content::after,
+  .btn-success::before,
+  .btn-success::after,
+  .btn-warning::before,
+  .btn-warning::after,
+  .btn-light::before,
+  .btn-light::after {
+    display: none !important;
+  }
+
+  .app .card,
+  .modal-content {
+    background: #fff !important;
+    border: 1px solid #333 !important;
+  }
+
+  .btn-success,
+  .btn-warning,
+  .btn-light {
+    background-color: #fff !important;
+    color: #000 !important;
+    border: 1px solid #333 !important;
+  }
+}
