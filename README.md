@@ -96,6 +96,33 @@ Photos: keep shipping under `public/photos/sku/` — add pro shots later, push, 
   des équivalents compatibles et toujours vendus
   (`cpu-5600` → `cpu-5500`, `mag-ddr4-16` → `team-ddr4-16`).
 
+  Trois mécanismes distincts pouvaient produire le symptôme du comptoir ; les
+  trois ont été traités :
+
+  1. **Requête qui pend** — aucun délai maximal sur `fetch` (`src/api.js`) +
+     un seul état `busy` partagé par toutes les cartes (`src/DeskPage.jsx`) :
+     une requête bloquée grisait les cinq boutons de **toutes** les commandes
+     jusqu'au rechargement, sans message. → `AbortController` à 15 s
+     (`API_TIMEOUT_MS`), `busy` **par carte** (`disabled={busy === r.code}`),
+     et un `catch` qui libère l'état et affiche `deskStatusFail`.
+  2. **Course avec le polling** — `pull()` envoyait `GET /api/orders` (T0) puis
+     appliquait la réponse par `setReservations(next)` (T2) **sans condition**.
+     Un clic entre les deux faisait aboutir le `PATCH` (T1), puis la réponse du
+     polling — produite avant le `PATCH` — remettait l'ancien statut : le badge
+     revenait en arrière, ce qui se lit comme « rien ne change ». Fenêtre
+     d'autant plus présente sur Vercel, où le polling de 20 s est le seul
+     rafraîchissement (pas de WebSocket en serverless). → nouvelle fonction
+     pure `mergeServerOrders()` (`src/orderLogic.js`) : une commande modifiée
+     localement après le départ de la requête garde son statut, le serveur
+     reste la source de vérité dès qu'il a enregistré le changement.
+  3. **Échec d'écriture du store** — mesuré, pas supposé : avec
+     `store.json.tmp` rendu inaccessible (`EISDIR`, classe d'échec d'un système
+     de fichiers en lecture seule comme Vercel), `PATCH /api/orders/:code`
+     renvoie bien **HTTP 500 + JSON `{ok:false,error:'server'}`**, donc le
+     client peut afficher `deskStatusFail` au lieu de rester muet. Couvert par
+     `src/deskStatusFail.test.js`, car une régression silencieuse (connexion
+     pendue au lieu d'une réponse) reproduirait exactement le symptôme.
+
 - **P20 (les deux numéros du magasin)** — le second numéro (`0669 17 46 17`)
   existait dans les données mais n'était exposé **nulle part** en WhatsApp : un
   seul bouton sur « À propos », une seule alerte par commande. Ajout de
