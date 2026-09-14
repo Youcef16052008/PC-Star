@@ -6,6 +6,14 @@
 
 const LIB = (name) => `/photos/lib/${name}.jpg`
 
+/** Packshots studio homogènes (fond blanc, même éclairage) pour le
+    catalogue cœur : une seule photo cohérente par produit, style unique. */
+const STUDIO_IDS = [
+  'cpu-7800x3d', 'cpu-14700k', 'gpu-4070s', 'gpu-7800xt', 'mb-b650',
+  'mb-z790', 'ram-32', 'ssd-1t', 'case-atx', 'psu-750'
+]
+const STUDIO = (id) => `/photos/studio/${id}.jpg`
+
 /** Pools of 3+ paths per visual family */
 const POOLS = {
   cpu: ['cpu-1', 'cpu-2', 'cpu-3', 'cpu-local-1', 'cpu-local-2', 'cpu-local-3'].map(LIB),
@@ -122,6 +130,7 @@ function isCatalogDefaultPhoto(path) {
   if (!p) return true
   if (p.startsWith('/photos/sku/')) return true
   if (p.startsWith('/photos/lib/')) return true
+  if (p.startsWith('/photos/studio/')) return true
   // Legacy static PNGs under /photos/*.png (not uploads/)
   if (/^\/photos\/[^/]+\.(png|jpg|jpeg|webp)$/i.test(p)) return true
   return false
@@ -134,6 +143,9 @@ export function photosForProduct(product) {
   // Master / runtime overrides: keep non-catalog paths (data URLs, /uploads/, http…)
   const custom = existing.filter((p) => !isCatalogDefaultPhoto(p))
   if (custom.length >= 3) return custom.slice(0, 12)
+
+  // Catalogue cœur : packshot studio unique (cohérence visuelle garantie).
+  if (STUDIO_IDS.includes(product.id)) return [STUDIO(product.id)]
   if (custom.length > 0 && sku) {
     const out = [...custom]
     for (const p of sku) {

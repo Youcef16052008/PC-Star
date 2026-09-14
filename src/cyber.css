@@ -814,15 +814,18 @@ html[dir='rtl'] .hero h1 {
   border-color: var(--danger);
 }
 
-/* ── 10. Ponts couleur Bootstrap (badges stock, utilitaires). ── */
+/* ── 10. Ponts couleur Bootstrap (badges stock, utilitaires).
+      Badges PLEINS (fond opaque + texte blanc) : posés sur les photos
+      produit, ils restent lisibles quel que soit le fond. ── */
 .text-success {
   color: var(--blue) !important;
 }
 
 .text-bg-success {
-  background-color: var(--accent-dim) !important;
-  border: 1px solid color-mix(in srgb, var(--blue) 30%, var(--line)) !important;
-  color: var(--blue) !important;
+  background-color: var(--blue) !important;
+  border: 0 !important;
+  color: var(--card) !important;
+  box-shadow: 0 2px 8px var(--shadow);
 }
 
 .text-bg-success-subtle {
@@ -839,9 +842,10 @@ html[dir='rtl'] .hero h1 {
 }
 
 .text-bg-warning {
-  background-color: color-mix(in srgb, var(--warn) 10%, transparent) !important;
-  border: 1px solid color-mix(in srgb, var(--warn) 30%, var(--line)) !important;
-  color: var(--warn) !important;
+  background-color: var(--warn) !important;
+  border: 0 !important;
+  color: var(--card) !important;
+  box-shadow: 0 2px 8px var(--shadow);
 }
 
 .text-warning {
@@ -849,9 +853,10 @@ html[dir='rtl'] .hero h1 {
 }
 
 .text-bg-danger {
-  background-color: color-mix(in srgb, var(--danger) 10%, transparent) !important;
-  border: 1px solid color-mix(in srgb, var(--danger) 30%, var(--line)) !important;
-  color: var(--danger) !important;
+  background-color: var(--danger) !important;
+  border: 0 !important;
+  color: var(--card) !important;
+  box-shadow: 0 2px 8px var(--shadow);
 }
 
 .bg-danger {
