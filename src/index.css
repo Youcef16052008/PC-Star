@@ -94,15 +94,21 @@ a:focus-visible {
   line-height: 1;
 }
 
+/* Logo officiel (PNG recréé d'après la carte de visite) : posé sur un
+   fond blanc arrondi, comme un autocollant de la carte — lisible sur
+   les deux thèmes. */
 .logo-img {
-  height: 40px;
+  height: 44px;
   width: auto;
   display: block;
+  border-radius: 8px;
+  background: #fff;
+  padding: 3px 10px;
 }
 
 @media (max-width: 575.98px) {
   .logo-img {
-    height: 32px;
+    height: 36px;
   }
 }
 

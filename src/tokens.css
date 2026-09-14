@@ -16,45 +16,44 @@
 
 :root,
 html[data-theme='dark'] {
-  /* Surfaces (maquette) */
-  --bg: #07090c;
-  --bg-0: #05070a;            /* sysbar — plus sombre que le fond */
-  --card: #0d1116;            /* maquette --panel */
-  --soft: #111720;            /* maquette --panel-2 */
-  --photo-bg: #0a0e13;        /* fond des vignettes (thumb maquette) */
-  --photo-bg-2: #101821;      /* départ du dégradé de vignette */
+  /* Surfaces « marine corporate » — dérivées du bleu du logo */
+  --bg: #0a1020;
+  --bg-0: #060b18;            /* sysbar — plus sombre que le fond */
+  --card: #101a33;
+  --soft: #162242;
+  --photo-bg: #0c1428;        /* fond des vignettes */
+  --photo-bg-2: #142040;      /* départ du dégradé de vignette */
 
   /* Encres */
-  --ink: #dfe7ef;             /* maquette --text */
-  --ink-2: #8fa1b3;           /* maquette --text-2 */
-  --muted: #8fa1b3;           /* CORRECTIF AA : texte secondaire lisible */
-  --muted-2: #5d6f80;         /* maquette --muted — décoratif / ≥ 3:1 */
+  --ink: #e8edf8;
+  --ink-2: #a8b4d0;
+  --muted: #93a1c0;           /* AA 4.5:1 sur --soft */
+  --muted-2: #66759c;         /* décoratif / ≥ 3:1 */
 
   /* Filets */
-  --line: #1c2733;
-  --line-hi: #2a3a4a;
+  --line: #223055;
+  --line-hi: #33456f;
 
-  /* Accent cyan (maquette) */
-  --blue: #22d3ee;
-  --blue-2: #0ea5c4;
-  --blue-on: #04212a;
-  --accent-dim: rgba(34, 211, 238, 0.1);
-  --glow: rgba(34, 211, 238, 0.4);      /* halo du <em> du hero */
-  --grid-line: rgba(34, 211, 238, 0.035); /* trame de fond 48 px */
+  /* Accent = bleu du logo, éclairci pour le fond sombre */
+  --blue: #5b7cff;
+  --blue-2: #6d8bff;          /* survol, plus clair */
+  --blue-on: #081120;         /* encre sombre SUR l'accent (≥ 5:1) */
+  --accent-dim: rgba(91, 124, 255, 0.12);
+  --glow: rgba(91, 124, 255, 0.4);      /* halo du <em> du hero */
+  --grid-line: rgba(91, 124, 255, 0.05); /* trame de fond 48 px */
 
   /* Sémantique */
   --warn: #fbbf24;
-  --danger: #f87171;
-  --focus: #22d3ee;
+  --danger: #ff5a61;          /* rouge étoile, version lisible sombre */
+  --focus: #5b7cff;
 
-  /* Marque (carte de visite) : bleu orbital + étoile rouge, versions
-     éclaircies pour rester lisibles sur fond sombre. */
-  --brand-blue: #5b8cff;
+  /* Marque (carte de visite) */
+  --brand-blue: #6d8bff;
   --brand-red: #ff4d55;
 
   /* Dégradés / ombres */
-  --hero-from: #0d1116;
-  --hero-to: #07090c;
+  --hero-from: #101a33;
+  --hero-to: #0a1020;
   --shadow: rgba(0, 0, 0, 0.5);
 
   /* Typographie — maquette : Chakra Petch (display) + JetBrains Mono (corps).
@@ -84,39 +83,39 @@ html[data-theme='dark'] {
 /* Thème clair « papier technique » : la même géométrie terminal, palette
    inversée, cyan assombri pour l'AA. Toutes les paires vérifiées (T2). */
 html[data-theme='light'] {
-  --bg: #f2f5f8;
-  --bg-0: #e9eef4;
+  --bg: #f4f6fb;
+  --bg-0: #e9edf6;
   --card: #ffffff;
-  --soft: #e7edf4;
-  --photo-bg: #eef2f7;
+  --soft: #e8edf7;
+  --photo-bg: #eef2fa;
   --photo-bg-2: #ffffff;
 
-  --ink: #0b1220;
-  --ink-2: #46586c;
-  --muted: #5b6b7c;         /* ≥ 4.6:1 sur --soft */
-  --muted-2: #7b8a9c;       /* décoratif (≥ 3:1) */
+  --ink: #101a33;
+  --ink-2: #3c4a6b;
+  --muted: #4b5878;         /* ≥ 4.6:1 sur --soft */
+  --muted-2: #7583a6;       /* décoratif (≥ 3:1) */
 
-  --line: #d5dee8;
-  --line-hi: #b7c5d3;
+  --line: #d7dfee;
+  --line-hi: #b9c4dd;
 
-  --blue: #0e7490;
-  --blue-2: #155e75;
-  --blue-on: #f8fafc;
-  --accent-dim: rgba(14, 116, 144, 0.08);
-  --glow: rgba(14, 116, 144, 0.25);
-  --grid-line: rgba(14, 116, 144, 0.05);
+  --blue: #2947d0;
+  --blue-2: #1d38b0;
+  --blue-on: #ffffff;
+  --accent-dim: rgba(41, 71, 208, 0.08);
+  --glow: rgba(41, 71, 208, 0.25);
+  --grid-line: rgba(41, 71, 208, 0.05);
 
   --warn: #92400e;
-  --danger: #c62828;
-  --focus: #0e7490;
+  --danger: #d81f26;
+  --focus: #2947d0;
 
   /* Marque : couleurs exactes de la carte de visite sur fond clair. */
   --brand-blue: #2947d0;
   --brand-red: #d81f26;
 
   --hero-from: #ffffff;
-  --hero-to: #e9eff6;
-  --shadow: rgba(11, 18, 32, 0.12);
+  --hero-to: #e8edf7;
+  --shadow: rgba(16, 26, 51, 0.12);
 
   color-scheme: light;
 }

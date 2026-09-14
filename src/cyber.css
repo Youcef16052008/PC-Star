@@ -109,40 +109,9 @@ h1, h2, h3, h4, h5, h6,
   color: var(--ink);
 }
 
-.logo-img {
-  display: none;
-}
-
-/* Logo carte de visite : étoile rouge + swoosh bleu + wordmark. */
-.logo-svg {
-  display: block;
-  flex: 0 0 auto;
-}
-
-.logo-word {
-  font-family: var(--font-display);
-  font-weight: 700;
-  font-size: 17px;
-  letter-spacing: 0.04em;
-  color: var(--ink);
-  line-height: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  text-align: start;
-}
-
-.logo-word small {
-  color: var(--brand-red);
-  font-family: var(--font-mono);
-  font-size: 8.5px;
-  letter-spacing: 0.42em;
-  font-weight: 600;
-}
-
-html[dir='rtl'] .logo-word small {
-  letter-spacing: 0.1em;
-}
+/* Logo officiel (PNG recréé d'après la carte de visite) : habillage
+   dans index.css (fond blanc arrondi) — cyber.css reste sans couleurs
+   en dur (garde-fou T6). */
 
 .shop-navbar .nav-link {
   font-family: var(--font-mono);
@@ -454,7 +423,7 @@ html[dir='rtl'] .hero h1 {
 .page .h2::before,
 .page h2.h4::before {
   content: '// ';
-  color: var(--blue);
+  color: var(--danger); /* rouge étoile du logo — signature bicolore */
 }
 
 /* ── 8. Grille catégories (.cats) : 6 → 3 → 2 colonnes. ── */

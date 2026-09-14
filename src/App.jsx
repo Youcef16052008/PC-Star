@@ -21,7 +21,6 @@ import SearchPage from './SearchPage.jsx'
 import BuilderPage from './BuilderPage.jsx'
 import PartThumb from './PartThumb.jsx'
 import ContactButton from './ContactPicker.jsx'
-import Logo from './Logo.jsx'
 import { specRows } from './media.js'
 import AuthPanel from './AuthPanel.jsx'
 import ProfilePage from './ProfilePage.jsx'
@@ -800,7 +799,7 @@ export default function App() {
       <nav className="navbar navbar-expand-lg sticky-top border-bottom shop-navbar">
         <div className="container">
           <button type="button" className="navbar-brand btn btn-link text-decoration-none p-0 logo" onClick={() => go('shop')} aria-label="PC Star Informatique — accueil">
-            <Logo />
+            <img src="/logo.png" alt="PC Star Informatique" className="logo-img" />
           </button>
           <div className="d-flex align-items-center gap-2 order-lg-last ms-auto ms-lg-0">
             <button
