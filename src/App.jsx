@@ -31,7 +31,7 @@ import MasterPage from './MasterPage.jsx'
 import DeskPage from './DeskPage.jsx'
 import ProductPage from './ProductPage.jsx'
 import LegalPage from './LegalPage.jsx'
-import { localDay, nextLocalOrderCode, orderApiFailure, pickupForUser } from './orderLogic.js'
+import { localDay, mergeServerOrders, nextLocalOrderCode, orderApiFailure, pickupForUser } from './orderLogic.js'
 import { t as translate, LANGS, langMeta } from './i18n.js'
 import {
   applyDocumentChrome,
@@ -191,6 +191,10 @@ export default function App() {
   // arrivée en même temps qu'une suppression.
   const seenOrderCodes = useRef(null)
   const deskStream = useRef(null)
+  // P21 : code → horodatage de la dernière transition décidée par le maître.
+  // Sert à ne pas laisser une réponse de polling périmée écraser un changement
+  // qui vient d'aboutir (voir `mergeServerOrders`).
+  const orderEditedAt = useRef(new Map())
 
   const t = (key, vars) => translate(lang, key, vars)
   const localUser = useMemo(() => {
@@ -449,6 +453,9 @@ export default function App() {
       try {
         const r = await api.patchOrder(code, status)
         if (r.ok && r.data?.order) {
+          // P21 : horodatage AVANT la mise à jour d'état, pour que la fusion
+          // du polling suivant sache que ce statut est plus récent.
+          orderEditedAt.current.set(code, Date.now())
           setReservations((prev) => prev.map((o) => (o.code === code ? { ...o, ...r.data.order } : o)))
           await refreshStock()
           return true
@@ -537,14 +544,19 @@ export default function App() {
     if (!isMaster || !apiOnline || authMode !== 'api') return undefined
     let cancelled = false
     async function pull() {
+      // P21 : l'horodatage est pris AVANT l'envoi. Toute transition décidée
+      // après cet instant est plus récente que la réponse qui va arriver.
+      const requestedAt = Date.now()
       const r = await api.listOrders()
       if (cancelled || !r.ok || !Array.isArray(r.data?.orders)) return
-      const next = r.data.orders
+      const server = r.data.orders
       // P19 : détection par ensemble de codes (pas par longueur) — une
       // suppression simultanée masquait auparavant l'arrivée d'une commande.
+      // La détection porte sur la liste SERVEUR : c'est elle qui révèle les
+      // arrivées, indépendamment de la fusion ci-dessous.
       const known = seenOrderCodes.current
       if (known) {
-        const fresh = next.filter((o) => !known.has(o.code))
+        const fresh = server.filter((o) => !known.has(o.code))
         for (const o of fresh) {
           if (page === 'desk') {
             deskBeep() // P9 (P7-6) : contexte unique partagé, jamais de leak
@@ -555,9 +567,12 @@ export default function App() {
           notifyNewOrder(o, t)
         }
       }
-      seenOrderCodes.current = new Set(next.map((o) => o.code))
-      prevOrderCount.current = next.length
-      setReservations(next)
+      seenOrderCodes.current = new Set(server.map((o) => o.code))
+      prevOrderCount.current = server.length
+      // P21 : forme FONCTIONNELLE obligatoire. Ce useEffect ne liste pas
+      // `reservations` dans ses dépendances : la variable capturée ici serait
+      // celle du montage, donc périmée. `prev` est l'état réellement courant.
+      setReservations((prev) => mergeServerOrders(server, prev, requestedAt, orderEditedAt.current))
     }
     pull()
     // P19 : socket en temps réel, avec repli automatique sur le polling si le

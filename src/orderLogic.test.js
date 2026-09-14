@@ -10,6 +10,7 @@ import {
   checkStock,
   localDay,
   makeOrderCode,
+  mergeServerOrders,
   waNumber,
   nextLocalOrderCode,
   orderApiFailure,
@@ -395,5 +396,69 @@ describe('P14 (#3) — waNumber : formats téléphoniques DZ → wa.me', () => {
         assert.match(waNumber(local), /^213[567]\d{8}$/, local)
       }
     }
+  })
+})
+
+// ---------------------------------------------------------------------------
+// P21 — « je clique sur préparer, rien ne change ».
+//
+// `pull()` envoyait `GET /api/orders` puis appliquait la réponse par
+// `setReservations(next)`, sans condition. Si le maître cliquait entre l'envoi
+// et la réponse, le PATCH aboutissait, puis la réponse du polling — produite
+// AVANT le PATCH — remettait l'ancien statut. Le badge revenait en arrière,
+// ce qui se lit exactement comme « rien ne change ».
+// ---------------------------------------------------------------------------
+describe('P21 — mergeServerOrders : le polling ne rétrograde plus un changement récent', () => {
+  const server = [
+    { code: 'PS-1', status: 'new', name: 'Karim' },
+    { code: 'PS-2', status: 'new', name: 'Amina' }
+  ]
+  const local = [
+    { code: 'PS-1', status: 'preparing', name: 'Karim' },
+    { code: 'PS-2', status: 'new', name: 'Amina' }
+  ]
+
+  it('une transition décidée APRÈS le départ de la requête est conservée', () => {
+    // Requête partie à t=1000 ; le maître a cliqué à t=2000.
+    const editedAt = new Map([['PS-1', 2000]])
+    const merged = mergeServerOrders(server, local, 1000, editedAt)
+    assert.equal(merged.find((o) => o.code === 'PS-1').status, 'preparing')
+    // Le reste de l'objet serveur est conservé.
+    assert.equal(merged.find((o) => o.code === 'PS-1').name, 'Karim')
+    // Une commande non touchée prend la valeur du serveur.
+    assert.equal(merged.find((o) => o.code === 'PS-2').status, 'new')
+  })
+
+  it('une transition décidée AVANT le départ de la requête cède la place au serveur', () => {
+    // Requête partie à t=3000, clic à t=2000 : la réponse est postérieure,
+    // le serveur reste la source de vérité.
+    const editedAt = new Map([['PS-1', 2000]])
+    const merged = mergeServerOrders(server, local, 3000, editedAt)
+    assert.equal(merged.find((o) => o.code === 'PS-1').status, 'new')
+  })
+
+  it('le serveur qui a déjà enregistré le changement gagne (pas de blocage)', () => {
+    const serverFresh = [{ code: 'PS-1', status: 'preparing', name: 'Karim' }]
+    const editedAt = new Map([['PS-1', 2000]])
+    const merged = mergeServerOrders(serverFresh, local, 1000, editedAt)
+    assert.equal(merged[0].status, 'preparing', 'statut serveur déjà à jour')
+  })
+
+  it('sans édition locale, la liste serveur est reprise telle quelle', () => {
+    const merged = mergeServerOrders(server, local, 1000, new Map())
+    assert.deepEqual(merged, server)
+  })
+
+  it('une commande absente de l\'état local ne casse pas la fusion', () => {
+    const editedAt = new Map([['PS-9', 2000]])
+    const merged = mergeServerOrders(server, local, 1000, editedAt)
+    assert.deepEqual(merged, server, 'PS-9 inconnu du serveur : aucun effet')
+  })
+
+  it('entrées dégénérées : listes vides ou absentes', () => {
+    assert.deepEqual(mergeServerOrders([], local, 1000, new Map()), [])
+    assert.deepEqual(mergeServerOrders(null, local, 1000, new Map()), [])
+    // Pas de Map → on retombe sur la liste serveur (comportement antérieur).
+    assert.deepEqual(mergeServerOrders(server, local, 1000, null), server)
   })
 })

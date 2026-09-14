@@ -247,3 +247,41 @@ export function applyPreset(catalog, preset) {
   }
   return build
 }
+
+/**
+ * P21 — Fusionne une liste de commandes venant du serveur avec l'état local.
+ *
+ * Le bug : `pull()` envoie `GET /api/orders` à T0 et applique la réponse à T2
+ * via `setReservations(next)`, sans condition. Si le maître clique sur
+ * « préparer » entre les deux, le `PATCH` aboutit à T1 et met l'état local à
+ * jour — puis la réponse du polling, qui a été *produite avant* le PATCH,
+ * arrive et remet l'ancien statut. À l'écran le badge revient en arrière, ce
+ * qui se lit exactement comme « je clique, rien ne change ».
+ *
+ * Règle appliquée : une commande modifiée localement après le départ de la
+ * requête (`editedAfter`) garde son statut local ; toutes les autres prennent
+ * la valeur du serveur, qui reste la source de vérité.
+ *
+ * @param {Array}  serverOrders  commandes renvoyées par GET /api/orders
+ * @param {Array}  localOrders   état local courant
+ * @param {number} editedAfter   horodatage du départ de la requête (ms)
+ * @param {Map}    editedAt      code → horodatage de la dernière édition locale
+ * @returns {Array} liste fusionnée
+ */
+export function mergeServerOrders(serverOrders, localOrders, editedAfter, editedAt) {
+  const server = Array.isArray(serverOrders) ? serverOrders : []
+  const local = Array.isArray(localOrders) ? localOrders : []
+  if (!editedAt || typeof editedAt.get !== 'function') return server
+
+  const localByCode = new Map(local.map((o) => [o?.code, o]))
+  return server.map((o) => {
+    const at = editedAt.get(o?.code)
+    // Non édité localement, ou édité AVANT le départ de la requête : la réponse
+    // du serveur est postérieure au changement, on la prend.
+    if (!at || at <= editedAfter) return o
+    const mine = localByCode.get(o?.code)
+    // Le serveur ne connaît pas encore notre changement : on garde le statut
+    // local (et l'objet serveur pour tout le reste).
+    return mine ? { ...o, status: mine.status } : o
+  })
+}
