@@ -306,15 +306,107 @@ rejouées :
 
 ---
 
+## 4 bis. Les 4 items « ouverts par conception » d'un audit antérieur
+
+Restés ouverts depuis un audit précédent. Trois sur quatre sont maintenant
+traités ; le quatrième était déjà réglé sans que la liste soit à jour.
+
+### Item 1 — Les comptes seedés restaient non salés indéfiniment ✅ corrigé
+
+`verifyPass` savait déjà lire `scrypt$salt$hash` **et** le sha256 non salé de
+`hashPassLegacy`, mais rien ne remplaçait ce dernier. Le master et les 3 comptes
+démo gardaient donc un `sha256(pcstar:<mot de passe>)` sans sel pour toujours :
+un dump de `store.json` — ou d'un backup dans `server/data/backups/` — exposait
+des hashes cassables par table précalculée.
+
+**Correctif :** re-salage en scrypt au moment de la connexion réussie, seul
+instant où le mot de passe en clair est en main. Invisible pour l'utilisateur.
+
+**Mesuré :**
+
+```
+avant connexion  : 64 caractères (sha256 hex nu, donc pas de sel)
+après connexion  : scrypt$cd4d73a6dc625e8c$…  (format scrypt$salt$hash)
+deux comptes     : sels distincts
+2e connexion     : hash inchangé (pas de réécriture inutile)
+mauvais mot de passe : 401 {"error":"auth"}
+```
+
+### Item 2 — Aucune Content-Security-Policy ✅ corrigé
+
+Aucune CSP n'était posée, ni sur l'application ni sur l'API.
+
+Le frein était le bootstrap de thème : un `<script>` inline dans `index.html`,
+donc incompatible avec `script-src 'self'`. Il est sorti dans
+`public/theme-boot.js` — un script classique (ni `async` ni `defer`) dans
+`<head>` s'exécute toujours avant le premier paint, l'anti-flash est conservé.
+**Résultat mesuré : 0 script inline dans `dist/index.html`.**
+
+```
+script-src 'self'                      ← sans 'unsafe-inline'
+style-src  'self' 'unsafe-inline' https://fonts.googleapis.com
+font-src   'self' https://fonts.gstatic.com
+img-src    'self' data: blob:
+connect-src 'self' ws: wss:            ← WebSocket du Desk
+frame-src  https://maps.google.com https://www.google.com
+default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'self'
+```
+
+`'unsafe-inline'` reste nécessaire pour les **styles** (22 attributs
+`style={{…}}` React) — l'essentiel de la protection XSS porte sur les scripts,
+et aucun `unsafe-eval` n'est autorisé.
+
+**Choix assumé :** la CSP est dans `vercel.json` (production) et sur `send()`
+côté API, **pas** dans `index.html`. En développement Vite injecte un
+`<script type="module">` inline pour React Refresh — vérifié sur le front dev —
+et une CSP stricte en `<meta>` aurait cassé le HMR.
+
+**Piège évité :** `theme-boot.js` a été ajouté au lookahead du fallback SPA. Un
+`||` s'y était glissé au passage, créant une alternative vide qui matcherait
+toutes les routes : plus aucune page n'aurait été réécrite vers `index.html`.
+Le lookahead est maintenant testé route par route (`/boutique` → SPA,
+`/theme-boot.js` et `/api/health` → servis tels quels).
+
+### Item 3 — `TRUST_PROXY` absent sur Vercel ⚪ déjà traité, finding périmé
+
+`server/rateLimit.js:54` :
+
+```js
+export function trustProxy() {
+  return process.env.TRUST_PROXY === '1' || Boolean(process.env.VERCEL)
+}
+```
+
+`clientIp()` lit le **dernier** saut de `x-forwarded-for` (celui que le proxy
+ajoute, pas celui que le client écrit). Sur Vercel, `process.env.VERCEL` suffit
+— rien à faire. La liste des items ouverts n'était simplement plus à jour.
+
+### Item 4 — Token OAuth en query 🔵 laissé en l'état, risque déjà mitigé
+
+`server/index.js` redirige avec `/?oauth_token=…`. Deux éléments rendent le
+risque résiduel faible :
+
+- `safeReturnUrl()` re-valide la cible au moment de la redirection — jamais de
+  token envoyé vers une origine tierce ;
+- `src/App.jsx:406` **supprime** `oauth_token` et `oauth_provider` de l'URL via
+  `history.replaceState` dès la lecture : le token ne reste pas dans la barre
+  d'adresse ni dans l'historique de l'onglet.
+
+Le remplacer par un code à usage unique échangerait un risque déjà mitigé contre
+un aller-retour réseau supplémentaire et un état serveur à faire expirer. Non
+fait : à reprendre si l'app passe en multi-origines.
+
+---
+
 ## 5. Portes de validation
 
 | Contrôle | Résultat |
 |---|---|
-| `npm test` | **285/285** (250 → +15 bug A–D → +13 bug E–G → +7 bug H) |
+| `npm test` | **296/296** (250 → +15 A–D → +13 E–G → +7 H → +10 items 1–2) |
 | `npm run build` | ✓ 111 modules, 424,35 kB / 127,69 kB gzip |
 | `npm run smoke` | **SMOKE OK** — health, catalog 222, login, order, me-orders, login-master, oauth-start, front 200, robots |
 | Crawl 3 langues | 39 exécutions, 4 026 clics, **0 erreur** |
-| `src/p22Audit.test.js` | 22/22 — `POST /api/orders` réel sur les trois écritures internationales + `POST /api/master/products` réel sur les doublons de SKU |
+| `src/p22Audit.test.js` | 33/33 — `POST /api/orders` et `POST /api/master/products` réels, migration scrypt observée dans le store, en-tête CSP lu sur une vraie réponse |
 | `src/p22UI.test.js` | 13/13 — `aria-label` du bouton profil, sous-titre Maps traduit en ar/fr/en, table de transitions partagée |
 
 Le test du bug A démarre un **vrai serveur** (`http.createServer(handler)`) et
