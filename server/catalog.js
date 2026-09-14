@@ -2,6 +2,8 @@
  * Catalog stock helpers — base stock from src/data.js + server overrides.
  */
 import { PRODUCTS } from '../src/data.js'
+// P22 (bug G) : table des transitions partagée avec le client.
+import { ORDER_TRANSITIONS } from '../src/orderLogic.js'
 
 export const ORDER_STATUSES = ['new', 'preparing', 'ready', 'picked', 'cancelled']
 
@@ -202,14 +204,8 @@ export function cancelOrder(db, code) {
 // passer une commande `picked` (retirée, stock consommé) en `new` et la
 // revendre, ou faire remonter une commande annulée. Les transitions autorisées
 // sont explicites.
-const ORDER_TRANSITIONS = {
-  new: ['preparing', 'ready', 'picked', 'cancelled'],
-  pending: ['preparing', 'ready', 'picked', 'cancelled'],
-  preparing: ['new', 'ready', 'picked', 'cancelled'],
-  ready: ['preparing', 'picked', 'cancelled'],
-  picked: [],
-  cancelled: []
-}
+// P22 (bug G) : la table vit dans src/orderLogic.js et est partagée avec
+// `canTransition` côté client — voir le commentaire là-bas.
 
 /**
  * P19 — suppression définitive d'une commande (master uniquement).

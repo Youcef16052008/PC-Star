@@ -966,7 +966,21 @@ export default function App() {
               </div>
               {user ? (
                 <>
-                  <button type="button" className={`btn btn-sm ${page === 'profile' ? 'btn-success' : 'btn-outline-secondary'}`} onClick={() => go('profile')}>
+                  {/*
+                    P22 (bug E) : le bouton affichait `{user.name}` seul. La clé
+                    `navProfile` existait dans les 3 langues sans jamais être
+                    rendue, et rien n'indiquait à un lecteur d'écran que ce
+                    bouton ouvre le profil — un compte nommé « A » donnait un
+                    bouton d'un caractère. `aria-label` reprend le nom visible
+                    (WCAG 2.5.3 « label in name ») plus sa fonction.
+                  */}
+                  <button
+                    type="button"
+                    className={`btn btn-sm ${page === 'profile' ? 'btn-success' : 'btn-outline-secondary'}`}
+                    onClick={() => go('profile')}
+                    title={t('navProfile')}
+                    aria-label={`${t('navProfile')} — ${user.name}`}
+                  >
                     {user.name}
                   </button>
                   <button type="button" className="btn btn-sm btn-outline-secondary" onClick={logout}>
@@ -1165,7 +1179,7 @@ export default function App() {
                 {STORE_LINKS.map((l) => (
                   <a key={l.id} className={`btn btn-sm social-btn social-${l.id} text-white`} href={l.href} target="_blank" rel="noreferrer">
                     <strong>{l.label}</strong>
-                    <span className="d-block small opacity-75">{l.sub}</span>
+                    <span className="d-block small opacity-75">{l.subKey ? t(l.subKey) : l.sub}</span>
                   </a>
                 ))}
               </div>

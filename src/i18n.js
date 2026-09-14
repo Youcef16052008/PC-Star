@@ -427,6 +427,7 @@ export const dict = {
     compatSocketShort: '{cpu} هو {cpuSocket}. بينما {board} هو {boardSocket}.',
     // ——— P3 i18n : محتوى المتجر ———
     storeHours: 'اتصل أو راسلنا على واتساب قبل القدوم.',
+    storeMapSub: 'الماكري لكاستور، وهران',
     storeNote: 'احجز من المتجر. ادفع بالدينار عند الاستلام.',
     storeReady: 'الطلبات المحجوزة تُحضَّر في المكتب. راسلنا على واتساب إذا أردت موعداً.',
     storeAbout: 'PC Star Informatique متجر استلام في الماكري لكاستور، وهران. نبيع قطع الحاسوب، اللابتوبات، الحواسيب الجاهزة، الأقراص USB، المانيطات ومعدات الكونسول — ونصلح تقريباً كل ما يتصل بالحاسوب أو اللابتوب أو الكونسول. الأسعار بالدينار والدفع في المكتب.',
@@ -916,6 +917,7 @@ export const dict = {
     compatSocketShort: '{cpu} est {cpuSocket}. {board} est {boardSocket}.',
     // ——— P3 i18n : contenu du magasin ———
     storeHours: 'Appelez ou passez par WhatsApp avant de venir.',
+    storeMapSub: 'Les Castors, Oran',
     storeNote: 'Réservez en ligne. Payez en dinars au retrait.',
     storeReady: 'Les commandes réservées sont préparées au comptoir. Écrivez-nous sur WhatsApp pour fixer un créneau.',
     storeAbout: 'PC Star Informatique est une boutique de retrait à El Makari Les Castors, Oran. Nous vendons des pièces PC, laptops, PC prêts, clés USB, manettes et du matériel console — et nous réparons presque tout ce qui se branche sur un PC, un laptop ou une console. Prix en dinars, paiement au comptoir.',
@@ -1405,6 +1407,7 @@ export const dict = {
     compatSocketShort: '{cpu} is {cpuSocket}. {board} is {boardSocket}.',
     // ——— P3 i18n: store content ———
     storeHours: 'Call or WhatsApp before you come.',
+    storeMapSub: 'Les Castors, Oran',
     storeNote: 'Reserve in store. Pay in dinars at pickup.',
     storeReady: 'Reserved orders are prepared at the desk. WhatsApp us if you need a time.',
     storeAbout: 'PC Star Informatique is a pickup shop in El Makari Les Castors, Oran. We sell PC parts, laptops, ready PCs, USB sticks, manettes and console gear — and we repair almost anything that plugs into a PC, laptop or console. Prices in dinars, pay at the desk.',

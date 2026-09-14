@@ -56,18 +56,36 @@ export function applyStockRestore(stockMap, items) {
   return next
 }
 
+/**
+ * P22 (bug G) — Table unique des transitions de statut.
+ *
+ * Le client (`canTransition`) et le serveur (`setOrderStatus`) appliquaient
+ * chacun leur règle, et elles divergeaient : le serveur autorisait
+ * `preparing → new` et `ready → preparing` (vérifié en direct, HTTP 200), le
+ * client les interdisait. Comme `canTransition` n'a aujourd'hui aucun appelant
+ * hors tests, rien ne se voyait — mais brancher le client sur sa propre table
+ * aurait masqué des transitions que le backend accepte.
+ *
+ * La table vit ici et `server/catalog.js` l'importe : une seule définition,
+ * donc plus de divergence possible.
+ */
+export const ORDER_TRANSITIONS = {
+  new: ['preparing', 'ready', 'picked', 'cancelled'],
+  pending: ['preparing', 'ready', 'picked', 'cancelled'],
+  preparing: ['new', 'ready', 'picked', 'cancelled'],
+  ready: ['preparing', 'picked', 'cancelled'],
+  picked: [],
+  cancelled: []
+}
+
 export function canTransition(from, to) {
   if (!ORDER_STATUSES.includes(to)) return false
-  if (from === 'cancelled' || from === 'picked') return to === from
-  if (to === 'cancelled') return true
-  const order = ['new', 'preparing', 'ready', 'picked']
-  // allow pending legacy → new path
-  const f = from === 'pending' ? 'new' : from
-  // P22 (bug D) : `return to === 'cancelled'` était mort — `to === 'cancelled'`
-  // a déjà renvoyé `true` deux lignes plus haut, donc cette branche ne pouvait
-  // rendre que `false`. Écrit explicitement.
-  if (!order.includes(f) || !order.includes(to)) return false
-  return order.indexOf(to) >= order.indexOf(f)
+  // `pending` (héritage) a sa propre entrée dans la table : aucun remapping.
+  const allowed = ORDER_TRANSITIONS[from]
+  // Statut inconnu : seule l'annulation reste possible (comportement historique,
+  // couvert par src/p22Audit.test.js).
+  if (!allowed) return to === 'cancelled'
+  return allowed.includes(to)
 }
 
 export function statusLabelKey(status) {
