@@ -197,9 +197,12 @@ export const BUILD_PRESETS = [
     titleKey: 'presetStudent',
     bodyKey: 'presetStudentBody',
     slots: {
+      // P21 : `cpu-5600` et `mag-ddr4-16` ont été retirés du catalogue avec la
+      // section « dz-hit ». Remplacés par des références toujours vendues et
+      // strictement compatibles (socket AM4, mémoire DDR4).
       motherboard: 'mb-b450m',
-      cpu: 'cpu-5600',
-      ram: 'mag-ddr4-16',
+      cpu: 'cpu-5500',
+      ram: 'team-ddr4-16',
       ssd: 'ssd-1t',
       psu: 'psu-650-cm',
       case: 'case-atx'
@@ -227,7 +230,7 @@ export const BUILD_PRESETS = [
     slots: {
       motherboard: 'mb-a520m',
       cpu: 'cpu-5500',
-      ram: 'mag-ddr4-16',
+      ram: 'team-ddr4-16', // P21 : `mag-ddr4-16` retiré du catalogue
       ssd: 'ssd-1t',
       psu: 'psu-550-evga',
       case: 'case-atx'

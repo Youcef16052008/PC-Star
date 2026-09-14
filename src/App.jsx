@@ -651,7 +651,6 @@ export default function App() {
     })
   }, [category, query, catalog, brandFilter])
 
-  const dzHits = useMemo(() => catalog.filter((p) => (p.tags || []).includes('dz-hit')).slice(0, 8), [catalog])
 
   function liveStock(product) {
     const base = stockMap[product.id] != null ? stockMap[product.id] : product.stock
@@ -859,8 +858,6 @@ export default function App() {
             <a className="link-light text-decoration-none fw-semibold" href={STORE.phoneHref}>
               {STORE.phone}
             </a>
-            {' · '}
-            {t('payCash')}
           </span>
         </div>
       </div>
@@ -978,8 +975,7 @@ export default function App() {
             <p className="lead text-secondary mb-3">{t('heroBody')}</p>
             <div className="d-flex flex-wrap gap-2 align-items-center">
               <span className="badge text-bg-light border">{STORE.address}</span>
-              <span className="badge text-bg-success-subtle border border-success-subtle text-success-emphasis">{t('payCash')}</span>
-              <span className="badge text-bg-light border">{t('warrantyBadge')}</span>
+              {/* P21 : badges « espèces au comptoir » et « garantie 1 an » retirés. */}
             </div>
             <div className="d-flex flex-wrap gap-2 mt-3">
               <button className="btn btn-success" type="button" onClick={() => go('search')}>{t('advancedSearch')}</button>
@@ -992,52 +988,14 @@ export default function App() {
 
           {/* P11 : panneaux « Pièces PC » et « Config PC » supprimés sur
               demande — seul « Hits DZ » reste (largeur pleine). */}
-          <section className="mb-4">
-            <div className="row g-3">
-              <div className="col-12">
-                <button type="button" className="card h-100 shadow-sm border-0 text-start w-100 btn p-0" onClick={() => { setBrandFilter(null); setCategory('all'); go('shop'); setTimeout(() => document.getElementById('dz-hits')?.scrollIntoView({ behavior: 'smooth' }), 50) }}>
-                  <div className="card-body">
-                    <h2 className="h6 text-success">{t('pathHits')}</h2>
-                    <p className="small text-secondary mb-0">{t('pathHitsBody')}</p>
-                  </div>
-                </button>
-              </div>
-            </div>
-          </section>
+          {/* P21 : raccourci « Hits DZ » supprimé — il pointait vers la section retirée. */}
 
-          {dzHits.length > 0 && (
-            <section className="mb-4" id="dz-hits">
-              <h2 className="h4 mb-3">{t('dzHits')}</h2>
-              <div className="row g-3">
-                {dzHits.map((p) => (
-                  <div className="col-6 col-md-4 col-lg-3" key={p.id}>
-                    <div className="card h-100 shadow-sm product-bs-card">
-                      <span className="badge text-bg-success position-absolute m-2 z-1">{t('tag_dz-hit')}</span>
-                      <button type="button" className="btn p-0 border-0" onClick={() => openProduct(p.id)}>
-                        <div className="ratio ratio-1x1 photo-frame overflow-hidden">
-                          <PartThumb product={p} />
-                        </div>
-                      </button>
-                      <div className="card-body p-3">
-                        <div className="small text-secondary">{p.brand}</div>
-                        <h3 className="h6">
-                          <button type="button" className="btn btn-link p-0 text-start text-decoration-none text-body" onClick={() => openProduct(p.id)}>
-                            {p.name}
-                          </button>
-                        </h3>
-                        <div className="fw-bold text-success">{money(p.price)}</div>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </section>
-          )}
+          {/* P21 : section « dz-hit » supprimée à la demande du comptoir. */}
 
           {/* P11 : section « Configs Star » + ses cartes supprimées sur demande. */}
 
           <div className="d-flex flex-wrap gap-2 align-items-center mb-3">
-            <span className="small fw-semibold text-secondary">{t('dzBrands')}</span>
+            {/* P21 : libellé « ماركات جزائرية شائعة » supprimé (filtres conservés). */}
             <button type="button" className={`btn btn-sm ${!brandFilter ? 'btn-success' : 'btn-outline-secondary'}`} onClick={() => setBrandFilter(null)}>
               {t('cat_all')}
             </button>
@@ -1178,7 +1136,6 @@ export default function App() {
                 </li>
                 <li className="list-group-item px-0 text-secondary">{t('storeHours')}</li>
                 <li className="list-group-item px-0 text-secondary">{t('storeReady')}</li>
-                <li className="list-group-item px-0 text-secondary">{t('storeWarranty')}</li>
                 <li className="list-group-item px-0">
                   <a href={`mailto:${STORE.email}`}>{STORE.email}</a>
                 </li>
@@ -1356,9 +1313,7 @@ export default function App() {
             <div className="col-md-6">
               <strong className="d-block">PC Star Informatique</strong>
               <div className="small text-secondary">{STORE.address}</div>
-              <div className="small text-secondary">
-                {t('payCash')} · {t('warrantyBadge')} · {t('pricesInDa')}
-              </div>
+              <div className="small text-secondary">{t('pricesInDa')}</div>
             </div>
             <div className="col-md-6 d-flex flex-wrap gap-2 justify-content-md-end">
               <a className="btn btn-sm btn-outline-secondary" href={STORE.phoneHref}>
@@ -1541,10 +1496,8 @@ export default function App() {
                 </div>
                 {/* P11 : champ wilaya retiré du panier sur demande — la wilaya
                     reste transmise (profil du client ou « Oran » par défaut). */}
-                <div className="mb-2">
-                  <label className="form-label small mb-1">{t('paymentMethod')}</label>
-                  <div className="form-control bg-success-subtle border-success-subtle fw-semibold">{t('payCash')}</div>
-                </div>
+                {/* P21 : bloc « Mode de paiement / Espèces au comptoir » retiré
+                    du panier — le paiement reste `cash` côté données. */}
                 <div className="mb-3">
                   <label className="form-label small mb-1" htmlFor="slot">{t('timeSlot')}</label>
                   <select id="slot" className="form-select" value={pickup.slot} onChange={(e) => setPickup({ ...pickup, slot: e.target.value })}>
@@ -1606,13 +1559,7 @@ export default function App() {
           onApiUser={onApiUser}
         />
       )}
-      <div
-        className={`api-status ${apiOnline ? 'on' : ''} ${catalogDegraded ? 'warn' : ''}`}
-        title={catalogDegraded ? t('catalogDegraded') : apiOnline ? t('backendOnline') : t('backendOffline')}
-        aria-hidden="true"
-      >
-        {catalogDegraded ? '▲ DB' : apiOnline ? '● API' : '○ local'}
-      </div>
+      {/* P21 : badge d'état « ● API » supprimé à la demande du comptoir. */}
     </div>
   )
 }

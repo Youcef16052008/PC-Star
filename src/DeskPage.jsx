@@ -32,11 +32,21 @@ export default function DeskPage({ t, lang, reservations, onStatus, onDelete, se
   }, [reservations, filter, q])
 
   async function changeStatus(code, status) {
-    setBusy(code + status)
+    // P21 : `busy` ne porte plus que le CODE de la commande en cours. Avant il
+    // valait `code + status` et les cinq boutons testaient la simple présence
+    // d'une valeur (`disabled={busy}`) : une seule requête en attente gelait
+    // donc les boutons de TOUTES les cartes, pas seulement celle cliquée.
+    setBusy(code)
     try {
       const ok = await onStatus(code, status)
       if (!ok) setToast?.(t('deskStatusFail'))
+    } catch {
+      // P21 : une exception ne doit ni remonter en rejet non géré, ni laisser la
+      // carte verrouillée — sans ce catch, `busy` restait pris et les boutons
+      // demeuraient grisés sans aucun message pour le maître.
+      setToast?.(t('deskStatusFail'))
     } finally {
+      // Toujours libéré, même si onStatus lève : sinon la carte reste figée.
       setBusy(null)
     }
   }
@@ -46,10 +56,12 @@ export default function DeskPage({ t, lang, reservations, onStatus, onDelete, se
   // côté serveur. Confirmation obligatoire : l'action est irréversible.
   async function removeOrder(code) {
     if (!window.confirm(t('confirmDeleteOrder'))) return
-    setBusy('del' + code)
+    setBusy(code)
     try {
       const ok = onDelete ? await onDelete(code) : false
       if (!ok) setToast?.(t('deskDeleteFail'))
+    } catch {
+      setToast?.(t('deskDeleteFail')) // P21 : même protection que changeStatus
     } finally {
       setBusy(null)
     }
@@ -161,8 +173,6 @@ export default function DeskPage({ t, lang, reservations, onStatus, onDelete, se
                       {r.phone}
                       {r.carrier ? ` · ${r.carrier}` : ''}
                       {r.wilaya ? ` · ${r.wilaya}` : ''}
-                      {' · '}
-                      {t('payCash')}
                     </p>
                     <ul className="list-group list-group-flush mb-3">
                       {(r.items || []).map((i) => (
@@ -184,7 +194,7 @@ export default function DeskPage({ t, lang, reservations, onStatus, onDelete, se
                         <button
                           type="button"
                           className="btn btn-sm btn-warning"
-                          disabled={busy}
+                          disabled={busy === r.code}
                           onClick={() => changeStatus(r.code, 'preparing')}
                         >
                           {t('deskStartPrep')}
@@ -194,7 +204,7 @@ export default function DeskPage({ t, lang, reservations, onStatus, onDelete, se
                         <button
                           type="button"
                           className="btn btn-sm btn-success"
-                          disabled={busy}
+                          disabled={busy === r.code}
                           onClick={() => changeStatus(r.code, 'ready')}
                         >
                           {t('deskMarkReady')}
@@ -204,7 +214,7 @@ export default function DeskPage({ t, lang, reservations, onStatus, onDelete, se
                         <button
                           type="button"
                           className="btn btn-sm btn-success"
-                          disabled={busy}
+                          disabled={busy === r.code}
                           onClick={() => changeStatus(r.code, 'picked')}
                         >
                           {t('deskMarkPicked')}
@@ -221,7 +231,7 @@ export default function DeskPage({ t, lang, reservations, onStatus, onDelete, se
                         <button
                           type="button"
                           className="btn btn-sm btn-outline-danger"
-                          disabled={busy}
+                          disabled={busy === r.code}
                           onClick={() => changeStatus(r.code, 'cancelled')}
                         >
                           {t('deskCancel')}
@@ -234,7 +244,7 @@ export default function DeskPage({ t, lang, reservations, onStatus, onDelete, se
                         <button
                           type="button"
                           className="btn btn-sm btn-danger"
-                          disabled={!!busy}
+                          disabled={busy === r.code}
                           onClick={() => removeOrder(r.code)}
                           title={t('deskDelete')}
                           aria-label={`${t('deskDelete')} ${r.code}`}

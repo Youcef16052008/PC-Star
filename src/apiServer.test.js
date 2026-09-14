@@ -49,9 +49,10 @@ describe('routes (P2) — handler HTTP réel', () => {
     const { status, data } = await call('GET', '/api/catalog')
     assert.equal(status, 200)
     assert.ok(data.ok)
-    // 250 SKUs de base, dont `speakers` en rupture (stock 0) filtrée (P6) → 249
-    assert.ok(data.products.length >= 249)
-    assert.ok(data.products.length < 251)
+    // P21 : 223 SKUs de base, dont `speakers` en rupture (stock 0) filtrée
+    // (P6) → 222 visibles.
+    assert.ok(data.products.length >= 222)
+    assert.ok(data.products.length < 224)
     const cpu = data.products.find((p) => p.id === 'cpu-7800x3d')
     assert.ok(cpu, 'cpu-7800x3d présent')
     assert.equal(cpu.compat.socket, 'AM5')
@@ -172,7 +173,7 @@ describe('routes (P2) — handler HTTP réel', () => {
     assert.equal(meta.data.meta.extraPanels.length, 1)
     // les clés produit du meta ne sont PAS écrasées par cet endpoint
     const products = await call('GET', '/api/master/products', { token: tok })
-    assert.ok(products.data.products.length >= 250)
+    assert.ok(products.data.products.length >= 223)
   })
 
   it('GET /api/customers : 403 sans master, 200 avec master', async () => {
@@ -290,7 +291,7 @@ describe('P9 — bugs opérationnels (P7-4 / P7-5 / P7-8)', () => {
       body: { email: 'pcstar.info31@gmail.com', password: 'star31' }
     })
     // un override existe → observable dans le meta complet…
-    const put = await call('PUT', '/api/master/products/cpu-5600', {
+    const put = await call('PUT', '/api/master/products/cpu-5500', {
       token: master.data.token,
       body: { short: 'visible seulement au master ici' }
     })
@@ -298,7 +299,7 @@ describe('P9 — bugs opérationnels (P7-4 / P7-5 / P7-8)', () => {
     const full = await call('GET', '/api/master/meta', { token: master.data.token })
     assert.equal(full.status, 200)
     assert.ok(full.data.meta.hiddenProductIds !== undefined)
-    assert.ok(full.data.meta.productOverrides['cpu-5600'], 'override visible en master')
+    assert.ok(full.data.meta.productOverrides['cpu-5500'], 'override visible en master')
     // …et toujours invisible via la route publique
     const pub = await call('GET', '/api/meta')
     assert.equal(pub.data.meta.productOverrides, undefined)
@@ -465,10 +466,10 @@ describe('P12 (B25) — GET /api/db/status (sonde de base, master)', () => {
     assert.equal(r.data.db.reachable, true)
     assert.equal(r.data.db.configured, false)
     assert.equal(typeof r.data.db.ms, 'number')
-    assert.equal(r.data.counts.baseProducts, 250)
+    assert.equal(r.data.counts.baseProducts, 223) // P21 : 27 « dz-hit » retirées
     // Compteurs cohérents — les tests précédents ont pu créer produits/commandes,
     // donc on vérifie des relations, pas des valeurs figées.
-    assert.ok(r.data.counts.publicProducts > 240, `publicProducts=${r.data.counts.publicProducts}`)
+    assert.ok(r.data.counts.publicProducts > 210, `publicProducts=${r.data.counts.publicProducts}`)
     assert.ok(
       r.data.counts.publicProducts <= r.data.counts.baseProducts + r.data.counts.extraProducts,
       'publics ≤ base + extras'

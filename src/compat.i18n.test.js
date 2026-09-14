@@ -18,7 +18,7 @@ const COMBOS = [
   [P('cpu-14900k'), P('mb-b650')], // VRM overheat (253W > 180) + socket
   [P('cpu-14700k'), P('mb-b450m')], // VRM hot (125W dans 119..140) + socket
   [P('cpu-7800x3d')], // needs board
-  [P('mb-b650'), P('mag-ddr4-16')], // RAM DDR4 vs board DDR5
+  [P('mb-b650'), P('team-ddr4-16')], // RAM DDR4 vs board DDR5
   [P('gpu-4070s'), P('gmx-vp600')], // PSU weak (700 > 600)
   [P('gpu-4070s')], // needs PSU
   [P('cpu-5500'), gpu('NVIDIA GeForce RTX 4080')], // gap high (5→8)

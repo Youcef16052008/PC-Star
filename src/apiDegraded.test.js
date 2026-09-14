@@ -92,8 +92,9 @@ describe('API en mode dégradé (B25)', () => {
     const { status, data } = await call('GET', '/api/catalog')
     assert.equal(status, 200, 'plus de 500 quand la base est morte')
     assert.equal(data.ok, true)
-    // 250 SKU de base, `speakers` en rupture filtrée → 249 visibles.
-    assert.ok(data.products.length >= 249, `catalogue non vide (${data.products.length})`)
+    // P21 : 223 SKU de base (27 « dz-hit » retirées), `speakers` en rupture
+    // filtrée → 222 visibles.
+    assert.ok(data.products.length >= 222, `catalogue non vide (${data.products.length})`)
     assert.equal(data.degraded, true)
     assert.equal(data.db.driver, 'neon')
     assert.equal(data.db.reachable, false)

@@ -18,6 +18,7 @@ commit. Une **6e phase (P6)** a traité les 7 bugs reportés en conditions réel
 | P8 | (11/09) | P7-1, P7-2, P7-3 | Correction des 3 bugs critiques 🔴 |
 | P9 | (11/09) | P7-4 → P7-8 | Correction des 5 bugs opérationnels 🟠 |
 | P10 | (11/09) | P7-9 → P7-18 | Correction des 10 derniers 🟡/⚪ (17/18 corrigés, 1 réanalysé) |
+| P21 | (14/09) | Boutons du comptoir + nettoyage vitrine | Timeout réseau, `busy` par carte, suppressions demandées |
 | P11 | (11/09) | P11-1 → P11-6 | Demandes client (PDP, home, panier, page commandes) |
 | P12 | (13/09) | B25 | Base injoignable ⇒ **vitrine sans aucun produit** 🔴 |
 | P13 | (13/09) | S1–S4 | **Lot 1 sécurité** : escalade master OAuth, open redirect, tokens persistés, rate-limit contournable 🔴 |

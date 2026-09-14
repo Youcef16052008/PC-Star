@@ -25,7 +25,11 @@ before(() => {
     window.matchMedia || ((q) => ({ matches: false, media: q, addEventListener() {}, removeEventListener() {} }))
 })
 
-after(() => {
+after(async () => {
+  // P21 : laisser le planificateur React vider sa file AVANT de retirer les
+  // globaux. Sinon un rendu différé s'exécute après ce hook et meurt sur
+  // `ReferenceError: window is not defined`, signalé comme fuite asynchrone.
+  await new Promise((r) => setTimeout(r, 20))
   for (const k of ['window', 'document', 'IS_REACT_ACT_ENVIRONMENT']) {
     try {
       delete globalThis[k]
@@ -120,5 +124,108 @@ describe('P14 (#3) — DeskPage rend des liens wa.me valides', () => {
     const host = mount()
     const cards = [...host.querySelectorAll('a[href^="https://wa.me/"]')]
     assert.equal(cards.length, 2, 'la réservation sans téléphone ne doit pas produire de lien')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// P21 — « je clique sur préparer / prêt / remis, rien ne change »
+//
+// Le Desk n'avait qu'un SEUL état `busy` partagé par toutes les commandes, et
+// les cinq boutons testaient sa simple présence (`disabled={busy}`). Dès qu'une
+// requête restait en attente — proxy capricieux, cold start serverless, réseau
+// mobile — `busy` n'était jamais réinitialisé et TOUS les boutons de TOUTES les
+// cartes restaient désactivés jusqu'au rechargement de la page. Le maître
+// cliquait sans aucun effet, sans message d'erreur.
+// ---------------------------------------------------------------------------
+describe('P21 — un bouton en attente ne gèle plus les autres cartes', () => {
+  const reservations = [
+    { code: 'PC-2001', name: 'Karim Ben', phone: '0550123456', wilaya: 'Oran', status: 'new', at: '2026-09-14T09:00:00.000Z', total: 97000, items: [] },
+    { code: 'PC-2002', name: 'Amina Castors', phone: '0669174617', wilaya: 'Oran', status: 'new', at: '2026-09-14T10:00:00.000Z', total: 45000, items: [] }
+  ]
+
+  const mountWith = (onStatus) => {
+    const host = window.document.createElement('div')
+    window.document.getElementById('root').appendChild(host)
+    const root = createRoot(host)
+    act(() => {
+      root.render(
+        React.createElement(DeskPage, { t, lang: 'fr', reservations, onStatus, setToast: () => {} })
+      )
+    })
+    return { host, root }
+  }
+
+  // Les boutons d'une carte : on les repère par leur libellé traduit (ici la
+  // clé brute, puisque le `t` de test renvoie la clé telle quelle).
+  const buttonsOf = (host, code) => {
+    const card = [...host.querySelectorAll('.card')].find((c) => c.textContent.includes(code))
+    return card ? [...card.querySelectorAll('button')] : []
+  }
+  const label = (b) => (b.textContent || '').trim()
+
+  it('cliquer sur « préparer » d\'une carte laisse l\'autre carte utilisable', async () => {
+    // Requête qui ne se termine jamais — le cas qui gelait tout le Desk.
+    let resolveFirst
+    const gate = new Promise((r) => { resolveFirst = r })
+    const calls = []
+    const { host, root } = mountWith((code, status) => {
+      calls.push([code, status])
+      return code === 'PC-2001' ? gate : Promise.resolve(true)
+    })
+
+    const first = buttonsOf(host, 'PC-2001').find((b) => label(b) === 'deskStartPrep')
+    assert.ok(first, 'bouton « préparer » présent sur la première carte')
+    assert.equal(first.disabled, false, 'bouton cliquable au départ')
+
+    await act(async () => { first.click() })
+
+    // La carte cliquée est bien verrouillée (double-clic impossible)…
+    const lockedFirst = buttonsOf(host, 'PC-2001')
+    assert.ok(lockedFirst.every((b) => b.disabled), 'la carte en attente est verrouillée')
+    // …mais l'AUTRE carte reste pleinement utilisable : c'est le cœur du bug.
+    const other = buttonsOf(host, 'PC-2002')
+    assert.ok(other.length > 0, 'seconde carte trouvée')
+    assert.ok(other.every((b) => !b.disabled), 'les boutons des autres cartes restent actifs')
+
+    // La seconde carte peut donc être traitée pendant que la première attend.
+    const secondPrep = other.find((b) => label(b) === 'deskStartPrep')
+    await act(async () => { secondPrep.click() })
+    assert.deepEqual(calls[1], ['PC-2002', 'preparing'], 'la seconde carte a bien été traitée')
+
+    await act(async () => { resolveFirst(true) })
+    assert.ok(buttonsOf(host, 'PC-2001').every((b) => !b.disabled), 'la première carte se déverrouille à la fin')
+    root.unmount()
+  })
+
+  it('un onStatus qui lève une exception ne laisse pas la carte figée', async () => {
+    const toasts = []
+    const host = window.document.createElement('div')
+    window.document.getElementById('root').appendChild(host)
+    const root = createRoot(host)
+    act(() => {
+      root.render(
+        React.createElement(DeskPage, {
+          t, lang: 'fr', reservations: [reservations[0]],
+          onStatus: async () => { throw new Error('boom') },
+          setToast: (m) => toasts.push(m)
+        })
+      )
+    })
+    const btn = buttonsOf(host, 'PC-2001').find((b) => label(b) === 'deskStartPrep')
+    // Le `finally` doit libérer `busy` même sur exception — sinon la carte
+    // reste désactivée définitivement, exactement comme avec une requête pendue.
+    await act(async () => {
+      btn.click()
+      // Laisser la microtâche du rejet ET le planificateur React se vider à
+      // l'intérieur de act() — sinon le rendu différé s'exécute après le hook
+      // `after()` qui supprime `window`, et le test meurt sur une fuite.
+      await new Promise((r) => setTimeout(r, 0))
+    })
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 0))
+    })
+    assert.ok(buttonsOf(host, 'PC-2001').every((b) => !b.disabled), 'boutons réactivés après l\'erreur')
+    assert.deepEqual(toasts, ['deskStatusFail'], 'un message d\'erreur est affiché au maître')
+    root.unmount()
   })
 })

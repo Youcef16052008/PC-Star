@@ -69,7 +69,6 @@ export function relatedProducts(product, catalog, limit = 4) {
     if (c.form && pc.form === c.form) s += 2
     if (p.category === product.category) s += 1
     if ((p.stock || 0) > 0) s += 2
-    if ((p.tags || []).includes('dz-hit')) s += 1
     return s
   }
   const rest = (catalog || [])

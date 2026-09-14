@@ -67,7 +67,28 @@ Photos: keep shipping under `public/photos/sku/` — add pro shots later, push, 
 `DATABASE_URL` (Neon) **must** be the **pooled** string (`ep-…-pooler.…`) — see
 [docs/NEON-MIGRATION.md](docs/NEON-MIGRATION.md).
 
-## Derniers correctifs (P11 → P20)
+## Derniers correctifs (P11 → P21)
+
+- **P21 (boutons du comptoir + nettoyage vitrine)** —
+  **Comptoir** : « je clique sur préparer / prêt / remis, rien ne change ».
+  `src/api.js` n'avait **aucun délai maximal** sur `fetch` : une requête qui
+  pendait (proxy capricieux, cold start serverless, réseau mobile) ne se
+  réglait jamais. Comme `src/DeskPage.jsx` partageait **un seul état `busy`**
+  pour toutes les commandes et que les cinq boutons testaient sa simple
+  présence (`disabled={busy}`), une seule requête bloquée **grisait les boutons
+  de toutes les cartes** jusqu'au rechargement de la page — sans aucun message.
+  Ajout d'un `AbortController` à 15 s (`API_TIMEOUT_MS`), d'un `busy` **par
+  carte** (`disabled={busy === r.code}`) et d'un `catch` qui libère l'état et
+  affiche `deskStatusFail` au lieu de remonter un rejet non géré.
+  **Vitrine** : suppression, à la demande, de la section
+  « الأكثر مبيعاً في الجزائر » **et de ses 27 produits** (catalogue
+  250 → 223), du badge d'état « ● API », du libellé « ماركات جزائرية شائعة »,
+  des badges « espèces au comptoir » / « garantie 1 an » et du bloc
+  « Mode de paiement » du panier. Les 7 clés i18n devenues mortes ont été
+  retirées des trois langues (502 → 494, toujours symétriques). Les presets du
+  Builder qui pointaient vers des références supprimées ont été remappés vers
+  des équivalents compatibles et toujours vendus
+  (`cpu-5600` → `cpu-5500`, `mag-ddr4-16` → `team-ddr4-16`).
 
 - **P20 (les deux numéros du magasin)** — le second numéro (`0669 17 46 17`)
   existait dans les données mais n'était exposé **nulle part** en WhatsApp : un

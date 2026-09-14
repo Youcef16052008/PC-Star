@@ -19,22 +19,34 @@ export function setToken(token, storage = typeof localStorage !== 'undefined' ? 
   else storage?.setItem?.(TOKEN_KEY, token)
 }
 
-async function req(path, { method = 'GET', body, token } = {}) {
+// P21 : délai maximal d'une requête. Sans lui, un fetch qui pend (proxy
+// capricieux, cold start serverless, réseau mobile) ne résout JAMAIS. Comme le
+// Desk n'avait qu'un seul état `busy` partagé, une seule requête bloquée
+// désactivait les boutons de TOUTES les commandes jusqu'au rechargement de la
+// page — le maître cliquait sur « préparer » / « prêt » sans aucun effet.
+export const API_TIMEOUT_MS = 15000
+
+async function req(path, { method = 'GET', body, token, timeoutMs = API_TIMEOUT_MS } = {}) {
   const headers = { Accept: 'application/json' }
   if (body !== undefined) headers['Content-Type'] = 'application/json'
   const t = token ?? getToken()
   if (t) headers.Authorization = `Bearer ${t}`
+  const ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null
+  const timer = ctrl && timeoutMs > 0 ? setTimeout(() => ctrl.abort(), timeoutMs) : null
   let res
   try {
     res = await fetch(path, {
       method,
       headers,
-      body: body !== undefined ? JSON.stringify(body) : undefined
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+      signal: ctrl ? ctrl.signal : undefined
     })
   } catch {
     // Erreur réseau (backend down, proxy, timeout) : on signale offline au
     // lieu de rejeter — chaque appelant gère alors son repli local.
     return { ok: false, status: 0, data: null, offline: true }
+  } finally {
+    if (timer) clearTimeout(timer)
   }
   let data = null
   try {
