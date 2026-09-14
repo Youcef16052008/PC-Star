@@ -47,6 +47,11 @@ html[data-theme='dark'] {
   --danger: #f87171;
   --focus: #22d3ee;
 
+  /* Marque (carte de visite) : bleu orbital + étoile rouge, versions
+     éclaircies pour rester lisibles sur fond sombre. */
+  --brand-blue: #5b8cff;
+  --brand-red: #ff4d55;
+
   /* Dégradés / ombres */
   --hero-from: #0d1116;
   --hero-to: #07090c;
@@ -104,6 +109,10 @@ html[data-theme='light'] {
   --warn: #92400e;
   --danger: #c62828;
   --focus: #0e7490;
+
+  /* Marque : couleurs exactes de la carte de visite sur fond clair. */
+  --brand-blue: #2947d0;
+  --brand-red: #d81f26;
 
   --hero-from: #ffffff;
   --hero-to: #e9eff6;
