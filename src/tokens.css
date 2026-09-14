@@ -93,7 +93,7 @@ html[data-theme='light'] {
   --ink: #101a33;
   --ink-2: #3c4a6b;
   --muted: #4b5878;         /* ≥ 4.6:1 sur --soft */
-  --muted-2: #7583a6;       /* décoratif (≥ 3:1) */
+  --muted-2: #66759c;       /* décoratif (≥ 3:1) */
 
   --line: #d7dfee;
   --line-hi: #b9c4dd;

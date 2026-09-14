@@ -60,7 +60,7 @@ h1, h2, h3, h4, h5, h6,
   background: var(--bg-0) !important;
   border-bottom: 1px solid var(--line);
   font-size: 11px;
-  color: var(--muted-2);
+  color: var(--ink-2); /* texte foncé lisible sur fond clair */
 }
 
 .topbar .container {
@@ -187,7 +187,7 @@ html[data-theme='light'] .navbar-toggler-icon {
 
 .btn:hover {
   background: var(--soft);
-  border-color: var(--blue);
+  border-color: var(--danger); /* signature : bordure rouge au survol */
   color: var(--ink);
 }
 
@@ -281,6 +281,20 @@ html[data-theme='light'] .navbar-toggler-icon {
   --bs-btn-hover-border-color: var(--blue);
   --bs-btn-active-bg: var(--blue-2);
   --bs-btn-active-color: var(--blue-on);
+}
+
+/* Outline par défaut (secondary) : texte bleu visible sur fond blanc,
+   bordure bleu pâle — plus de bouton « invisible ». */
+.btn-outline-secondary {
+  --bs-btn-color: var(--blue);
+  --bs-btn-border-color: color-mix(in srgb, var(--blue) 45%, var(--line));
+  --bs-btn-hover-bg: var(--accent-dim);
+  --bs-btn-hover-color: var(--blue);
+  --bs-btn-hover-border-color: var(--danger);
+  --bs-btn-active-bg: var(--accent-dim);
+  --bs-btn-active-color: var(--blue);
+  --bs-btn-disabled-color: var(--muted-2);
+  --bs-btn-disabled-border-color: var(--line);
 }
 
 /* Pastille panier façon maquette (.cart b). */
@@ -512,7 +526,7 @@ html[dir='rtl'] .hero h1 {
 }
 
 .product-bs-card:hover {
-  border-color: var(--blue);
+  border-color: var(--danger); /* bordure rouge au survol (demande client) */
   background: var(--soft);
   transform: none;
   box-shadow: none !important;
@@ -754,6 +768,38 @@ html[dir='rtl'] .hero h1 {
 
 .footer-links button:hover {
   color: var(--blue);
+}
+
+/* ── Survol rouge : panneaux, slots, menus, nav (demande client). ── */
+.split > div:hover,
+.store > div:hover {
+  box-shadow: inset 0 0 0 1px var(--danger);
+}
+
+.slot:hover {
+  border-color: var(--danger);
+}
+
+.cats .btn:hover {
+  background: var(--soft);
+  color: var(--blue);
+  box-shadow: inset 0 0 0 1px var(--danger);
+}
+
+.contact-pick-menu a:hover {
+  background: var(--soft);
+  color: var(--blue);
+  box-shadow: inset 0 0 0 1px var(--danger);
+}
+
+.shop-navbar .nav-link:hover {
+  background: var(--soft);
+  color: var(--ink) !important;
+  box-shadow: inset 0 -2px 0 var(--danger);
+}
+
+.app .card:hover {
+  border-color: var(--danger);
 }
 
 /* ── 10. Ponts couleur Bootstrap (badges stock, utilitaires). ── */

@@ -144,8 +144,10 @@ function Stars({ product, t }) {
 
 export default function App() {
   const [lang, setLang] = useState(() => loadLang(storage))
-  const [themePref, setThemePref] = useState(() => loadTheme(storage))
-  const [theme, setTheme] = useState(() => resolveTheme(loadTheme(storage)))
+  // Thème sombre supprimé (demande client) : le site tourne en clair,
+  // quels que soient la préférence stockée ou le système.
+  const [themePref, setThemePref] = useState('light')
+  const [theme, setTheme] = useState('light')
   const [users, setUsers] = useState(() => loadUsers(storage))
   const [session, setSession] = useState(() => loadSession(storage))
   const [meta, setMeta] = useState(() => loadMeta(storage))
@@ -872,19 +874,7 @@ export default function App() {
                   </button>
                 ))}
               </div>
-              <div className="btn-group btn-group-sm" role="group" aria-label="theme">
-                {[
-                  // L2 (§ 6.2) : les glyphes de thème portent un vrai nom —
-                  // clés i18n EXISTANTES, aucune clé ajoutée.
-                  ['system', '◐', t('themeSystem')],
-                  ['light', '☀', t('themeLight')],
-                  ['dark', '☾', t('themeDark')]
-                ].map(([id, mark, label]) => (
-                  <button key={id} type="button" className={`btn ${themePref === id ? 'btn-success' : 'btn-outline-secondary'}`} onClick={() => changeTheme(id)} aria-label={label} title={label} aria-pressed={themePref === id}>
-                    {mark}
-                  </button>
-                ))}
-              </div>
+              {/* Thème sombre supprimé à la demande du client : site blanc. */}
               {user ? (
                 <>
                   <button type="button" className={`btn btn-sm ${page === 'profile' ? 'btn-success' : 'btn-outline-secondary'}`} onClick={() => go('profile')}>
