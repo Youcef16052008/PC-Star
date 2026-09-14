@@ -318,3 +318,118 @@ describe('P22 bug H — un SKU déjà pris est refusé, côté client ET serveur
     assert.notEqual(a.data.product.sku, b.data.product.sku)
   })
 })
+
+describe('P22 item 1 — le hash non salé des comptes seedés migre à la connexion', () => {
+  // Les tests précédents de ce fichier se connectent 7 fois en master : ce
+  // compte est donc déjà migré quand ce bloc s'exécute. On observe la
+  // migration sur les comptes démo que rien d'autre ne touche.
+  const AMINA = 'amina.castors@demo.dz'
+  const YACINE = 'yacine.pc@demo.dz'
+  const readHash = (email) => {
+    const db = JSON.parse(fs.readFileSync(path.join(dir, 'store.json'), 'utf8'))
+    return (db.users || []).find((u) => u.email === email)?.passwordHash || null
+  }
+
+  it('un compte seedé démarre bien avec un sha256 non salé', () => {
+    const h = readHash(AMINA)
+    assert.ok(h, 'compte démo seedé présent')
+    assert.ok(!h.startsWith('scrypt$'), `hash initial non salé, reçu ${h.slice(0, 24)}…`)
+    assert.equal(h.length, 64, 'sha256 hex = 64 caractères, donc pas de sel')
+  })
+
+  it('après une connexion réussie, le hash est re-salé en scrypt', async () => {
+    const r = await call('POST', '/api/auth/login', { body: { email: AMINA, password: 'amina31' } })
+    assert.equal(r.status, 200, 'connexion nominale')
+    const h = readHash(AMINA)
+    assert.ok(h.startsWith('scrypt$'), `hash migré, reçu ${h.slice(0, 24)}…`)
+    const parts = h.split('$')
+    assert.equal(parts.length, 3, 'format scrypt$salt$hash')
+    assert.ok(parts[1].length >= 8, 'sel présent')
+    assert.notEqual(h.length, 64, 'ce n’est plus un sha256 nu')
+  })
+
+  it('la connexion reste possible après migration, et le mauvais mot de passe est refusé', async () => {
+    const ok = await call('POST', '/api/auth/login', { body: { email: AMINA, password: 'amina31' } })
+    assert.equal(ok.status, 200, 're-connexion après migration')
+    const ko = await call('POST', '/api/auth/login', { body: { email: AMINA, password: 'mauvais' } })
+    assert.equal(ko.status, 401)
+    assert.equal(ko.data.error, 'auth')
+  })
+
+  it('un hash déjà salé n’est pas réécrit à chaque connexion', async () => {
+    const before = readHash(AMINA)
+    await call('POST', '/api/auth/login', { body: { email: AMINA, password: 'amina31' } })
+    assert.equal(readHash(AMINA), before, 'hash stable d’une connexion à l’autre')
+  })
+
+  it('deux comptes ne partagent jamais le même hash (sel aléatoire)', async () => {
+    await call('POST', '/api/auth/login', { body: { email: YACINE, password: 'yacine31' } })
+    const a = readHash(AMINA)
+    const y = readHash(YACINE)
+    assert.ok(y.startsWith('scrypt$'), 'second compte migré')
+    assert.notEqual(a.split('$')[1], y.split('$')[1], 'sels distincts')
+    assert.notEqual(a, y)
+  })
+
+  it('le compte maître, seedé lui aussi, est bien passé en scrypt', () => {
+    // Il a été migré par les connexions des tests précédents — c'est
+    // précisément le comportement attendu.
+    assert.ok(readHash('pcstar.info31@gmail.com').startsWith('scrypt$'))
+  })
+})
+
+describe('P22 item 2 — une Content-Security-Policy est posée', () => {
+  it('les réponses de l’API portent un en-tête CSP', async () => {
+    const res = await fetch(base + '/api/health')
+    const csp = res.headers.get('content-security-policy') || ''
+    assert.ok(csp.length > 0, 'en-tête Content-Security-Policy présent')
+    // L'essentiel de la protection XSS : aucun script inline ni eval autorisé.
+    assert.match(csp, /script-src 'self'(?!['\s]*[^;]*unsafe-inline)/, `script-src strict : ${csp}`)
+    assert.doesNotMatch(csp, /script-src[^;]*'unsafe-inline'/, "pas d'unsafe-inline pour les scripts")
+    assert.doesNotMatch(csp, /'unsafe-eval'/, "pas d'unsafe-eval")
+    assert.match(csp, /default-src 'self'/)
+    assert.match(csp, /object-src 'none'/)
+    assert.match(csp, /base-uri 'self'/)
+  })
+
+  it('les en-têtes de durcissement déjà en place sont conservés', async () => {
+    const res = await fetch(base + '/api/health')
+    assert.equal(res.headers.get('x-content-type-options'), 'nosniff')
+    assert.equal(res.headers.get('x-frame-options'), 'SAMEORIGIN')
+    assert.equal(res.headers.get('referrer-policy'), 'strict-origin-when-cross-origin')
+    assert.ok(res.headers.get('permissions-policy'), 'Permissions-Policy présent')
+  })
+
+  it('le HTML de l’application ne contient plus de script inline', async () => {
+    // `script-src 'self'` casserait le thème au premier paint si le bootstrap
+    // était encore inline : il a été sorti dans public/theme-boot.js.
+    const html = fs.readFileSync(path.join(process.cwd(), 'index.html'), 'utf8')
+    const inline = html.match(/<script(?![^>]*\bsrc=)[^>]*>[\s\S]*?<\/script>/g) || []
+    assert.equal(inline.length, 0, `aucun <script> inline, trouvé : ${inline.length}`)
+    assert.match(html, /<script src="\/theme-boot\.js"><\/script>/, 'bootstrap externalisé')
+  })
+
+  it('le bootstrap de thème existe et applique bien le thème', async () => {
+    const boot = fs.readFileSync(path.join(process.cwd(), 'public', 'theme-boot.js'), 'utf8')
+    assert.match(boot, /pcstar-theme/, 'lit la préférence de thème')
+    assert.match(boot, /dataset\.theme/, 'pose data-theme avant le paint')
+    assert.match(boot, /prefers-color-scheme/, 'repli sur la préférence système')
+  })
+
+  it('vercel.json pose le CSP en production sans casser le fallback SPA', async () => {
+    const v = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'vercel.json'), 'utf8'))
+    const all = v.headers.find((h) => h.source === '/(.*)')
+    const csp = all.headers.find((h) => h.key === 'Content-Security-Policy')
+    assert.ok(csp, 'CSP présent dans vercel.json')
+    assert.match(csp.value, /script-src 'self'/)
+    // Un « || » dans le lookahead créerait une alternative vide qui matcherait
+    // tout : plus aucune route ne serait réécrite vers index.html.
+    const spa = v.rewrites.find((r) => r.destination === '/index.html')
+    assert.doesNotMatch(spa.source, /\|\|/, 'pas d’alternative vide dans le lookahead')
+    assert.match(spa.source, /theme-boot/, 'theme-boot.js exclu du fallback')
+    const re = new RegExp('^' + spa.source + '$')
+    assert.ok(re.test('/boutique'), '/boutique réécrit vers l’SPA')
+    assert.ok(!re.test('/theme-boot.js'), '/theme-boot.js servi tel quel')
+    assert.ok(!re.test('/api/health'), '/api non réécrit')
+  })
+})

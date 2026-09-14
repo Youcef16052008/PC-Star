@@ -82,6 +82,15 @@ function send(res, status, body, headers = {}) {
     'X-Frame-Options': 'SAMEORIGIN',
     'Referrer-Policy': 'strict-origin-when-cross-origin',
     'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
+    // P22 (item 2) — aucune CSP n'était posée. Celle-ci couvre les pages HTML
+    // servies par l'API (refus OAuth, aperçus d'upload). Les pages d'erreur
+    // utilisent des attributs style="…" : 'unsafe-inline' reste nécessaire pour
+    // les styles, mais PAS pour les scripts — c'est là qu'est l'essentiel de la
+    // protection XSS. La CSP de l'application elle-même est dans vercel.json.
+    'Content-Security-Policy':
+      "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'self'; " +
+      "script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; " +
+      "connect-src 'self'; form-action 'self'",
     ...headers
   })
   res.end(payload)
@@ -291,6 +300,23 @@ export async function handler(req, res) {
       const token = newToken()
       await updateDbAsync((d) => {
         d.sessions[token] = { userId: user.id, at: Date.now() }
+        // P22 (item 1) — migration transparente du hash de mot de passe.
+        //
+        // Les comptes seedés (master + 3 démos) sont créés avec
+        // `hashPassLegacy` : un sha256 non salé de `pcstar:<mot de passe>`.
+        // `verifyPass` sait le lire, mais rien ne le remplaçait : un compte
+        // seedé restait non salé indéfiniment, y compris après des mois
+        // d'usage. Un dump de store.json (ou d'un backup — voir
+        // server/data/backups/) exposait alors des hashes cassables par table
+        // précalculée.
+        //
+        // On profite de l'instant où le mot de passe en clair est en main —
+        // la connexion vient de réussir — pour le re-saler en scrypt. Aucun
+        // changement visible pour l'utilisateur.
+        const u = d.users.find((x) => x.id === user.id)
+        if (u && !String(u.passwordHash || '').startsWith('scrypt$')) {
+          u.passwordHash = hashPass(password)
+        }
         return d
       })
       return send(res, 200, { ok: true, token, user: publicUser(user) })
