@@ -415,11 +415,16 @@ export default function App() {
           await refreshStock()
           return true
         }
-        setToast(t('deskStatusFail'))
-        return false
+        // Commande inconnue du serveur (créée en mode local), session non
+        // API ou réseau tombé : on bascule sur le repli local au lieu de
+        // laisser le bureau bloqué sur « Could not update status ».
+        const err = r.data?.error
+        if (!r.offline && err !== 'not_found' && err !== 'forbidden') {
+          setToast(t('deskStatusFail'))
+          return false
+        }
       } catch {
-        setToast(t('deskStatusFail'))
-        return false
+        /* réseau mort → repli local ci-dessous */
       }
     }
     // local fallback
@@ -618,7 +623,14 @@ export default function App() {
     setCart((prev) => prev.filter((i) => i.id !== id))
   }
 
+  const KNOWN_PAGES = ['shop', 'search', 'builder', 'about', 'orders', 'desk', 'master', 'help', 'profile', 'privacy', 'terms', 'warranty', 'product']
+
   function openProduct(id) {
+    // Anti page blanche : référence inexistante/cachée → retour boutique.
+    if (!catalog.some((p) => p.id === id)) {
+      setPage('shop')
+      return
+    }
     setSelectedId(id)
     setPhotoIndex(0)
     setPage('product')
@@ -627,6 +639,7 @@ export default function App() {
   }
 
   function go(next) {
+    if (!KNOWN_PAGES.includes(next)) next = 'shop'
     if ((next === 'desk' || next === 'master' || next === 'help') && !isMaster) {
       setToast(t(next === 'help' ? 'masterOnlyGuide' : next === 'desk' ? 'masterOnlyDesk' : 'masterForbidden'))
       setAuthOpen(true)

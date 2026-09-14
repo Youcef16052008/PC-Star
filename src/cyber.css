@@ -426,6 +426,10 @@ html[dir='rtl'] .hero h1 {
 }
 
 /* ── 7. Têtes de section : « // TITRE ». ── */
+.page > section {
+  border-bottom: 1px solid var(--line);
+}
+
 .page h2,
 .page .h2,
 .page h2.h4 {

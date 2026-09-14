@@ -50,13 +50,21 @@ export default function ContactButton({ label, btnClass = 'btn btn-sm btn-outlin
               rel={c.external ? 'noreferrer' : undefined}
               onClick={(e) => {
                 setOpen(false)
-                // Certains environnements (aperçus iframe, navigateurs
-                // durcis) bloquent target=_blank : on ouvre alors par
-                // window.open, et en dernier recours on navigue ici même —
-                // le lien choisi DOIT s'ouvrir (demande client).
-                if (c.external) {
+                // Le lien choisi DOIT s'ouvrir (demande client). Dans certains
+                // environnements (aperçus iframe, bloqueurs), target=_blank
+                // seul ne suffit pas : on réessaie via window.open — SANS
+                // paramètre « features » (avec noopener la spec impose un
+                // retour null, ce qui déclenchait une navigation même
+                // onglet à tort) — et seulement si c'est vraiment bloqué,
+                // on navigue dans l'onglet courant.
+                if (c.external && typeof window !== 'undefined') {
                   e.preventDefault()
-                  const w = window.open(c.href, '_blank', 'noopener')
+                  let w = null
+                  try {
+                    w = window.open(c.href, '_blank')
+                  } catch {
+                    w = null
+                  }
                   if (!w) window.location.href = c.href
                 }
               }}

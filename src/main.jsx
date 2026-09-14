@@ -7,12 +7,16 @@ import 'bootstrap/dist/css/bootstrap.min.css'
 // Ordre critique : bootstrap → tokens → index.css (structure) → cyber.css.
 import './tokens.css'
 import App from './App.jsx'
+import ErrorBoundary from './ErrorBoundary.jsx'
 import './index.css'
 // L1 : habillage Terminal Cyber (typographie, géométrie biseautée).
 import './cyber.css'
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>
-    <App />
+    <ErrorBoundary>
+      <App />
+    </ErrorBoundary>
   </StrictMode>
+</StrictMode>
 )
