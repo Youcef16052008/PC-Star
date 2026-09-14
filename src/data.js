@@ -1,8 +1,8 @@
 import { EXTRA } from './extraCatalog.js'
-import { DZ_EXTRA, DZ_DEALS, DZ_GUIDES, PAYMENT_HINTS, WILAYAS_NEAR, DZ_BRANDS } from './dzCatalog.js'
+import { DZ_EXTRA, DZ_GUIDES, WILAYAS_NEAR, DZ_BRANDS } from './dzCatalog.js'
 import { ensureProductPhotos } from './productPhotos.js'
 
-export { DZ_DEALS, DZ_GUIDES, PAYMENT_HINTS, WILAYAS_NEAR, DZ_BRANDS }
+export { DZ_GUIDES, WILAYAS_NEAR, DZ_BRANDS }
 
 export const STORE = {
   name: 'PC Star Informatique',
@@ -166,15 +166,6 @@ export const PRICE_PRESETS = [
   { id: '30-50', label: '30 000 – 50 000 DA', min: 30000, max: 50000 },
   { id: '50-100', label: '50 000 – 100 000 DA', min: 50000, max: 100000 },
   { id: '100+', label: '100 000 DA+', min: 100000, max: 999999 }
-]
-
-export const DEALS = [
-  { id: 'hav-combo4', tag: '-10%', noteKey: 'dealNoteHavCombo' },
-  { id: 'sog-mkh5', tag: 'Pack SoG', noteKey: 'dealNoteSogPack' },
-  { id: 'cpu-5600', tag: 'Hit DZ', noteKey: 'dealNoteCpu5600' },
-  { id: 'ram-32', tag: '-12%', noteKey: 'dealNoteRam32' },
-  { id: 'ssd-1t', tag: 'Hot', noteKey: 'dealNoteSsd1t' },
-  { id: 'tw-ssd-512', tag: 'Budget', noteKey: 'dealNoteTwSsd512' }
 ]
 
 export const GUIDES = [

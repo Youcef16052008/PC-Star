@@ -216,17 +216,6 @@ export const DZ_GUIDES = [
   }
 ]
 
-export const DZ_DEALS = [
-  { id: 'hav-combo4', tag: '-10%', noteKey: 'dealBackSchool' },
-  { id: 'sog-mkh5', tag: 'Pack', noteKey: 'dealInStore' },
-  { id: 'cpu-5600', tag: 'Hit DZ', noteKey: 'dealAm4' },
-  { id: 'tw-ssd-512', tag: 'Hot', noteKey: 'dealSsd' }
-]
-
-/** Pickup payment: cash at desk only (no CCP / BaridiMob / 3x). */
-export const PAYMENT_HINTS = [
-  { id: 'cash', key: 'payCash' }
-]
 
 export const WILAYAS_NEAR = [
   'Oran',
