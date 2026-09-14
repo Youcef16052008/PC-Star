@@ -56,7 +56,36 @@ import {
   saveUsers
 } from './shopStore.js'
 
-const storage = typeof localStorage !== 'undefined' ? localStorage : null
+/**
+ * P22 (piège 2) — accès au stockage résolu **paresseusement**.
+ *
+ * C'était `const storage = typeof localStorage !== 'undefined' ? localStorage : null`,
+ * évalué une fois pour toutes à l'import du module. Dans tout contexte où
+ * `localStorage` n'existe pas encore à cet instant — harnais de test qui pose
+ * ses globaux après les imports, worker sans DOM, rendu côté serveur — la
+ * constante restait figée à `null` pour toute la durée de vie du module.
+ *
+ * Conséquence observée : l'app retombait sur la langue du navigateur (arabe)
+ * au lieu de `pcstar-lang`, et `loadUsers(null)` ne seedait aucun compte —
+ * donc aucun bouton profil. Le symptôme ressemblait à s'y méprendre à un bug
+ * applicatif alors que le code de l'app était correct.
+ *
+ * Les 21 sites d'appel n'utilisent que `getItem` / `setItem` / `removeItem`
+ * en invocation optionnelle (`storage?.getItem?.(k)`), ce wrapper leur est
+ * donc transparent — et il suit le stockage réel dès qu'il apparaît.
+ */
+const liveStorage = () => (typeof localStorage !== 'undefined' ? localStorage : null)
+const storage = {
+  getItem(key) {
+    return liveStorage()?.getItem(key) ?? null
+  },
+  setItem(key, value) {
+    liveStorage()?.setItem(key, value)
+  },
+  removeItem(key) {
+    liveStorage()?.removeItem(key)
+  }
+}
 
 /** Cart is stored PER ACCOUNT (guest = 'guest'), so switching account = own cart. */
 const cartKeyFor = (uid) => `pcstar-cart-${uid || 'guest'}`

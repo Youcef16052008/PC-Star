@@ -402,8 +402,8 @@ fait : à reprendre si l'app passe en multi-origines.
 
 | Contrôle | Résultat |
 |---|---|
-| `npm test` | **296/296** (250 → +15 A–D → +13 E–G → +7 H → +10 items 1–2) |
-| `npm run build` | ✓ 111 modules, 424,35 kB / 127,69 kB gzip |
+| `npm test` | **300/300** (250 → +15 A–D → +13 E–G → +7 H → +10 items 1–2 → +4 pièges) |
+| `npm run build` | ✓ 111 modules, 424,53 kB / 127,75 kB gzip |
 | `npm run smoke` | **SMOKE OK** — health, catalog 222, login, order, me-orders, login-master, oauth-start, front 200, robots |
 | Crawl 3 langues | 39 exécutions, 4 026 clics, **0 erreur** |
 | `src/p22Audit.test.js` | 33/33 — `POST /api/orders` et `POST /api/master/products` réels, migration scrypt observée dans le store, en-tête CSP lu sur une vraie réponse |
@@ -415,9 +415,33 @@ passe par `server/index.js`. Le test du bug G appelle le **vrai**
 tests E et F montent le **vrai** `App.jsx` en jsdom et naviguent jusqu'à la
 page « À propos » — le chemin modifié est bien celui exécuté.
 
-**Piège de harnais à retenir :** `src/App.jsx:59` capture
-`const storage = typeof localStorage !== 'undefined' ? localStorage : null` à
-l'import du **module**. Les globaux jsdom doivent donc être posés **avant** le
-`await import('./App.jsx')` ; un hook `before()` s'exécute trop tard et
-`storage` vaut `null` — l'app retombe alors sur l'arabe et ne seed aucun
-utilisateur.
+**Les deux pièges rencontrés sont corrigés, pas seulement documentés :**
+
+1. **Le lookahead du fallback SPA** (`vercel.json`). L'ajout de `theme-boot.js`
+   y avait glissé un `||`, créant une alternative vide qui matcherait **toutes**
+   les routes : plus aucune page n'aurait été réécrite vers `index.html`, et
+   tout lien direct (`/boutique`, `/desk`, `/orders`) aurait renvoyé le mauvais
+   contenu en production. Corrigé, et le comportement est désormais testé route
+   par route.
+
+2. **La capture du stockage à l'import du module** (`src/App.jsx`). La ligne
+
+   ```js
+   const storage = typeof localStorage !== 'undefined' ? localStorage : null
+   ```
+
+   était évaluée une fois pour toutes au chargement du module. Dans tout
+   contexte où `localStorage` n'existe pas encore à cet instant, elle restait
+   figée à `null` pour toute la vie du module : l'app retombait sur la langue
+   du navigateur et `loadUsers(null)` ne seedait aucun compte. Le symptôme
+   ressemblait à s'y méprendre à un bug applicatif alors que la logique était
+   correcte — ce qui en fait un piège coûteux à diagnostiquer.
+
+   Remplacée par un accès **paresseux** (`liveStorage()` appelé à chaque
+   `getItem` / `setItem` / `removeItem`). Les 21 sites d'appel n'utilisaient
+   que ces trois méthodes en invocation optionnelle : le wrapper leur est
+   transparent, aucun n'a été modifié.
+
+   `src/p22LazyStorage.test.js` reproduit l'ordre qui déclenchait le piège —
+   import du module **avant** la pose des globaux. **Vérifié : 4/4 en échec
+   avec l'ancienne ligne, 4/4 en succès avec le correctif.**
