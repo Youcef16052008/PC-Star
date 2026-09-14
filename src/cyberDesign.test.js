@@ -15,6 +15,12 @@
  *   T7. Aucune largeur fixe (px) sur cartes/colonnes.
  *   T8. Tout clip-path passe par les tokens symétriques --chamf/--chamf-sm
  *       (auto-miroir RTL, plan § 5 R1).
+ *   T9. (réservé)
+ *   T10. Anti-zoom iOS : champs ≥ 16px sous 576px (§ 4.3 ②).
+ *   T11. Impression : clip-path neutralisé, couches retirées, fond blanc (L5).
+ *   T12-T15. RTL/arabe (L6, plan § 5) : polygones symétriques (R1),
+ *            letter-spacing annulé (R2), casse compensée par le poids (R3),
+ *            repli de police Noto Naskh Arabic (R4). R5 est accepté tel quel.
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -326,6 +332,88 @@ test('T11 impression : clip-path neutralisé + couches biseautées retirées + f
     r.declarations.some((d) => d.prop === 'background' && /#fff(\s*!important)?$/.test(d.value))
   )
   assert.ok(whiteBg, 'l\'impression doit forcer un fond blanc (économie d\'encre)')
+})
+
+/* ── T12-T15 : RTL / arabe (lot L6, plan § 5) ── */
+
+/* T12 (R1) : les polygones de biseautage doivent être symétriques
+   gauche/droite — c'est ce qui dispense de miroirs [dir='rtl'] et rend le
+   chanfrein correct en lecture arabe. Un futur polygon directionnel ferait
+   échouer ce test et devra ajouter son miroir. */
+test('T12 RTL (R1) : polygones --chamf symétriques gauche/droite', () => {
+  // NB : capture gourmande jusqu'à la DERNIÈRE parenthèse avant le « ; » —
+  // les calc(100% - Npx) contiennent eux-mêmes des parenthèses.
+  const polys = [...tokensCss.matchAll(/--chamf[a-z-]*:\s*polygon\(([^;]+)\)\s*;/g)]
+  assert.ok(polys.length >= 3, 'tokens.css doit définir --chamf, --chamf-sm et --chamf-top')
+  const mirrorX = (x) => {
+    if (x === '0') return '100%'
+    if (x === '100%') return '0'
+    let m = /^(\d+(?:\.\d+)?)px$/.exec(x)
+    if (m) return `calc(100% - ${m[1]}px)`
+    m = /^calc\(100%\s*-\s*(\d+(?:\.\d+)?)px\)$/.exec(x)
+    if (m) return `${m[1]}px`
+    throw new Error(`abscisse non miroitable dans un polygon : « ${x} »`)
+  }
+  for (const [, body] of polys) {
+    const points = body.split(',').map((raw) => {
+      const toks = []
+      let depth = 0
+      let cur = ''
+      for (const ch of raw.trim()) {
+        if (ch === '(') depth++
+        if (ch === ')') depth--
+        if (ch === ' ' && depth === 0) {
+          if (cur) toks.push(cur)
+          cur = ''
+        } else cur += ch
+      }
+      if (cur) toks.push(cur)
+      assert.equal(toks.length, 2, `point de polygon invalide : « ${raw.trim()} »`)
+      return toks
+    })
+    const norm = (pts) => pts.map(([x, y]) => `${x}|${y}`).sort()
+    const mirrored = points.map(([x, y]) => [mirrorX(x), y])
+    assert.deepEqual(
+      norm(mirrored),
+      norm(points),
+      `polygone NON symétrique — les chanfreins seraient à contre-sens en RTL (§ 5 R1) : ${body.slice(0, 70)}…`
+    )
+  }
+})
+
+/* T13 (R2) : letter-spacing annulé globalement en RTL. */
+test('T13 RTL (R2) : letter-spacing 0 !important sous html[dir="rtl"]', () => {
+  const rule = cyberRules.find(
+    (r) =>
+      /html\[dir='rtl'\]\s*\*/.test(r.selector) &&
+      r.declarations.some((d) => d.prop === 'letter-spacing' && /^0\s*!important$/.test(d.value))
+  )
+  assert.ok(rule, 'la règle html[dir=rtl] * { letter-spacing: 0 !important } est requise (liaison cursive arabe)')
+})
+
+/* T14 (R3) : l'arabe n'a pas de casse — les méta uppercase sont compensées
+   par le poids. Les cibles majeures doivent être couvertes. */
+test('T14 RTL (R3) : compensation par font-weight ≥ 700 des méta uppercase', () => {
+  const weighted = cyberRules.filter(
+    (r) =>
+      /^html\[dir='rtl'\]/.test(r.selector) &&
+      r.declarations.some((d) => d.prop === 'font-weight' && parseInt(d.value, 10) >= 700)
+  )
+  assert.ok(weighted.length > 0, 'aucune compensation de casse en RTL (§ 5 R3)')
+  const covered = weighted.map((r) => r.selector).join(' , ')
+  for (const sel of ['.badge', '.topbar', '.api-status']) {
+    assert.ok(covered.includes(sel), `cible uppercase non compensée en RTL : ${sel}`)
+  }
+})
+
+/* T15 (R4) : les deux polices du thème replient sur Noto Naskh Arabic
+   (ni Chakra Petch ni JetBrains Mono ne couvrent l'arabe). */
+test('T15 RTL (R4) : repli Noto Naskh Arabic dans --font-display et --font-mono', () => {
+  for (const tok of ['--font-display', '--font-mono']) {
+    const v = dark[tok]
+    assert.ok(v, `token manquant : ${tok}`)
+    assert.ok(/Noto Naskh Arabic/.test(v), `${tok} doit replier sur 'Noto Naskh Arabic' : ${v}`)
+  }
 })
 
 /* ── T8 : clip-path = tokens symétriques seulement (RTL-safe) ── */

@@ -553,3 +553,48 @@ html[data-theme='light'] .navbar-toggler-icon {
     border: 1px solid #333 !important;
   }
 }
+
+/* ────────────────────────────────────────────────────────────────────────────
+   LOT L6 : RTL / arabe — le site s'ouvre en arabe par défaut
+   (<html lang="ar" dir="rtl">), la maquette n'en tenait aucun compte.
+   ──────────────────────────────────────────────────────────────────────────── */
+
+/* R1 : rien à miroir ici PAR CONSTRUCTION — les polygones --chamf sont
+   symétriques gauche/droite (vérifié par le test T12). Un futur polygon
+   directionnel DOIT ajouter son miroir [dir='rtl']. */
+
+/* R2 : déjà en place depuis L1 — rappel de la règle qui protège toutes les
+   méta espacées des lots suivants :
+   html[dir='rtl'] * { letter-spacing: 0 !important }
+   (l'espacement de lettres rompt la liaison cursive des glyphes arabes). */
+
+/* R3 : l'arabe n'a PAS de casse — text-transform: uppercase y est inopérant.
+   L'information visuelle « méta terminal » est compensée par le poids. */
+html[dir='rtl'] .badge,
+html[dir='rtl'] .topbar,
+html[dir='rtl'] .api-status,
+html[dir='rtl'] .spec-table th,
+html[dir='rtl'] .offcanvas-header,
+html[dir='rtl'] .site-footer strong {
+  font-weight: 700;
+}
+
+/* Skip-link : positions physiques (left) → miroir droit en RTL. */
+html[dir='rtl'] .skip-link {
+  left: auto;
+  right: -9999px;
+  border-radius: 0 0 0 8px;
+}
+
+html[dir='rtl'] .skip-link:focus {
+  left: auto;
+  right: 0;
+}
+
+/* R4 : rien à ajouter — le repli 'Noto Naskh Arabic' est déjà dans les
+   tokens --font-display / --font-mono (L0), vérifié par le test T15. */
+
+/* R5 : accepté — Noto Naskh Arabic est proportionnelle, le « terminal
+   monospace » ne survit pas en arabe. L'alignement des valeurs est assuré
+   par la structure (tableaux .spec-table / grilles), pas par la chasse
+   fixe. Aucune règle nécessaire. */
