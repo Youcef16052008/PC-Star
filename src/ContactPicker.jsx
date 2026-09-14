@@ -48,7 +48,18 @@ export default function ContactButton({ label, btnClass = 'btn btn-sm btn-outlin
               href={c.href}
               target={c.external ? '_blank' : undefined}
               rel={c.external ? 'noreferrer' : undefined}
-              onClick={() => setOpen(false)}
+              onClick={(e) => {
+                setOpen(false)
+                // Certains environnements (aperçus iframe, navigateurs
+                // durcis) bloquent target=_blank : on ouvre alors par
+                // window.open, et en dernier recours on navigue ici même —
+                // le lien choisi DOIT s'ouvrir (demande client).
+                if (c.external) {
+                  e.preventDefault()
+                  const w = window.open(c.href, '_blank', 'noopener')
+                  if (!w) window.location.href = c.href
+                }
+              }}
             >
               <strong className="d-block small" dir="ltr">{c.title}</strong>
               <span className="num d-block small text-secondary" dir="ltr">

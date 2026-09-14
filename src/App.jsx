@@ -21,6 +21,7 @@ import SearchPage from './SearchPage.jsx'
 import BuilderPage from './BuilderPage.jsx'
 import PartThumb from './PartThumb.jsx'
 import ContactButton from './ContactPicker.jsx'
+import { specRows } from './media.js'
 import AuthPanel from './AuthPanel.jsx'
 import ProfilePage from './ProfilePage.jsx'
 import OrdersPage from './OrdersPage.jsx'
@@ -987,22 +988,20 @@ export default function App() {
                           {st.text}
                         </span>
                       </button>
+                      {/* Corps de carte photocopié sur la maquette :
+                          marque → titre → specs → ligne prix / + panier. */}
                       <div className="card-body d-flex flex-column">
-                        <div className="small text-secondary">{p.sku}</div>
+                        <span className="cbrand">{p.brand}</span>
                         <h3 className="h6 card-title">{p.name}</h3>
-                        <Stars product={p} t={t} />
-                        <div className="small text-secondary mb-2">{p.short}</div>
-                        {(p.tags || []).length > 0 && (
-                          <div className="d-flex flex-wrap gap-1 mb-2">
-                            {(p.tags || []).slice(0, 2).map((tag) => (
-                              <span className="badge text-bg-light border" key={tag}>
-                                {t(`tag_${tag}`) !== `tag_${tag}` ? t(`tag_${tag}`) : tag}
-                              </span>
-                            ))}
-                          </div>
-                        )}
-                        <div className="mt-auto d-flex justify-content-between align-items-center gap-2">
-                          <div className="fw-bold text-success">{money(p.price)}</div>
+                        <div className="specs">
+                          {specRows(p, t).slice(2, 6).map((r) => (
+                            <span className="d-block" key={r.label}>
+                              <i>{r.label}</i> {r.value}
+                            </span>
+                          ))}
+                        </div>
+                        <div className="card-row mt-auto d-flex justify-content-between align-items-center gap-2">
+                          <span className="price text-success">{money(p.price)}</span>
                           <button className="btn btn-sm btn-success" type="button" disabled={left <= 0} onClick={() => add(p)}>
                             {left <= 0 ? t('soldOut') : t('add')}
                           </button>
@@ -1014,6 +1013,123 @@ export default function App() {
               })}
             </div>
           )}
+
+          {/* ── Configurateur : panneau « split » de la maquette ── */}
+          <section className="py-5">
+            <div className="mb-4">
+              <h2 className="h4 mb-1">{t('pcBuilder')}</h2>
+              <p className="small text-secondary mb-0">{t('builderBody', { address: STORE.address })}</p>
+            </div>
+            <div className="split">
+              <div>
+                <h3 className="h5">{t('builderCheckTitle')}</h3>
+                <p className="small">{t('builderCheckBody')}</p>
+                <div className="check">
+                  <div>
+                    <span className="m" dir="ltr">[OK]</span> {t('chkOkSocket')}
+                  </div>
+                  <div>
+                    <span className="m" dir="ltr">[OK]</span> {t('chkOkRam')}
+                  </div>
+                  <div>
+                    <span className="m" dir="ltr">[OK]</span> {t('chkOkPsu')}
+                  </div>
+                  <div>
+                    <span className="w" dir="ltr">[!]</span> {t('chkWarnCase')}
+                  </div>
+                </div>
+                <div className="d-flex gap-2 mt-4">
+                  <button className="btn btn-success" type="button" onClick={() => go('builder')}>
+                    {t('openBuilder')}
+                  </button>
+                </div>
+              </div>
+              <div>
+                <div className="slots">
+                  <div className="slot">
+                    <span className="k" dir="ltr">cpu</span>
+                    <span className="v">Ryzen 5 7600</span>
+                    <span className="p" dir="ltr">42 000</span>
+                  </div>
+                  <div className="slot">
+                    <span className="k" dir="ltr">board</span>
+                    <span className="v">B650 · AM5</span>
+                    <span className="p" dir="ltr">28 000</span>
+                  </div>
+                  <div className="slot">
+                    <span className="k" dir="ltr">ram</span>
+                    <span className="v">32 Go DDR5</span>
+                    <span className="p" dir="ltr">19 000</span>
+                  </div>
+                  <div className="slot">
+                    <span className="k" dir="ltr">gpu</span>
+                    <span className="v">RTX 4060 8 Go</span>
+                    <span className="p" dir="ltr">72 000</span>
+                  </div>
+                  <div className="slot">
+                    <span className="k" dir="ltr">psu</span>
+                    <span className="v">750 W 80+ Bronze</span>
+                    <span className="p" dir="ltr">16 000</span>
+                  </div>
+                </div>
+                <div className="total">
+                  <span dir="ltr">est. 410 W</span>
+                  <b dir="ltr">177 000 DA</b>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          {/* ── Le comptoir : panneau « store » de la maquette ── */}
+          <section className="py-5">
+            <div className="mb-4">
+              <h2 className="h4 mb-1">{t('secStore')}</h2>
+              <p className="small text-secondary mb-0">{t('storeNote')}</p>
+            </div>
+            <div className="store">
+              <div>
+                <h3 className="h5">PC Star Informatique</h3>
+                <div className="kv">
+                  <div>
+                    <dt>{t('kvAddr')}</dt>
+                    <dd>{STORE.address}</dd>
+                  </div>
+                  <div>
+                    <dt>{t('kvTel')}</dt>
+                    <dd dir="ltr">{STORE.phone} · {STORE.phone2}</dd>
+                  </div>
+                  <div>
+                    <dt>{t('kvHours')}</dt>
+                    <dd>{t('storeHours')}</dd>
+                  </div>
+                  <div>
+                    <dt>{t('kvPay')}</dt>
+                    <dd>{t('payCash')}</dd>
+                  </div>
+                </div>
+                <div className="d-flex flex-wrap gap-2 mt-4">
+                  <ContactButton
+                    label="WhatsApp"
+                    btnClass="btn"
+                    choices={[
+                      { title: STORE.phone, href: `https://wa.me/${STORE.whatsapp}`, external: true },
+                      { title: STORE.phone2, href: `https://wa.me/${STORE.whatsapp2}`, external: true }
+                    ]}
+                  />
+                  <a className="btn" href={STORE.mapUrl} target="_blank" rel="noreferrer">
+                    {t('openMaps')}
+                  </a>
+                </div>
+              </div>
+              <div className="map" dir="ltr">
+                EL MAKARI LES CASTORS
+                <br />
+                ORAN · DZ
+                <br />
+                35.6969 N / 0.6331 W
+              </div>
+            </div>
+          </section>
         </main>
       )}
 
@@ -1248,44 +1364,15 @@ export default function App() {
         />
       )}
 
-      <footer className="site-footer border-top mt-auto">
-        <div className="container py-4">
-          <div className="row g-3 align-items-center">
-            <div className="col-md-6">
-              <strong className="d-block">PC Star Informatique</strong>
-              <div className="small text-secondary">{STORE.address}</div>
-              <div className="small text-secondary">
-                {t('payCash')} · {t('pricesInDa')}
-              </div>
-            </div>
-            <div className="col-md-6 d-flex flex-wrap gap-2 justify-content-md-end">
-              {/* UN bouton → choix du numéro (07 ou 06), demande client. */}
-              <ContactButton
-                label={t('call')}
-                btnClass="btn btn-sm btn-outline-secondary"
-                choices={[
-                  { title: STORE.phone, href: STORE.phoneHref },
-                  { title: STORE.phone2, href: STORE.phone2Href }
-                ]}
-              />
-              <ContactButton
-                label="WhatsApp"
-                btnClass="btn btn-sm btn-outline-success"
-                choices={[
-                  { title: STORE.phone, href: `https://wa.me/${STORE.whatsapp}`, external: true },
-                  { title: STORE.phone2, href: `https://wa.me/${STORE.whatsapp2}`, external: true }
-                ]}
-              />
-              <button type="button" className="btn btn-sm btn-outline-secondary" onClick={() => go('about')}>
-                {t('navAbout')}
-              </button>
-              <button type="button" className="btn btn-sm btn-outline-secondary" onClick={() => go('privacy')}>
-                {t('navPrivacy')}
-              </button>
-              <button type="button" className="btn btn-sm btn-outline-secondary" onClick={() => go('terms')}>
-                {t('navTerms')}
-              </button>
-            </div>
+      {/* Footer photocopié sur la maquette : © à gauche, liens à droite.
+          (Garantie retirée sur demande explicite du client.) */}
+      <footer className="site-footer mt-auto">
+        <div className="container py-4 d-flex flex-wrap justify-content-between align-items-center gap-3">
+          <p className="small mb-0">© 2026 PC STAR INFORMATIQUE — ORAN, DZ</p>
+          <div className="footer-links d-flex gap-3">
+            <button type="button" onClick={() => go('about')}>{t('navAbout')}</button>
+            <button type="button" onClick={() => go('privacy')}>{t('navPrivacy')}</button>
+            <button type="button" onClick={() => go('terms')}>{t('navTerms')}</button>
           </div>
         </div>
       </footer>

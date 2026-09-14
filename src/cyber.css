@@ -12,28 +12,18 @@
       rogné.
    ──────────────────────────────────────────────────────────────────────────── */
 
-/* ── 1. Corps terminal : JetBrains Mono 14 px ; trame de fond 48 px. ── */
+/* ── 1. Corps terminal : JetBrains Mono 14 px ; trame de fond 48 px peinte
+      DANS le fond du body (pas de calque positionné : aucun conflit de
+      stacking avec les backdrops Bootstrap des modales/offcanvas). ── */
 body {
   font-family: var(--font-mono);
   font-size: 14px;
   line-height: 1.5;
-}
-
-body::before {
-  content: '';
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  z-index: 0;
-  opacity: 0.5;
+  background-color: var(--bg);
   background-image: linear-gradient(var(--grid-line) 1px, transparent 1px),
     linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
   background-size: 48px 48px;
-}
-
-.app {
-  position: relative;
-  z-index: 1;
+  background-attachment: fixed;
 }
 
 /* Arabe : le terminal mono reste LATIN — le corps arabe passe en Cairo,
@@ -603,6 +593,185 @@ html[dir='rtl'] .hero h1 {
   filter: none;
 }
 
+/* ── 9b. Specs des cartes (i muet + valeur), ligne prix bordée. ── */
+.specs {
+  font-size: 11px;
+  color: var(--ink-2);
+  line-height: 1.8;
+}
+
+.specs i {
+  color: var(--muted-2);
+  font-style: normal;
+}
+
+.card-row {
+  padding-top: 11px;
+  border-top: 1px solid var(--line);
+}
+
+/* ── 9c. Panneaux « split » (configurateur) et « store » (comptoir). ── */
+.split,
+.store {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1px;
+  background: var(--line);
+  border: 1px solid var(--line);
+}
+
+.split > div,
+.store > div {
+  background: var(--card);
+  padding: 30px;
+}
+
+@media (max-width: 767.98px) {
+  .split,
+  .store {
+    grid-template-columns: 1fr;
+  }
+
+  .split > div,
+  .store > div {
+    padding: 20px;
+  }
+}
+
+.check {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  margin-top: 18px;
+}
+
+.check div {
+  display: flex;
+  gap: 9px;
+  font-size: 12px;
+  color: var(--ink-2);
+  align-items: baseline;
+}
+
+.check .m {
+  color: var(--blue);
+}
+
+.check .w {
+  color: var(--warn);
+}
+
+.slots {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.slot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  padding: 10px 13px;
+  clip-path: var(--chamf-sm);
+}
+
+.slot .k {
+  font-size: 10px;
+  color: var(--muted-2);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+
+.slot .v {
+  font-size: 12.5px;
+  color: var(--ink);
+}
+
+.slot .p {
+  font-size: 12px;
+  color: var(--blue);
+}
+
+.total {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-top: 12px;
+  padding-top: 13px;
+  border-top: 1px solid var(--line-hi);
+}
+
+.total span {
+  font-size: 11px;
+  color: var(--muted-2);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.total b {
+  font-family: var(--font-display);
+  font-size: 23px;
+  font-weight: 700;
+  color: var(--blue);
+}
+
+.kv {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.kv div {
+  display: flex;
+  gap: 14px;
+  font-size: 13px;
+  align-items: baseline;
+}
+
+.kv dt {
+  font-size: 10px;
+  color: var(--muted-2);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  min-width: 84px;
+}
+
+.kv dd {
+  color: var(--ink-2);
+  margin: 0;
+}
+
+.map {
+  background: repeating-linear-gradient(45deg, var(--photo-bg), var(--photo-bg) 10px, var(--card) 10px, var(--card) 20px);
+  display: grid;
+  place-items: center;
+  text-align: center;
+  color: var(--muted-2);
+  font-size: 11.5px;
+  letter-spacing: 0.1em;
+  line-height: 2;
+}
+
+/* Liens du footer : méta espacée, hover cyan (maquette). */
+.footer-links button {
+  background: none;
+  border: 0;
+  padding: 0;
+  font-size: 11.5px;
+  color: var(--muted-2);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.footer-links button:hover {
+  color: var(--blue);
+}
+
 /* ── 10. Ponts couleur Bootstrap (badges stock, utilitaires). ── */
 .text-success {
   color: var(--blue) !important;
@@ -838,13 +1007,10 @@ html {
     background: #fff !important;
   }
 
-  body::before {
-    display: none !important;
-  }
-
   body {
     -webkit-print-color-adjust: auto;
     print-color-adjust: auto;
+    background-image: none !important;
   }
 
   .app .card::before,
