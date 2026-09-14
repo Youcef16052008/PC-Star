@@ -186,3 +186,6 @@ image-search/
 # local API runtime
 server/data/backups/
 public/photos/uploads/
+
+# Crawl jsdom (L2) — build IIFE jetable
+dist-crawl/

@@ -158,3 +158,96 @@ html {
     transition: none;
   }
 }
+
+/* ────────────────────────────────────────────────────────────────────────────
+   LOT L2 : barre système, nav, menu mobile, offcanvas panier.
+   ──────────────────────────────────────────────────────────────────────────── */
+
+/* ── 1. Barre système (.topbar) — 1 ligne, méta espacée, bloc droit caché
+      sous 768px (§ 4.3 ⑤ : le contenu arabe/français déborde les 320 px,
+      le flex-wrap + le clip anti-scroll absorbent les trois langues). ── */
+.topbar {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  border-bottom: 1px solid var(--line);
+}
+
+@media (max-width: 767.98px) {
+  .topbar-right {
+    display: none;
+  }
+}
+
+/* ── 2. Nav : maillage terminal — mono, méta espacée, actif cyan. ── */
+.shop-navbar {
+  border-color: var(--line-hi) !important;
+}
+
+.shop-navbar .nav-link {
+  font-family: var(--font-mono);
+  font-size: 14px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase; /* inopérant en arabe (R3, compensé ci-dessous) */
+}
+
+/* R3 : l'arabe n'a pas de casse → l'information visuelle de la méta
+   majuscule est compensée par le poids. */
+html[dir='rtl'] .shop-navbar .nav-link {
+  font-weight: 700;
+}
+
+.shop-navbar .nav-link.active {
+  color: var(--blue) !important;
+}
+
+/* Toggler : icône Bootstrap (SVG gris codé en dur) ré-exposée par filtre
+   selon le thème — aucune couleur ajoutée ici. */
+html[data-theme='dark'] .navbar-toggler-icon {
+  filter: brightness(1.7);
+}
+
+html[data-theme='light'] .navbar-toggler-icon {
+  filter: brightness(0.55);
+}
+
+/* ── 3. Menu mobile (collapse existant, < lg) : liens empilés pleine
+      largeur, filet entre eux, cibles ≥ 44 px. ── */
+@media (max-width: 991.98px) {
+  .navbar-collapse .nav-link {
+    display: flex;
+    align-items: center;
+    width: 100%;
+    min-height: 44px;
+    text-align: start;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .navbar-collapse .navbar-nav .nav-link:last-child {
+    border-bottom: 0;
+  }
+
+  .navbar-toggler {
+    min-height: 44px;
+    min-width: 44px;
+  }
+}
+
+/* ── 4. Offcanvas panier : habillage, pas de remplacement (§ 2 constat 7). ── */
+.offcanvas {
+  border-color: var(--line-hi) !important;
+}
+
+.offcanvas-header {
+  border-bottom: 1px solid var(--line);
+  font-family: var(--font-display);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+@media (max-width: 575.98px) {
+  .offcanvas-end {
+    width: min(92vw, 360px);
+  }
+}

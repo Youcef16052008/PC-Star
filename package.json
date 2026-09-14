@@ -8,6 +8,7 @@
     "dev:api": "node server/index.js",
     "dev:all": "node server/index.js & vite",
     "build": "vite build",
+    "build:crawl": "vite build --config vite.crawl.config.js && node scripts/fix-crawl-html.mjs",
     "preview": "vite preview",
     "test": "node --test --test-concurrency=1 src/shopStore.test.js src/api.smoke.test.js src/orderLogic.test.js src/masterApi.test.js src/authCrypto.test.js src/dbIntegrity.test.js src/apiServer.test.js src/i18n.coverage.test.js src/compat.i18n.test.js src/photoCompress.test.js src/uploadFlow.test.js src/cyberDesign.test.js",
     "start:api": "node server/index.js",
@@ -19,6 +20,7 @@
     "photos:check": "node scripts/ingestSkuPhotos.mjs",
     "photos:fix": "node scripts/ingestSkuPhotos.mjs --fix",
     "smoke": "node scripts/smoke-e2e.mjs",
+    "crawl": "node scripts/jsdom-crawl.mjs",
     "test:e2e": "playwright test"
   },
   "dependencies": {
@@ -32,6 +34,7 @@
   "devDependencies": {
     "@playwright/test": "^1.63.0",
     "@vitejs/plugin-react": "^4.5.2",
+    "jsdom": "^30.0.1",
     "vite": "^6.3.5"
   },
   "engines": {

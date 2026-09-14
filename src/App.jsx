@@ -768,7 +768,8 @@ export default function App() {
       <div className="topbar text-white small py-2">
         <div className="container d-flex flex-wrap justify-content-between gap-2">
           <span>{STORE.address}</span>
-          <span>
+          {/* L2 : bloc droit masqué sous 768px (cyber.css, § 4.3 ⑤) */}
+          <span className="topbar-right">
             <a className="link-light text-decoration-none fw-semibold" href={STORE.phoneHref}>
               {STORE.phone}
             </a>
@@ -856,11 +857,13 @@ export default function App() {
               </div>
               <div className="btn-group btn-group-sm" role="group" aria-label="theme">
                 {[
-                  ['system', '◐'],
-                  ['light', '☀'],
-                  ['dark', '☾']
-                ].map(([id, mark]) => (
-                  <button key={id} type="button" className={`btn ${themePref === id ? 'btn-success' : 'btn-outline-secondary'}`} onClick={() => changeTheme(id)}>
+                  // L2 (§ 6.2) : les glyphes de thème portent un vrai nom —
+                  // clés i18n EXISTANTES, aucune clé ajoutée.
+                  ['system', '◐', t('themeSystem')],
+                  ['light', '☀', t('themeLight')],
+                  ['dark', '☾', t('themeDark')]
+                ].map(([id, mark, label]) => (
+                  <button key={id} type="button" className={`btn ${themePref === id ? 'btn-success' : 'btn-outline-secondary'}`} onClick={() => changeTheme(id)} aria-label={label} title={label} aria-pressed={themePref === id}>
                     {mark}
                   </button>
                 ))}
