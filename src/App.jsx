@@ -20,6 +20,7 @@ import { ensureProductPhotos } from './productPhotos.js'
 import SearchPage from './SearchPage.jsx'
 import BuilderPage from './BuilderPage.jsx'
 import PartThumb from './PartThumb.jsx'
+import ContactButton from './ContactPicker.jsx'
 import AuthPanel from './AuthPanel.jsx'
 import ProfilePage from './ProfilePage.jsx'
 import OrdersPage from './OrdersPage.jsx'
@@ -1239,20 +1240,23 @@ export default function App() {
               </div>
             </div>
             <div className="col-md-6 d-flex flex-wrap gap-2 justify-content-md-end">
-              {/* À la demande du client : les DEUX numéros (07 + 06) partout
-                  où figurent appel ou WhatsApp. */}
-              <a className="btn btn-sm btn-outline-secondary" href={STORE.phoneHref}>
-                {t('call')} {STORE.phone}
-              </a>
-              <a className="btn btn-sm btn-outline-secondary" href={STORE.phone2Href}>
-                {t('call')} {STORE.phone2}
-              </a>
-              <a className="btn btn-sm btn-outline-success" href={`https://wa.me/${STORE.whatsapp}`} target="_blank" rel="noreferrer">
-                WhatsApp {STORE.phone}
-              </a>
-              <a className="btn btn-sm btn-outline-success" href={`https://wa.me/${STORE.whatsapp2}`} target="_blank" rel="noreferrer">
-                WhatsApp {STORE.phone2}
-              </a>
+              {/* UN bouton → choix du numéro (07 ou 06), demande client. */}
+              <ContactButton
+                label={t('call')}
+                btnClass="btn btn-sm btn-outline-secondary"
+                choices={[
+                  { title: STORE.phone, href: STORE.phoneHref },
+                  { title: STORE.phone2, href: STORE.phone2Href }
+                ]}
+              />
+              <ContactButton
+                label="WhatsApp"
+                btnClass="btn btn-sm btn-outline-success"
+                choices={[
+                  { title: STORE.phone, href: `https://wa.me/${STORE.whatsapp}`, external: true },
+                  { title: STORE.phone2, href: `https://wa.me/${STORE.whatsapp2}`, external: true }
+                ]}
+              />
               <button type="button" className="btn btn-sm btn-outline-secondary" onClick={() => go('about')}>
                 {t('navAbout')}
               </button>
@@ -1267,14 +1271,17 @@ export default function App() {
         </div>
       </footer>
 
-      {/* FAB WhatsApp : les deux numéros, empilés (cyber-adjacent : index.css
-          décale le second via .wa-fab + .wa-fab). */}
-      <a className="wa-fab" href={`https://wa.me/${STORE.whatsapp}`} target="_blank" rel="noreferrer">
-        WhatsApp {STORE.phone}
-      </a>
-      <a className="wa-fab" href={`https://wa.me/${STORE.whatsapp2}`} target="_blank" rel="noreferrer">
-        WhatsApp {STORE.phone2}
-      </a>
+      {/* FAB WhatsApp unique : au clic, choix du numéro (07 ou 06). */}
+      <ContactButton
+        wrapClass="wa-fab-wrap"
+        btnClass="wa-fab"
+        dropUp
+        label="WhatsApp"
+        choices={[
+          { title: STORE.phone, href: `https://wa.me/${STORE.whatsapp}`, external: true },
+          { title: STORE.phone2, href: `https://wa.me/${STORE.whatsapp2}`, external: true }
+        ]}
+      />
 
       {/* Cart offcanvas — controlled via Bootstrap Offcanvas API */}
       <div
@@ -1319,12 +1326,14 @@ export default function App() {
                 <a className="btn btn-outline-success btn-sm" href={STORE.mapUrl} target="_blank" rel="noreferrer">
                   {t('openMaps')}
                 </a>
-                <a className="btn btn-outline-secondary btn-sm" href={STORE.phoneHref}>
-                  {t('call')} {STORE.phone}
-                </a>
-                <a className="btn btn-outline-secondary btn-sm" href={STORE.phone2Href}>
-                  {t('call')} {STORE.phone2}
-                </a>
+                <ContactButton
+                  label={t('call')}
+                  btnClass="btn btn-outline-secondary btn-sm"
+                  choices={[
+                    { title: STORE.phone, href: STORE.phoneHref },
+                    { title: STORE.phone2, href: STORE.phone2Href }
+                  ]}
+                />
                 <button
                   className="btn btn-success"
                   type="button"
@@ -1446,10 +1455,24 @@ export default function App() {
                 </div>
                 <button className="btn btn-success w-100 mb-2" type="submit">{t('reservePickup')}</button>
                 <div className="d-grid gap-2">
-                  <a className="btn btn-outline-secondary btn-sm" href={waHref} target="_blank" rel="noreferrer">{t('whatsappCart')} {STORE.phone}</a>
-                  <a className="btn btn-outline-secondary btn-sm" href={waHref2} target="_blank" rel="noreferrer">{t('whatsappCart')} {STORE.phone2}</a>
-                  <a className="btn btn-outline-secondary btn-sm" href={STORE.phoneHref}>{t('call')} {STORE.phone}</a>
-                  <a className="btn btn-outline-secondary btn-sm" href={STORE.phone2Href}>{t('call')} {STORE.phone2}</a>
+                  <ContactButton
+                    block
+                    label={t('whatsappCart')}
+                    btnClass="btn btn-outline-secondary btn-sm"
+                    choices={[
+                      { title: STORE.phone, href: waHref, external: true },
+                      { title: STORE.phone2, href: waHref2, external: true }
+                    ]}
+                  />
+                  <ContactButton
+                    block
+                    label={t('call')}
+                    btnClass="btn btn-outline-secondary btn-sm"
+                    choices={[
+                      { title: STORE.phone, href: STORE.phoneHref },
+                      { title: STORE.phone2, href: STORE.phone2Href }
+                    ]}
+                  />
                 </div>
                 <p className="small text-secondary mt-2 mb-0">{t('storeReady')}</p>
               </form>

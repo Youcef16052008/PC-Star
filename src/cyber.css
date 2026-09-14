@@ -1,34 +1,29 @@
 /* ────────────────────────────────────────────────────────────────────────────
-   Direction 03 « Terminal Cyber » · LOT L1 : typographie & géométrie.
-
-   Règles de ce fichier (vérifiées par src/cyberDesign.test.js) :
-   1. AUCUNE couleur en dur — uniquement des var(--…) définis dans tokens.css.
-   2. Media queries uniquement sur l'échelle Bootstrap (575.98 / 767.98 /
-      991.98 / 1199.98 / 1399.98 px) + media sans largeur (reduced-motion…).
-   3. clip-path uniquement via var(--chamf) / var(--chamf-sm) — polygones
-      symétriques = auto-miroir RTL (plan § 5 R1).
-   4. JAMAIS de clip-path sur l'élément interactif lui-même ni sur un
-      sélecteur portant :focus : le biseau passe par un pseudo-élément de
-      fond, la boîte (et l'anneau de focus) reste intacte (plan § 4.3 ③).
+   PC Star — feuille de thème (Direction 03 restylée « pro » sur retour
+   client : boutique nette, lisible, responsive ; fini le look terminal
+   octogonal). Garde-fous vérifiés par src/cyberDesign.test.js :
+   1. AUCUNE couleur en dur — uniquement des var(--…) (hors @media print).
+   2. Media queries uniquement sur l'échelle Bootstrap.
+   3. clip-path uniquement via var(--chamf…) — polygones symétriques RTL.
+   4. Jamais de clip-path sur un sélecteur :focus.
    ──────────────────────────────────────────────────────────────────────────── */
 
-/* ── 1. Typographie : JetBrains Mono partout, Chakra Petch pour les titres.
-      (Le <body> est basculé dans index.css, L1.) ── */
+/* ── 1. Typographie : Inter/Cairo partout (corps dans index.css), titres
+      nets sans espacement artificiel. ── */
 h1, h2, h3, h4, h5, h6,
 .h1, .h2, .h3, .h4, .h5, .h6 {
   font-family: var(--font-display);
   font-weight: 700;
-  letter-spacing: 0.02em;
   line-height: 1.25;
 }
 
 /* R2 (arabe) : l'espacement de lettres ROMPT la liaison cursive des glyphes
-   arabes. Règle globale immédiate : en RTL, letter-spacing = 0 partout. */
+   arabes → en RTL, letter-spacing = 0 partout. */
 html[dir='rtl'] * {
   letter-spacing: 0 !important;
 }
 
-/* ── 2. Filets : les contrôles ne reposent jamais sur --line seul (§ 6.1) ── */
+/* ── 2. Filets : les contrôles ne reposent jamais sur --line seul ── */
 .form-control,
 .form-select {
   border-color: var(--line-hi) !important;
@@ -39,95 +34,18 @@ hr {
   opacity: 1;
 }
 
-/* ── 3. Géométrie biseautée — architecture ::before/::after.
-      Couche bordure (::before, inset 0) + couche fond (::after, inset 1px),
-      toutes deux clip-path : le contenu et les ombres restent sur la boîte
-      rectangulaire de l'élément → focus, hover et shadows jamais rognés. ── */
-.app .card,
-.modal-content {
-  position: relative;
-  isolation: isolate;
+/* ── 3. Boutons : arrondis nets et modernes, plus de pseudo-couches
+      biseautées. Cibles tactiles ≥ 44 px sous 576 px (règle globale). ── */
+.btn {
+  border-radius: 10px;
+  font-weight: 600;
 }
 
-.app .card {
-  background: transparent;
-  border-color: transparent !important;
+.btn-sm,
+.btn-group-sm > .btn {
+  border-radius: 8px;
 }
 
-/* Couche bordure — absente des cartes explicitement sans bordure. */
-.app .card:not(.border-0)::before,
-.modal-content::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  z-index: -2;
-  clip-path: var(--chamf);
-  background: var(--line);
-}
-
-.app .card::after,
-.modal-content::after {
-  content: '';
-  position: absolute;
-  inset: 1px;
-  z-index: -1;
-  clip-path: var(--chamf);
-  background: var(--card);
-}
-
-/* Boutons pleins (variantes réellement utilisées : success, warning, light).
-   L'élément garde sa boîte rectangulaire → outline :focus-visible intact.
-   Les variantes outline restent volontairement rectangulaires en L1. */
-.btn-success,
-.btn-warning,
-.btn-light {
-  position: relative;
-  isolation: isolate;
-  background-color: transparent !important;
-  border-color: transparent !important;
-}
-
-.btn-success::before,
-.btn-warning::before,
-.btn-light::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  z-index: -2;
-  clip-path: var(--chamf-sm);
-  background: var(--bs-btn-border-color, var(--line-hi));
-}
-
-.btn-success::after,
-.btn-warning::after,
-.btn-light::after {
-  content: '';
-  position: absolute;
-  inset: 1px;
-  z-index: -1;
-  clip-path: var(--chamf-sm);
-  background: var(--bs-btn-bg);
-  transition: background-color 0.15s ease;
-}
-
-.btn-success:hover::after,
-.btn-success:focus-visible::after,
-.btn-warning:hover::after,
-.btn-warning:focus-visible::after,
-.btn-light:hover::after,
-.btn-light:focus-visible::after {
-  background: var(--bs-btn-hover-bg);
-}
-
-.btn-success:active::after,
-.btn-warning:active::after,
-.btn-light:active::after {
-  background: var(--bs-btn-active-bg);
-}
-
-/* Boutons pleins en 576px et moins : le chanfrein se réduit tout seul
-   (tokens --chamf/--chamf-sm redéfinis dans tokens.css, § 4.3 ④) ; reste ici
-   la cible tactile ≥ 44 px (§ 4.3 ①, règle globale unique). */
 @media (max-width: 575.98px) {
   .btn,
   .nav-link,
@@ -136,41 +54,44 @@ hr {
   }
 }
 
-/* ── 4. Métadonnées système : espacées, majuscules (latin), mono ── */
-.api-status {
-  font-family: var(--font-mono);
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+/* ── 4. Cartes & panneaux : vraies bordures + coins arrondis (plus de
+      couches ::before/::after biseautées à l'écran). ── */
+.app .card,
+.modal-content {
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: var(--card);
 }
 
-/* Filet de sécurité anti-scroll horizontal (§ 4.3 ⑤) : clip ne crée pas de
-   boîte de défilement → position: sticky reste fonctionnel. */
+.modal-content {
+  border-color: var(--line-hi);
+}
+
+/* Filet de sécurité anti-scroll horizontal. */
 html {
   overflow-x: hidden;
   overflow-x: clip;
 }
 
-/* ── 5. Mouvement réduit : les transitions L1 s'effacent (§ 4.4) ── */
+/* ── 5. Mouvement réduit ── */
 @media (prefers-reduced-motion: reduce) {
-  .btn-success::after,
-  .btn-warning::after,
-  .btn-light::after {
+  .btn,
+  .card,
+  .product-bs-card,
+  .social-btn {
     transition: none;
   }
 }
 
 /* ────────────────────────────────────────────────────────────────────────────
-   LOT L2 : barre système, nav, menu mobile, offcanvas panier.
+   Barre système, nav, offcanvas.
    ──────────────────────────────────────────────────────────────────────────── */
 
-/* ── 1. Barre système (.topbar) — 1 ligne, méta espacée, bloc droit caché
-      sous 768px (§ 4.3 ⑤ : le contenu arabe/français déborde les 320 px,
-      le flex-wrap + le clip anti-scroll absorbent les trois langues). ── */
+/* ── 1. Barre système (.topbar) — une ligne sobre, casse normale. ── */
 .topbar {
-  font-family: var(--font-mono);
-  font-size: 12px;
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
+  font-family: var(--font-display);
+  font-size: 12.5px;
+  font-weight: 500;
   border-bottom: 1px solid var(--line);
 }
 
@@ -180,20 +101,17 @@ html {
   }
 }
 
-/* ── 2. Nav : maillage terminal — mono, méta espacée, actif cyan. ── */
+/* ── 2. Nav : lisible, actif en accent. ── */
 .shop-navbar {
-  border-color: var(--line-hi) !important;
+  border-color: var(--line) !important;
 }
 
 .shop-navbar .nav-link {
-  font-family: var(--font-mono);
-  font-size: 14px;
-  letter-spacing: 0.05em;
-  text-transform: uppercase; /* inopérant en arabe (R3, compensé ci-dessous) */
+  font-family: var(--font-display);
+  font-size: 15px;
+  font-weight: 600;
 }
 
-/* R3 : l'arabe n'a pas de casse → l'information visuelle de la méta
-   majuscule est compensée par le poids. */
 html[dir='rtl'] .shop-navbar .nav-link {
   font-weight: 700;
 }
@@ -202,8 +120,7 @@ html[dir='rtl'] .shop-navbar .nav-link {
   color: var(--blue) !important;
 }
 
-/* Toggler : icône Bootstrap (SVG gris codé en dur) ré-exposée par filtre
-   selon le thème — aucune couleur ajoutée ici. */
+/* Toggler : icône Bootstrap ré-exposée par filtre selon le thème. */
 html[data-theme='dark'] .navbar-toggler-icon {
   filter: brightness(1.7);
 }
@@ -212,8 +129,7 @@ html[data-theme='light'] .navbar-toggler-icon {
   filter: brightness(0.55);
 }
 
-/* ── 3. Menu mobile (collapse existant, < lg) : liens empilés pleine
-      largeur, filet entre eux, cibles ≥ 44 px. ── */
+/* ── 3. Menu mobile : liens empilés pleine largeur, cibles ≥ 44 px. ── */
 @media (max-width: 991.98px) {
   .navbar-collapse .nav-link {
     display: flex;
@@ -234,7 +150,7 @@ html[data-theme='light'] .navbar-toggler-icon {
   }
 }
 
-/* ── 4. Offcanvas panier : habillage, pas de remplacement (§ 2 constat 7). ── */
+/* ── 4. Offcanvas panier. ── */
 .offcanvas {
   border-color: var(--line-hi) !important;
 }
@@ -242,8 +158,6 @@ html[data-theme='light'] .navbar-toggler-icon {
 .offcanvas-header {
   border-bottom: 1px solid var(--line);
   font-family: var(--font-display);
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
 }
 
 @media (max-width: 575.98px) {
@@ -253,14 +167,10 @@ html[data-theme='light'] .navbar-toggler-icon {
 }
 
 /* ────────────────────────────────────────────────────────────────────────────
-   LOT L3 : hero, catégories, cartes produits, footer, FAB.
+   Hero, badges, cartes produits, footer, FAB.
    ──────────────────────────────────────────────────────────────────────────── */
 
-/* ── 1. Ponts couleur Bootstrap. Les utilitaires text-bg-*/bg-* sont FIGÉS
-      en Sass (ex. #dc3545, #198754, #ffc107) et ignoreraient les tokens :
-      sans ce pont, l'ancien thème réapparaît dans les badges de stock, les
-      prix et les pastilles panier. Encre sur accent = --blue-on : calculé
-      AA sur --blue, --warn et --danger dans les DEUX thèmes. ── */
+/* ── 1. Ponts couleur Bootstrap (utilitaires figés en Sass). ── */
 .text-success {
   color: var(--blue) !important;
 }
@@ -304,90 +214,97 @@ html[data-theme='light'] .navbar-toggler-icon {
   background-color: var(--danger) !important;
 }
 
-/* ── 2. Badges : puces terminal (mono, espacées, carrées). ── */
+/* ── 2. Badges : pastilles nettes, lisibles. ── */
 .badge {
-  font-family: var(--font-mono);
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  border-radius: 2px;
+  font-family: var(--font-display);
+  font-weight: 700;
+  border-radius: 6px;
 }
 
-.badge.rounded-pill {
-  border-radius: 2px;
-}
-
-/* ── 3. Hero : panneau biseauté (section non interactive → clip direct,
-      les CTA sont à ≥ 20 px des bords, focus jamais rogné). ── */
+/* ── 3. Hero : seul élément conservant le chanfrein discret (signature),
+      section non interactive → clip direct sans risque pour le focus.
+      Typographie fluide : rien ne casse entre 320 px et 1400 px. ── */
 .hero,
 .hero-simple {
   clip-path: var(--chamf);
-  border-radius: 0;
   border-color: var(--line-hi) !important;
+}
+
+.hero h1,
+.hero-simple h1 {
+  font-size: clamp(1.45rem, 1.05rem + 2.4vw, 2.6rem);
+  font-weight: 800;
+}
+
+.hero .lead,
+.hero-simple .lead {
+  font-size: clamp(0.95rem, 0.85rem + 0.6vw, 1.15rem);
+  max-width: 60ch;
 }
 
 .hero .badge {
   border-color: var(--line-hi);
 }
 
-/* ── 4. Cartes produit : la photo épouse le biseau haut (--chamf-top),
-      ombre de survol en drop-shadow pour SUIVRE la forme biseautée
-      (un box-shadow classique déborderait des coins coupés). ── */
-.product-bs-card .photo-frame {
-  clip-path: var(--chamf-top);
+/* ── 4. Cartes produit : coins arrondis, titre borné à 2 lignes, prix
+      aligné en bas — hauteurs régulières à toutes les largeurs. ── */
+.product-bs-card {
+  border-radius: 14px;
 }
 
-@media (hover: hover) {
-  .product-bs-card:hover {
-    box-shadow: none !important;
-    filter: drop-shadow(0 12px 22px var(--shadow));
-  }
+.product-bs-card .card-body {
+  gap: 2px;
+}
+
+.product-bs-card h3,
+.product-bs-card .h6 {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  min-height: 2.5em;
+  font-size: 0.9rem;
+}
+
+.product-bs-card .card-body > :last-child {
+  margin-top: auto;
 }
 
 .card .btn-link:hover {
   color: var(--blue) !important;
 }
 
-/* ── 5. Filtres catégories/marques : les pilules deviennent des puces
-      carrées — la variante active est déjà biseautée (L1). ── */
-.btn.rounded-pill {
-  border-radius: 0;
-}
+/* ── 5. Filtres : pilules conservées (Bootstrap), actives en accent. ── */
 
-/* ── 6. Footer : méta display espacée, filet renforcé (§ 6.1). ── */
+/* ── 6. Footer : sobre. ── */
 .site-footer {
   border-top-color: var(--line-hi);
 }
 
 .site-footer strong {
   font-family: var(--font-display);
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
 }
 
-/* ── 7. FAB & social : coins nets (pas de clip-path — éléments focusables,
-      l'anneau de focus doit rester intact). Couleurs de marque conservées. ── */
+/* ── 7. FAB & social : arrondis confortables, couleurs de marque. ── */
 .wa-fab {
-  border-radius: 4px;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+  border-radius: 999px;
 }
 
 .social-btn {
-  border-radius: 3px !important;
+  border-radius: 10px !important;
 }
 
-/* Étoiles de notation : ambre tokenisé (s'adapte au thème clair). */
+/* Étoiles de notation : ambre tokenisé. */
 .stars {
   color: var(--warn);
 }
 
 /* ────────────────────────────────────────────────────────────────────────────
-   LOT L4 : pages intérieures (produit, recherche, configurateur, commandes,
-   profil, mentions légales).
+   Pages intérieures (produit, recherche, configurateur, commandes…).
    ──────────────────────────────────────────────────────────────────────────── */
 
-/* ── 1. Variantes outline restantes : les valeurs Sass d'origine sont
-      illisibles sur fond sombre (--bs-btn-* pilotés par tokens). ── */
+/* ── 1. Variantes outline lisibles sur les deux thèmes. ── */
 .btn-outline-dark {
   --bs-btn-color: var(--ink);
   --bs-btn-border-color: var(--line-hi);
@@ -421,7 +338,7 @@ html[data-theme='light'] .navbar-toggler-icon {
   --bs-btn-active-color: var(--blue-on);
 }
 
-/* ── 2. Formulaires : cases/options sur l'accent (Sass figé #0d6efd). ── */
+/* ── 2. Formulaires & alertes sur l'accent. ── */
 .form-check-input:checked {
   background-color: var(--blue);
   border-color: var(--blue);
@@ -432,29 +349,17 @@ html[data-theme='light'] .navbar-toggler-icon {
   box-shadow: 0 0 0 0.2rem color-mix(in srgb, var(--blue) 25%, transparent);
 }
 
-/* Alertes (erreurs de formulaire builder/commandes). */
 .alert-danger {
   --bs-alert-color: var(--danger);
   --bs-alert-bg: color-mix(in srgb, var(--danger) 10%, var(--bg));
   --bs-alert-border-color: color-mix(in srgb, var(--danger) 35%, var(--line));
 }
 
-/* États vides : filet renforcé (§ 6.1). */
 .empty-state {
   border-color: var(--line-hi);
 }
 
-/* Coins nets partout (le biseau reste réservé aux panneaux/cartes). */
-.rounded {
-  border-radius: 2px;
-}
-
-/* ── 3. Fiche produit : cadre galerie biseauté (élément non focusable),
-      tableau de specs « terminal », CTA collant au filet renforcé. ── */
-.pdp-zoom {
-  clip-path: var(--chamf);
-}
-
+/* ── 3. Fiche produit : tableau de specs lisible, CTA collant net. ── */
 .pdp-sticky-cta {
   border-top-color: var(--line-hi);
 }
@@ -462,25 +367,15 @@ html[data-theme='light'] .navbar-toggler-icon {
 .spec-table th {
   color: var(--muted);
   font-size: 12px;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+  font-weight: 600;
 }
 
-/* ── 4. Configurateur / recherche : le récap collant (border-0) reçoit tout
-      de même un contour biseauté pour se détacher du fond. ── */
-.app .card.sticky-lg-top::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  z-index: -2;
-  clip-path: var(--chamf);
-  background: var(--line-hi);
+/* ── 4. Récap configurateur collant : contour net. ── */
+.app .card.sticky-lg-top {
+  border-color: var(--line-hi);
 }
 
-/* ── 5. Correctif § 4.3 ② (rattrapé ici) : Safari iOS ZOOME au focus de tout
-      champ dont le font-size est < 16 px. Le 12 px monospace de la maquette
-      ferait « sauter » chaque champ du formulaire de commande sur iPhone.
-      La police mono reste, seule la taille change. ── */
+/* ── 5. Anti-zoom iOS : champs ≥ 16 px sous 576 px. ── */
 @media (max-width: 575.98px) {
   input,
   select,
@@ -490,19 +385,10 @@ html[data-theme='light'] .navbar-toggler-icon {
 }
 
 /* ────────────────────────────────────────────────────────────────────────────
-   LOT L5 : back-office (master + desk) & impression des tickets.
-   À l'écran, desk/master n'utilisent que des composants déjà habillés
-   (cards, list-group, nav-pills, form-controls, boutons tokenisés L1-L4).
-   Le vrai chantier L5 = l'impression (§ 4.4), contrôlée par le test T11.
+   Impression des tickets (seul bloc autorisé à contenir des couleurs en
+   dur : papier blanc, encre noire, économie d'encre).
    ──────────────────────────────────────────────────────────────────────────── */
-
-/* Règle d'or amendée (test T6) : ce bloc @media print est le SEUL endroit de
-   cyber.css autorisé à contenir des couleurs en dur — l'impression est
-   volontairement A-thématique : papier blanc, encre noire, quel que soit le
-   thème affiché (économie d'encre, tickets lisibles aux guichets). */
 @media print {
-  /* Le biseautage et les effets rognent/assombrissent l'impression :
-     neutralisation générale (§ 4.4). */
   *,
   *::before,
   *::after {
@@ -522,9 +408,6 @@ html[data-theme='light'] .navbar-toggler-icon {
     print-color-adjust: auto;
   }
 
-  /* Les couches biseautées (::before bordure / ::after fond) rendraient des
-     panneaux gris foncé pleins : on les retire et on rend un fond blanc à
-     encadrement net. */
   .app .card::before,
   .app .card::after,
   .app .card.sticky-lg-top::before,
@@ -555,21 +438,10 @@ html[data-theme='light'] .navbar-toggler-icon {
 }
 
 /* ────────────────────────────────────────────────────────────────────────────
-   LOT L6 : RTL / arabe — le site s'ouvre en arabe par défaut
-   (<html lang="ar" dir="rtl">), la maquette n'en tenait aucun compte.
+   RTL / arabe.
    ──────────────────────────────────────────────────────────────────────────── */
 
-/* R1 : rien à miroir ici PAR CONSTRUCTION — les polygones --chamf sont
-   symétriques gauche/droite (vérifié par le test T12). Un futur polygon
-   directionnel DOIT ajouter son miroir [dir='rtl']. */
-
-/* R2 : déjà en place depuis L1 — rappel de la règle qui protège toutes les
-   méta espacées des lots suivants :
-   html[dir='rtl'] * { letter-spacing: 0 !important }
-   (l'espacement de lettres rompt la liaison cursive des glyphes arabes). */
-
-/* R3 : l'arabe n'a PAS de casse — text-transform: uppercase y est inopérant.
-   L'information visuelle « méta terminal » est compensée par le poids. */
+/* R3 : l'arabe n'a pas de casse → compensation par le poids. */
 html[dir='rtl'] .badge,
 html[dir='rtl'] .topbar,
 html[dir='rtl'] .api-status,
@@ -579,7 +451,12 @@ html[dir='rtl'] .site-footer strong {
   font-weight: 700;
 }
 
-/* Skip-link : positions physiques (left) → miroir droit en RTL. */
+/* L'arabe respire : interligne légèrement accru pour les hamzas/diacritiques. */
+html[dir='rtl'] body {
+  line-height: 1.65;
+}
+
+/* Skip-link : miroir RTL. */
 html[dir='rtl'] .skip-link {
   left: auto;
   right: -9999px;
@@ -591,43 +468,27 @@ html[dir='rtl'] .skip-link:focus {
   right: 0;
 }
 
-/* R4 : rien à ajouter — le repli 'Noto Naskh Arabic' est déjà dans les
-   tokens --font-display / --font-mono (L0), vérifié par le test T15. */
-
-/* R5 : accepté — Noto Naskh Arabic est proportionnelle, le « terminal
-   monospace » ne survit pas en arabe. L'alignement des valeurs est assuré
-   par la structure (tableaux .spec-table / grilles), pas par la chasse
-   fixe. Aucune règle nécessaire. */
-
 /* ────────────────────────────────────────────────────────────────────────────
-   LOT L7 : recette responsive finale (§ 4.3 ⑥, § 4.4, § 4.2).
+   Recette responsive finale.
    ──────────────────────────────────────────────────────────────────────────── */
 
-/* Coquille applicative : 100dvh respecte la barre d'URL mobile — jamais
-   100vh seul sur téléphone (§ 4.3 ⑥). Le repli 100vh précède pour les
-   navigateurs sans dvh. */
+/* Coquille applicative : 100dvh respecte la barre d'URL mobile. */
 .app {
   min-height: 100vh;
   min-height: 100dvh;
 }
 
-/* Ancres : ne pas finir cachées sous le CTA collant du PDP (§ 4.3 ⑥). */
+/* Ancres : ne pas finir cachées sous le CTA collant du PDP. */
 html {
   scroll-padding-bottom: 96px;
 }
 
-/* Cartes produit : 1 colonne sous 576px (§ 4.2). :has() est un
-   rehaussement progressif — sans lui (vieux navigateurs), la grille 2
-   colonnes actuelle reste en place, rien ne casse. */
-@media (max-width: 575.98px) {
-  .col-6:has(.product-bs-card) {
-    flex: 0 0 100%;
-    max-width: 100%;
-  }
+/* Colonnes : jamais de débordement horizontal interne. */
+.app [class*='col-'] {
+  min-width: 0;
 }
 
-/* Téléphone en paysage (§ 4.3 ⑥) : nav collante + CTA + FAB peuvent occuper
-   la moitié de la hauteur — le chrome fixe se compacte. */
+/* Téléphone en paysage : le chrome fixe se compacte. */
 @media (max-width: 991.98px) and (max-height: 500px) {
   .topbar {
     font-size: 11px;
@@ -640,17 +501,11 @@ html {
   }
 }
 
-/* Mouvement réduit (§ 4.4) : extension à TOUTES les transitions du thème —
-   survols L1-L3, panneaux Bootstrap (offcanvas/modal/collapse), défilement. */
+/* Mouvement réduit : panneaux Bootstrap & défilement. */
 @media (prefers-reduced-motion: reduce) {
   .offcanvas,
   .modal.fade .modal-dialog,
   .navbar-collapse {
-    transition: none !important;
-  }
-
-  .product-bs-card,
-  .social-btn {
     transition: none !important;
   }
 

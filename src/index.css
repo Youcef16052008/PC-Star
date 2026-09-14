@@ -19,16 +19,17 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--ink);
-  /* L1 (Direction 03) : données/UI en JetBrains Mono ; le repli arabe
-     (Noto Naskh Arabic) est déjà dans le token --font-mono (§ 5 R4). */
-  font-family: var(--font-mono);
+  /* Restyle pro : Inter (latin) / Cairo (arabe) pour tout le corps de page ;
+     JetBrains Mono reste réservé aux données (prix, SKU). */
+  font-family: var(--font-display);
   font-size: 16px;
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
+  overflow-wrap: break-word;
 }
 
 html[dir='rtl'] body {
-  font-family: var(--font-mono);
+  font-family: var(--font-display);
 }
 
 img {
@@ -349,9 +350,68 @@ html[data-theme='dark'] .text-bg-light {
   color: #fff;
 }
 
-/* Deux FAB WhatsApp empilés (07 en bas, 06 au-dessus). */
-.wa-fab + .wa-fab {
-  bottom: 86px;
+/* ─── Sélecteur de contact : UN bouton → menu « 07 / 06 » ─── */
+.contact-pick {
+  position: relative;
+  display: inline-block;
+}
+
+.contact-pick-block {
+  display: block;
+}
+
+.contact-pick-block .btn {
+  width: 100%;
+}
+
+.contact-pick-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  inset-inline-start: 0;
+  z-index: 1070;
+  min-width: 230px;
+  padding: 6px;
+  border-radius: 12px;
+  background: var(--card);
+  border: 1px solid var(--line-hi);
+  box-shadow: 0 14px 34px var(--shadow);
+  display: grid;
+  gap: 2px;
+}
+
+.contact-pick-menu a {
+  display: block;
+  padding: 8px 12px;
+  border-radius: 8px;
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.contact-pick-menu a:hover {
+  background: var(--soft);
+}
+
+.contact-pick-menu .num {
+  font-family: var(--font-mono);
+  font-weight: 600;
+}
+
+.contact-pick.drop-up .contact-pick-menu {
+  top: auto;
+  bottom: calc(100% + 8px);
+}
+
+/* FAB WhatsApp unique : le wrapper porte le positionnement fixe. */
+.wa-fab-wrap {
+  position: fixed;
+  bottom: 20px;
+  inset-inline-start: 20px;
+  z-index: 1040;
+}
+
+.wa-fab-wrap .wa-fab {
+  position: static;
+  display: inline-block;
 }
 
 .api-status {
@@ -429,15 +489,14 @@ html[data-theme='dark'] .text-bg-light {
     padding: 1.25rem !important;
   }
 
-  .wa-fab {
+  .wa-fab-wrap {
     bottom: 14px;
     inset-inline-start: 14px;
-    padding: 10px 14px;
-    font-size: 13px;
   }
 
-  .wa-fab + .wa-fab {
-    bottom: 72px;
+  .wa-fab {
+    padding: 10px 14px;
+    font-size: 13px;
   }
 
   .product-bs-card:hover {
@@ -499,6 +558,7 @@ html[data-theme='dark'] .text-bg-light {
   .topbar,
   .shop-navbar,
   .wa-fab,
+  .wa-fab-wrap,
   .api-status,
   .no-print,
   .skip-link,

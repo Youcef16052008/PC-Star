@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { money, starText, STORE, REVIEWS } from './data.js'
 import PartThumb from './PartThumb.jsx'
+import ContactButton from './ContactPicker.jsx'
 import { relatedProducts, specRows } from './media.js'
 
 function stockLabel(n, t) {
@@ -136,23 +137,23 @@ export default function ProductPage({ t, product, photoIndex, setPhotoIndex, lef
             <button className="btn btn-success btn-lg" type="button" disabled={left <= 0} onClick={onAdd}>
               {left <= 0 ? t('soldOut') : t('addToCart')}
             </button>
-            <a
-              className="btn btn-outline-secondary"
-              href={`https://wa.me/${STORE.whatsapp}?text=${encodeURIComponent(t('pdpWaMsg', { name: product.name, sku: product.sku, price: money(product.price) }))}`}
-              target="_blank"
-              rel="noreferrer"
-            >
-              {t('askWhatsapp')} {STORE.phone}
-            </a>
-            {/* Deuxième numéro (06) à la demande du client */}
-            <a
-              className="btn btn-outline-secondary"
-              href={`https://wa.me/${STORE.whatsapp2}?text=${encodeURIComponent(t('pdpWaMsg', { name: product.name, sku: product.sku, price: money(product.price) }))}`}
-              target="_blank"
-              rel="noreferrer"
-            >
-              {t('askWhatsapp')} {STORE.phone2}
-            </a>
+            {/* UN bouton WhatsApp → choix du numéro (07 ou 06) */}
+            <ContactButton
+              label={t('askWhatsapp')}
+              btnClass="btn btn-outline-secondary"
+              choices={[
+                {
+                  title: STORE.phone,
+                  href: `https://wa.me/${STORE.whatsapp}?text=${encodeURIComponent(t('pdpWaMsg', { name: product.name, sku: product.sku, price: money(product.price) }))}`,
+                  external: true
+                },
+                {
+                  title: STORE.phone2,
+                  href: `https://wa.me/${STORE.whatsapp2}?text=${encodeURIComponent(t('pdpWaMsg', { name: product.name, sku: product.sku, price: money(product.price) }))}`,
+                  external: true
+                }
+              ]}
+            />
           </div>
           <p className="small text-secondary mt-2 mb-0">{t('pdpCashNote')}</p>
         </div>

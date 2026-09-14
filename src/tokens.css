@@ -1,80 +1,65 @@
 /* ────────────────────────────────────────────────────────────────────────────
-   PC Star — Direction 03 « Terminal Cyber » · LOT L0 : socle de tokens.
+   PC Star — socle de tokens (Direction 03, restylée « pro » sur retour
+   client : fini le look terminal/octogonal, place à une boutique nette).
 
    RÈGLE D'OR : ce fichier ne contient QUE des déclarations de variables
-   (--x: valeur;) — aucune règle de style, aucune couleur en dur ailleurs que
-   dans les valeurs de tokens. Changer de direction graphique plus tard =
-   réécrire CE fichier seul (repli complet : `git revert src/tokens.css`).
+   (--x: valeur;) — aucune règle de style, aucune couleur en dur ailleurs
+   que dans les valeurs de tokens.
 
-   Thème sombre = palette « Terminal Cyber » (maquette 03), avec le correctif
-   d'accessibilité § 6.1 : --muted remonté à #7d8fa1 (AA 4.5:1), la valeur
-   d'origine #5d6f80 étant reléguée à --muted-2 (décoratif ≥ 18 px / non
-   textuel uniquement).
+   Thème sombre : boutique sombre sobre (surfaces graphite, accent VERT
+   émeraude rappelant le logo historique). Thème clair : papier clair.
+   Toutes les paires texte/fond vérifiées WCAG AA (src/cyberDesign.test.js
+   T2 + scripts/contrast-check.mjs).
 
-   Thème clair = déclinaison « papier technique » (option B du plan § 3.3) :
-   mêmes polices, mêmes biseautages, mêmes filets, palette inversée. Accent
-   cyan assombri (#0e7490) pour tenir le contraste AA sur fonds clairs.
-
-   Les 16 variables historiques du site sont CONSERVÉES sous leurs noms
-   existants (index.css continue de fonctionner sans réécriture) ; 7 tokens
-   s'ajoutent (--muted-2, --line-hi, --accent-dim, --font-display,
-   --font-mono, --chamf, --chamf-sm). Aucune variable supprimée.
+   Typographie : Inter (latin) + Cairo (arabe) — professionnelles, lisibles,
+   modernes. 'Noto Naskh Arabic' reste le repli déclaré des deux tokens de
+   police (garde-fou T15). JetBrains Mono réservé aux données (prix, SKU).
    ──────────────────────────────────────────────────────────────────────────── */
 
 :root,
 html[data-theme='dark'] {
   /* Surfaces */
-  --bg: #07090c;            /* maquette --bg      */
-  --card: #0d1116;          /* maquette --panel   */
-  --soft: #111720;          /* maquette --panel-2 */
-  --photo-bg: #0a0f15;      /* fond des vignettes produit (léger retrait) */
+  --bg: #0b0f14;
+  --card: #121820;
+  --soft: #1a222d;
+  --photo-bg: #0e141b;
 
   /* Encres */
-  --ink: #dfe7ef;           /* maquette --text    */
-  --muted: #7d8fa1;         /* CORRECTIF § 6.1 : #5d6f80 échouait AA (3.85:1)
-                               → remonté à ≈ 6.0:1 sur --bg pour le texte courant */
-  --muted-2: #5d6f80;       /* NOUVEAU : valeur d'origine de la maquette —
-                               décoratif ≥ 18 px / non textuel UNIQUEMENT (3:1) */
+  --ink: #e8edf2;
+  --muted: #97a3b0;         /* ≈ 6.4:1 sur --soft (AA texte courant) */
+  --muted-2: #6e7c8a;       /* décoratif ≥ 18 px / non textuel (≥ 3:1) */
 
   /* Filets */
-  --line: #1c2733;          /* maquette --line — filet décoratif 1 px */
-  --line-hi: #2a3a4a;       /* NOUVEAU : maquette --line-hi — bordures de
-                               contrôles (champs de saisie) qui ne doivent pas
-                               reposer sur --line seul (§ 6.1) */
+  --line: #232d39;
+  --line-hi: #34414f;       /* bordures de contrôles */
 
-  /* Accent — Terminal Cyber est CYAN (arbitrage § 8.1(a) : la direction 03
-     validée remplace le vert historique ; logo.png et favicon restent verts
-     jusqu'à l'arbitrage logo du lot L2). */
-  --blue: #22d3ee;          /* maquette --cyan */
-  --blue-2: #0ea5c4;        /* état survol */
-  --blue-on: #04212a;       /* texte SUR l'accent (9.25:1 sur --blue) */
-  --accent-dim: rgba(34, 211, 238, 0.1); /* NOUVEAU : halos / fonds teintés */
+  /* Accent — vert émeraude (identité logo historique) */
+  --blue: #34d399;
+  --blue-2: #10b981;        /* état survol */
+  --blue-on: #06281c;       /* texte SUR l'accent (≥ 6:1) */
+  --accent-dim: rgba(52, 211, 153, 0.12);
 
   /* Sémantique */
-  --warn: #fbbf24;          /* ambre — inchangé */
-  --danger: #f87171;        /* rouge — inchangé */
-  --focus: #22d3ee;         /* anneau de focus = accent */
+  --warn: #fbbf24;
+  --danger: #f87171;
+  --focus: #34d399;
 
   /* Dégradés / ombres */
-  --hero-from: #0d1116;
-  --hero-to: #07090c;
+  --hero-from: #121820;
+  --hero-to: #0b0f14;
   --shadow: rgba(0, 0, 0, 0.5);
 
   /* Typographie — polices chargées dans index.html (display=swap).
-     Noto Naskh Arabic (déjà chargée) sert de repli aux glyphes arabes que
-     ni Chakra Petch ni JetBrains Mono ne couvrent (plan § 5 R4). */
-  --font-display: 'Chakra Petch', 'Noto Naskh Arabic', system-ui, sans-serif;
+     Cairo couvre les glyphes arabes ; Noto Naskh Arabic = repli final. */
+  --font-display: 'Inter', 'Cairo', 'Noto Naskh Arabic', system-ui, sans-serif;
   --font-mono: 'JetBrains Mono', 'Noto Naskh Arabic', ui-monospace, 'Courier New', monospace;
 
-  /* Géométrie — coins biseautés. polygon symétrique (4 coins chanfreinés) :
-     auto-miroir en RTL, aucune règle [dir='rtl'] nécessaire (plan § 5 R1).
-     L'application se fait au lot L1 via un pseudo-élément ::before pour ne
-     JAMAIS rogner l'anneau de focus (plan § 4.3 ③). */
-  --chamf: polygon(10px 0, calc(100% - 10px) 0, 100% 10px, 100% calc(100% - 10px), calc(100% - 10px) 100%, 10px 100%, 0 calc(100% - 10px), 0 10px);
-  --chamf-sm: polygon(6px 0, calc(100% - 6px) 0, 100% 6px, 100% calc(100% - 6px), calc(100% - 6px) 100%, 6px 100%, 0 calc(100% - 6px), 0 6px);
-  /* L3 : coins HAUTS seulement (10 px) — découpe la photo des cartes produit
-     au ras du biseau. Symétrique gauche/droite → auto-miroir RTL (§ 5 R1). */
-  --chamf-top: polygon(10px 0, calc(100% - 10px) 0, 100% 10px, 100% 100%, 0 100%, 0 10px);
+  /* Géométrie — chanfrein DISCRET (8 px) réservé au hero : signature visuelle
+     légère, plus d'octogones sur les boutons/cartes. polygon symétrique
+     gauche/droite = auto-miroir RTL (garde-fou T12). */
+  --chamf: polygon(8px 0, calc(100% - 8px) 0, 100% 8px, 100% calc(100% - 8px), calc(100% - 8px) 100%, 8px 100%, 0 calc(100% - 8px), 0 8px);
+  --chamf-sm: polygon(5px 0, calc(100% - 5px) 0, 100% 5px, 100% calc(100% - 5px), calc(100% - 5px) 100%, 5px 100%, 0 calc(100% - 5px), 0 5px);
+  --chamf-top: polygon(8px 0, calc(100% - 8px) 0, 100% 8px, 100% 100%, 0 100%, 0 8px);
 
   /* Ponts Bootstrap 5 (thème-aware) */
   --bs-body-bg: var(--bg);
@@ -88,46 +73,41 @@ html[data-theme='dark'] {
   color-scheme: dark;
 }
 
-/* Thème clair « papier technique » — option B (§ 3.3) : l'identité Terminal
-   Cyber est géométrique (biseautages, filets, mono), pas seulement
-   chromatique ; elle survit en palette inversée. Toutes les paires sont
-   vérifiées AA (scripts/contrast-check.mjs). */
+/* Thème clair « papier boutique » : mêmes formes, palette inversée. */
 html[data-theme='light'] {
-  --bg: #f2f5f8;
+  --bg: #f6f8fa;
   --card: #ffffff;
-  --soft: #e7edf4;
-  --photo-bg: #e9eff6;
+  --soft: #edf1f5;
+  --photo-bg: #eef2f6;
 
-  --ink: #0b1220;
-  --muted: #5b6b7c;         /* ≥ 4.64:1 sur la surface la plus sombre (soft) */
-  --muted-2: #7b8a9c;       /* décoratif ≥ 18 px / non textuel (3:1) */
+  --ink: #101826;
+  --muted: #5a6a7a;         /* ≥ 4.8:1 sur --soft */
+  --muted-2: #7d8b99;       /* décoratif ≥ 18 px / non textuel (≥ 3:1) */
 
-  --line: #d5dee8;
-  --line-hi: #b7c5d3;       /* bordures de contrôles */
+  --line: #d8e0e8;
+  --line-hi: #b9c6d2;
 
-  --blue: #0e7490;          /* cyan assombri : 4.90:1 sur --bg (AA) */
-  --blue-2: #155e75;        /* état survol */
-  --blue-on: #f8fafc;       /* texte SUR l'accent (5.12:1 sur --blue) */
-  --accent-dim: rgba(14, 116, 144, 0.08);
+  --blue: #0f7a4d;          /* vert foncé : ≥ 5:1 sur --bg (AA) */
+  --blue-2: #0b5f3c;
+  --blue-on: #f8fafc;       /* ≥ 5:1 sur --blue / --blue-2 */
+  --accent-dim: rgba(15, 122, 77, 0.08);
 
-  --warn: #92400e;          /* ambre assombri pour fonds clairs (6.48:1) */
-  --danger: #c62828;        /* rouge assombri pour fonds clairs (5.14:1) */
-  --focus: #0e7490;
+  --warn: #92400e;
+  --danger: #c62828;
+  --focus: #0f7a4d;
 
   --hero-from: #ffffff;
-  --hero-to: #e9eff6;
-  --shadow: rgba(11, 18, 32, 0.12);
+  --hero-to: #eef2f6;
+  --shadow: rgba(16, 24, 38, 0.12);
 
   color-scheme: light;
 }
 
-/* § 4.3 ④ : le biseautage est disproportionné sur petit écran — un chanfrein
-   de 10 px sur une carte pleine largeur (360 px) fait « jouet ». Une seule
-   variable change sous 576 px, tout le site suit. */
+/* Chanfrein encore plus discret sur petit écran. */
 @media (max-width: 575.98px) {
   :root {
-    --chamf: polygon(6px 0, calc(100% - 6px) 0, 100% 6px, 100% calc(100% - 6px), calc(100% - 6px) 100%, 6px 100%, 0 calc(100% - 6px), 0 6px);
+    --chamf: polygon(5px 0, calc(100% - 5px) 0, 100% 5px, 100% calc(100% - 5px), calc(100% - 5px) 100%, 5px 100%, 0 calc(100% - 5px), 0 5px);
     --chamf-sm: polygon(4px 0, calc(100% - 4px) 0, 100% 4px, 100% calc(100% - 4px), calc(100% - 4px) 100%, 4px 100%, 0 calc(100% - 4px), 0 4px);
-    --chamf-top: polygon(6px 0, calc(100% - 6px) 0, 100% 6px, 100% 100%, 0 100%, 0 6px);
+    --chamf-top: polygon(5px 0, calc(100% - 5px) 0, 100% 5px, 100% 100%, 0 100%, 0 5px);
   }
 }
