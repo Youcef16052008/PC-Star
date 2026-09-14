@@ -251,3 +251,132 @@ html[data-theme='light'] .navbar-toggler-icon {
     width: min(92vw, 360px);
   }
 }
+
+/* ────────────────────────────────────────────────────────────────────────────
+   LOT L3 : hero, catégories, cartes produits, footer, FAB.
+   ──────────────────────────────────────────────────────────────────────────── */
+
+/* ── 1. Ponts couleur Bootstrap. Les utilitaires text-bg-*/bg-* sont FIGÉS
+      en Sass (ex. #dc3545, #198754, #ffc107) et ignoreraient les tokens :
+      sans ce pont, l'ancien thème réapparaît dans les badges de stock, les
+      prix et les pastilles panier. Encre sur accent = --blue-on : calculé
+      AA sur --blue, --warn et --danger dans les DEUX thèmes. ── */
+.text-success {
+  color: var(--blue) !important;
+}
+
+.text-bg-success {
+  background-color: var(--blue) !important;
+  border-color: var(--blue) !important;
+  color: var(--blue-on) !important;
+}
+
+.text-bg-success-subtle {
+  background-color: var(--accent-dim) !important;
+  color: var(--blue) !important;
+}
+
+.text-success-emphasis {
+  color: var(--blue) !important;
+}
+
+.border-success-subtle {
+  border-color: color-mix(in srgb, var(--blue) 35%, var(--line)) !important;
+}
+
+.text-bg-warning {
+  background-color: var(--warn) !important;
+  border-color: var(--warn) !important;
+  color: var(--blue-on) !important;
+}
+
+.text-warning {
+  color: var(--warn) !important;
+}
+
+.text-bg-danger {
+  background-color: var(--danger) !important;
+  border-color: var(--danger) !important;
+  color: var(--blue-on) !important;
+}
+
+.bg-danger {
+  background-color: var(--danger) !important;
+}
+
+/* ── 2. Badges : puces terminal (mono, espacées, carrées). ── */
+.badge {
+  font-family: var(--font-mono);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  border-radius: 2px;
+}
+
+.badge.rounded-pill {
+  border-radius: 2px;
+}
+
+/* ── 3. Hero : panneau biseauté (section non interactive → clip direct,
+      les CTA sont à ≥ 20 px des bords, focus jamais rogné). ── */
+.hero,
+.hero-simple {
+  clip-path: var(--chamf);
+  border-radius: 0;
+  border-color: var(--line-hi) !important;
+}
+
+.hero .badge {
+  border-color: var(--line-hi);
+}
+
+/* ── 4. Cartes produit : la photo épouse le biseau haut (--chamf-top),
+      ombre de survol en drop-shadow pour SUIVRE la forme biseautée
+      (un box-shadow classique déborderait des coins coupés). ── */
+.product-bs-card .photo-frame {
+  clip-path: var(--chamf-top);
+}
+
+@media (hover: hover) {
+  .product-bs-card:hover {
+    box-shadow: none !important;
+    filter: drop-shadow(0 12px 22px var(--shadow));
+  }
+}
+
+.card .btn-link:hover {
+  color: var(--blue) !important;
+}
+
+/* ── 5. Filtres catégories/marques : les pilules deviennent des puces
+      carrées — la variante active est déjà biseautée (L1). ── */
+.btn.rounded-pill {
+  border-radius: 0;
+}
+
+/* ── 6. Footer : méta display espacée, filet renforcé (§ 6.1). ── */
+.site-footer {
+  border-top-color: var(--line-hi);
+}
+
+.site-footer strong {
+  font-family: var(--font-display);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+/* ── 7. FAB & social : coins nets (pas de clip-path — éléments focusables,
+      l'anneau de focus doit rester intact). Couleurs de marque conservées. ── */
+.wa-fab {
+  border-radius: 4px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.social-btn {
+  border-radius: 3px !important;
+}
+
+/* Étoiles de notation : ambre tokenisé (s'adapte au thème clair). */
+.stars {
+  color: var(--warn);
+}

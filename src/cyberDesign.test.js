@@ -196,13 +196,17 @@ test('T3 breakpoints : échelle Bootstrap uniquement dans cyber.css', () => {
 const CLICKABLE = /(\.btn|\.nav-link|\.add\b|\[role=["']?button|\bbutton\b|\ba\b)/
 const inMobile = ({ media }) => media.some((mq) => /max-width:\s*575\.98px/.test(mq))
 test('T4 tactile : règles cliquables sous 575.98px → min-height ≥ 44px', () => {
+  let found = 0
   for (const rule of cyberRules.filter(inMobile)) {
     if (!CLICKABLE.test(rule.selector)) continue
+    found++
     const mh = rule.declarations.find((d) => d.prop === 'min-height')
     assert.ok(mh, `règle cliquable sans min-height sous 576px : ${rule.selector}`)
     const px = parseFloat(mh.value)
     assert.ok(px >= 44, `min-height ${mh.value} < 44px : ${rule.selector}`)
   }
+  // Garde anti-suppression silencieuse : la règle globale § 4.3 ① doit exister.
+  assert.ok(found > 0, 'aucune règle tactile cliquable sous 575.98px (§ 4.3 ① supprimée ?)')
 })
 
 /* ── T5 : jamais de clip-path sur un sélecteur portant :focus ── */
@@ -274,14 +278,14 @@ test('T7 responsive : aucune largeur px fixe sur cartes/colonnes', () => {
 })
 
 /* ── T8 : clip-path = tokens symétriques seulement (RTL-safe) ── */
-test('T8 RTL : clip-path uniquement via var(--chamf) / var(--chamf-sm)', () => {
+test('T8 RTL : clip-path uniquement via var(--chamf) / var(--chamf-sm) / var(--chamf-top)', () => {
   const clipRules = cyberRules.filter((r) => r.declarations.some((d) => d.prop === 'clip-path'))
   assert.ok(clipRules.length > 0, 'cyber.css devrait appliquer le biseautage (var(--chamf…))')
   for (const rule of clipRules) {
     for (const d of rule.declarations.filter((x) => x.prop === 'clip-path')) {
       assert.match(
         d.value,
-        /^var\(--chamf(-sm)?\)$/,
+        /^var\(--chamf(-sm|-top)?\)$/,
         `clip-path hors tokens (risque RTL § 5 R1) : ${rule.selector} → ${d.value}`
       )
     }
