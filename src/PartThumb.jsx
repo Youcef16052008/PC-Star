@@ -24,7 +24,9 @@ function onPhotoError(e) {
   const img = e.currentTarget
   if (img.dataset.fallbackUsed) return
   img.dataset.fallbackUsed = '1'
-  img.closest('picture')?.remove()
+  // BUGFIX : on retire seulement la <source> webp, pas le <picture> entier,
+  // sinon l'<img> de repli était détachée du DOM → vignette vide.
+  img.closest('picture')?.querySelector('source')?.remove()
   const fb = img.dataset.fallback
   if (fb) img.src = fb
   else img.style.visibility = 'hidden'

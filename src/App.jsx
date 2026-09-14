@@ -35,11 +35,8 @@ import {
   applyDocumentChrome,
   loadLang,
   loadOrders,
-  loadTheme,
-  resolveTheme,
   saveLang,
-  saveOrders,
-  saveTheme
+  saveOrders
 } from './prefs.js'
 import {
   buildShopView,
@@ -146,8 +143,8 @@ export default function App() {
   const [lang, setLang] = useState(() => loadLang(storage))
   // Thème sombre supprimé (demande client) : le site tourne en clair,
   // quels que soient la préférence stockée ou le système.
-  const [themePref, setThemePref] = useState('light')
-  const [theme, setTheme] = useState('light')
+  // Site clair uniquement (choix client) : plus de préférence de thème.
+  const theme = 'light'
   const [users, setUsers] = useState(() => loadUsers(storage))
   const [session, setSession] = useState(() => loadSession(storage))
   const [meta, setMeta] = useState(() => loadMeta(storage))
@@ -278,16 +275,6 @@ export default function App() {
     }
   }, [page, lang, selected]) // eslint-disable-line react-hooks/exhaustive-deps
 
-
-  useEffect(() => {
-    const apply = () => setTheme(resolveTheme(themePref))
-    apply()
-    if (themePref !== 'system' || typeof window === 'undefined' || !window.matchMedia) return undefined
-    const mql = window.matchMedia('(prefers-color-scheme: dark)')
-    const onChange = () => apply()
-    mql.addEventListener?.('change', onChange)
-    return () => mql.removeEventListener?.('change', onChange)
-  }, [themePref])
 
   useEffect(() => {
     if (!toast) return undefined
@@ -548,11 +535,6 @@ export default function App() {
   function changeLang(id) {
     setLang(id)
     saveLang(storage, id)
-  }
-
-  function changeTheme(id) {
-    setThemePref(id)
-    saveTheme(storage, id)
   }
 
   async function logout() {

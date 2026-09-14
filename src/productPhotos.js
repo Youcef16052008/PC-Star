@@ -10,7 +10,9 @@ const LIB = (name) => `/photos/lib/${name}.jpg`
     catalogue cœur : une seule photo cohérente par produit, style unique. */
 const STUDIO_IDS = [
   'cpu-7800x3d', 'cpu-14700k', 'gpu-4070s', 'gpu-7800xt', 'mb-b650',
-  'mb-z790', 'ram-32', 'ssd-1t', 'case-atx', 'psu-750'
+  'mb-z790', 'ram-32', 'ssd-1t', 'case-atx', 'psu-750', 'cooler',
+  'headset', 'controller', 'keyboard', 'mouse', 'monitor', 'webcam',
+  'mic', 'mousepad'
 ]
 const STUDIO = (id) => `/photos/studio/${id}.jpg`
 
@@ -144,8 +146,12 @@ export function photosForProduct(product) {
   const custom = existing.filter((p) => !isCatalogDefaultPhoto(p))
   if (custom.length >= 3) return custom.slice(0, 12)
 
-  // Catalogue cœur : packshot studio unique (cohérence visuelle garantie).
-  if (STUDIO_IDS.includes(product.id)) return [STUDIO(product.id)]
+  // Catalogue cœur : packshot studio en hero + vues réelles normalisées.
+  if (STUDIO_IDS.includes(product.id)) {
+    const out = [STUDIO(product.id)]
+    for (const n of [1, 2, 3]) out.push(`/photos/sku/${product.id}-${n}.jpg`)
+    return out
+  }
   if (custom.length > 0 && sku) {
     const out = [...custom]
     for (const p of sku) {
