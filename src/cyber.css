@@ -12,25 +12,20 @@
       rogné.
    ──────────────────────────────────────────────────────────────────────────── */
 
-/* ── 1. Corps terminal : JetBrains Mono 14 px ; trame de fond 48 px peinte
-      DANS le fond du body (pas de calque positionné : aucun conflit de
-      stacking avec les backdrops Bootstrap des modales/offcanvas). ── */
+/* ── 1. Corps : Inter 16 px, interligne 1.6, fond propre (sans trame —
+      le bruit de fond fait « amateur », bonnes pratiques 2026). ── */
 body {
-  font-family: var(--font-mono);
-  font-size: 14px;
-  line-height: 1.5;
+  font-family: var(--font-display);
+  font-size: 16px;
+  line-height: 1.6;
   background-color: var(--bg);
-  background-image: linear-gradient(var(--grid-line) 1px, transparent 1px),
-    linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
-  background-size: 48px 48px;
-  background-attachment: fixed;
 }
 
 /* Arabe : le terminal mono reste LATIN — le corps arabe passe en Cairo,
    propre et lisible (ni casse ni letter-spacing en arabe). */
 html[dir='rtl'] body {
   font-family: 'Cairo', 'Noto Naskh Arabic', system-ui, sans-serif;
-  font-size: 14.5px;
+  font-size: 16.5px;
 }
 
 html[dir='rtl'] * {
@@ -114,12 +109,11 @@ h1, h2, h3, h4, h5, h6,
    en dur (garde-fou T6). */
 
 .shop-navbar .nav-link {
-  font-family: var(--font-mono);
-  font-size: 12px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  font-family: var(--font-display);
+  font-size: 15.5px;
+  font-weight: 600;
   color: var(--ink-2) !important;
-  clip-path: var(--chamf-sm);
+  border-radius: 8px;
   transition: background 0.15s, color 0.15s;
 }
 
@@ -166,22 +160,22 @@ html[data-theme='light'] .navbar-toggler-icon {
   }
 }
 
-/* ── 5. Boutons terminal : chanfrein sm, mono, majuscules. ── */
+/* ── 5. Boutons : hauteur ≥ 44 px, texte 15 px, coins 8 px — une seule
+      forme primaire + une secondaire (jamais mélangées). ── */
 .btn {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 8px;
-  padding: 9px 17px;
-  font-family: var(--font-mono);
-  font-size: 12px;
-  font-weight: 500;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  min-height: 44px;
+  padding: 10px 24px;
+  font-family: var(--font-display);
+  font-size: 15px;
+  font-weight: 600;
   border: 1px solid var(--line-hi);
   background: transparent;
   color: var(--ink);
-  clip-path: var(--chamf-sm);
-  border-radius: 0;
+  border-radius: 8px;
   transition: background 0.15s, color 0.15s, border-color 0.15s;
 }
 
@@ -203,8 +197,9 @@ html[data-theme='light'] .navbar-toggler-icon {
 
 .btn-sm,
 .btn-group-sm > .btn {
-  padding: 6px 12px;
-  font-size: 11px;
+  min-height: 38px;
+  padding: 7px 16px;
+  font-size: 13.5px;
 }
 
 /* Variante pleine cyan (btn-cyan de la maquette) = btn-success Bootstrap. */
@@ -328,7 +323,7 @@ html[data-theme='light'] .navbar-toggler-icon {
   border-bottom: 1px solid var(--line) !important;
   border-radius: 0;
   position: relative;
-  padding: 3rem 0 2.5rem !important;
+  padding: 4rem 0 3rem !important;
 }
 
 .hero::after,
@@ -351,20 +346,21 @@ html[data-theme='light'] .navbar-toggler-icon {
   font-family: var(--font-mono);
 }
 
+/* Titre en casse normale (l'uppercase partout fait « template »),
+   graisse 800, taille fluide 34→54 px. */
 .hero h1,
 .hero-simple h1 {
-  font-size: clamp(30px, 6vw, 62px);
-  font-weight: 700;
-  letter-spacing: -0.015em;
-  line-height: 1.05;
-  max-width: 22ch;
-  text-transform: uppercase;
+  font-size: clamp(2.1rem, 4.5vw, 3.4rem);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  line-height: 1.12;
+  max-width: 24ch;
 }
 
 html[dir='rtl'] .hero h1 {
   letter-spacing: 0;
-  line-height: 1.25;
-  max-width: 26ch;
+  line-height: 1.3;
+  max-width: 28ch;
 }
 
 .hero h1 em,
@@ -377,18 +373,21 @@ html[dir='rtl'] .hero h1 {
 .hero .lead,
 .hero-simple .lead {
   color: var(--ink-2);
-  font-size: 14.5px;
-  line-height: 1.75;
-  max-width: 58ch;
+  font-size: 17px;
+  line-height: 1.7;
+  max-width: 60ch;
   margin-top: 22px;
 }
 
+/* Readout : seul élément conservant le chanfrein diagonal (signature de
+   la marque, garde-fou T8), données en mono. */
 .readout {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 1px;
   background: var(--line);
   border: 1px solid var(--line);
+  clip-path: var(--chamf);
   margin-top: 48px;
 }
 
@@ -420,17 +419,25 @@ html[dir='rtl'] .hero h1 {
 }
 
 /* ── 7. Têtes de section : « // TITRE ». ── */
+/* Rythme vertical 8 pt : sections aérées (64 px desktop, 40 mobile). */
 .page > section {
   border-bottom: 1px solid var(--line);
+  padding: 64px 0;
+}
+
+@media (max-width: 575.98px) {
+  .page > section {
+    padding: 40px 0;
+  }
 }
 
 .page h2,
 .page .h2,
 .page h2.h4 {
   font-family: var(--font-display);
-  font-size: 24px;
-  font-weight: 700;
-  text-transform: uppercase;
+  font-size: clamp(1.4rem, 2.5vw, 1.75rem);
+  font-weight: 800;
+  letter-spacing: -0.01em;
 }
 
 .page h2::before,
@@ -440,37 +447,35 @@ html[dir='rtl'] .hero h1 {
   color: var(--danger); /* rouge étoile du logo — signature bicolore */
 }
 
-/* ── 8. Grille catégories (.cats) : 6 → 3 → 2 colonnes. ── */
+/* ── 8. Grille catégories : vraies cartes arrondies, gouttière 16 px. ── */
 .cats {
   display: grid;
   grid-template-columns: repeat(6, 1fr);
-  gap: 1px;
-  background: var(--line);
-  border: 1px solid var(--line);
+  gap: 16px;
 }
 
 .cats .btn {
-  clip-path: none;
-  border: 0;
-  border-radius: 0;
+  border: 1px solid var(--line);
+  border-radius: 12px;
   background: var(--card);
   color: var(--ink-2);
   padding: 20px 16px;
   display: block;
   text-align: start;
-  min-height: 0;
 }
 
 .cats .btn:hover {
   background: var(--soft);
   color: var(--blue);
+  border-color: var(--danger);
+  box-shadow: none;
 }
 
 .cats .btn-success,
 .cats .btn.btn-success {
   background: var(--accent-dim);
   color: var(--blue);
-  box-shadow: inset 0 -2px 0 var(--blue);
+  border-color: var(--blue);
   filter: none;
 }
 
@@ -519,17 +524,23 @@ html[dir='rtl'] .hero h1 {
 }
 
 .product-bs-card {
-  clip-path: var(--chamf);
   border: 1px solid var(--line);
+  border-radius: 12px;
+  overflow: hidden;
   background: var(--card);
-  transition: border-color 0.18s, background 0.18s;
+  transition: border-color 0.18s, background 0.18s, box-shadow 0.18s;
+}
+
+/* Respiration interne 20-24 px (standard cartes pro). */
+.product-bs-card .card-body {
+  padding: 20px;
 }
 
 .product-bs-card:hover {
   border-color: var(--danger); /* bordure rouge au survol (demande client) */
-  background: var(--soft);
+  background: var(--card);
   transform: none;
-  box-shadow: none !important;
+  box-shadow: 0 8px 24px var(--shadow) !important;
 }
 
 .product-bs-card .photo-frame,
@@ -540,10 +551,10 @@ html[dir='rtl'] .hero h1 {
 }
 
 .product-bs-card .badge {
-  font-size: 9.5px;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  border-radius: 0;
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  border-radius: 6px;
 }
 
 .product-bs-card h3,
@@ -616,6 +627,8 @@ html[dir='rtl'] .hero h1 {
   gap: 1px;
   background: var(--line);
   border: 1px solid var(--line);
+  border-radius: 14px;
+  overflow: hidden;
 }
 
 .split > div,
@@ -672,8 +685,8 @@ html[dir='rtl'] .hero h1 {
   gap: 12px;
   background: var(--bg);
   border: 1px solid var(--line);
-  padding: 10px 13px;
-  clip-path: var(--chamf-sm);
+  padding: 12px 16px;
+  border-radius: 8px;
 }
 
 .slot .k {
@@ -754,15 +767,14 @@ html[dir='rtl'] .hero h1 {
   line-height: 2;
 }
 
-/* Liens du footer : méta espacée, hover cyan (maquette). */
+/* Liens du footer. */
 .footer-links button {
   background: none;
   border: 0;
   padding: 0;
-  font-size: 11.5px;
+  font-size: 13.5px;
+  font-weight: 500;
   color: var(--muted-2);
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
   cursor: pointer;
 }
 
@@ -847,20 +859,20 @@ html[dir='rtl'] .hero h1 {
 }
 
 .badge {
-  font-family: var(--font-mono);
-  border-radius: 0;
+  font-family: var(--font-display);
+  border-radius: 6px;
 }
 
 /* ── 11. Formulaires / offcanvas / modales terminal. ── */
 .form-control,
 .form-select {
-  border-radius: 0;
-  clip-path: var(--chamf-sm);
-  background: var(--bg) !important;
+  border-radius: 8px;
+  min-height: 44px;
+  background: var(--card) !important;
   border-color: var(--line-hi) !important;
   color: var(--ink) !important;
-  font-family: var(--font-mono);
-  font-size: 13px;
+  font-family: var(--font-display);
+  font-size: 15px;
 }
 
 html[dir='rtl'] .form-control,
@@ -887,14 +899,12 @@ html[dir='rtl'] .form-select {
 .offcanvas-header {
   border-bottom: 1px solid var(--line);
   font-family: var(--font-display);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
+  font-weight: 700;
 }
 
 .modal-content {
   border-color: var(--line-hi);
-  border-radius: 0;
-  clip-path: var(--chamf);
+  border-radius: 14px;
 }
 
 .list-group-item {
@@ -902,12 +912,10 @@ html[dir='rtl'] .form-select {
 }
 
 .nav-pills .nav-link {
-  border-radius: 0;
-  clip-path: var(--chamf-sm);
+  border-radius: 8px;
   color: var(--ink-2);
-  font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
+  font-size: 14px;
+  font-weight: 600;
 }
 
 .nav-pills .nav-link.active {
@@ -924,8 +932,7 @@ html[dir='rtl'] .form-select {
 }
 
 .empty-state {
-  border-radius: 0;
-  clip-path: var(--chamf);
+  border-radius: 12px;
   border: 1px solid var(--line-hi);
   border-style: solid;
 }
@@ -948,23 +955,23 @@ html[dir='rtl'] .form-select {
 }
 
 .pdp-zoom {
-  clip-path: var(--chamf-lg);
+  border-radius: 14px;
+  overflow: hidden;
 }
 
 .pdp-sticky-cta {
   border-top-color: var(--line-hi);
 }
 
-/* Récap configurateur collant : slots de la maquette. */
+/* Récap configurateur collant. */
 .app .card.sticky-lg-top {
-  clip-path: var(--chamf);
+  border-radius: 14px;
   border-color: var(--line-hi);
 }
 
-/* ── 13. Sélecteur de contact : menu terminal. ── */
+/* ── 13. Sélecteur de contact. ── */
 .contact-pick-menu {
-  border-radius: 0;
-  clip-path: var(--chamf-sm);
+  border-radius: 12px;
   background: var(--card);
   border: 1px solid var(--line-hi);
 }
@@ -974,18 +981,16 @@ html[dir='rtl'] .form-select {
   color: var(--blue);
 }
 
-/* ── 14. FAB WhatsApp : terminal. ── */
+/* ── 14. FAB WhatsApp : pilule propre, sans gimmick. ── */
 .wa-fab {
-  border-radius: 0;
-  clip-path: var(--chamf-sm);
-  font-family: var(--font-mono);
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  border-radius: 999px;
+  font-family: var(--font-display);
+  font-size: 14px;
+  font-weight: 700;
 }
 
 .social-btn {
-  border-radius: 0 !important;
-  clip-path: var(--chamf-sm);
+  border-radius: 8px !important;
 }
 
 /* Étoiles : ambre tokenisé. */
@@ -1001,11 +1006,14 @@ html[dir='rtl'] .form-select {
 
 .site-footer strong {
   font-family: var(--font-display);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
 }
 
-/* ── 16. Anti-scroll horizontal + ancres. ── */
+/* ── 16. Largeur de contenu bornée (1200 px) + anti-scroll + ancres. ── */
+.container.page,
+.container.py-4 {
+  max-width: 1200px;
+}
+
 html {
   overflow-x: hidden;
   overflow-x: clip;

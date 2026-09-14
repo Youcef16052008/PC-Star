@@ -56,10 +56,11 @@ html[data-theme='dark'] {
   --hero-to: #0a1020;
   --shadow: rgba(0, 0, 0, 0.5);
 
-  /* Typographie — maquette : Chakra Petch (display) + JetBrains Mono (corps).
-     Cairo / Noto Naskh Arabic = repli des glyphes arabes (T15). */
-  --font-display: 'Chakra Petch', 'Cairo', 'Noto Naskh Arabic', system-ui, sans-serif;
-  --font-mono: 'JetBrains Mono', 'Cairo', 'Noto Naskh Arabic', ui-monospace, Menlo, monospace;
+  /* Typographie — 2 familles max (bonnes pratiques e-commerce 2026) :
+     Inter (UI/corps/titres) + JetBrains Mono réservé aux DONNÉES
+     (prix, SKU, prompt). Cairo couvre l'arabe ; Noto Naskh = repli. */
+  --font-display: 'Inter', 'Cairo', 'Noto Naskh Arabic', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Noto Naskh Arabic', ui-monospace, Menlo, monospace;
 
   /* Géométrie — chanfreins DIAGONAUX de la maquette (coin haut-gauche +
      coin bas-droit). Symétrie ROTATIONALE (180°) : rendu identique en RTL,
