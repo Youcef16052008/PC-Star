@@ -24,13 +24,24 @@ export function checkStock(items, stockMap) {
   return { ok: shortages.length === 0, shortages }
 }
 
+/**
+ * Quantité réellement comptée pour une ligne de panier.
+ *
+ * P22 (bug C) : le décrément utilisait `Math.max(1, … || 1)` et la
+ * restauration `Math.max(0, … || 0)`. Une ligne sans `qty` retirait donc 1
+ * unité mais n'en rendait aucune : mesuré, stock 5 → 4 après commande → 4
+ * après annulation. Les deux fonctions partagent désormais la même règle.
+ */
+export function lineQty(line) {
+  return Math.max(1, Math.floor(Number(line?.qty) || 1))
+}
+
 /** Apply reservation decrement (immutable). */
 export function applyStockDecrement(stockMap, items) {
   const next = { ...stockMap }
   for (const line of items || []) {
     const id = line.id
-    const need = Math.max(1, Math.floor(Number(line.qty) || 1))
-    next[id] = Math.max(0, (Number(next[id]) || 0) - need)
+    next[id] = Math.max(0, (Number(next[id]) || 0) - lineQty(line))
   }
   return next
 }
@@ -40,8 +51,7 @@ export function applyStockRestore(stockMap, items) {
   const next = { ...stockMap }
   for (const line of items || []) {
     const id = line.id
-    const qty = Math.max(0, Math.floor(Number(line.qty) || 0))
-    next[id] = Math.max(0, (Number(next[id]) || 0) + qty)
+    next[id] = Math.max(0, (Number(next[id]) || 0) + lineQty(line))
   }
   return next
 }
@@ -53,7 +63,10 @@ export function canTransition(from, to) {
   const order = ['new', 'preparing', 'ready', 'picked']
   // allow pending legacy → new path
   const f = from === 'pending' ? 'new' : from
-  if (!order.includes(f) || !order.includes(to)) return to === 'cancelled'
+  // P22 (bug D) : `return to === 'cancelled'` était mort — `to === 'cancelled'`
+  // a déjà renvoyé `true` deux lignes plus haut, donc cette branche ne pouvait
+  // rendre que `false`. Écrit explicitement.
+  if (!order.includes(f) || !order.includes(to)) return false
   return order.indexOf(to) >= order.indexOf(f)
 }
 

@@ -24,8 +24,17 @@ export function isEmail(value) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || '').trim())
 }
 
+/**
+ * P22 (bug A) : le préfixe de sortie international `00` n'était pas retiré.
+ * `00 213 550 123 456` — la façon la plus courante de dicter un numéro
+ * algérien à l'international — restait `00213550123456` et était refusé par
+ * `isDzPhone`, alors que `+213 550 123 456` passait. Le client voyait
+ * « numéro invalide » pour un numéro correct. Un mobile algérien ne commence
+ * jamais par `00` (05/06/07), retirer ce préfixe est donc sans risque.
+ */
 export function normalizePhone(value) {
   let d = String(value || '').replace(/\D/g, '')
+  if (d.startsWith('00')) d = d.slice(2)
   if (d.startsWith('213')) d = `0${d.slice(3)}`
   if (d.length === 9 && /^[567]/.test(d)) d = `0${d}`
   return d
@@ -296,6 +305,20 @@ function cleanPhotos(list) {
  * toujours une chaîne non vide (suffixe horodaté si le nom n'a que des
  * caractères invisibles).
  */
+/**
+ * P22 (bug B) : `skuSlug` ne garde que 8 caractères utiles, donc deux produits
+ * dont le nom partage ce préfixe produisaient le même SKU — mesuré : trois
+ * « Samsung SSD 870 / 980 / 860 » donnaient tous `PS-SAMSUNGS`. On suffixe
+ * numériquement tant que le SKU existe déjà parmi les produits du master.
+ */
+function uniqueSku(base, existing) {
+  const taken = new Set((existing || []).map((p) => String(p.sku || '')))
+  if (!taken.has(base)) return base
+  let i = 2
+  while (taken.has(`${base}-${i}`)) i += 1
+  return `${base}-${i}`
+}
+
 function skuSlug(title) {
   const s = String(title || '')
     .slice(0, 12)
@@ -317,7 +340,7 @@ export function addProduct(meta, { name, price, category, brand, stock, short, p
     // composé uniquement de caractères invisibles (BOM, zero-width, espaces
     // insécables) survivait à `trim()` et donnait un SKU illisible. On retire
     // ces caractères et on retombe sur un suffixe horodaté — jamais « PS- » seul.
-    sku: String(sku || '').trim() || `PS-${skuSlug(title)}`,
+    sku: String(sku || '').trim() || uniqueSku(`PS-${skuSlug(title)}`, meta.extraProducts),
     name: title,
     short: String(short || title),
     brand: String(brand || 'PC Star'),

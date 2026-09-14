@@ -165,18 +165,21 @@ async function userFromReq(req) {
   return user ? { token, user } : null
 }
 
-function isDzPhone(value) {
-  let d = String(value || '').replace(/\D/g, '')
-  if (d.startsWith('213')) d = `0${d.slice(3)}`
-  if (d.length === 9 && /^[567]/.test(d)) d = `0${d}`
-  return /^0[567]\d{8}$/.test(d)
-}
-
+// P22 (bug A) : les deux fonctions dupliquaient la même logique et partageaient
+// donc le même trou — le préfixe de sortie international `00` n'était pas
+// retiré. `POST /api/orders` renvoyait 400 `{"error":"phone"}` pour
+// `00 213 550 123 456` alors que `+213 550 123 456` passait en 201.
+// `isDzPhone` délègue maintenant à `normalizePhone` : une seule règle.
 function normalizePhone(value) {
   let d = String(value || '').replace(/\D/g, '')
+  if (d.startsWith('00')) d = d.slice(2)
   if (d.startsWith('213')) d = `0${d.slice(3)}`
   if (d.length === 9 && /^[567]/.test(d)) d = `0${d}`
   return d
+}
+
+function isDzPhone(value) {
+  return /^0[567]\d{8}$/.test(normalizePhone(value))
 }
 
 function phoneCarrier(value) {
