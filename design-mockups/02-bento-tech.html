@@ -1,0 +1,374 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>PC Star — Bento Tech</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #f5f6f8;
+    --card: #ffffff;
+    --ink: #0f1115;
+    --ink-2: #454b57;
+    --muted: #7c828e;
+    --line: #e5e7ec;
+    --green: #16a34a;
+    --green-soft: #eaf7ef;
+    --blue: #2563eb;
+    --amber: #b45309;
+    --sans: 'Inter', system-ui, -apple-system, sans-serif;
+    --mono: 'JetBrains Mono', ui-monospace, Menlo, monospace;
+    --sh-sm: 0 1px 2px rgba(16,24,40,.05), 0 1px 3px rgba(16,24,40,.05);
+    --sh-md: 0 4px 16px rgba(16,24,40,.07), 0 1px 3px rgba(16,24,40,.05);
+    --sh-lg: 0 16px 44px rgba(16,24,40,.1);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  body { background: var(--bg); color: var(--ink); font-family: var(--sans); -webkit-font-smoothing: antialiased; line-height: 1.5; }
+  a { color: inherit; text-decoration: none; }
+  .wrap { max-width: 1220px; margin: 0 auto; padding: 0 24px; }
+
+  nav { position: sticky; top: 0; z-index: 50; background: rgba(245,246,248,.82); backdrop-filter: saturate(180%) blur(16px); border-bottom: 1px solid var(--line); }
+  nav .wrap { display: flex; align-items: center; justify-content: space-between; height: 64px; gap: 20px; }
+  .logo { display: flex; align-items: center; gap: 10px; font-weight: 750; letter-spacing: -.025em; font-size: 16.5px; }
+  .mark { width: 28px; height: 28px; border-radius: 9px; background: linear-gradient(145deg, #22c55e, #128a3d); display: grid; place-items: center; color: #fff; font-size: 14px; font-weight: 800; box-shadow: 0 2px 6px rgba(22,163,74,.35); }
+  .navlinks { display: flex; gap: 2px; background: rgba(15,17,21,.04); padding: 4px; border-radius: 12px; }
+  .navlinks a { padding: 7px 14px; border-radius: 9px; font-size: 13.5px; color: var(--ink-2); font-weight: 550; transition: background .16s, color .16s, box-shadow .16s; }
+  .navlinks a:hover { color: var(--ink); }
+  .navlinks a.on { background: #fff; color: var(--ink); box-shadow: var(--sh-sm); }
+  .navright { display: flex; align-items: center; gap: 8px; }
+  .btn { display: inline-flex; align-items: center; gap: 8px; padding: 10px 18px; border-radius: 11px; font-size: 14px; font-weight: 620; cursor: pointer; border: 1px solid transparent; font-family: var(--sans); transition: transform .14s, box-shadow .16s, background .16s; }
+  .btn:active { transform: translateY(1px); }
+  .btn-dark { background: var(--ink); color: #fff; box-shadow: var(--sh-sm); }
+  .btn-dark:hover { box-shadow: var(--sh-md); }
+  .btn-green { background: var(--green); color: #fff; box-shadow: 0 2px 8px rgba(22,163,74,.3); }
+  .btn-green:hover { background: #14913f; }
+  .btn-soft { background: #fff; border-color: var(--line); color: var(--ink); box-shadow: var(--sh-sm); }
+  .btn-soft:hover { box-shadow: var(--sh-md); }
+  .cart { position: relative; }
+  .cart b { position: absolute; top: -5px; right: -5px; background: var(--green); color: #fff; font-size: 10px; font-weight: 700; border-radius: 99px; padding: 1px 5px; }
+  @media (max-width: 980px) { .navlinks { display: none; } }
+
+  /* ── Bento hero ───────────────────────────────────────── */
+  .hero { padding: 40px 0 44px; }
+  .bento { display: grid; grid-template-columns: repeat(4, 1fr); grid-auto-rows: minmax(96px, auto); gap: 14px; }
+  .tile { background: var(--card); border: 1px solid var(--line); border-radius: 20px; padding: 24px; box-shadow: var(--sh-sm); position: relative; overflow: hidden; transition: box-shadow .2s, transform .2s; }
+  .tile:hover { box-shadow: var(--sh-md); transform: translateY(-2px); }
+  .t-hero { grid-column: span 2; grid-row: span 2; display: flex; flex-direction: column; justify-content: space-between; padding: 34px;
+    background: linear-gradient(150deg, #ffffff 0%, #f2fbf5 60%, #e7f6ed 100%); }
+  .t-hero::after { content: ''; position: absolute; right: -70px; bottom: -70px; width: 260px; height: 260px; border-radius: 50%;
+    background: radial-gradient(circle, rgba(22,163,74,.16), transparent 68%); }
+  .eyebrow { font-family: var(--mono); font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--green); font-weight: 500; }
+  .t-hero h1 { font-size: clamp(30px, 4.4vw, 48px); font-weight: 780; letter-spacing: -.042em; line-height: 1.04; margin: 16px 0 14px; max-width: 15ch; position: relative; }
+  .t-hero p { color: var(--ink-2); font-size: 15.5px; line-height: 1.65; max-width: 44ch; position: relative; }
+  .t-hero .cta { display: flex; gap: 9px; margin-top: 24px; position: relative; flex-wrap: wrap; }
+  .t-stat { display: flex; flex-direction: column; justify-content: center; gap: 3px; }
+  .t-stat b { font-size: 32px; font-weight: 750; letter-spacing: -.035em; font-variant-numeric: tabular-nums; }
+  .t-stat span { font-size: 12.5px; color: var(--muted); }
+  .t-feat h3 { font-size: 15px; font-weight: 650; letter-spacing: -.015em; margin-bottom: 6px; }
+  .t-feat p { font-size: 13.5px; color: var(--ink-2); line-height: 1.55; }
+  .t-feat .ico { width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center; font-size: 16px; margin-bottom: 12px; }
+  .ico-g { background: var(--green-soft); }
+  .ico-b { background: #eaf0fe; }
+  .ico-a { background: #fdf3e3; }
+  .t-wide { grid-column: span 2; display: flex; align-items: center; gap: 18px; }
+  @media (max-width: 1000px) {
+    .bento { grid-template-columns: repeat(2, 1fr); }
+    .t-hero, .t-wide { grid-column: span 2; }
+  }
+  @media (max-width: 620px) { .bento { grid-template-columns: 1fr; } .t-hero, .t-wide { grid-column: span 1; } }
+
+  /* ── Sections ─────────────────────────────────────────── */
+  section { padding: 48px 0; }
+  .shead { display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; margin-bottom: 22px; }
+  .shead h2 { font-size: 26px; font-weight: 720; letter-spacing: -.032em; }
+  .shead p { color: var(--muted); font-size: 14px; margin-top: 5px; }
+  .shead a { font-size: 13.5px; color: var(--green); font-weight: 620; white-space: nowrap; }
+
+  .chips { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 20px; }
+  .chip { border: 1px solid var(--line); background: #fff; border-radius: 99px; padding: 8px 15px; font-size: 13px; font-weight: 550; cursor: pointer; box-shadow: var(--sh-sm); transition: border-color .15s, background .15s, color .15s; }
+  .chip:hover { border-color: var(--green); }
+  .chip.on { background: var(--ink); color: #fff; border-color: var(--ink); }
+  .chip span { font-family: var(--mono); font-size: 11px; opacity: .55; margin-left: 6px; }
+
+  .grid4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
+  @media (max-width: 1040px) { .grid4 { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 560px) { .grid4 { grid-template-columns: 1fr; } }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 18px; overflow: hidden; box-shadow: var(--sh-sm); display: flex; flex-direction: column; transition: box-shadow .2s, transform .2s; }
+  .card:hover { box-shadow: var(--sh-lg); transform: translateY(-3px); }
+  .thumb { aspect-ratio: 5/4; display: grid; place-items: center; font-size: 44px; position: relative;
+    background: radial-gradient(ellipse at 50% 30%, #fbfcfd, #eef1f5); border-bottom: 1px solid var(--line); }
+  .badge { position: absolute; top: 12px; left: 12px; font-size: 10.5px; font-weight: 650; letter-spacing: .03em;
+    background: var(--green-soft); color: #117a3a; border-radius: 7px; padding: 4px 9px; }
+  .badge.low { background: #fdf3e3; color: var(--amber); }
+  .fav { position: absolute; top: 12px; right: 12px; width: 28px; height: 28px; border-radius: 9px; background: rgba(255,255,255,.9);
+    border: 1px solid var(--line); display: grid; place-items: center; font-size: 12px; color: var(--muted); cursor: pointer; backdrop-filter: blur(6px); }
+  .cbody { padding: 15px 16px 16px; display: flex; flex-direction: column; gap: 7px; flex: 1; }
+  .brand { font-family: var(--mono); font-size: 10px; letter-spacing: .09em; text-transform: uppercase; color: var(--muted); }
+  .cbody h3 { font-size: 14.5px; font-weight: 640; line-height: 1.35; letter-spacing: -.014em; }
+  .specs { font-size: 12px; color: var(--muted); line-height: 1.65; }
+  .rate { font-size: 11.5px; color: var(--amber); }
+  .row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: auto; padding-top: 12px; }
+  .price { font-size: 16.5px; font-weight: 720; letter-spacing: -.028em; font-variant-numeric: tabular-nums; }
+  .price small { font-size: 11px; color: var(--muted); font-weight: 500; }
+  .add { border: 1px solid var(--line); background: #fff; color: var(--ink); border-radius: 10px; padding: 7px 13px; font-size: 12.5px; font-weight: 620; cursor: pointer; transition: background .15s, color .15s, border-color .15s; font-family: var(--sans); }
+  .add:hover { background: var(--green); border-color: var(--green); color: #fff; }
+
+  /* ── Builder ──────────────────────────────────────────── */
+  .builder { background: linear-gradient(150deg, #0f1115, #171b22); border-radius: 24px; padding: 40px; color: #fff;
+    display: grid; grid-template-columns: 1fr 1fr; gap: 36px; align-items: center; box-shadow: var(--sh-lg); }
+  @media (max-width: 880px) { .builder { grid-template-columns: 1fr; padding: 28px; } }
+  .builder h2 { font-size: 27px; font-weight: 720; letter-spacing: -.032em; margin-bottom: 12px; }
+  .builder p { color: #a6adb9; font-size: 14.5px; line-height: 1.68; }
+  .builder .eyebrow { color: #4ade80; }
+  .slots { display: flex; flex-direction: column; gap: 8px; }
+  .slot { display: flex; align-items: center; justify-content: space-between; gap: 12px; background: rgba(255,255,255,.05);
+    border: 1px solid rgba(255,255,255,.09); border-radius: 12px; padding: 11px 14px; backdrop-filter: blur(8px); }
+  .slot .k { font-family: var(--mono); font-size: 10.5px; color: #7f8794; text-transform: uppercase; letter-spacing: .08em; }
+  .slot .v { font-size: 13.5px; font-weight: 550; }
+  .slot .p { font-family: var(--mono); font-size: 12.5px; color: #4ade80; }
+  .total { display: flex; align-items: baseline; justify-content: space-between; margin-top: 12px; padding-top: 14px; border-top: 1px solid rgba(255,255,255,.14); }
+  .total span { font-size: 12.5px; color: #7f8794; }
+  .total b { font-size: 22px; font-weight: 720; letter-spacing: -.03em; }
+
+  /* ── Magasin ──────────────────────────────────────────── */
+  .store { display: grid; grid-template-columns: 1.1fr .9fr; gap: 14px; }
+  @media (max-width: 880px) { .store { grid-template-columns: 1fr; } }
+  .panel { background: var(--card); border: 1px solid var(--line); border-radius: 20px; padding: 28px; box-shadow: var(--sh-sm); }
+  .panel h3 { font-size: 19px; font-weight: 700; letter-spacing: -.024em; }
+  .kv { display: flex; flex-direction: column; gap: 14px; margin-top: 18px; }
+  .kv div { display: flex; gap: 14px; font-size: 14px; align-items: baseline; }
+  .kv dt { font-family: var(--mono); font-size: 10.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; min-width: 80px; }
+  .kv dd { color: var(--ink-2); }
+  .map { border-radius: 20px; min-height: 280px; display: grid; place-items: center; text-align: center;
+    background: linear-gradient(150deg, #e9eef4, #dde5ee); border: 1px solid var(--line); color: var(--muted); font-family: var(--mono); font-size: 12px; }
+
+  footer { border-top: 1px solid var(--line); margin-top: 48px; padding: 34px 0 44px; }
+  footer .wrap { display: flex; justify-content: space-between; gap: 20px; flex-wrap: wrap; align-items: center; }
+  footer p { color: var(--muted); font-size: 13px; }
+  footer .links { display: flex; gap: 18px; font-size: 13px; color: var(--muted); }
+  footer .links a:hover { color: var(--ink); }
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="wrap">
+    <a class="logo" href="#"><span class="mark">S</span>PC Star</a>
+    <div class="navlinks">
+      <a href="#" class="on">Boutique</a><a href="#">Recherche</a><a href="#">Config PC</a><a href="#">À propos</a><a href="#">Commandes</a>
+    </div>
+    <div class="navright">
+      <button class="btn btn-soft">FR</button>
+      <button class="btn btn-soft">Connexion</button>
+      <button class="btn btn-dark cart">Panier <b>2</b></button>
+    </div>
+  </div>
+</nav>
+
+<header class="hero">
+  <div class="wrap">
+    <div class="bento">
+      <div class="tile t-hero">
+        <div>
+          <span class="eyebrow">Oran · El Makari Les Castors</span>
+          <h1>Votre PC, pièce par pièce.</h1>
+          <p>Réservez en ligne, retirez et payez au comptoir. Stock réel, compatibilité vérifiée, prix en dinars sans surprise.</p>
+        </div>
+        <div class="cta">
+          <button class="btn btn-green">Voir le catalogue →</button>
+          <button class="btn btn-soft">Configurer un PC</button>
+        </div>
+      </div>
+
+      <div class="tile t-stat"><b>223</b><span>références en stock</span></div>
+      <div class="tile t-stat"><b>14</b><span>laptops disponibles</span></div>
+
+      <div class="tile t-feat">
+        <div class="ico ico-g">✓</div>
+        <h3>Compatibilité vérifiée</h3>
+        <p>Socket, mémoire, alimentation : le configurateur bloque ce qui ne peut pas tourner.</p>
+      </div>
+      <div class="tile t-feat">
+        <div class="ico ico-b">◷</div>
+        <h3>Retrait rapide</h3>
+        <p>Réservation en ligne, préparation au comptoir, retrait au créneau choisi.</p>
+      </div>
+
+      <div class="tile t-wide">
+        <div class="ico ico-a" style="flex:none">◈</div>
+        <div>
+          <h3 style="font-size:15px;font-weight:650;letter-spacing:-.015em;margin-bottom:5px">Paiement en dinars, au retrait</h3>
+          <p style="font-size:13.5px;color:var(--ink-2);line-height:1.55">Aucun prépaiement en ligne. Vous payez au comptoir quand la commande est prête — 0770 65 03 87.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</header>
+
+<section>
+  <div class="wrap">
+    <div class="shead"><div><h2>Parcourir le catalogue</h2><p>223 références, stock mis à jour à chaque commande</p></div><a href="#">Tout voir →</a></div>
+    <div class="chips">
+      <button class="chip on">Tout <span>223</span></button>
+      <button class="chip">Processeurs <span>13</span></button>
+      <button class="chip">Cartes graphiques <span>18</span></button>
+      <button class="chip">RAM &amp; SSD <span>25</span></button>
+      <button class="chip">Laptops <span>14</span></button>
+      <button class="chip">PC prêts <span>8</span></button>
+      <button class="chip">Consoles <span>5</span></button>
+      <button class="chip">Accessoires <span>46</span></button>
+    </div>
+    <div class="grid4">
+      <article class="card">
+        <div class="thumb"><span class="badge">En stock · 6</span><span class="fav">♡</span>▣</div>
+        <div class="cbody">
+          <span class="brand">AMD</span>
+          <h3>Ryzen 7 7800X3D</h3>
+          <div class="specs">AM5 · 8C/16T · 3D V-Cache 96 Mo</div>
+          <div class="rate">★★★★★ 4,8</div>
+          <div class="row"><span class="price">97 000 <small>DA</small></span><button class="add">Ajouter</button></div>
+        </div>
+      </article>
+      <article class="card">
+        <div class="thumb"><span class="badge low">Plus que 3</span><span class="fav">♡</span>▤</div>
+        <div class="cbody">
+          <span class="brand">NVIDIA</span>
+          <h3>GeForce RTX 4070 Super 12 GB</h3>
+          <div class="specs">12 Go GDDR6X · 220 W · 1440p</div>
+          <div class="rate">★★★★★ 4,9</div>
+          <div class="row"><span class="price">147 000 <small>DA</small></span><button class="add">Ajouter</button></div>
+        </div>
+      </article>
+      <article class="card">
+        <div class="thumb"><span class="badge">En stock · 4</span><span class="fav">♡</span>▣</div>
+        <div class="cbody">
+          <span class="brand">Intel</span>
+          <h3>Core i7-14700K</h3>
+          <div class="specs">LGA1700 · 20C/28T · 125 W</div>
+          <div class="rate">★★★★☆ 4,6</div>
+          <div class="row"><span class="price">90 000 <small>DA</small></span><button class="add">Ajouter</button></div>
+        </div>
+      </article>
+      <article class="card">
+        <div class="thumb"><span class="badge">En stock · 5</span><span class="fav">♡</span>▤</div>
+        <div class="cbody">
+          <span class="brand">AMD</span>
+          <h3>Radeon RX 7800 XT 16 GB</h3>
+          <div class="specs">16 Go GDDR6 · 263 W · 1440p</div>
+          <div class="rate">★★★★☆ 4,5</div>
+          <div class="row"><span class="price">125 000 <small>DA</small></span><button class="add">Ajouter</button></div>
+        </div>
+      </article>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <div class="shead"><div><h2>Machines prêtes &amp; laptops</h2><p>Assemblés et testés au comptoir</p></div><a href="#">Tout voir →</a></div>
+    <div class="grid4">
+      <article class="card">
+        <div class="thumb"><span class="badge low">Plus que 2</span><span class="fav">♡</span>▧</div>
+        <div class="cbody">
+          <span class="brand">PC Star</span><h3>Star Gamer 7600 + RTX 4060</h3>
+          <div class="specs">Ryzen 5 7600 · 32 Go · SSD 1 To</div>
+          <div class="rate">★★★★★ 5,0</div>
+          <div class="row"><span class="price">185 000 <small>DA</small></span><button class="add">Ajouter</button></div>
+        </div>
+      </article>
+      <article class="card">
+        <div class="thumb"><span class="badge">En stock · 3</span><span class="fav">♡</span>▧</div>
+        <div class="cbody">
+          <span class="brand">PC Star</span><h3>Star Office i5 16 Go 512 Go</h3>
+          <div class="specs">Bureautique · silencieux</div>
+          <div class="rate">★★★★☆ 4,4</div>
+          <div class="row"><span class="price">89 000 <small>DA</small></span><button class="add">Ajouter</button></div>
+        </div>
+      </article>
+      <article class="card">
+        <div class="thumb"><span class="badge">En stock · 3</span><span class="fav">♡</span>▦</div>
+        <div class="cbody">
+          <span class="brand">Lenovo</span><h3>ThinkPad T14 i5</h3>
+          <div class="specs">14" · i5 · 16 Go · SSD 512 Go</div>
+          <div class="rate">★★★★★ 4,7</div>
+          <div class="row"><span class="price">89 000 <small>DA</small></span><button class="add">Ajouter</button></div>
+        </div>
+      </article>
+      <article class="card">
+        <div class="thumb"><span class="badge low">Plus que 1</span><span class="fav">♡</span>▨</div>
+        <div class="cbody">
+          <span class="brand">Sony</span><h3>PlayStation 5 Digital</h3>
+          <div class="specs">825 Go SSD · DualSense incluse</div>
+          <div class="rate">★★★★★ 4,9</div>
+          <div class="row"><span class="price">89 000 <small>DA</small></span><button class="add">Ajouter</button></div>
+        </div>
+      </article>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <div class="builder">
+      <div>
+        <span class="eyebrow">Configurateur</span>
+        <h2>Montez-le, on vérifie tout</h2>
+        <p>
+          Le configurateur contrôle le socket, le type de mémoire et la consommation estimée
+          face à l'alimentation choisie. Ce qui ne peut pas fonctionner est bloqué avant l'ajout
+          au panier — pas après, au montage.
+        </p>
+        <div style="display:flex;gap:9px;margin-top:22px;flex-wrap:wrap">
+          <button class="btn btn-green">Ouvrir le configurateur →</button>
+          <button class="btn" style="background:rgba(255,255,255,.08);color:#fff;border:1px solid rgba(255,255,255,.16)">Voir les presets</button>
+        </div>
+      </div>
+      <div>
+        <div class="slots">
+          <div class="slot"><span class="k">CPU</span><span class="v">Ryzen 5 7600</span><span class="p">42 000</span></div>
+          <div class="slot"><span class="k">Carte mère</span><span class="v">B650 · AM5</span><span class="p">28 000</span></div>
+          <div class="slot"><span class="k">Mémoire</span><span class="v">32 Go DDR5</span><span class="p">19 000</span></div>
+          <div class="slot"><span class="k">GPU</span><span class="v">RTX 4060 8 Go</span><span class="p">72 000</span></div>
+          <div class="slot"><span class="k">Alim</span><span class="v">750 W · 80+ Bronze</span><span class="p">16 000</span></div>
+        </div>
+        <div class="total"><span>Consommation estimée 410 W</span><b>177 000 DA</b></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <div class="shead"><div><h2>Le magasin</h2><p>Retrait sur place, paiement en dinars</p></div></div>
+    <div class="store">
+      <div class="panel">
+        <h3>PC Star Informatique</h3>
+        <div class="kv">
+          <div><dt>Adresse</dt><dd>Rue Mimoune Bouadjimi, El Makari Les Castors, Oran</dd></div>
+          <div><dt>Téléphone</dt><dd>0770 65 03 87 · 0669 17 46 17</dd></div>
+          <div><dt>Horaires</dt><dd>Appelez ou écrivez sur WhatsApp avant de venir</dd></div>
+          <div><dt>Paiement</dt><dd>Dinars, au comptoir, au retrait</dd></div>
+        </div>
+        <div style="display:flex;gap:9px;margin-top:22px;flex-wrap:wrap">
+          <button class="btn btn-green">WhatsApp</button>
+          <button class="btn btn-soft">Itinéraire Google Maps</button>
+        </div>
+      </div>
+      <div class="map">El Makari Les Castors · Oran<br><br>35.6969° N · 0.6331° W</div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <p>© 2026 PC Star Informatique — Oran, Algérie</p>
+    <div class="links"><a href="#">Garantie &amp; RMA</a><a href="#">Confidentialité</a><a href="#">Conditions</a></div>
+  </div>
+</footer>
+
+</body>
+</html>

@@ -248,4 +248,36 @@ describe('P10 (P7-14) — recherches sauvées persistées', () => {
     assert.deepEqual(loadSavedSearches(st), [])
     saveSavedSearches(null, [{ id: 'x' }]) // storage null : silencieux
   })
+
+  // P15 (#5) — l'appel réel de SearchPage.jsx omettait le storage (`null`),
+  // ce qui écrasait le paramètre par défaut : la recherche n'était JAMAIS
+  // persistée et la feature P7-14 ne servait à rien.
+  it('appel comme dans SearchPage (storage omis ou null) → persiste vraiment', () => {
+    const mem = createMemoryStorage()
+    globalThis.localStorage = mem
+    try {
+      const list = [{ id: 's-1', title: 'CPU · AM5', filters: { q: 'ryzen' } }]
+      saveSavedSearches(undefined, list) // ← 1ᵉʳ argument omis : défaut = localStorage
+      assert.deepEqual(loadSavedSearches(), list, 'rien de persisté avec le storage par défaut')
+
+      saveSavedSearches(null, [{ id: 's-2', title: 'LGA1700', filters: { q: 'intel' } }])
+      const loaded = loadSavedSearches()
+      assert.equal(loaded.length, 1)
+      assert.equal(loaded[0].id, 's-2', 'un null explicite ne doit plus faire perdre la donnée')
+    } finally {
+      delete globalThis.localStorage
+    }
+  })
+
+  it('borne à 10 aussi via le storage par défaut', () => {
+    const mem = createMemoryStorage()
+    globalThis.localStorage = mem
+    try {
+      const big = Array.from({ length: 15 }, (_, i) => ({ id: `s-${i}`, title: `t${i}`, filters: {} }))
+      saveSavedSearches(undefined, big)
+      assert.equal(loadSavedSearches().length, 10)
+    } finally {
+      delete globalThis.localStorage
+    }
+  })
 })

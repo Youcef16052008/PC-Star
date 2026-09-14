@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import http from 'node:http'
 import { photoCandidates } from './media.js'
 
@@ -198,4 +199,58 @@ describe('blobStore fallback (sans BLOB_READ_WRITE_TOKEN)', () => {
     assert.equal(await deleteBlob('/photos/uploads/../../etc/passwd'), false)
   })
 })
+})
+
+// P15 (#7) — un produit créé par le master n'a PAS de photos SKU livrées :
+// `photosForProduct` renvoyait quand même `/photos/sku/<id>-N.jpg` (3 × 404),
+// et le repli cassé (#6) rendait la vignette invisible.
+describe('P15 (#7) — photosForProduct : plus de trio SKU fantôme', () => {
+  const publicDir = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'public')
+
+  it('produit master (id sku-…) sans upload → photos de famille qui existent sur disque', async () => {
+    const { photosForProduct } = await import('./productPhotos.js')
+    const master = { id: 'sku-mabc123-xy', name: 'Souris Logitech G102', category: 'accessories', photos: [] }
+    const photos = photosForProduct(master)
+    assert.equal(photos.length, 3)
+    assert.ok(
+      photos.every((p) => !p.startsWith('/photos/sku/')),
+      `trio SKU fantôme : ${photos.join(', ')}`
+    )
+    for (const p of photos) {
+      assert.ok(p.startsWith('/photos/lib/'), `chemin inattendu : ${p}`)
+      assert.ok(fs.existsSync(path.join(publicDir, p)), `fichier absent du dépôt : ${p}`)
+    }
+  })
+
+  it('un upload master reste prioritaire (complété par la famille, jamais par le SKU)', async () => {
+    const { photosForProduct } = await import('./productPhotos.js')
+    const master = {
+      id: 'sku-mabc123-xy',
+      name: 'Souris Logitech G102',
+      category: 'accessories',
+      photos: ['/api/upload-file?name=sku-mabc123-xy-1.jpg']
+    }
+    const photos = photosForProduct(master)
+    assert.equal(photos[0], '/api/upload-file?name=sku-mabc123-xy-1.jpg')
+    assert.ok(photos.every((p) => !p.startsWith('/photos/sku/')))
+  })
+
+  it('produit du catalogue → packshot studio + trio SKU, présents sur disque', async () => {
+    const { photosForProduct } = await import('./productPhotos.js')
+    const photos = photosForProduct({ id: 'cpu-7800x3d', name: 'Ryzen 7', category: 'cpu', photos: [] })
+    assert.deepEqual(photos, [
+      '/photos/studio/cpu-7800x3d.jpg',
+      ...[1, 2, 3].map((n) => `/photos/sku/cpu-7800x3d-${n}.jpg`)
+    ])
+    for (const p of photos) assert.ok(fs.existsSync(path.join(publicDir, p)), `absent : ${p}`)
+  })
+
+  it('garde du correctif : aucun id du catalogue ne commence par « sku- »', async () => {
+    const { PRODUCTS } = await import('./data.js')
+    assert.equal(
+      PRODUCTS.filter((p) => String(p.id).startsWith('sku-')).length,
+      0,
+      'un id catalogue en sku-… perdrait ses photos — revoir la garde'
+    )
+  })
 })

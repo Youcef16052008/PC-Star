@@ -123,6 +123,13 @@ export function photoFamily(product) {
 function skuPhotoPaths(productId) {
   const id = String(productId || '').trim()
   if (!id) return null
+  // P15 (#7) : ces fichiers ne sont livrés que pour le CATALOGUE statique.
+  // Les produits créés par le master ont un id `sku-<ts36>-<hex>` (`newId('sku')`)
+  // et aucun fichier correspondant : on renvoyait quand même le trio →
+  // 3 × 404 par vignette (invisibles une fois combiné au bug de repli #6).
+  // Aucun id du catalogue ne commence par `sku-` (vérifié par test), et le
+  // repli « famille » ci-dessous pointe sur /photos/lib/*, qui existent.
+  if (id.startsWith('sku-')) return null
   return [1, 2, 3].map((n) => `/photos/sku/${id}-${n}.jpg`)
 }
 

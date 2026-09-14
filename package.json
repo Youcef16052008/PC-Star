@@ -6,22 +6,22 @@
   "scripts": {
     "dev": "vite",
     "dev:api": "node server/index.js",
-    "dev:all": "node server/index.js & vite",
+    "dev:all": "node scripts/dev-all.mjs",
     "build": "vite build",
-    "build:crawl": "vite build --config vite.crawl.config.js && node scripts/fix-crawl-html.mjs",
     "preview": "vite preview",
-    "test": "node --test --test-concurrency=1 src/shopStore.test.js src/api.smoke.test.js src/orderLogic.test.js src/masterApi.test.js src/authCrypto.test.js src/dbIntegrity.test.js src/apiServer.test.js src/i18n.coverage.test.js src/compat.i18n.test.js src/photoCompress.test.js src/uploadFlow.test.js src/cyberDesign.test.js",
+    "test": "node --import ./scripts/jsx-test-register.mjs --test --test-concurrency=1 src/shopStore.test.js src/api.smoke.test.js src/orderLogic.test.js src/masterApi.test.js src/authCrypto.test.js src/dbIntegrity.test.js src/apiServer.test.js src/apiDegraded.test.js src/securityFixes.test.js src/DeskPage.test.js src/deskStatusFail.test.js src/BuilderPage.test.js src/i18n.coverage.test.js src/compat.i18n.test.js src/photoCompress.test.js src/uploadFlow.test.js src/hardening.test.js src/reportP17.test.js src/uploadSecurity.test.js src/notifyP19.test.js src/whatsappTwo.test.js src/aboutWhatsApp.test.js src/p22Audit.test.js src/p22UI.test.js src/p22LazyStorage.test.js src/cyberDesign.test.js",
     "start:api": "node server/index.js",
     "backup": "node scripts/backupDb.mjs",
     "db:migrate:neon": "node scripts/neon-migrate.mjs",
     "db:migrate:neon:reset": "node scripts/neon-migrate.mjs --reset",
     "db:import:neon": "node scripts/import-neon.mjs",
+    "db:doctor": "node scripts/neon-doctor.mjs",
     "test:neon:concurrency": "node scripts/test-neon-concurrency.mjs",
     "photos:check": "node scripts/ingestSkuPhotos.mjs",
     "photos:fix": "node scripts/ingestSkuPhotos.mjs --fix",
     "smoke": "node scripts/smoke-e2e.mjs",
-    "crawl": "node scripts/jsdom-crawl.mjs",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "build:crawl": "vite build --config vite.crawl.config.js && node scripts/fix-crawl-html.mjs"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.1.0",
@@ -34,6 +34,7 @@
   "devDependencies": {
     "@playwright/test": "^1.63.0",
     "@vitejs/plugin-react": "^4.5.2",
+    "esbuild": "^0.28.2",
     "jsdom": "^30.0.1",
     "vite": "^6.3.5"
   },

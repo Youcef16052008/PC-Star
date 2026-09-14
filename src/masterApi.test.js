@@ -48,7 +48,7 @@ describe('master CRUD', () => {
 
   it('updates stock and hides catalog product', () => {
     const db = emptyDb()
-    const id = 'cpu-5600'
+    const id = 'cpu-5500'
     const u = updateProduct(db, id, { stock: 3, short: 'override' })
     assert.equal(u.ok, true)
     assert.equal(db.stock[id], 3)
@@ -102,31 +102,31 @@ describe('master CRUD', () => {
 describe('P8 (P7-1) — la vue master reflète les productOverrides', () => {
   it('prix + nom override visibles dans listMasterProducts (et pas seulement au public)', () => {
     const db = emptyDb()
-    const u = updateProduct(db, 'cpu-5600', { price: 99999, name: 'RYZEN TEST' })
+    const u = updateProduct(db, 'cpu-5500', { price: 99999, name: 'RYZEN TEST' })
     assert.equal(u.ok, true)
     const list = listMasterProducts(db)
-    const row = list.find((p) => p.id === 'cpu-5600')
+    const row = list.find((p) => p.id === 'cpu-5500')
     assert.equal(row.price, 99999)
     assert.equal(row.name, 'RYZEN TEST')
     // le public et le master doivent afficher la même valeur
-    const pub = publicCatalog(db).find((p) => p.id === 'cpu-5600')
+    const pub = publicCatalog(db).find((p) => p.id === 'cpu-5500')
     assert.equal(pub.price, row.price)
     assert.equal(pub.name, row.name)
   })
 
   it('photos override visibles dans la vue master (le panneau photos ne part plus de l\'ancienne liste)', () => {
     const db = emptyDb()
-    updateProduct(db, 'cpu-5600', { photos: ['/photos/uploads/cpu-5600-new.jpg'] })
-    const row = listMasterProducts(db).find((p) => p.id === 'cpu-5600')
-    assert.deepEqual(row.photos, ['/photos/uploads/cpu-5600-new.jpg'])
+    updateProduct(db, 'cpu-5500', { photos: ['/photos/uploads/cpu-5500-new.jpg'] })
+    const row = listMasterProducts(db).find((p) => p.id === 'cpu-5500')
+    assert.deepEqual(row.photos, ['/photos/uploads/cpu-5500-new.jpg'])
   })
 
   it('stock live + flag hidden restent ceux du serveur (pas écrasés par l\'override)', () => {
     const db = emptyDb()
-    updateProduct(db, 'cpu-5600', { price: 12345 })
-    updateProduct(db, 'cpu-5600', { stock: 2 })
-    hideProductMaster(db, 'cpu-5600', true)
-    const row = listMasterProducts(db).find((p) => p.id === 'cpu-5600')
+    updateProduct(db, 'cpu-5500', { price: 12345 })
+    updateProduct(db, 'cpu-5500', { stock: 2 })
+    hideProductMaster(db, 'cpu-5500', true)
+    const row = listMasterProducts(db).find((p) => p.id === 'cpu-5500')
     assert.equal(row.price, 12345)
     assert.equal(row.stock, 2)
     assert.equal(row.hidden, true)

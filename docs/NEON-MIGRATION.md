@@ -31,6 +31,34 @@ DATABASE_URL='postgresql://...' npm run db:import:neon -- server/data/store.json
 
 Ne lance jamais `--force` sur la production sans export préalable.
 
+## Diagnostiquer « plus de produits »
+
+```bash
+DATABASE_URL='postgresql://…' npm run db:doctor
+```
+
+Le script répond à la seule question qui compte : la base est-elle
+**injoignable** ou **vide** ?
+
+1. **Chaîne** : endpoint `-pooler` ou direct (le driver HTTP des lectures ne
+   parle qu'au pooler — avec l'endpoint direct, les écritures passent et les
+   lectures tombent).
+2. **Connectivité** : lectures (HTTP) et écritures (Pool TCP) testées
+   séparément, avec latence.
+3. **Schéma** : `pcstar_state` / `pcstar_archived_orders` présentes ?
+4. **État** : `updated_at`, users, commandes, `extraProducts`,
+   `hiddenProductIds`, overrides de stock (dont ceux à 0).
+5. **Verdict** : nombre de produits réellement servis au client, et la cause si
+   ce nombre est 0 (tout masqué / tout en rupture / table vide).
+
+Même diagnostic en ligne, sans terminal : `GET /api/db/status` (master
+connecté). Le mot de passe de la chaîne n'est jamais affiché.
+
+Depuis P12 (B25), une base injoignable ne vide plus la vitrine : l'API sert le
+catalogue de base avec `degraded: true` et le site affiche un bandeau
+« Base de données injoignable ». Voir
+[BUGS-AND-FIXES.md#p12--b25](./BUGS-AND-FIXES.md).
+
 ## État exact
 
 Cette étape crée le schéma, mais **ne remplace pas encore** les appels synchrones à `server/db.js`. Le déploiement ne doit donc pas être annoncé comme persistant tant que les étapes suivantes ne sont pas faites :

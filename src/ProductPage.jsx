@@ -38,7 +38,7 @@ function SpecBadges({ product, t }) {
           {b.v}
         </span>
       ))}
-      <span className="badge text-bg-success-subtle border border-success-subtle text-success-emphasis">{t('payCash')}</span>
+      {/* P21 : badge « espèces au comptoir » retiré de la fiche produit. */}
     </div>
   )
 }

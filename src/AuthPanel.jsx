@@ -75,7 +75,10 @@ export default function AuthPanel({ t, users, onUsers, onSession, onClose, setTo
         setError(t('backendOffline'))
         return
       }
-      const r = await api.oauthStart(provider, { intent: 'login', returnUrl: window.location.origin + '/' })
+      // P13 (S2) : returnUrl RELATIF. Le serveur refuse toute origine tierce ;
+      // un chemin relatif garantit que le token ne quitte jamais l'origine du
+      // navigateur (dev, preview proxifiée et Vercel : même origine).
+      const r = await api.oauthStart(provider, { intent: 'login', returnUrl: '/' })
       if (!r.ok || !r.data?.authorizeUrl) {
         setError(t('authErrorAuth'))
         return

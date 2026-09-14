@@ -18,6 +18,17 @@ commit. Une **6e phase (P6)** a traité les 7 bugs reportés en conditions réel
 | P8 | (11/09) | P7-1, P7-2, P7-3 | Correction des 3 bugs critiques 🔴 |
 | P9 | (11/09) | P7-4 → P7-8 | Correction des 5 bugs opérationnels 🟠 |
 | P10 | (11/09) | P7-9 → P7-18 | Correction des 10 derniers 🟡/⚪ (17/18 corrigés, 1 réanalysé) |
+| P21 | (14/09) | Boutons du comptoir + nettoyage vitrine | Timeout réseau, `busy` par carte, suppressions demandées |
+| P11 | (11/09) | P11-1 → P11-6 | Demandes client (PDP, home, panier, page commandes) |
+| P12 | (13/09) | B25 | Base injoignable ⇒ **vitrine sans aucun produit** 🔴 |
+| P13 | (13/09) | S1–S4 | **Lot 1 sécurité** : escalade master OAuth, open redirect, tokens persistés, rate-limit contournable 🔴 |
+| **P20** | (13/09) | contact | **Le second numéro (06…) ignoré** : un seul bouton WhatsApp sur « À propos » et une seule alerte par commande — désormais deux boutons et les **deux** numéros notifiés (3 alertes au total) 🟠 |
+| **P19** | (13/09) | commandes | **Le maître n'était pas averti d'une commande et ne pouvait pas la supprimer** : notification navigateur + WhatsApp Cloud API + WebSocket (repli polling) + `DELETE /api/orders/:code` 🟠 |
+| **P18** | (13/09) | uploads | **Écriture hors répertoire d'uploads** via un id produit en traversal (authentifié master) 🔴 |
+| **P17** | (13/09) | rapport #1-#7 | **Vérification d'un second rapport d'analyse** : 2 bugs confirmés, 1 piège UX, 2 durcissements, **3 affirmations réfutées par mesure** 🟡 |
+| **P16** | (13/09) | #8, #12-#21, #25, #26 | **Lot 4 (durcissement)** : démos ressuscitées, rate-limit effacé, mot de passe modifiable sans l'ancien, reset `client31`, patch produit non validé, statuts de commande, historique écrasé, CORS `*`, store.json versionné 🟠 |
+| **P15** | (13/09) | #5, #6, #7 | **Lot 3** : recherches sauvées jamais écrites, vignette effacée du DOM, photos SKU fantômes (3 × 404) 🔴 |
+| P14 | (13/09) | #1, #3, #4 | **Lot 2** : inscriptions empoisonnées, WhatsApp du comptoir mort, écran blanc du Builder 🔴 |
 
 L'audit initial et le plan détaillé : [`AUDIT-REPO.md`](./AUDIT-REPO.md).
 B18/B22/B23 : jugés **non-bugs** (contraintes de conception démo, documentées).
@@ -861,6 +872,747 @@ avec leur solution, non implémentés).
   « Mes commandes », page Commandes connectée.
 
 ---
+
+## P12 — B25 : base injoignable ⇒ boutique sans AUCUN produit 🔴
+
+Signalé le 13/09 : « il n'y a plus de produits alors que la base Neon les avait ».
+
+### Symptôme
+Le shop affiche **« Aucun produit dans ce filtre »** (0 carte) alors que
+`pcstar_state` contient bien les 250 SKU de base + les produits créés par le
+master. La pastille d'état reste verte (`● API`) : rien n'indique un problème.
+
+### Cause (chaîne complète, reproduite)
+1. `GET /api/catalog` appelait `readDbAsync()` → `readNeonState()`
+   (`server/neonStore.js:22`). Base injoignable ⇒ `NeonDbError` ⇒ le `catch`
+   global du handler renvoie **500** `{ok:false,error:'server'}`.
+2. `GET /api/health` ne touche pas la base ⇒ **200 `ok:true`** ⇒
+   `apiOnline = true` côté client.
+3. `src/App.jsx` : `if (!cat.offline) setServerCatalogReady(true)` — un 500
+   n'est pas « offline » (seule une erreur réseau l'est), donc le front
+   déclarait le catalogue **prêt** avec `serverCatalog = []`.
+4. `catalog = apiOnline && serverCatalogReady ? serverCatalog : …` ⇒
+   **liste vide**. Le repli statique (introduit en P7-11 pour ne pas
+   ressusciter les produits masqués) transformait une panne de base en
+   vitrine vide.
+
+Ce que P7-11 avait raison de faire (un catalogue vide reçu **est** la vérité :
+tout masqué / tout en rupture) et ce qu'il avait tort de faire (un **échec**
+n'est pas un catalogue vide) étaient confondus.
+
+### Déclencheurs réels d'une base « injoignable »
+- `DATABASE_URL` copiée sur l'endpoint **direct** (`ep-xxx.<region>…`) au lieu
+  du **pooler** (`ep-xxx-pooler.<region>…`) : le driver HTTP `neon()` des
+  lectures tombe alors que le `Pool` TCP des écritures fonctionne → l'API
+  semble marcher (login, commandes) mais le catalogue 500.
+- Compute Neon **suspendu** (plan gratuit, idle) : le 1ᵉʳ appel réveille le
+  compute et peut dépasser le timeout de la fonction Vercel.
+- Branche **d'aperçu de PR supprimée/expirée** (`.github/workflows/neon_workflow.yml`
+  les crée avec `expires_at` = +14 jours et les supprime à la fermeture de la
+  PR) si cette URL a été collée dans Vercel.
+- Projet archivé, mot de passe tourné, IP allowlist.
+
+### Correction
+- **`server/db.js`** : `readDbSafe()` — ne lève jamais ; renvoie
+  `{ db, ok, driver, error }` avec repli `emptyDb()`. Les **écritures**
+  (`updateDbAsync`) restent strictes : jamais de faux succès.
+- **`server/index.js`** : `/api/catalog`, `/api/meta`, `/api/stock/:id` et
+  `/api/master/products` passent par `readDbSafe()` ⇒ **200** + catalogue de
+  base + `degraded: true`. `GET /api/health` annonce `db.driver`/`db.pooler`
+  (sans sonde, donc vivant même base morte). Nouveau
+  **`GET /api/db/status`** (master) : latence, reachability, compteurs
+  (base/publics/extras/masqués/overrides de stock à 0/commandes/users).
+- **`src/App.jsx`** : `serverCatalogReady` n'est mis qu'avec une vraie réponse
+  (`cat.ok` + tableau). `degraded` ⇒ bandeau d'avertissement + pastille
+  `▲ DB` ; `/api/meta` dégradé n'écrase plus le cache local des panneaux.
+- **`scripts/neon-doctor.mjs`** (`npm run db:doctor`) : distingue
+  « injoignable » de « vide » — endpoint pooler ou direct, lectures HTTP vs
+  écritures TCP, tables présentes, `updated_at`, compteurs, verdict
+  (produits masqués / stock à 0 / table vide).
+
+### Preuve avant/après (même base morte, bundle React réel exécuté)
+| | produits affichés | bandeau | pastille |
+|---|---|---|---|
+| avant | **0** (« Aucun produit dans ce filtre ») | — | `● API` (vert, faux) |
+| après | **257** (249 SKU + 8 hits DZ) | « Base de données injoignable — catalogue de secours… » | `▲ DB` |
+
+### Vérification P12
+- `npm test` → **127/127** (avant : 118). Nouveaux : `src/apiDegraded.test.js`
+  (7 cas — catalogue dégradé non vide, health vivant, meta/stock tolérants,
+  `/api/db/status` 403 sans master, **écritures toujours strictes**,
+  `dbUrlDiagnostics` sans fuite du mot de passe) + `GET /api/db/status` en mode
+  fichier dans `src/apiServer.test.js`.
+- `npm run build` → OK (427,44 kB JS / 127,64 kB gzip).
+- `npm run db:doctor` → testé sur les 3 chemins (pas de `DATABASE_URL`,
+  endpoint direct, base injoignable) ; le mot de passe n'est jamais imprimé.
+
+---
+
+## P13 — Lot 1 sécurité : S1 → S4 (rapport d'audit du 13/09) 🔴
+
+Quatre trous vérifiés **par attaque réelle** (pas par lecture de code) avant
+correction, puis re-vérifiés après.
+
+### S1 (#2) — OAuth démo ⇒ session MASTER
+- **Symptôme** : `finishIdentity` (`server/oauth.js`) appariait les identités
+  par e-mail. En mode démo (défaut, `OAUTH_DEMO !== '0'`), taper
+  `pcstar.info31@gmail.com` dans l'écran de consentement renvoyait une session
+  **master** valide.
+- **Avant** : `/api/me` avec le token obtenu → `role: "master"`.
+- **Correction** : le compte master ne s'ouvre **que** par mot de passe —
+  l'e-mail du magasin n'est jamais apparié par OAuth (`master_email`, 403 +
+  page HTML lisible puisque le consentement est un formulaire). En démo,
+  l'e-mail n'étant vérifié par personne, seuls les comptes `demo: true` (ou un
+  lien déjà établi) peuvent être ouverts (`demo_email`) : plus
+  d'appropriation d'un compte client réel en tapant son e-mail. En mode réel
+  (`OAUTH_DEMO=0`), le fournisseur garantit l'e-mail → appariement normal,
+  master toujours exclu.
+- **Après** : 403, aucun token émis, aucune session master créée.
+
+### S2 (#9) — Open redirect + fuite du token de session
+- **Symptôme** : `/api/oauth/start` (non authentifié) acceptait un `returnUrl`
+  arbitraire, recopié tel quel dans le `Location:` final **avec le token** :
+  `https://evil.example/steal/?oauth_token=<session valide>`.
+- **Correction** : `safeReturnUrl()` (`server/oauth.js`, exportée) n'accepte
+  qu'un chemin relatif strict (`/orders`) ou une URL absolue **de la même
+  origine** que `FRONT_URL` / `FRONT_ORIGIN` / `OAUTH_REDIRECT_BASE` /
+  `VERCEL_URL`. Rejetés : `//evil.com`, `/\evil.com`, `/%2F%2Fevil.com`,
+  `javascript:`, `data:`, CRLF (injection d'en-tête), > 500 caractères.
+  Validé à l'entrée (`startOAuth`) **et** re-validé à la redirection.
+- **Après** : le `returnUrl` tiers est stocké `null` et la redirection part
+  vers le front.
+
+### S3 (#10) — Tokens de session persistés dans la base et les backups
+- **Symptôme** : `db._lastAuth = { token, user }` était écrit à chaque login
+  OAuth et jamais retiré → chaque backup horaire de `store.json` contenait un
+  credential valide en clair.
+- **Correction** : le token est renvoyé par closure (`finishIdentity` retourne
+  `{ ok, token, user }`), plus jamais écrit. `stripInternalKeys()`
+  (`server/db.js`) retire `_lastAuth` **et** `_err` à chaque lecture et
+  réécrit la base : les copies déjà présentes sur disque sont purgées.
+- **Effet de bord assumé** : la persistance de `_err` (bug #1 du rapport) est
+  neutralisée du même coup — une inscription n'empoisonne plus les suivantes.
+  Le nettoyage du handler (variable de closure au lieu de `db._err`) reste au
+  lot 2.
+
+### S4 (#11) — Rate-limit contournable par `X-Forwarded-For`
+- **Symptôme** : `clientKey` croyait l'en-tête aveuglément. En exposition
+  directe, `X-Forwarded-For: 10.0.0.<n>` à chaque essai donnait un budget
+  illimité sur `/api/auth/login` (20/min sinon) → brute-force du mot de passe
+  master.
+- **Correction** : `trustProxy()` ne croit l'en-tête que si `TRUST_PROXY=1` ou
+  sur Vercel (`process.env.VERCEL`) ; `clientIp()` prend alors le **dernier**
+  saut de la chaîne (celui que le proxy ajoute, pas celui que le client écrit).
+  Sinon : adresse socket uniquement.
+- **Après** : 25 essais avec XFF tournant → 429 au 20ᵉ (avant : aucun 429).
+
+### Vérification P13
+- `src/securityFixes.test.js` — **15 tests** qui rejouent chaque attaque :
+  master par Google **et** par Meta, régression du compte démo, conservation du
+  login master par mot de passe, 12 cas `safeReturnUrl`, redirection finale,
+  compte réel non appropriable en démo, `Location` **relative** (le token ne
+  quitte jamais l'origine), `_lastAuth` absent + base historique nettoyée,
+  `clientIp` avec/sans proxy, 429 retrouvé, budget préservé derrière proxy
+  déclaré.
+- `npm test` → **142/142** (avant : 127).
+- `npm run build` → OK. `npm run smoke` → OK.
+- Rejeu des scripts d'attaque du rapport contre l'API corrigée : rôle master
+  `undefined`, `Location` sans `evil.example`, 429 au 20ᵉ essai, base sans
+  `_lastAuth` ni `_err`.
+
+### Résiduel assumé (hors lot 1)
+Le token OAuth transite toujours par l'URL (`?oauth_token=`) — contrat du
+front (`src/App.jsx`). La redirection étant désormais contrainte à la même
+origine, il ne part plus vers un tiers, mais un cookie `HttpOnly` /
+`SameSite` reste la cible (déjà listé dans `SECURITY-AUDIT.md`).
+
+---
+
+## P14 — Lot 2 : #1 inscriptions, #3 WhatsApp, #4 Builder 🔴
+
+Même méthode que P13 : bug reproduit **avant**, correctif, puis reproduction
+rejouée **après** (composants React réels rendus en jsdom, pas des maquettes).
+
+### #1 — `db._err` empoisonnait les inscriptions
+- **Symptôme** : `POST /api/auth/register` sur un e-mail existant posait
+  `db._err = 'exists'` **sur l'objet base**, donc écrit dans `store.json` et
+  jamais retiré. Toute inscription suivante ressortait en **409 « exists »
+  alors que l'utilisateur était créé en silence**.
+- **Avant** (mesuré) : `409 → 409 → 409`, avec `fresh.user@test.dz` et
+  `another.one@test.dz` quand même présents dans la base.
+- **Correction** : variable de closure (`let exists = false`) à la place de la
+  clé transitoire ; `stripInternalKeys()` (P13-S3) purge en plus les bases déjà
+  polluées.
+- **Après** : `409 → 201 → 409 → 201`, et `store.json` ne contient plus `_err`.
+
+### #3 — Liens WhatsApp du comptoir tous morts
+- **Symptôme** : la base stocke le format local `0[567]XXXXXXXX`
+  (`normalizePhone`) mais `waPhoneHref` (local à `DeskPage.jsx`) ne préfixait
+  `213` que pour les numéros de **9** chiffres → `wa.me/0550123456`, invalide.
+- **Avant** (DeskPage réel rendu en jsdom) : `https://wa.me/0550123456`,
+  `https://wa.me/0669174617`.
+- **Correction** : conversion partagée et testée **`waNumber()`** dans
+  `src/orderLogic.js` (00 / 213 / 0 local / 9 chiffres / espaces / tirets),
+  renvoie `''` pour un numéro inexploitable → le Desk n'affiche alors aucun
+  bouton plutôt qu'un lien mort.
+- **Après** : `https://wa.me/213550123456`, `https://wa.me/213669174617`.
+
+### #4 — Écran blanc du Builder dès qu'un GPU est incompatible
+- **Symptôme** : `BuilderPage.jsx:271-272` rendait `{gpuBlocks[0]}` /
+  `{gpuNotes[0]}` — des objets `{ key, vars, block }` issus de
+  `splitWarnings`. React 19 lève *Objects are not valid as a React child* :
+  comme il n'y a pas d'error boundary, **toute la page se vide**.
+- **Avant** (BuilderPage réel, Z790 + 7800X3D, onglet GPU) :
+  `racineVide: true`, 0 carte, erreur React.
+- **Correction** : `t(gpuBlocks[0].key, gpuBlocks[0].vars)` — le motif déjà
+  utilisé en sidebar (`BuilderPage.jsx:390-401`).
+- **Après** : 20 cartes GPU, 0 erreur React, alerte traduite :
+  « AMD Ryzen 7 7800X3D exige AM5. Gigabyte Z790 Gaming X AX est LGA1700. Les
+  deux ne fonctionneront pas ensemble. »
+
+### Vérification P14
+- Tests ajoutés : `src/DeskPage.test.js` (**6** : table `waNumber` + rendu réel
+  du Desk), `src/BuilderPage.test.js` (**2** : récap + liste GPU), 2 cas
+  `waNumber` dans `src/orderLogic.test.js` (36 au total) et 1 cas inscription
+  dans `src/apiServer.test.js` (23 au total).
+- `npm run build` → OK. `npm run smoke` → OK.
+- **Preuve de régression** : avec les fichiers ramenés à l'état pré-correctif
+  (`git checkout 49255aa -- src/BuilderPage.jsx src/DeskPage.jsx src/orderLogic.js`),
+  ces tests **échouent** — `Objects are not valid as a React child (found: object
+  with keys {key, vars, block})` pour #4, et `numéro wa.me invalide :
+  https://wa.me/0550123456?text=deskWaContact` pour #3 (6 échecs sur 8).
+- Avant/après rejoué en direct : registre `409 → 201 → 409 → 201` ; liens
+  WhatsApp et page Builder vérifiés sur les **composants réels** rendus en
+  jsdom (bundles HEAD vs corrigé).
+
+> **Note (P15)** : pour que `node --test` puisse importer les composants `.jsx`,
+> le dépôt a gagné un mini-chargeur : `scripts/jsx-test-loader.mjs` (transforme
+> le JSX via esbuild, déjà présent avec Vite, et complète les imports relatifs
+> sans extension) enregistré par `scripts/jsx-test-register.mjs`, câblé dans
+> `npm test` via `--import`. Sans lui, seuls les modules purs étaient testables.
+
+---
+
+## P15 — Lot 3 : #5 recherches sauvées, #6 vignette, #7 photos fantômes 🔴
+
+Les trois bugs se cumulent sur une même vignette : un produit créé par le master
+réclamait 3 fichiers inexistants (#7), la première erreur supprimait l'image du
+DOM au lieu de basculer sur le secours (#6) — et la recherche qu'on venait de
+sauvegarder n'était de toute façon jamais écrite (#5).
+
+### #5 — `saveSavedSearches` n'écrivait rien
+
+`saveSavedSearches(storage = localStorage, list = [])` était appelé dans
+`src/SearchPage.jsx` avec `null` en premier argument : le paramètre par défaut
+est écrasé, `storage?.setItem?.(...)` devient un no-op. La lecture, elle,
+utilise bien le défaut (`loadSavedSearches()`) — **écrire et lire ne parlaient
+pas au même endroit**. Résultat mesuré : 0 clé dans localStorage, la feature
+P7-14 (« Recherches sauvées ») n'a jamais fonctionné.
+
+**Correctif** : l'appel passe `undefined` (le défaut s'applique) **et** la
+fonction retombe sur `localStorage` quand aucun storage n'est fourni — le même
+piège ne peut plus se reproduire silencieusement. Tests : round-trip via le
+storage par défaut, `null` explicite, borne à 10.
+
+### #6 — le repli supprimait l'image au lieu de la remplacer
+
+```js
+function onPhotoError(e) {
+  const img = e.currentTarget
+  const fb = img.dataset.fallback
+  if (fb && img.getAttribute('src') !== fb) {
+    img.closest('picture')?.remove()   // ← supprime le <picture> AVEC l'<img>
+    img.src = fb                       // ← s'applique à un nœud détaché du DOM
+  }
+}
+```
+`<picture>.remove()` retire aussi l'`<img>` qu'il contient : la mutation
+suivante s'applique à un élément hors document. La vignette **disparaît**
+(`document.contains(img) === false`) au lieu d'afficher le secours.
+
+**Correctif** : le repli est piloté par l'état React (`useState`), plus par une
+mutation du DOM. Chaîne d'essai : sibling `.webp` (via `<picture>`) → `.jpg` →
+badge de catégorie (`span.part-mark`, déjà présent dans la CSS mais jamais
+atteint). Chaque cran remonte un `<img>` neuf → un vrai nouveau chargement ;
+l'ordre est garanti par construction, sans boucle possible.
+
+### #7 — le trio SKU fantôme
+
+`photosForProduct` renvoyait `/photos/sku/{id}-1|2|3.jpg` pour **n'importe
+quel** produit, alors que ces fichiers ne sont livrés que pour le catalogue
+statique (250 références). Les produits créés par le master ont un id
+`sku-<ts36>-<hex>` (`newId('sku')`) → 3 requêtes 404 par vignette, rendues
+invisibles par #6.
+
+**Correctif** : `skuPhotoPaths` renvoie `null` pour un id en `sku-…` ; on retombe
+sur le **pool de famille** (`/photos/lib/{famille}-N.jpg`, 210 fichiers livrés).
+Un test verrouille la garde : aucun id du catalogue ne commence par `sku-`.
+
+### Preuve (composant réel rendu dans jsdom, bundle Vite)
+
+Même produit (`/photos/sku/sku-mabc123-xy-1.jpg`, inexistant), événements
+`error` déclenchés à la main :
+
+| étape | avant | après |
+|---|---|---|
+| initial | `<img>` dans le document | `<picture>` : `<source>` webp + `<img src=…jpg>` |
+| erreur 1 | **`document.contains(img) === false`** — plus rien à l'écran | `<img>` toujours là, src `.jpg` |
+| erreur 2 | — | badge `ACC` affiché |
+
+### Vérification P15
+
+- `npm test` : **162/162** (P13 : 142 → P14 : +11 → P15 : +6, plus les 3 cas
+  des fichiers de couverture i18n). Les 4 tests `photosForProduct` vérifient
+  aussi que les fichiers pointés **existent dans le dépôt**
+  (`public/photos/...`), pas seulement la forme des chemins.
+- **Preuve de régression** : avec `src/productPhotos.js` et `src/shopStore.js`
+  ramenés à l'état pré-correctif, les nouveaux tests échouent —
+  `trio SKU fantôme : /photos/sku/sku-mabc123-xy-1.jpg, …` pour #7, et
+  « appel comme dans SearchPage → persiste vraiment » pour #5.
+- `npm run build` : OK. `npm run smoke` : OK.
+- Rendu réel du composant dans jsdom (tableau ci-dessus).
+
+### Résiduels connus
+
+- `/photos/lib/{famille}-N.jpg` : si une famille a moins de 3 photos, les chemins
+  manquants tombent désormais sur le badge de catégorie (plus d'image cassée) —
+  mais l'idéal reste d'uploader les vraies photos du produit.
+- Les trios SKU du catalogue sont toujours demandés en webp **puis** jpg ; un
+  `srcset`/manifeste par SKU réduirait encore le trafic.
+
+---
+
+## P16 — Lot 4 : durcissement (#8, #12, #13, #14, #16, #18, #19, #20, #25, #26) 🟠
+
+Lot « intégrité des données + surface d'attaque restante ». Chaque correctif est
+couvert par `src/hardening.test.js` (23 tests, serveur réel sur port aléatoire +
+base temporaire).
+
+### #8 — les comptes de démo ressuscitaient
+
+`readDb()` réinjectait les 3 démos **à chaque lecture** :
+`DELETE /api/customers/demo-karim` répondait 200, puis le compte revenait à la
+requête suivante. Désormais le seed est posé une fois et marqué
+(`meta.demoSeeded = true`) ; seul le **master** reste réinjecté (sinon plus
+personne ne peut ouvrir le comptoir).
+
+### #12 — le rate-limit s'effaçait tout seul
+
+`sweepExpired(now, windowMs)` supprimait les buckets selon la fenêtre de
+**l'appelant** : un endpoint à 60 s purgeait les buckets de 24 h (backup,
+archive). Chaque bucket mémorise sa fenêtre (`b.windowMs`) ; sans marqueur
+(bucket d'avant le correctif) on retombe sur celle de l'appelant.
+
+### #13 — changer de mot de passe avec un simple token
+
+`POST /api/me/password` n'exigeait que la session : un token volé (XSS, URL
+partagée, `_lastAuth` recopié dans un backup) permettait de verrouiller le
+compte. Le mot de passe **actuel** est désormais vérifié (`verifyPass`), sinon
+`403 current_password`.
+
+### #14 — reset master sur mot de passe devinable
+
+`String(body.password || 'client31')` : un corps vide remettait le mot de passe
+du client à `client31`, sans que le master sache quoi que ce soit. Le mot de
+passe doit être fourni explicitement (≥ 6), sinon `400`.
+
+### #16 — `.env` ignoré
+
+Aucun chargeur n'existait (`dotenv` n'est pas installé) : `PORT`,
+`DATABASE_URL`, `FRONT_ORIGIN`, `TRUST_PROXY` devaient être exportés à la main.
+`server/env.js` (sans dépendance, importé en première ligne de `server/index.js`)
+lit `.env` et `.env.local`, **sans jamais écraser** une variable déjà présente —
+donc Vercel/CI gardent la priorité, et l'absence de fichier est un no-op.
+
+### #18 — un patch produit invalide partait en vitrine
+
+La branche « override catalogue » recopiait `name/price/brand/category/short/sku/
+photos/needs` **tels quels** : `price: "abc"` donnait « NaN DA » en vitrine et
+`priceOf` → 0, un `name` de 500 caractères cassait les cartes, `photos: "x"`
+cassait `PartThumb`. Tout passe par `sanitizeProductPatch()` (prix fini ≥ 0,
+nom ≤ 120, catégorie connue, sku ≤ 40, photos = tableau d'URL) → `400` sinon.
+En complément, `money()` n'affiche plus « NaN DA » mais « — DA ».
+
+### #19 — n'importe quelle transition de statut
+
+Seul `cancelled` était gardé : on pouvait remettre une commande **picked**
+(retirée, stock consommé) en `new` et la revendre. Les transitions sont
+explicites (`ORDER_TRANSITIONS`) ; sinon `{ ok:false, error:'transition' }`.
+
+### #20 — l'historique perdait des commandes en silence
+
+`db.orders = [order, ...db.orders].slice(0, 500)` jetait la plus ancienne sans
+log ni retour. On ne retire plus que des commandes **terminées**
+(picked/cancelled), les plus anciennes d'abord, et la liste remonte dans
+`trimmed` (+ un `console.warn`). S'il ne reste que des commandes actives, la
+borne molle est dépassée sans rien perdre ; au-delà du plafond dur
+(`MAX_ORDERS_HARD = 2000`) la commande est **refusée** (`orders_full`) plutôt
+que d'écraser l'historique.
+
+### #25 — CORS `*` par défaut
+
+`FRONT_ORIGIN` valait `'*'` sans configuration : n'importe quel site pouvait
+lire les réponses de l'API. Par défaut **aucun** en-tête CORS n'est émis
+(same-origin : proxy Vite en dev, front+API sur le même domaine Vercel) ; en
+cross-origin il faut déclarer `FRONT_ORIGIN`/`FRONT_URL` (+ `Vary: Origin`).
+Les 429 portent enfin l'en-tête standard `Retry-After`.
+
+### #26 — `store.json` versionné avec les hashes
+
+`server/data/store.json` était **suivi par git** (`.gitignore` contenait
+`!server/data/store.json`) et contenait `"passwordHash": "sha256$pcstar:star31"`
+pour le master et les 3 démos. Fichier retiré de l'index ; la base est recréée au
+démarrage par `ensure()` (master + démos viennent du code).
+
+### Points faibles corrigés au passage
+
+| Site | Avant | Après |
+|---|---|---|
+| `masterApi.js` `csvEscape` | `[",\n]` — un `\r` sortait de la cellule et décalait toutes les colonnes | `[",\n\r]` |
+| `index.js` export CSV | `day` (query) interpolé dans `Content-Disposition` → injection d'en-tête + 500 | validé `^\d{4}-\d{2}-\d{2}$` |
+| `index.js` backups | chemin figé `__dirname/data/store.json` → avec `PCSTAR_DATA_DIR` on sauvegardait **un autre fichier** que la base active | `dbPaths()` (route + démarrage + intervalle 6 h) |
+| `oauth.js` | identité sans e-mail → utilisateur `email: ''` impossible à reconnecter | `outcome = { ok:false, error:'no_email' }` |
+| `shopStore.js` | `wilaya` non bornée (100 000 caractères → base + CSV) | `.slice(0, 40)` |
+| `package.json` | `"dev:all": "node server/index.js & vite"` — shell rendu aussitôt, API orpheline au Ctrl-C, sortie illisible | `scripts/dev-all.mjs` (enfants préfixés, le premier qui meurt entraîne l'autre) |
+
+### Vérification P16
+
+- `npm test` : **185/185** (162 → 185 : +23 dans `src/hardening.test.js`).
+- **Preuve de régression** : les 8 correctifs remis à leur ancien comportement
+  (bucket sans `windowMs`, seed inconditionnel des démos, garde `verifyPass`
+  neutralisée, défaut `client31`, `sanitizeProductPatch` court-circuité, garde de
+  transition neutralisée, `slice(0, 500)` restauré, `FRONT_ORIGIN` remis à `*`)
+  font tomber **10 des 23 tests** — exactement les groupes #12, #8, #13, #14,
+  #18, #19, #20, #25. Les deux groupes non revertés (#16, points faibles)
+  restent verts. Fichiers restaurés depuis le commit, 23/23 à nouveau.
+- `npm run build` : OK. `npm run smoke` : **SMOKE OK** (API 8787 + Vite 5173).
+- Dépendances : `jsdom` (tests de composants) et `esbuild` (chargeur JSX) sont
+  désormais **déclarés** dans `devDependencies` — ils n'étaient présents que par
+  transitif, donc `npm test` cassait sur un clone propre.
+
+### Résiduels connus
+
+- `hashPassLegacy` (SHA-256 sans sel) reste le format des comptes de démo et du
+  master d'origine ; `verifyPass` accepte les deux formats et tout changement de
+  mot de passe réécrit en `scrypt`. Une migration forcée au premier login reste à
+  faire.
+- `TRUST_PROXY` doit rester **absent** sur Vercel (auto-détecté) ; derrière un
+  proxy custom il faut `TRUST_PROXY=1` **et** un proxy qui réécrit
+  `X-Forwarded-For`.
+- Le token de session voyage encore dans l'URL après OAuth (same-origin
+  uniquement) — voir P13/S2.
+
+---
+
+## P17 — Vérification du second rapport d'analyse (7 affirmations) 🔎
+
+Un second rapport listait 7 bugs « non documentés ». Chacun a été **vérifié par
+exécution** avant toute correction : 2 confirmés, 1 piège UX réel, 2 durcissements
+utiles, et **3 affirmations réfutées** — dont une qui cachait un vrai bug, mais
+pas celui qui était décrit.
+
+| # | Affirmation du rapport | Verdict | Preuve |
+|---|---|---|---|
+| 1 | `MasterPage.jsx:156` toast `authErrorPassword` sur échec de création | ✅ **confirmé** | la ligne disait bien `t('authErrorPassword')` alors que la voie API (L136) utilise déjà `masterCreateFail` |
+| 2 | `shopStore.js` SKU `PS-` si titre vide | ❌ **réfuté** (durci quand même) | `addProduct` fait `const title = String(name\|\|'').trim()` puis `if (!title \|\| …) return { ok:false }` **avant** de construire le SKU → `title` ne peut pas être vide |
+| 3 | filtre « En stock » trompeur en mode API | ✅ **confirmé (UX)** | `publicCatalog()` se termine par `.filter((p) => (Number(p.stock) \|\| 0) > 0)` : avec un panier vide le filtre ne change rien |
+| 4 | race `meta.hiddenProductIds` après `doToggleHidden` | ❌ **réfuté** | le **seul** lecteur front de `meta.hiddenProductIds` est `MasterPage.jsx:222`, c'est-à-dire la branche **locale**. En mode API la liste vient d'`apiProducts` (`productsShown = apiOnline ? apiProducts : …`) et la vitrine lit le catalogue serveur, déjà filtré |
+| 5 | `BuilderPage.jsx:26` trompé par `compat.socket` en tableau | ❌ **réfuté** (garde ajoutée) | mesuré sur le catalogue : **0/14 CPU** et **0/17 cartes mères** ont un socket en tableau ; seuls les 10 ventirads en ont. La ligne compare cpu ↔ carte mère |
+| 6 | `buildPowerRecap` surestime (~850 W pour 4070+14700K) | ❌ **chiffre faux**, ✅ **mais vrai bug à côté** | mesuré : cette config donne **700 W** (= le `psuMin` vendeur de la 4070 Super), pas 850. En revanche `p.tdp` **n'existe sur aucun produit** (le TDP vient de `specOf()`) → l'estimation ignorait le CPU : 14700K + Z790 donnait **150 W** au lieu de **275 W** |
+| 7 | `pdpWaMsg` arabe sans adresse, incohérent | ❌ **réfuté** | les 3 langues sont identiques : `pdpWaMsg` (fiche produit) ne contient `{address}` **nulle part** (L504 ar, L1008 fr, L1512 en). Le message avec `{address}` est une **autre clé**, `waMessage` (commande/panier, L502/1006/1510) |
+
+### Correctifs appliqués
+
+- **#1** `setToast(t('masterCreateFail'))` à la place de `authErrorPassword`.
+- **#6 (le vrai)** `buildPowerRecap` lit désormais `specOf(p).tdp` pour les CPU et
+  les GPU (un `compat.tdp` explicite reste prioritaire). Mesuré après :
+  14700K + Z790 → **275 W** (avant 150), 14700K + 4070S → 700 W (inchangé,
+  le `psuMin` vendeur domine), 7800X3D + 4060 → 550 W.
+- **#5 (garde)** `socketsMatch(a, b)` exporté depuis `data.js` et utilisé **aux
+  deux endroits** qui comparaient les sockets : `BuilderPage.jsx` (garde rapide)
+  et `checkCompatibility` (qui faisait le même `!==` — le rapport ne l'avait pas
+  vu). Tolère string/tableau des deux côtés.
+- **#2 (durcissement)** `skuSlug()` retire les caractères invisibles (BOM,
+  zero-width, espaces insécables) que `trim()` ne retire pas, et retombe sur un
+  suffixe horodaté : un SKU ne peut plus dégénérer.
+- **#3 (UX)** le filtre « En stock » porte une explication (`inStoreOnlyHint`,
+  ar/fr/en) : le catalogue n'affiche déjà que du stock > 0, le filtre masque en
+  plus ce que le panier réserve entièrement.
+
+### Vérification P17
+
+- `src/reportP17.test.js` : **9 tests** (rendu réel de `MasterPage` et
+  `BuilderPage` en jsdom + logique pure).
+- `npm test` : **194/194** (185 → 194).
+- `npm run build` : OK.
+- **Preuve de régression** : les 5 correctifs remis à leur ancien comportement
+  (toast, SKU inline, `!==` aux deux sites, `p.tdp`, clé i18n retirée) font
+  tomber **5 des 9 tests**, un par groupe. Restaurés depuis la sauvegarde,
+  9/9 à nouveau.
+
+### Résiduel
+
+- Les 9 alimentations du catalogue ont `category: "case"` (il n'existe pas de
+  catégorie `psu`/`power`). **Sans effet fonctionnel** : le slot PSU du Builder
+  sélectionne par `Boolean(p.compat?.psuWatts)` et le slot Case exige
+  `p.compat?.form`, que les alims n'ont pas. Seul effet visible : le badge de
+  vignette affiche « CASE » pour une alimentation. Non corrigé — renommer la
+  catégorie toucherait filtres, presets et tests pour un gain cosmétique.
+
+---
+
+## P18 — Écriture hors répertoire d'uploads (traversal) 🔴
+
+Trouvé en vérifiant la liste « fichiers non lus » du second rapport
+(`server/blobStore.js` y figurait, sans diagnostic).
+
+### Reproduction (avant correctif, sur l'API en marche)
+
+```
+PUT /api/master/products/..%2F..%2Fpwnt        → HTTP 404
+mais : ./public/pwnt-mu07wjd7-1.png créé      ← HORS de public/photos/uploads
+```
+
+`savePhotoDataUrls()` construisait le nom de fichier avec l'id produit pris
+**tel quel** dans l'URL décodée :
+
+```js
+const name = `${productId}-${Date.now().toString(36)}-${i}.${ext}`
+```
+
+et `uploadBlob()` écrivait `path.join(UPLOAD_DIR, name)` sans contrôle. La
+route répondait 404 (produit introuvable) **après** avoir écrit le fichier —
+donc un fichier `.png/.jpg/.webp` posé n'importe où sous le dépôt, y compris
+dans `public/` où il est servi publiquement.
+
+Asymétrie révélatrice : `deleteBlob()` gardait déjà `name.includes('..')` et
+`name.includes('/')` ; l'écriture, non. La **lecture** (`GET /api/upload-file`)
+était correctement gardée (`path.basename` + contrôle `..`) — seule l'écriture
+était exposée.
+
+Portée : nécessite un compte **master** (route authentifiée), et l'extension
+reste bornée à jpg/png/webp avec un suffixe horodaté. Ce n'est donc pas une
+exécution de code, mais une écriture de fichier image hors du répertoire prévu —
+suffisant pour polluer `public/`, saturer un disque, ou déposer un fichier au
+nom trompeur.
+
+### Correctif (deux barrières + nettoyage)
+
+1. `safeUploadName()` (`server/blobStore.js`) : `path.basename` puis tout
+   caractère hors `[A-Za-z0-9._-]` remplacé par `_` ; refus si vide, `.`, `..`
+   ou > 200 caractères.
+2. Garde sur le **chemin résolu** : `path.relative(UPLOAD_DIR, file)` ne doit
+   jamais commencer par `..` ni être absolu.
+3. `savePhotoDataUrls()` assainit l'id produit en amont (`[^A-Za-z0-9_-]`
+   retiré) — première barrière, indépendante de la seconde.
+4. Au passage : une erreur en cours de boucle laissait les photos déjà envoyées
+   **orphelines** (la compensation de la route ne voyait jamais `newPaths`,
+   puisque la fonction n'était pas revenue). `savePhotoDataUrls` supprime
+   désormais ce qu'elle a écrit avant de re-propager.
+
+### Vérification P18
+
+- `src/uploadSecurity.test.js` : **4 tests** (`safeUploadName` + bout en bout
+  avec `PCSTAR_UPLOAD_DIR` temporaire : l'attaque ne crée **aucun** fichier hors
+  du répertoire, et un upload légitime fonctionne toujours).
+- `npm test` : **198/198** (194 → 198).
+- **Rejoué en direct après correctif** : `PUT …/..%2F..%2Fpwnt2` → 404 et le
+  fichier atterrit dans `public/photos/uploads/pwnt2-….png` (dans le
+  répertoire), plus dans `public/`. Upload légitime : 201,
+  `/photos/uploads/sku-….png`.
+
+### Le reste de la liste « non vérifiée » du rapport — mesuré, rien à corriger
+
+| Fichier soupçonné | Vérification exécutée | Résultat |
+|---|---|---|
+| `i18n.js` (clés manquantes) | comparaison des 3 dictionnaires + croisement avec les 277 clés littéralement appelées dans `src/` | **497 clés × 3 langues, 0 manquante, 0 en trop, 0 clé appelée absente du dico** |
+| `data.js` / `dzCatalog.js` / `extraCatalog.js` | 250 produits finaux (141 EXTRA + 89 DZ) passés au crible | **0 id dupliqué, 0 SKU dupliqué, 0 prix non fini, 0 nom manquant, 0 catégorie inconnue, 0 photo vide** |
+| `photoCompress.js` | lecture du flux canvas | échec de `getContext`/`loadImage` déjà rattrapé par `.catch(() => raw)` ; image ≤ maxDim non ré-encodée (voulu) |
+| `OrdersPage.jsx`, `LegalPage.jsx` | lecture | rien de cassé ; le filtre invité d'`OrdersPage` reste le point #22 « discutable » |
+
+---
+
+## P19 — Le maître n'était pas averti d'une commande, et ne pouvait pas la supprimer 🟠
+
+Demande directe du comptoir, pas un item du rapport : quand un client commande
+(une carte graphique ou une configuration complète), le maître doit **la voir
+arriver** et **être prévenu** (notification navigateur + WhatsApp) pour pouvoir
+rappeler et confirmer. Et il doit pouvoir **supprimer** une commande — ses
+propres tests ne doivent pas rester dans l'historique ni dans le CSV.
+
+### Avant
+
+| Manque | Preuve mesurée |
+|--------|----------------|
+| Aucune notification navigateur | `grep -rn "Notification" src/` → **0 résultat** |
+| Aucune notification WhatsApp | `grep -rn "WHATSAPP" server/` → **0 résultat** ; la dépendance `ws` était déclarée dans `package.json` mais **jamais importée** |
+| Latence jusqu'à 20 s | `src/App.jsx` : `setInterval(pull, 20000)` |
+| Détection par longueur | `next.length > prevOrderCount.current` → une commande arrivée en même temps qu'une suppression **passait inaperçue** |
+| Suppression impossible | aucune route `DELETE` ; seul `POST /api/orders/:code/cancel` existait |
+
+### Correctifs
+
+**1. `server/notify.js` (nouveau)** — WhatsApp **Cloud API** officielle.
+`formatOrderMessage()` rend un message lisible sur téléphone (code, client,
+téléphone, wilaya, créneau, total, articles) terminé par un lien de rappel
+`wa.me`. Ce lien passe par `waNumber()` : sans lui on renvoyait le **bug #3 de
+P14** (wa.me refuse le `0` local). `sendWhatsApp()` ne lève **jamais** : non
+configuré → `{ok:false,skipped:true,error:'not_configured'}`, erreur HTTP de
+Meta → `http_401 …`, fetch qui rejette → erreur rapportée sans exception. Une
+panne WhatsApp ne peut donc pas faire échouer une commande client.
+
+**2. `server/deskSocket.js` (nouveau)** — WebSocket `/api/desk-stream`.
+La vérification du token se fait **avant** l'upgrade : un non-master n'obtient
+jamais de socket (403), sans token → 401, tout autre chemin → connexion
+détruite. Branché uniquement dans `startLocalServer()`.
+
+**3. `src/deskStream.js` (nouveau)** — le socket, **avec repli automatique sur
+le polling**. C'est obligatoire : **les WebSockets n'existent pas sur Vercel
+serverless**. Sans `WebSocket`, sans token, sans `location`, ou si le
+constructeur lève → polling. À la fermeture du socket, le polling reprend
+immédiatement et une reconnexion exponentielle est planifiée (2 s → 30 s). Le
+polling reste la source de vérité : le socket ne fait que déclencher un
+rafraîchissement immédiat.
+
+**4. Détection par ensemble de codes** — `seenOrderCodes` remplace la
+comparaison de longueur : une commande arrivée pendant une suppression est
+désormais vue.
+
+**5. `DELETE /api/orders/:code`** (master uniquement) + `deleteOrder()` dans
+`server/catalog.js`. Distincte de l'annulation : l'annulation garde la trace
+(historique, CSV, statistiques), la suppression retire la ligne. **Le stock est
+rendu**, et une commande déjà `cancelled`/`picked` ne le rend **pas deux fois**.
+
+**6. Corbeille sur chaque carte du Desk** (`src/DeskPage.jsx`) avec
+confirmation, disponible pour tous les statuts — y compris `picked` et
+`cancelled`, que l'annulation ne couvre pas.
+
+### Variables d'environnement
+
+```
+WHATSAPP_TOKEN=EAAG…                 # app Business → produit WhatsApp
+WHATSAPP_PHONE_NUMBER_ID=109876543210
+WHATSAPP_RECIPIENT=213770650387      # défaut : STORE.whatsapp
+WHATSAPP_API_VERSION=v21.0           # défaut
+```
+
+Sans `WHATSAPP_TOKEN` + `WHATSAPP_PHONE_NUMBER_ID`, l'envoi est ignoré
+silencieusement : le Desk et la notification navigateur continuent de marcher.
+
+### Vérification exécutée
+
+`src/notifyP19.test.js` — **25 tests** (suite totale **223/223**) :
+`deleteOrder` (stock rendu, `not_found`, pas de double rendu), route DELETE
+(403 anonyme, 403 non-master, 404 inconnu, 200 + stock), config WhatsApp,
+payload Cloud API exact (URL, `Bearer`, `messaging_product`, `to`,
+`preview_url`), erreurs Meta et réseau non propagées, contenu du message, lien
+`wa.me/213550123456`, registre de clients, **4 scénarios `createDeskStream`**
+(pas de WebSocket, pas de token, socket ouvert puis coupé, constructeur qui
+lève), notifications navigateur (permission refusée/accordée/API absente), i18n.
+
+`scripts/verify-p19-live.mjs` contre l'API en marche — **12/12** :
+
+```
+OK   socket master ouvert + hello {"type":"hello","desk":true,"clients":1}
+OK   POST /api/orders 201 PS-20260913-0002
+OK   stock réservé 6 → 5
+OK   poussée WebSocket order:new reçue pour PS-20260913-0002
+OK   DELETE /api/orders/:code 200 {"ok":true,"restocked":true}
+OK   poussée WebSocket order:deleted
+OK   stock rendu après suppression 5 → 6
+OK   commande absente de la liste
+OK   DELETE anonyme refusé HTTP 403
+OK   socket sans token refusé réponse: 401
+OK   socket non-master refusé réponse: 403
+```
+
+### Piège rencontré en écrivant les tests
+
+Le premier jet **bloquait le runner indéfiniment** : `location` n'existe pas
+sous Node, donc `new WebSocket(...)` levait, l'assertion échouait **avant**
+`stream.close()`, et l'intervalle de polling restait vivant. Deux correctifs :
+`deskStream.js` traite l'absence de `location` comme un repli polling (au lieu
+de lever), et les tests ferment le flux dans un `finally`.
+
+### Limite assumée
+
+Sur **Vercel**, pas de WebSocket : une commande peut mettre jusqu'à 20 s à
+apparaître au comptoir. Le WhatsApp, lui, fonctionne partout. Pour du temps
+réel en production il faudrait un hébergement longue durée (VPS, Fly.io,
+Railway) — documenté dans `docs/DEPLOY-VERCEL.md`.
+
+## P20 — Le second numéro (06…) ignoré : un seul bouton WhatsApp, une seule alerte 🟠
+
+Demande du comptoir : le magasin a **deux** numéros et le second (`0669 17 46 17`)
+est tout aussi important que le premier. Il faut donc deux boutons WhatsApp sur
+la page « À propos », et une commande doit notifier **les deux** numéros — le
+maître reçoit alors **trois** alertes : une dans le navigateur (Desk) et deux
+WhatsApp.
+
+### Avant
+
+| Manque | Preuve mesurée |
+|--------|----------------|
+| Le 06… n'était pas joignable en WhatsApp | `STORE.phone2 = '0669 17 46 17'` existait dans `src/data.js`, mais **aucun** `whatsapp2` ; `STORE.whatsapp` (le 07…) était le seul numéro WhatsApp du dépôt |
+| Un seul bouton WhatsApp sur « À propos » | `STORE_LINKS` ne contenait qu'**une** entrée `whatsapp` |
+| Une seule alerte WhatsApp par commande | `whatsappConfig()` renvoyait un `recipient` **unique** (`String(env.WHATSAPP_RECIPIENT \|\| STORE.whatsapp)`) |
+
+Le numéro existait donc déjà côté données — il n'était simplement exposé ni en
+bouton, ni comme destinataire de notification.
+
+### Correctifs
+
+**1. Source unique des numéros** (`src/data.js`) — `STORE.whatsapp2` +
+`STORE_WHATSAPP`, une liste `[{number,label}]` filtrée sur `^\d{8,15}$`. Le
+front (boutons) et le serveur (envois) lisent **la même liste** : ajouter un
+troisième numéro ne demande qu'une ligne ici.
+
+**2. Deux boutons WhatsApp sur « À propos »** — seconde entrée dans
+`STORE_LINKS` (`id: 'whatsapp2'`), chacun sous-titré par son numéro pour qu'ils
+soient distinguables, plus la règle `.social-whatsapp2` (même vert). La page
+mappe déjà `STORE_LINKS`, donc les deux boutons apparaissent sans changer le JSX.
+
+**3. Envoi aux deux numéros** (`server/notify.js`) — `whatsappRecipients()`
+accepte plusieurs numéros (virgule, point-virgule ou espace) et, **sans
+variable**, prend les deux numéros du magasin. `sendWhatsApp()` boucle sur la
+liste et renvoie `{ok, sent, total, results}`. Les envois sont **indépendants
+et séquentiels** : si un numéro échoue (non inscrit sur WhatsApp, quota…),
+l'autre part quand même, et la réponse client reste `201`.
+
+**4. Trace honnête** — `[pcstar-notify] WhatsApp envoyé à 2/2 numéro(s)`, et le
+log de démarrage affiche les destinataires réels.
+
+### Régression trouvée par les tests en écrivant ce lot
+
+Mon premier `whatsappRecipients()` découpait sur **tous** les espaces
+(`/[,;\s]+/`) : un numéro tapé normalement `' 213 550 123 456 '` devenait
+quatre jetons de 3 chiffres, **tous rejetés** par la borne de longueur →
+`recipient` vide, donc plus aucun envoi. C'est le test P19 « activé dès que le
+token et le phone_number_id sont présents » qui l'a attrapé
+(`'' !== '213550123456'`). Corrigé : on découpe sur `,`/`;`, on recolle les
+chiffres d'un numéro, et ce n'est que si le résultat dépasse 15 chiffres qu'on
+le re-découpe sur les espaces (cas « deux numéros séparés par un espace »).
+
+```
+défaut (rien)          → ["213770650387","213669174617"]
+un numéro espacé       → ["213550123456"]
+deux numéros virgule   → ["213770650387","213669174617"]
+deux numéros espace    → ["213770650387","213669174617"]
+mélange sale + doublon → ["213770650387","213669174617"]
+```
+
+### Vérification exécutée
+
+`src/whatsappTwo.test.js` — **14 tests** : cohérence `waNumber(STORE.phone2) ===
+STORE.whatsapp2`, les deux numéros au format `wa.me` (jamais de `0` initial),
+deux entrées `STORE_LINKS` distinctes aux `href` attendus, `id` uniques (ce sont
+des classes CSS), les 5 formes de saisie de `WHATSAPP_RECIPIENT`, **deux appels
+HTTP réels** avec `to` = chaque numéro, échec partiel (le second part quand
+même, `sent:1/total:2`), non-configuré toujours silencieux, liste invalide →
+aucun appel réseau.
+
+Compte des alertes pour une commande : **3** — 1 notification navigateur
+(`notifyNewOrder`) + 2 WhatsApp (un par numéro).
 
 ## Juges non-bugs (documentés, pas de code)
 

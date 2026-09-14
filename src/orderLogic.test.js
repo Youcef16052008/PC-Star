@@ -10,6 +10,8 @@ import {
   checkStock,
   localDay,
   makeOrderCode,
+  mergeServerOrders,
+  waNumber,
   nextLocalOrderCode,
   orderApiFailure,
   pickupForUser,
@@ -356,5 +358,107 @@ describe('P9 (P7-4) — la « journée » = date locale du client, partagée cod
     const csv25 = ordersToCsv(orders, { day: '2026-12-25' })
     assert.match(csv25, /PS-20261225-0002/) // legacy : repli sur la date d'at
     assert.doesNotMatch(csv25, /PS-20261226-0001/)
+  })
+})
+
+// P14 (#3) — WhatsApp du comptoir : la base stocke le format local 0XXXXXXXXX,
+// wa.me exige l'international. L'ancienne conversion (locale au DeskPage) ne
+// traitait que les 9 chiffres → CHAQUE lien du comptoir était mort.
+describe('P14 (#3) — waNumber : formats téléphoniques DZ → wa.me', () => {
+  it('format local stocké (0 + 9 chiffres) → 213XXXXXXXXX', () => {
+    assert.equal(waNumber('0550123456'), '213550123456')
+    assert.equal(waNumber('0669174617'), '213669174617')
+    assert.equal(waNumber('0770650387'), '213770650387')
+  })
+
+  it('variantes saisies par le client', () => {
+    assert.equal(waNumber('550123456'), '213550123456', '9 chiffres nus')
+    assert.equal(waNumber('+213550123456'), '213550123456')
+    assert.equal(waNumber('00213550123456'), '213550123456', 'préfixe 00')
+    assert.equal(waNumber('213550123456'), '213550123456')
+    assert.equal(waNumber('0770 65 03 87'), '213770650387', 'espaces')
+    assert.equal(waNumber('07-70-65-03-87'), '213770650387', 'tirets')
+  })
+
+  it('numéro inexploitable → chaîne vide (pas de lien mort)', () => {
+    assert.equal(waNumber(''), '')
+    assert.equal(waNumber(null), '')
+    assert.equal(waNumber(undefined), '')
+    assert.equal(waNumber('123'), '')
+    assert.equal(waNumber('041234567'), '', 'fixe (hors 05/06/07)')
+    assert.equal(waNumber('33612345678'), '', 'étranger')
+  })
+
+  it('tous les téléphones acceptés par isDzPhone donnent un lien wa.me valide', () => {
+    for (const prefix of ['05', '06', '07']) {
+      for (const tail of ['50123456', '69174617', '70650387']) {
+        const local = prefix + tail
+        assert.match(waNumber(local), /^213[567]\d{8}$/, local)
+      }
+    }
+  })
+})
+
+// ---------------------------------------------------------------------------
+// P21 — « je clique sur préparer, rien ne change ».
+//
+// `pull()` envoyait `GET /api/orders` puis appliquait la réponse par
+// `setReservations(next)`, sans condition. Si le maître cliquait entre l'envoi
+// et la réponse, le PATCH aboutissait, puis la réponse du polling — produite
+// AVANT le PATCH — remettait l'ancien statut. Le badge revenait en arrière,
+// ce qui se lit exactement comme « rien ne change ».
+// ---------------------------------------------------------------------------
+describe('P21 — mergeServerOrders : le polling ne rétrograde plus un changement récent', () => {
+  const server = [
+    { code: 'PS-1', status: 'new', name: 'Karim' },
+    { code: 'PS-2', status: 'new', name: 'Amina' }
+  ]
+  const local = [
+    { code: 'PS-1', status: 'preparing', name: 'Karim' },
+    { code: 'PS-2', status: 'new', name: 'Amina' }
+  ]
+
+  it('une transition décidée APRÈS le départ de la requête est conservée', () => {
+    // Requête partie à t=1000 ; le maître a cliqué à t=2000.
+    const editedAt = new Map([['PS-1', 2000]])
+    const merged = mergeServerOrders(server, local, 1000, editedAt)
+    assert.equal(merged.find((o) => o.code === 'PS-1').status, 'preparing')
+    // Le reste de l'objet serveur est conservé.
+    assert.equal(merged.find((o) => o.code === 'PS-1').name, 'Karim')
+    // Une commande non touchée prend la valeur du serveur.
+    assert.equal(merged.find((o) => o.code === 'PS-2').status, 'new')
+  })
+
+  it('une transition décidée AVANT le départ de la requête cède la place au serveur', () => {
+    // Requête partie à t=3000, clic à t=2000 : la réponse est postérieure,
+    // le serveur reste la source de vérité.
+    const editedAt = new Map([['PS-1', 2000]])
+    const merged = mergeServerOrders(server, local, 3000, editedAt)
+    assert.equal(merged.find((o) => o.code === 'PS-1').status, 'new')
+  })
+
+  it('le serveur qui a déjà enregistré le changement gagne (pas de blocage)', () => {
+    const serverFresh = [{ code: 'PS-1', status: 'preparing', name: 'Karim' }]
+    const editedAt = new Map([['PS-1', 2000]])
+    const merged = mergeServerOrders(serverFresh, local, 1000, editedAt)
+    assert.equal(merged[0].status, 'preparing', 'statut serveur déjà à jour')
+  })
+
+  it('sans édition locale, la liste serveur est reprise telle quelle', () => {
+    const merged = mergeServerOrders(server, local, 1000, new Map())
+    assert.deepEqual(merged, server)
+  })
+
+  it('une commande absente de l\'état local ne casse pas la fusion', () => {
+    const editedAt = new Map([['PS-9', 2000]])
+    const merged = mergeServerOrders(server, local, 1000, editedAt)
+    assert.deepEqual(merged, server, 'PS-9 inconnu du serveur : aucun effet')
+  })
+
+  it('entrées dégénérées : listes vides ou absentes', () => {
+    assert.deepEqual(mergeServerOrders([], local, 1000, new Map()), [])
+    assert.deepEqual(mergeServerOrders(null, local, 1000, new Map()), [])
+    // Pas de Map → on retombe sur la liste serveur (comportement antérieur).
+    assert.deepEqual(mergeServerOrders(server, local, 1000, null), server)
   })
 })

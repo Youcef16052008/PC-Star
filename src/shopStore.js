@@ -24,8 +24,17 @@ export function isEmail(value) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || '').trim())
 }
 
+/**
+ * P22 (bug A) : le préfixe de sortie international `00` n'était pas retiré.
+ * `00 213 550 123 456` — la façon la plus courante de dicter un numéro
+ * algérien à l'international — restait `00213550123456` et était refusé par
+ * `isDzPhone`, alors que `+213 550 123 456` passait. Le client voyait
+ * « numéro invalide » pour un numéro correct. Un mobile algérien ne commence
+ * jamais par `00` (05/06/07), retirer ce préfixe est donc sans risque.
+ */
 export function normalizePhone(value) {
   let d = String(value || '').replace(/\D/g, '')
+  if (d.startsWith('00')) d = d.slice(2)
   if (d.startsWith('213')) d = `0${d.slice(3)}`
   if (d.length === 9 && /^[567]/.test(d)) d = `0${d}`
   return d
@@ -175,8 +184,12 @@ export function loadSavedSearches(storage = typeof localStorage !== 'undefined' 
 }
 
 export function saveSavedSearches(storage = typeof localStorage !== 'undefined' ? localStorage : null, list = []) {
+  // P15 (#5) : `null` explicite (c'était l'appel de SearchPage) écrasait le
+  // paramètre par défaut → AUCUNE persistance, toute la feature P7-14 était
+  // inopérante. On retombe sur localStorage quand aucun storage n'est fourni.
+  const store = storage || (typeof localStorage !== 'undefined' ? localStorage : null)
   try {
-    storage?.setItem?.(KEY_SAVED_SEARCHES, JSON.stringify((list || []).slice(0, MAX_SAVED_SEARCHES)))
+    store?.setItem?.(KEY_SAVED_SEARCHES, JSON.stringify((list || []).slice(0, MAX_SAVED_SEARCHES)))
   } catch {
     /* quota/iframe : les recherches sauvées restent en mémoire */
   }
@@ -247,7 +260,9 @@ export function updateUser(users, id, patch) {
     const p = String(patch.phone).trim()
     allowed.phone = p ? normalizePhone(p) : ''
   }
-  if (patch.wilaya != null) allowed.wilaya = String(patch.wilaya).trim() || users[idx].wilaya || 'Oran'
+  // P16 : longueur bornée — une « wilaya » de 100 000 caractères partait en
+  // base et ressortait dans chaque export CSV du comptoir.
+  if (patch.wilaya != null) allowed.wilaya = String(patch.wilaya).trim().slice(0, 40) || users[idx].wilaya || 'Oran'
 
   const user = { ...users[idx], ...allowed }
   const next = users.slice()
@@ -285,15 +300,64 @@ function cleanPhotos(list) {
   return out.slice(0, 12)
 }
 
-export function addProduct(meta, { name, price, category, brand, stock, short, photos, sku } = {}) {
+/**
+ * P17 (rapport #2) : slug SKU — 8 premiers caractères utiles du nom. Retourne
+ * toujours une chaîne non vide (suffixe horodaté si le nom n'a que des
+ * caractères invisibles).
+ */
+/**
+ * P22 (bug B) : `skuSlug` ne garde que 8 caractères utiles, donc deux produits
+ * dont le nom partage ce préfixe produisaient le même SKU — mesuré : trois
+ * « Samsung SSD 870 / 980 / 860 » donnaient tous `PS-SAMSUNGS`. On suffixe
+ * numériquement tant que le SKU existe déjà parmi les produits du master.
+ */
+function uniqueSku(base, existing) {
+  const taken = new Set((existing || []).map((p) => String(p.sku || '')).filter(Boolean))
+  if (!taken.has(base)) return base
+  let i = 2
+  while (taken.has(`${base}-${i}`)) i += 1
+  return `${base}-${i}`
+}
+
+function skuSlug(title) {
+  const s = String(title || '')
+    .slice(0, 12)
+    .toUpperCase()
+    .replace(/[\s\u00a0\u200b-\u200d\ufeff]+/g, '')
+    .slice(0, 8)
+  return s || Date.now().toString(36).toUpperCase().slice(-6)
+}
+
+/**
+ * @param {Array} knownSkus P22 (bug H) : SKU déjà pris ailleurs que dans
+ *   `meta.extraProducts` — en pratique ceux du catalogue de base. Sans cette
+ *   liste, un SKU saisi à la main pouvait doubler une référence existante
+ *   (le serveur refuse désormais aussi, voir server/masterApi.js).
+ */
+export function addProduct(meta, { name, price, category, brand, stock, short, photos, sku } = {}, knownSkus = []) {
   const title = String(name || '').trim()
   const n = Number(price)
   if (!title || !Number.isFinite(n) || n < 0) return { ok: false, error: 'product' }
   const cat = String(category || 'accessories')
+  // P22 (bug H) : un SKU saisi doit être libre — dans les produits du master
+  // comme dans le catalogue de base.
+  const manualSku = String(sku || '').trim()
+  if (manualSku) {
+    const taken = new Set(
+      [...(meta.extraProducts || []), ...knownSkus]
+        .map((p) => String(p?.sku || '').trim())
+        .filter(Boolean)
+    )
+    if (taken.has(manualSku)) return { ok: false, error: 'sku_taken' }
+  }
   const product = {
     id: nowId('sku'),
     // P6 : numéro de produit (SKU) saisi par le master, sinon généré.
-    sku: String(sku || '').trim() || `PS-${title.slice(0, 8).toUpperCase().replace(/\s+/g, '')}`,
+    // P17 (rapport #2) : le titre vide est déjà refusé plus haut, mais un nom
+    // composé uniquement de caractères invisibles (BOM, zero-width, espaces
+    // insécables) survivait à `trim()` et donnait un SKU illisible. On retire
+    // ces caractères et on retombe sur un suffixe horodaté — jamais « PS- » seul.
+    sku: manualSku || uniqueSku(`PS-${skuSlug(title)}`, [...(meta.extraProducts || []), ...knownSkus]),
     name: title,
     short: String(short || title),
     brand: String(brand || 'PC Star'),

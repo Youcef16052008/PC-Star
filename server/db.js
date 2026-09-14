@@ -148,18 +148,50 @@ export function readDb() {
   }
   if (!Array.isArray(db.users)) db.users = [MASTER, ...DEMOS]
   if (!db.users.some((u) => u.role === 'master')) db.users.unshift(MASTER)
-  DEMOS.forEach((d) => {
-    if (!db.users.some((u) => u.id === d.id || u.email === d.email)) db.users.push({ ...d })
-  })
   if (!Array.isArray(db.orders)) db.orders = []
   if (!db.stock || typeof db.stock !== 'object') db.stock = {}
   if (!db.meta) db.meta = emptyDb().meta
+  // P16 (#8) : les démos sont injectées UNE fois, au premier démarrage, puis
+  // marquées. Avant, ce `forEach` tournait à chaque lecture : un
+  // `DELETE /api/customers/demo-karim` renvoyait 200 et le compte revenait à la
+  // requête suivante (le client croyait la suppression faite). Le master, lui,
+  // reste réinjecté : sans lui, plus personne ne peut se connecter au comptoir.
+  let seeded = false
+  if (db.meta.demoSeeded !== true) {
+    DEMOS.forEach((d) => {
+      if (!db.users.some((u) => u.id === d.id || u.email === d.email)) db.users.push({ ...d })
+    })
+    db.meta.demoSeeded = true
+    seeded = true
+  }
   if (!db.sessions) db.sessions = {}
   if (!db.oauthPending) db.oauthPending = {}
+  // P13 (S3) : clés internes de transit — elles n'ont rien à faire dans la
+  // base persistante. `_lastAuth` contenait un TOKEN DE SESSION valide,
+  // recopié tel quel dans chaque backup de store.json. `_err` empoisonnait
+  // les inscriptions suivantes. Les deux sont retirées à chaque lecture (et
+  // la base est réécrite pour purger les copies déjà présentes sur disque).
+  const stripped = stripInternalKeys(db)
   // P5 (B11) : bornes de croissance — sessions > 7 j, consentements OAuth
-  // abandonnés > 15 min. Écriture uniquement si quelque chose a été purgé.
-  if (purgeExpired(db)) writeDb(db)
+  // abandonnés > 15 min. Écriture si quelque chose a été purgé… ou si le
+  // marqueur de seed (#8) vient d'être posé.
+  if (purgeExpired(db) || stripped || seeded) writeDb(db)
   return db
+}
+
+/**
+ * P13 (S3) : retire les clés de transit posées sur l'objet base par les
+ * handlers. @returns {boolean} true si une clé a été retirée.
+ */
+export function stripInternalKeys(db) {
+  let changed = false
+  for (const key of ['_lastAuth', '_err']) {
+    if (db && Object.prototype.hasOwnProperty.call(db, key)) {
+      delete db[key]
+      changed = true
+    }
+  }
+  return changed
 }
 
 /**
@@ -214,6 +246,73 @@ export async function readDbAsync() {
   return readNeonState(emptyDb)
 }
 
+/**
+ * P12 (B25) : lecture d'état qui n'échoue JAMAIS.
+ *
+ * Une base distante injoignable (compute Neon suspendu, branche d'aperçu
+ * supprimée, `DATABASE_URL` copié sur l'endpoint direct au lieu du `-pooler`,
+ * IP allowlist…) faisait remonter une exception jusqu'au handler → 500 sur
+ * `/api/catalog` → le front lisait « catalogue vide = vérité » → **boutique
+ * sans aucun produit**. Les lectures publiques replient donc sur l'état de
+ * base (catalogue statique, aucun override) et signalent `ok: false` pour que
+ * l'UI le dise au lieu de le cacher.
+ *
+ * Les ÉCRITURES restent strictes (`updateDbAsync`) : on ne doit jamais faire
+ * croire qu'une commande ou un stock a été enregistré alors que la base était
+ * injoignable.
+ *
+ * @returns {Promise<{db: object, ok: boolean, driver: 'neon'|'file', error: string|null}>}
+ */
+export async function readDbSafe() {
+  const driver = process.env.DATABASE_URL ? 'neon' : 'file'
+  try {
+    if (driver === 'neon') {
+      const { readNeonState } = await import('./neonStore.js')
+      return { db: await readNeonState(emptyDb), ok: true, driver, error: null }
+    }
+    return { db: readDb(), ok: true, driver, error: null }
+  } catch (error) {
+    const message = String((error && error.message) || error)
+    console.error('[pcstar-db] lecture d\'état échouée — repli sur le catalogue de base.', {
+      driver,
+      message,
+      hint: driver === 'neon' ? 'Vérifier DATABASE_URL (endpoint -pooler, branche existante, compute non suspendu).' : null
+    })
+    return { db: emptyDb(), ok: false, driver, error: message }
+  }
+}
+
+/**
+ * P12 (B25) : diagnostics lisibles de `DATABASE_URL` — SANS le mot de passe.
+ * Sert à `/api/db/status` et à `npm run db:doctor` pour distinguer
+ * « base injoignable » de « base vide ».
+ */
+export function dbUrlDiagnostics(rawUrl = process.env.DATABASE_URL) {
+  if (!rawUrl) return { configured: false }
+  try {
+    const u = new URL(rawUrl)
+    const host = u.hostname
+    const firstLabel = host.split('.')[0] || ''
+    return {
+      configured: true,
+      host,
+      user: u.username || null,
+      database: u.pathname.replace(/^\//, '') || null,
+      // Le driver HTTP `neon()` ne parle qu'au pooler : `ep-xxx-pooler.<region>…`.
+      // L'endpoint direct accepte uniquement le Pool TCP (`updateNeonState`) →
+      // les lectures tombent alors que les écritures passent.
+      pooler: firstLabel.endsWith('-pooler'),
+      // Id d'endpoint sans le suffixe -pooler (ex: ep-cool-meadow-123456).
+      endpoint: firstLabel.replace(/-pooler$/, '') || null,
+      // ep-xxx-pooler.<region>.aws.neon.tech → « eu-central-1 »
+      region: host.split('.')[1] || null,
+      sslmode: u.searchParams.get('sslmode') || null
+    }
+  } catch {
+    return { configured: true, parseError: true }
+  }
+}
+
 export async function updateDbAsync(mutator) {
   if (!process.env.DATABASE_URL) return updateDb(mutator)
   const { updateNeonState } = await import('./neonStore.js')
@@ -233,6 +332,11 @@ export function updateDb(mutator) {
   const next = mutator(db) || db
   writeDb(next)
   return next
+}
+
+/** P16 : chemins réels de la base (respecte PCSTAR_DATA_DIR). */
+export function dbPaths() {
+  return { dbFile: DB_FILE, dataDir: DATA_DIR }
 }
 
 export { hashPass, hashPassLegacy, MASTER }

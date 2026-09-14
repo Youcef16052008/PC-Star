@@ -1,8 +1,8 @@
 import { EXTRA } from './extraCatalog.js'
-import { DZ_EXTRA, DZ_DEALS, DZ_GUIDES, PAYMENT_HINTS, WILAYAS_NEAR, DZ_BRANDS } from './dzCatalog.js'
+import { DZ_EXTRA, DZ_GUIDES, WILAYAS_NEAR, DZ_BRANDS } from './dzCatalog.js'
 import { ensureProductPhotos } from './productPhotos.js'
 
-export { DZ_DEALS, DZ_GUIDES, PAYMENT_HINTS, WILAYAS_NEAR, DZ_BRANDS }
+export { DZ_GUIDES, WILAYAS_NEAR, DZ_BRANDS }
 
 export const STORE = {
   name: 'PC Star Informatique',
@@ -12,6 +12,9 @@ export const STORE = {
   phone2: '0669 17 46 17',
   phone2Href: 'tel:+213669174617',
   whatsapp: '213770650387',
+  // P20 : le second numéro (06…) est tout aussi important que le premier.
+  // Les deux reçoivent les notifications de commande et les deux sont
+  // proposés en bouton WhatsApp sur la page « À propos ».
   whatsapp2: '213669174617',
   email: 'pcstar.info31@gmail.com',
   instagram: 'pcstar31',
@@ -25,6 +28,19 @@ export const STORE = {
   // storeWarranty, storeNote. STORE ne garde que les données (tél, adresse, URLs).
 }
 
+/**
+ * P20 — Les numéros WhatsApp du magasin, dans l'ordre d'affichage.
+ *
+ * Source unique : le serveur (notifications de commande) et le front (boutons)
+ * lisent la même liste, donc ajouter un troisième numéro ne demande qu'une
+ * ligne ici. Format international sans « + » — c'est ce qu'exige `wa.me`
+ * (P14 #3 : un numéro local en `0…` donne un lien mort).
+ */
+export const STORE_WHATSAPP = [
+  { number: STORE.whatsapp, label: STORE.phone },
+  { number: STORE.whatsapp2, label: STORE.phone2 }
+].filter((n) => n.number && /^\d{8,15}$/.test(n.number))
+
 export const SHOP_SERVICES = [
   { id: 'parts', titleKey: 'svcPartsTitle', bodyKey: 'svcPartsBody' },
   { id: 'machines', titleKey: 'svcMachinesTitle', bodyKey: 'svcMachinesBody' },
@@ -35,13 +51,19 @@ export const SHOP_SERVICES = [
 export const STORE_LINKS = [
   { id: 'instagram', label: 'Instagram', sub: '@pcstar31', href: 'https://www.instagram.com/pcstar31/' },
   { id: 'facebook', label: 'Facebook', sub: 'PC Star Informatique', href: 'https://www.facebook.com/pcstar31' },
-  { id: 'whatsapp', label: 'WhatsApp', sub: '0770 65 03 87', href: 'https://wa.me/213770650387' },
-  { id: 'whatsapp2', css: 'whatsapp', label: 'WhatsApp', sub: '0669 17 46 17', href: 'https://wa.me/213669174617' },
-  { id: 'maps', label: 'Google Maps', sub: 'Les Castors, Oran', href: 'https://www.google.com/maps/search/?api=1&query=Rue+Mimoune+Bouadjimi+El+Makari+Les+Castors+Oran' }
+  // P20 : deux boutons WhatsApp, un par numéro du magasin.
+  { id: 'whatsapp', label: 'WhatsApp', sub: STORE.phone, href: `https://wa.me/${STORE.whatsapp}` },
+  { id: 'whatsapp2', css: 'whatsapp', label: 'WhatsApp', sub: STORE.phone2, href: `https://wa.me/${STORE.whatsapp2}` },
+  // P22 (bug F) : sous-titre traduit via subKey (ar/fr/en).
+  { id: 'maps', label: 'Google Maps', subKey: 'storeMapSub', sub: 'Les Castors, Oran', href: 'https://www.google.com/maps/search/?api=1&query=Rue+Mimoune+Bouadjimi+El+Makari+Les+Castors+Oran' }
 ]
 
 export function money(n) {
-  return `${Math.round(n).toLocaleString('fr-DZ')} DA`
+  // P16 : un prix absent/cassé (`undefined`, `"abc"` rescapé d'un override)
+  // affichait « NaN DA » en vitrine. On affiche un tiret plutôt qu'un prix faux.
+  const v = Number(n)
+  if (!Number.isFinite(v)) return '— DA'
+  return `${Math.round(v).toLocaleString('fr-DZ')} DA`
 }
 
 export function third(n) {
@@ -145,15 +167,6 @@ export const PRICE_PRESETS = [
   { id: '30-50', label: '30 000 – 50 000 DA', min: 30000, max: 50000 },
   { id: '50-100', label: '50 000 – 100 000 DA', min: 50000, max: 100000 },
   { id: '100+', label: '100 000 DA+', min: 100000, max: 999999 }
-]
-
-export const DEALS = [
-  { id: 'hav-combo4', tag: '-10%', noteKey: 'dealNoteHavCombo' },
-  { id: 'sog-mkh5', tag: 'Pack SoG', noteKey: 'dealNoteSogPack' },
-  { id: 'cpu-5600', tag: 'Hit DZ', noteKey: 'dealNoteCpu5600' },
-  { id: 'ram-32', tag: '-12%', noteKey: 'dealNoteRam32' },
-  { id: 'ssd-1t', tag: 'Hot', noteKey: 'dealNoteSsd1t' },
-  { id: 'tw-ssd-512', tag: 'Budget', noteKey: 'dealNoteTwSsd512' }
 ]
 
 export const GUIDES = [
@@ -662,6 +675,18 @@ export function splitWarnings(warnings) {
 
 // P3 i18n : chaque avertissement est un objet { key, vars, block? } rendu
 // par t(key, vars) — plus de texte anglais durci dans le code.
+/**
+ * P17 (rapport #5) : deux sockets sont compatibles s'ils se recoupent.
+ * Tolère le mélange string / tableau (les ventirads du catalogue ont déjà
+ * `compat.socket` en tableau). Aucun CPU ni carte mère n'est concerné
+ * aujourd'hui — c'est une garde, pas un correctif de données.
+ */
+export function socketsMatch(a, b) {
+  if (!a || !b) return false
+  const list = (v) => (Array.isArray(v) ? v.map(String) : [String(v)])
+  return list(a).some((x) => list(b).includes(x))
+}
+
 export function checkCompatibility(items) {
   const warnings = []
   const W = (key, vars, block = false) => warnings.push({ key, vars, block })
@@ -677,7 +702,8 @@ export function checkCompatibility(items) {
   if (cpus.length && boards.length) {
     cpus.forEach((cpu) => {
       boards.forEach((board) => {
-        if (cpu.compat.socket && board.compat.socket && cpu.compat.socket !== board.compat.socket) {
+        // P17 (rapport #5) : `!==` aurait signalé à tort un CPU multi-socket.
+        if (cpu.compat.socket && board.compat.socket && !socketsMatch(cpu.compat.socket, board.compat.socket)) {
           W('compatSocketMismatch', { cpu: cpu.name, cpuSocket: cpu.compat.socket, board: board.name, boardSocket: board.compat.socket }, true)
         }
         const cs = specOf(cpu)
