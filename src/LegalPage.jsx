@@ -14,13 +14,14 @@ export default function LegalPage({ t, kind, onBack }) {
           <h1 className="h3 mb-3">{title}</h1>
           {kind === 'warranty' && (
             <>
-              <p>{t('legalWarrantyP1')}</p>
-              <ul>
+              {/* P21 : paragraphe de garantie et note « garantie boutique 1 an »
+                  supprimés à la demande du comptoir — les conditions détaillées
+                  ci-dessous restent seules. */}
+              <ul className="mb-0">
                 <li>{t('legalWarrantyL1')}</li>
                 <li>{t('legalWarrantyL2')}</li>
                 <li>{t('legalWarrantyL3')}</li>
               </ul>
-              <p className="text-secondary small mb-0">{t('storeWarranty')}</p>
             </>
           )}
           {kind === 'privacy' && (
@@ -31,7 +32,7 @@ export default function LegalPage({ t, kind, onBack }) {
                 <li>{t('legalPrivacyL2')}</li>
                 <li>{t('legalPrivacyL3')}</li>
               </ul>
-              <p className="text-secondary small">{t('legalPrivacyP2')}</p>
+              {/* P21 : note « espèces au comptoir » retirée. */}
             </>
           )}
           {kind === 'terms' && (

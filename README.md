@@ -84,8 +84,14 @@ Photos: keep shipping under `public/photos/sku/` — add pro shots later, push, 
   « الأكثر مبيعاً في الجزائر » **et de ses 27 produits** (catalogue
   250 → 223), du badge d'état « ● API », du libellé « ماركات جزائرية شائعة »,
   des badges « espèces au comptoir » / « garantie 1 an » et du bloc
-  « Mode de paiement » du panier. Les 7 clés i18n devenues mortes ont été
-  retirées des trois langues (502 → 494, toujours symétriques). Les presets du
+  « Mode de paiement » du panier. Puis, à la demande, les **quatre derniers
+  endroits** où ces phrases subsistaient : la page légale **Garantie**
+  (paragraphe d'intro + note « garantie boutique 1 an »), la page légale
+  **Confidentialité** (« espèces au comptoir »), la **note de rachat** sur
+  « À propos », et les **messages WhatsApp** envoyés aux clients depuis le Desk
+  (`deskWaReady` / `deskWaContact`) — plus la meta description SEO. Les 10 clés
+  i18n devenues mortes ont été retirées des trois langues
+  (502 → 491, toujours symétriques). Les presets du
   Builder qui pointaient vers des références supprimées ont été remappés vers
   des équivalents compatibles et toujours vendus
   (`cpu-5600` → `cpu-5500`, `mag-ddr4-16` → `team-ddr4-16`).
