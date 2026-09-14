@@ -578,7 +578,7 @@ export default function App() {
     })
   }, [category, query, catalog, brandFilter])
 
-  const dzHits = useMemo(() => catalog.filter((p) => (p.tags || []).includes('dz-hit')).slice(0, 8), [catalog])
+
 
   function liveStock(product) {
     const base = stockMap[product.id] != null ? stockMap[product.id] : product.stock
@@ -756,6 +756,7 @@ export default function App() {
 
   const msg = cartMessage(cart, total, pickup, t)
   const waHref = `https://wa.me/${STORE.whatsapp}?text=${encodeURIComponent(msg)}`
+  const waHref2 = `https://wa.me/${STORE.whatsapp2}?text=${encodeURIComponent(msg)}`
   const carrier = phoneCarrier(pickup.phone)
 
   const toastText = typeof toast === 'string' ? toast : toast?.kind === 'cart' ? `${toast.name} · ${t('addedToCart')}` : ''
@@ -772,6 +773,10 @@ export default function App() {
           <span className="topbar-right">
             <a className="link-light text-decoration-none fw-semibold" href={STORE.phoneHref}>
               {STORE.phone}
+            </a>
+            {' · '}
+            <a className="link-light text-decoration-none fw-semibold" href={STORE.phone2Href}>
+              {STORE.phone2}
             </a>
             {' · '}
             {t('payCash')}
@@ -895,7 +900,6 @@ export default function App() {
             <div className="d-flex flex-wrap gap-2 align-items-center">
               <span className="badge text-bg-light border">{STORE.address}</span>
               <span className="badge text-bg-success-subtle border border-success-subtle text-success-emphasis">{t('payCash')}</span>
-              <span className="badge text-bg-light border">{t('warrantyBadge')}</span>
             </div>
             <div className="d-flex flex-wrap gap-2 mt-3">
               <button className="btn btn-success" type="button" onClick={() => go('search')}>{t('advancedSearch')}</button>
@@ -906,49 +910,9 @@ export default function App() {
             </div>
           </section>
 
-          {/* P11 : panneaux « Pièces PC » et « Config PC » supprimés sur
-              demande — seul « Hits DZ » reste (largeur pleine). */}
-          <section className="mb-4">
-            <div className="row g-3">
-              <div className="col-12">
-                <button type="button" className="card h-100 shadow-sm border-0 text-start w-100 btn p-0" onClick={() => { setBrandFilter(null); setCategory('all'); go('shop'); setTimeout(() => document.getElementById('dz-hits')?.scrollIntoView({ behavior: 'smooth' }), 50) }}>
-                  <div className="card-body">
-                    <h2 className="h6 text-success">{t('pathHits')}</h2>
-                    <p className="small text-secondary mb-0">{t('pathHitsBody')}</p>
-                  </div>
-                </button>
-              </div>
-            </div>
-          </section>
-
-          {dzHits.length > 0 && (
-            <section className="mb-4" id="dz-hits">
-              <h2 className="h4 mb-3">{t('dzHits')}</h2>
-              <div className="row g-3">
-                {dzHits.map((p) => (
-                  <div className="col-6 col-md-4 col-lg-3" key={p.id}>
-                    <div className="card h-100 shadow-sm product-bs-card">
-                      <span className="badge text-bg-success position-absolute m-2 z-1">{t('tag_dz-hit')}</span>
-                      <button type="button" className="btn p-0 border-0" onClick={() => openProduct(p.id)}>
-                        <div className="ratio ratio-1x1 photo-frame overflow-hidden">
-                          <PartThumb product={p} />
-                        </div>
-                      </button>
-                      <div className="card-body p-3">
-                        <div className="small text-secondary">{p.brand}</div>
-                        <h3 className="h6">
-                          <button type="button" className="btn btn-link p-0 text-start text-decoration-none text-body" onClick={() => openProduct(p.id)}>
-                            {p.name}
-                          </button>
-                        </h3>
-                        <div className="fw-bold text-success">{money(p.price)}</div>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </section>
-          )}
+          {/* À la demande du client : sections « Hits DZ » et « hits marché
+              Algérie » supprimées — la page commence par le hero puis
+              enchaîne directement sur filtres + catalogue (image-1). */}
 
           {/* P11 : section « Configs Star » + ses cartes supprimées sur demande. */}
 
@@ -1094,7 +1058,6 @@ export default function App() {
                 </li>
                 <li className="list-group-item px-0 text-secondary">{t('storeHours')}</li>
                 <li className="list-group-item px-0 text-secondary">{t('storeReady')}</li>
-                <li className="list-group-item px-0 text-secondary">{t('storeWarranty')}</li>
                 <li className="list-group-item px-0">
                   <a href={`mailto:${STORE.email}`}>{STORE.email}</a>
                 </li>
@@ -1107,7 +1070,7 @@ export default function App() {
               </ul>
               <div className="d-flex flex-wrap gap-2">
                 {STORE_LINKS.map((l) => (
-                  <a key={l.id} className={`btn btn-sm social-btn social-${l.id} text-white`} href={l.href} target="_blank" rel="noreferrer">
+                  <a key={l.id} className={`btn btn-sm social-btn social-${l.css || l.id} text-white`} href={l.href} target="_blank" rel="noreferrer">
                     <strong>{l.label}</strong>
                     <span className="d-block small opacity-75">{l.sub}</span>
                   </a>
@@ -1272,21 +1235,26 @@ export default function App() {
               <strong className="d-block">PC Star Informatique</strong>
               <div className="small text-secondary">{STORE.address}</div>
               <div className="small text-secondary">
-                {t('payCash')} · {t('warrantyBadge')} · {t('pricesInDa')}
+                {t('payCash')} · {t('pricesInDa')}
               </div>
             </div>
             <div className="col-md-6 d-flex flex-wrap gap-2 justify-content-md-end">
+              {/* À la demande du client : les DEUX numéros (07 + 06) partout
+                  où figurent appel ou WhatsApp. */}
               <a className="btn btn-sm btn-outline-secondary" href={STORE.phoneHref}>
                 {t('call')} {STORE.phone}
               </a>
+              <a className="btn btn-sm btn-outline-secondary" href={STORE.phone2Href}>
+                {t('call')} {STORE.phone2}
+              </a>
               <a className="btn btn-sm btn-outline-success" href={`https://wa.me/${STORE.whatsapp}`} target="_blank" rel="noreferrer">
-                WhatsApp
+                WhatsApp {STORE.phone}
+              </a>
+              <a className="btn btn-sm btn-outline-success" href={`https://wa.me/${STORE.whatsapp2}`} target="_blank" rel="noreferrer">
+                WhatsApp {STORE.phone2}
               </a>
               <button type="button" className="btn btn-sm btn-outline-secondary" onClick={() => go('about')}>
                 {t('navAbout')}
-              </button>
-              <button type="button" className="btn btn-sm btn-outline-secondary" onClick={() => go('warranty')}>
-                {t('navWarranty')}
               </button>
               <button type="button" className="btn btn-sm btn-outline-secondary" onClick={() => go('privacy')}>
                 {t('navPrivacy')}
@@ -1299,8 +1267,13 @@ export default function App() {
         </div>
       </footer>
 
+      {/* FAB WhatsApp : les deux numéros, empilés (cyber-adjacent : index.css
+          décale le second via .wa-fab + .wa-fab). */}
       <a className="wa-fab" href={`https://wa.me/${STORE.whatsapp}`} target="_blank" rel="noreferrer">
-        WhatsApp
+        WhatsApp {STORE.phone}
+      </a>
+      <a className="wa-fab" href={`https://wa.me/${STORE.whatsapp2}`} target="_blank" rel="noreferrer">
+        WhatsApp {STORE.phone2}
       </a>
 
       {/* Cart offcanvas — controlled via Bootstrap Offcanvas API */}
@@ -1348,6 +1321,9 @@ export default function App() {
                 </a>
                 <a className="btn btn-outline-secondary btn-sm" href={STORE.phoneHref}>
                   {t('call')} {STORE.phone}
+                </a>
+                <a className="btn btn-outline-secondary btn-sm" href={STORE.phone2Href}>
+                  {t('call')} {STORE.phone2}
                 </a>
                 <button
                   className="btn btn-success"
@@ -1470,8 +1446,10 @@ export default function App() {
                 </div>
                 <button className="btn btn-success w-100 mb-2" type="submit">{t('reservePickup')}</button>
                 <div className="d-grid gap-2">
-                  <a className="btn btn-outline-secondary btn-sm" href={waHref} target="_blank" rel="noreferrer">{t('whatsappCart')}</a>
+                  <a className="btn btn-outline-secondary btn-sm" href={waHref} target="_blank" rel="noreferrer">{t('whatsappCart')} {STORE.phone}</a>
+                  <a className="btn btn-outline-secondary btn-sm" href={waHref2} target="_blank" rel="noreferrer">{t('whatsappCart')} {STORE.phone2}</a>
                   <a className="btn btn-outline-secondary btn-sm" href={STORE.phoneHref}>{t('call')} {STORE.phone}</a>
+                  <a className="btn btn-outline-secondary btn-sm" href={STORE.phone2Href}>{t('call')} {STORE.phone2}</a>
                 </div>
                 <p className="small text-secondary mt-2 mb-0">{t('storeReady')}</p>
               </form>
@@ -1521,9 +1499,6 @@ export default function App() {
           onApiUser={onApiUser}
         />
       )}
-      <div className={`api-status ${apiOnline ? 'on' : ''}`} title={apiOnline ? t('backendOnline') : t('backendOffline')} aria-hidden="true">
-        {apiOnline ? '● API' : '○ local'}
-      </div>
     </div>
   )
 }

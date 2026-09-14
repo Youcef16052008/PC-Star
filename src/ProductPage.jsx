@@ -142,7 +142,16 @@ export default function ProductPage({ t, product, photoIndex, setPhotoIndex, lef
               target="_blank"
               rel="noreferrer"
             >
-              {t('askWhatsapp')}
+              {t('askWhatsapp')} {STORE.phone}
+            </a>
+            {/* Deuxième numéro (06) à la demande du client */}
+            <a
+              className="btn btn-outline-secondary"
+              href={`https://wa.me/${STORE.whatsapp2}?text=${encodeURIComponent(t('pdpWaMsg', { name: product.name, sku: product.sku, price: money(product.price) }))}`}
+              target="_blank"
+              rel="noreferrer"
+            >
+              {t('askWhatsapp')} {STORE.phone2}
             </a>
           </div>
           <p className="small text-secondary mt-2 mb-0">{t('pdpCashNote')}</p>

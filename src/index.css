@@ -349,6 +349,11 @@ html[data-theme='dark'] .text-bg-light {
   color: #fff;
 }
 
+/* Deux FAB WhatsApp empilés (07 en bas, 06 au-dessus). */
+.wa-fab + .wa-fab {
+  bottom: 86px;
+}
+
 .api-status {
   position: fixed;
   top: 10px;
@@ -429,6 +434,10 @@ html[data-theme='dark'] .text-bg-light {
     inset-inline-start: 14px;
     padding: 10px 14px;
     font-size: 13px;
+  }
+
+  .wa-fab + .wa-fab {
+    bottom: 72px;
   }
 
   .product-bs-card:hover {

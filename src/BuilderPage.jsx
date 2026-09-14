@@ -370,7 +370,21 @@ export default function BuilderPage({ t, products, build, setBuild, liveStock, o
                   target="_blank"
                   rel="noreferrer"
                 >
-                  {t('shareBuild')}
+                  {t('shareBuild')} {STORE.phone}
+                </a>
+                {/* Deuxième numéro (06) à la demande du client */}
+                <a
+                  className="btn btn-sm btn-outline-success"
+                  href={`https://wa.me/${STORE.whatsapp2}?text=${encodeURIComponent(
+                    t('buildShareMsg', {
+                      lines: BUILDER_SLOTS.map((s) => build[s.key]).filter(Boolean).map((p) => `- ${p.name}`).join('\n'),
+                      total: money(total)
+                    })
+                  )}`}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  {t('shareBuild')} {STORE.phone2}
                 </a>
               </div>
 

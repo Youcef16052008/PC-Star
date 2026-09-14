@@ -12,6 +12,7 @@ export const STORE = {
   phone2: '0669 17 46 17',
   phone2Href: 'tel:+213669174617',
   whatsapp: '213770650387',
+  whatsapp2: '213669174617',
   email: 'pcstar.info31@gmail.com',
   instagram: 'pcstar31',
   instagramUrl: 'https://www.instagram.com/pcstar31/',
@@ -35,6 +36,7 @@ export const STORE_LINKS = [
   { id: 'instagram', label: 'Instagram', sub: '@pcstar31', href: 'https://www.instagram.com/pcstar31/' },
   { id: 'facebook', label: 'Facebook', sub: 'PC Star Informatique', href: 'https://www.facebook.com/pcstar31' },
   { id: 'whatsapp', label: 'WhatsApp', sub: '0770 65 03 87', href: 'https://wa.me/213770650387' },
+  { id: 'whatsapp2', css: 'whatsapp', label: 'WhatsApp', sub: '0669 17 46 17', href: 'https://wa.me/213669174617' },
   { id: 'maps', label: 'Google Maps', sub: 'Les Castors, Oran', href: 'https://www.google.com/maps/search/?api=1&query=Rue+Mimoune+Bouadjimi+El+Makari+Les+Castors+Oran' }
 ]
 

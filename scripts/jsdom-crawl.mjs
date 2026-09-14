@@ -47,7 +47,6 @@ const PAGES = [
   ['help', 'nav', 'navHelp', null],
   ['master', 'nav', 'navMaster', null],
   ['profile', 'nav', '__userName__', null],
-  ['warranty', 'footer', 'navWarranty', null],
   ['privacy', 'footer', 'navPrivacy', null],
   ['terms', 'footer', 'navTerms', null],
   ['product', 'product', null, '.pdp-zoom']
