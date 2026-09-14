@@ -1,0 +1,364 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>PC Star — Neon Noir</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #05050a;
+    --bg-2: #0a0a12;
+    --glass: rgba(255, 255, 255, .035);
+    --glass-hi: rgba(255, 255, 255, .06);
+    --line: rgba(255, 255, 255, .09);
+    --line-hi: rgba(255, 255, 255, .18);
+    --text: #eef0f6;
+    --text-2: #a2a7b8;
+    --muted: #6b7080;
+    --cyan: #00e5ff;
+    --violet: #b14aff;
+    --grad: linear-gradient(120deg, #00e5ff, #b14aff);
+    --sans: 'Space Grotesk', system-ui, sans-serif;
+    --mono: 'JetBrains Mono', ui-monospace, Menlo, monospace;
+    --r: 16px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  body { background: var(--bg); color: var(--text); font-family: var(--sans); -webkit-font-smoothing: antialiased; line-height: 1.5; overflow-x: hidden; }
+  a { color: inherit; text-decoration: none; }
+  .wrap { max-width: 1220px; margin: 0 auto; padding: 0 24px; position: relative; z-index: 2; }
+
+  /* Halos d'ambiance */
+  .orb { position: fixed; border-radius: 50%; filter: blur(120px); pointer-events: none; z-index: 0; }
+  .orb-1 { width: 620px; height: 620px; background: rgba(0, 229, 255, .13); top: -220px; left: -140px; }
+  .orb-2 { width: 560px; height: 560px; background: rgba(177, 74, 255, .13); top: 180px; right: -200px; }
+  .orb-3 { width: 520px; height: 520px; background: rgba(0, 229, 255, .07); bottom: -160px; left: 30%; }
+
+  nav { position: sticky; top: 0; z-index: 50; background: rgba(5,5,10,.7); backdrop-filter: blur(18px) saturate(160%); border-bottom: 1px solid var(--line); }
+  nav .wrap { display: flex; align-items: center; justify-content: space-between; height: 66px; gap: 20px; }
+  .logo { display: flex; align-items: center; gap: 11px; font-weight: 700; font-size: 17px; letter-spacing: -.02em; }
+  .mark { width: 30px; height: 30px; border-radius: 9px; background: var(--grad); display: grid; place-items: center; color: #04121a; font-size: 15px; font-weight: 700; box-shadow: 0 0 22px rgba(0,229,255,.4); }
+  .navlinks { display: flex; gap: 3px; }
+  .navlinks a { padding: 8px 14px; border-radius: 10px; font-size: 13.5px; color: var(--text-2); font-weight: 500; transition: background .16s, color .16s; }
+  .navlinks a:hover { background: var(--glass); color: var(--text); }
+  .navlinks a.on { color: var(--text); background: var(--glass-hi); box-shadow: inset 0 0 0 1px var(--line); }
+  .navright { display: flex; align-items: center; gap: 8px; }
+  .btn { display: inline-flex; align-items: center; gap: 8px; padding: 10px 19px; border-radius: 11px; font-size: 13.5px;
+    font-weight: 600; cursor: pointer; border: 1px solid var(--line); background: var(--glass); color: var(--text);
+    font-family: var(--sans); backdrop-filter: blur(10px); transition: border-color .18s, background .18s, box-shadow .18s, transform .14s; }
+  .btn:hover { border-color: var(--line-hi); background: var(--glass-hi); }
+  .btn:active { transform: translateY(1px); }
+  .btn-glow { background: var(--grad); color: #04121a; border-color: transparent; font-weight: 700; box-shadow: 0 0 26px rgba(0,229,255,.32); }
+  .btn-glow:hover { box-shadow: 0 0 38px rgba(0,229,255,.5); background: var(--grad); }
+  .cart { position: relative; }
+  .cart b { position: absolute; top: -6px; right: -6px; background: var(--grad); color: #04121a; font-size: 10px; font-weight: 700; border-radius: 99px; padding: 2px 6px; }
+  @media (max-width: 940px) { .navlinks { display: none; } }
+
+  /* ── Hero ─────────────────────────────────────────────── */
+  .hero { padding: 84px 0 68px; text-align: center; position: relative; }
+  .pill { display: inline-flex; align-items: center; gap: 8px; padding: 6px 14px; border-radius: 99px; border: 1px solid var(--line);
+    background: var(--glass); backdrop-filter: blur(10px); font-family: var(--mono); font-size: 11.5px; color: var(--text-2); margin-bottom: 26px; }
+  .pill i { width: 6px; height: 6px; border-radius: 50%; background: var(--cyan); box-shadow: 0 0 10px var(--cyan); }
+  h1 { font-size: clamp(36px, 6.4vw, 72px); font-weight: 700; letter-spacing: -.045em; line-height: 1.02; max-width: 15ch; margin: 0 auto; }
+  h1 .g { background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .hero p { color: var(--text-2); font-size: 16.5px; line-height: 1.68; max-width: 56ch; margin: 24px auto 0; }
+  .cta { display: flex; gap: 10px; justify-content: center; margin-top: 34px; flex-wrap: wrap; }
+
+  .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-top: 56px; }
+  .stat { background: var(--glass); border: 1px solid var(--line); border-radius: var(--r); padding: 20px; backdrop-filter: blur(10px);
+    transition: border-color .2s, transform .2s; }
+  .stat:hover { border-color: var(--line-hi); transform: translateY(-2px); }
+  .stat b { display: block; font-size: 28px; font-weight: 700; letter-spacing: -.035em; font-variant-numeric: tabular-nums;
+    background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .stat span { font-size: 12px; color: var(--muted); }
+  @media (max-width: 720px) { .stats { grid-template-columns: repeat(2, 1fr); } }
+
+  section { padding: 66px 0; }
+  .shead { display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; margin-bottom: 26px; }
+  .shead h2 { font-size: 27px; font-weight: 700; letter-spacing: -.035em; }
+  .shead p { color: var(--muted); font-size: 13.5px; margin-top: 6px; }
+  .shead a { font-family: var(--mono); font-size: 12px; color: var(--cyan); white-space: nowrap; }
+
+  /* ── Catégories ───────────────────────────────────────── */
+  .cats { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; }
+  .cat { background: var(--glass); border: 1px solid var(--line); border-radius: 14px; padding: 20px 16px; cursor: pointer;
+    backdrop-filter: blur(10px); transition: border-color .2s, transform .2s, box-shadow .2s; text-align: left; }
+  .cat:hover { border-color: rgba(0,229,255,.45); transform: translateY(-3px); box-shadow: 0 10px 30px rgba(0,229,255,.12); }
+  .cat .ico { font-size: 20px; margin-bottom: 12px; display: block; background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .cat b { display: block; font-size: 13.5px; font-weight: 600; }
+  .cat span { font-family: var(--mono); font-size: 10.5px; color: var(--muted); }
+  @media (max-width: 900px) { .cats { grid-template-columns: repeat(3, 1fr); } }
+  @media (max-width: 520px) { .cats { grid-template-columns: repeat(2, 1fr); } }
+
+  /* ── Produits ─────────────────────────────────────────── */
+  .grid4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+  @media (max-width: 1000px) { .grid4 { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 560px) { .grid4 { grid-template-columns: 1fr; } }
+  .card { background: var(--glass); border: 1px solid var(--line); border-radius: var(--r); overflow: hidden;
+    backdrop-filter: blur(12px); display: flex; flex-direction: column; position: relative; transition: border-color .22s, transform .22s, box-shadow .22s; }
+  .card::before { content: ''; position: absolute; inset: 0; border-radius: var(--r); padding: 1px; background: var(--grad);
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor; mask-composite: exclude;
+    opacity: 0; transition: opacity .22s; pointer-events: none; }
+  .card:hover { transform: translateY(-4px); box-shadow: 0 18px 44px rgba(0,0,0,.5); }
+  .card:hover::before { opacity: 1; }
+  .thumb { aspect-ratio: 4/3; background: radial-gradient(ellipse at 50% 25%, rgba(0,229,255,.09), rgba(177,74,255,.05) 45%, transparent 72%), #08080f;
+    border-bottom: 1px solid var(--line); display: grid; place-items: center; font-size: 42px; color: rgba(255,255,255,.18); position: relative; }
+  .card:hover .thumb { color: rgba(0,229,255,.55); }
+  .badge { position: absolute; top: 11px; left: 11px; font-family: var(--mono); font-size: 10px; letter-spacing: .06em;
+    background: rgba(0,229,255,.12); color: var(--cyan); border: 1px solid rgba(0,229,255,.3); border-radius: 7px; padding: 3px 8px; backdrop-filter: blur(6px); }
+  .badge.low { background: rgba(251,191,36,.12); color: #fbbf24; border-color: rgba(251,191,36,.3); }
+  .cbody { padding: 15px 16px 16px; display: flex; flex-direction: column; gap: 8px; flex: 1; }
+  .brand { font-family: var(--mono); font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
+  .cbody h3 { font-size: 15px; font-weight: 600; line-height: 1.32; letter-spacing: -.015em; }
+  .specs { font-family: var(--mono); font-size: 11px; color: var(--text-2); line-height: 1.75; }
+  .row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: auto; padding-top: 12px; border-top: 1px solid var(--line); }
+  .price { font-size: 16.5px; font-weight: 700; letter-spacing: -.03em; font-variant-numeric: tabular-nums; }
+  .price small { font-size: 10.5px; color: var(--muted); font-weight: 500; }
+  .add { border: 1px solid var(--line); background: var(--glass); color: var(--text); border-radius: 9px; padding: 7px 13px;
+    font-size: 12.5px; font-weight: 600; cursor: pointer; font-family: var(--sans); transition: background .18s, color .18s, border-color .18s; }
+  .add:hover { background: var(--grad); color: #04121a; border-color: transparent; }
+
+  /* ── Builder ──────────────────────────────────────────── */
+  .builder { background: var(--glass); border: 1px solid var(--line); border-radius: 24px; padding: 44px;
+    backdrop-filter: blur(16px); display: grid; grid-template-columns: 1fr 1fr; gap: 40px; align-items: center; position: relative; overflow: hidden; }
+  .builder::after { content: ''; position: absolute; width: 420px; height: 420px; border-radius: 50%; filter: blur(90px);
+    background: rgba(177,74,255,.16); right: -120px; top: -120px; pointer-events: none; }
+  @media (max-width: 880px) { .builder { grid-template-columns: 1fr; padding: 28px; } }
+  .builder h2 { font-size: 29px; font-weight: 700; letter-spacing: -.038em; margin-bottom: 13px; position: relative; }
+  .builder p { color: var(--text-2); font-size: 14.5px; line-height: 1.7; position: relative; }
+  .builder .pill { margin-bottom: 18px; }
+  .slots { display: flex; flex-direction: column; gap: 8px; position: relative; }
+  .slot { display: flex; align-items: center; justify-content: space-between; gap: 12px; background: rgba(255,255,255,.03);
+    border: 1px solid var(--line); border-radius: 11px; padding: 11px 14px; }
+  .slot .k { font-family: var(--mono); font-size: 10.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .1em; }
+  .slot .v { font-size: 13.5px; font-weight: 500; }
+  .slot .p { font-family: var(--mono); font-size: 12.5px; color: var(--cyan); }
+  .total { display: flex; align-items: baseline; justify-content: space-between; margin-top: 14px; padding-top: 15px;
+    border-top: 1px solid var(--line-hi); position: relative; }
+  .total span { font-size: 12px; color: var(--muted); }
+  .total b { font-size: 24px; font-weight: 700; letter-spacing: -.035em; background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent; }
+
+  /* ── Magasin ──────────────────────────────────────────── */
+  .store { display: grid; grid-template-columns: 1.1fr .9fr; gap: 12px; }
+  @media (max-width: 880px) { .store { grid-template-columns: 1fr; } }
+  .panel { background: var(--glass); border: 1px solid var(--line); border-radius: 20px; padding: 30px; backdrop-filter: blur(12px); }
+  .panel h3 { font-size: 20px; font-weight: 700; letter-spacing: -.028em; }
+  .kv { display: flex; flex-direction: column; gap: 14px; margin-top: 20px; }
+  .kv div { display: flex; gap: 14px; font-size: 14px; align-items: baseline; }
+  .kv dt { font-family: var(--mono); font-size: 10.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .1em; min-width: 82px; }
+  .kv dd { color: var(--text-2); }
+  .map { border-radius: 20px; min-height: 290px; display: grid; place-items: center; text-align: center; border: 1px solid var(--line);
+    background: radial-gradient(ellipse at 50% 50%, rgba(0,229,255,.08), transparent 65%), #08080f;
+    color: var(--muted); font-family: var(--mono); font-size: 12px; line-height: 2; }
+
+  footer { border-top: 1px solid var(--line); padding: 36px 0 48px; margin-top: 30px; }
+  footer .wrap { display: flex; justify-content: space-between; gap: 20px; flex-wrap: wrap; align-items: center; }
+  footer p { color: var(--muted); font-size: 13px; }
+  footer .links { display: flex; gap: 18px; font-size: 13px; color: var(--muted); }
+  footer .links a:hover { color: var(--cyan); }
+</style>
+</head>
+<body>
+
+<div class="orb orb-1"></div><div class="orb orb-2"></div><div class="orb orb-3"></div>
+
+<nav>
+  <div class="wrap">
+    <a class="logo" href="#"><span class="mark">S</span>PC Star</a>
+    <div class="navlinks">
+      <a href="#" class="on">Boutique</a><a href="#">Recherche</a><a href="#">Config PC</a><a href="#">À propos</a><a href="#">Commandes</a>
+    </div>
+    <div class="navright">
+      <button class="btn">FR</button>
+      <button class="btn">Connexion</button>
+      <button class="btn cart">Panier <b>2</b></button>
+    </div>
+  </div>
+</nav>
+
+<header class="hero">
+  <div class="wrap">
+    <div class="pill"><i></i>Comptoir ouvert · El Makari Les Castors, Oran</div>
+    <h1>La machine qu'il vous faut, <span class="g">pièce par pièce.</span></h1>
+    <p>
+      Réservez en ligne, retirez et payez en dinars au comptoir. Stock réel sur chaque référence,
+      compatibilité vérifiée par le configurateur avant l'achat.
+    </p>
+    <div class="cta">
+      <button class="btn btn-glow">Voir le catalogue →</button>
+      <button class="btn">Configurer un PC</button>
+    </div>
+
+    <div class="stats">
+      <div class="stat"><b>223</b><span>références en stock</span></div>
+      <div class="stat"><b>18</b><span>cartes graphiques</span></div>
+      <div class="stat"><b>14</b><span>laptops disponibles</span></div>
+      <div class="stat"><b>0 DA</b><span>paiement au retrait</span></div>
+    </div>
+  </div>
+</header>
+
+<section>
+  <div class="wrap">
+    <div class="shead"><div><h2>Catégories</h2><p>Tout le catalogue, par type de composant</p></div></div>
+    <div class="cats">
+      <div class="cat"><span class="ico">▣</span><b>Processeurs</b><span>13 réf.</span></div>
+      <div class="cat"><span class="ico">▤</span><b>Cartes graphiques</b><span>18 réf.</span></div>
+      <div class="cat"><span class="ico">▥</span><b>RAM &amp; SSD</b><span>25 réf.</span></div>
+      <div class="cat"><span class="ico">▦</span><b>Laptops</b><span>14 réf.</span></div>
+      <div class="cat"><span class="ico">▧</span><b>PC prêts</b><span>8 réf.</span></div>
+      <div class="cat"><span class="ico">▨</span><b>Consoles</b><span>5 réf.</span></div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <div class="shead">
+      <div><h2>Composants</h2><p>Stock décrémenté à chaque commande</p></div>
+      <a href="#">Tout voir →</a>
+    </div>
+    <div class="grid4">
+      <article class="card">
+        <div class="thumb"><span class="badge">Stock 6</span>▣</div>
+        <div class="cbody">
+          <span class="brand">AMD</span><h3>Ryzen 7 7800X3D</h3>
+          <div class="specs">AM5 · 8C/16T · 120 W<br>3D V-Cache 96 Mo</div>
+          <div class="row"><span class="price">97 000 <small>DA</small></span><button class="add">Ajouter</button></div>
+        </div>
+      </article>
+      <article class="card">
+        <div class="thumb"><span class="badge low">Stock 3</span>▤</div>
+        <div class="cbody">
+          <span class="brand">NVIDIA</span><h3>RTX 4070 Super 12 GB</h3>
+          <div class="specs">12 Go GDDR6X · 220 W<br>Alim conseillée 700 W</div>
+          <div class="row"><span class="price">147 000 <small>DA</small></span><button class="add">Ajouter</button></div>
+        </div>
+      </article>
+      <article class="card">
+        <div class="thumb"><span class="badge">Stock 4</span>▣</div>
+        <div class="cbody">
+          <span class="brand">Intel</span><h3>Core i7-14700K</h3>
+          <div class="specs">LGA1700 · 20C/28T<br>125 W · DDR5 / DDR4</div>
+          <div class="row"><span class="price">90 000 <small>DA</small></span><button class="add">Ajouter</button></div>
+        </div>
+      </article>
+      <article class="card">
+        <div class="thumb"><span class="badge">Stock 5</span>▤</div>
+        <div class="cbody">
+          <span class="brand">AMD</span><h3>Radeon RX 7800 XT 16 GB</h3>
+          <div class="specs">16 Go GDDR6 · 263 W<br>Alim conseillée 750 W</div>
+          <div class="row"><span class="price">125 000 <small>DA</small></span><button class="add">Ajouter</button></div>
+        </div>
+      </article>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <div class="shead">
+      <div><h2>Machines prêtes &amp; laptops</h2><p>Assemblés et testés au comptoir</p></div>
+      <a href="#">Tout voir →</a>
+    </div>
+    <div class="grid4">
+      <article class="card">
+        <div class="thumb"><span class="badge low">Stock 2</span>▧</div>
+        <div class="cbody">
+          <span class="brand">PC Star</span><h3>Star Gamer 7600 + RTX 4060</h3>
+          <div class="specs">Ryzen 5 7600 · 32 Go<br>SSD 1 To · alim 750 W</div>
+          <div class="row"><span class="price">185 000 <small>DA</small></span><button class="add">Ajouter</button></div>
+        </div>
+      </article>
+      <article class="card">
+        <div class="thumb"><span class="badge">Stock 3</span>▧</div>
+        <div class="cbody">
+          <span class="brand">PC Star</span><h3>Star Office i5 16 Go</h3>
+          <div class="specs">Bureautique · silencieux<br>SSD 512 Go</div>
+          <div class="row"><span class="price">89 000 <small>DA</small></span><button class="add">Ajouter</button></div>
+        </div>
+      </article>
+      <article class="card">
+        <div class="thumb"><span class="badge">Stock 3</span>▦</div>
+        <div class="cbody">
+          <span class="brand">Lenovo</span><h3>ThinkPad T14 i5</h3>
+          <div class="specs">14" · i5 · 16 Go<br>SSD 512 Go</div>
+          <div class="row"><span class="price">89 000 <small>DA</small></span><button class="add">Ajouter</button></div>
+        </div>
+      </article>
+      <article class="card">
+        <div class="thumb"><span class="badge low">Stock 1</span>▨</div>
+        <div class="cbody">
+          <span class="brand">Sony</span><h3>PlayStation 5 Digital</h3>
+          <div class="specs">825 Go SSD<br>DualSense incluse</div>
+          <div class="row"><span class="price">89 000 <small>DA</small></span><button class="add">Ajouter</button></div>
+        </div>
+      </article>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <div class="builder">
+      <div>
+        <div class="pill"><i></i>Configurateur</div>
+        <h2>Montez-le, on vérifie tout</h2>
+        <p>
+          Socket, type de mémoire, consommation estimée face à l'alimentation : le configurateur
+          bloque ce qui ne peut pas fonctionner et signale ce qui mérite attention. Vous réservez
+          ensuite en un clic.
+        </p>
+        <div style="display:flex;gap:10px;margin-top:24px;flex-wrap:wrap;position:relative">
+          <button class="btn btn-glow">Ouvrir le configurateur →</button>
+          <button class="btn">Voir les presets</button>
+        </div>
+      </div>
+      <div>
+        <div class="slots">
+          <div class="slot"><span class="k">CPU</span><span class="v">Ryzen 5 7600</span><span class="p">42 000</span></div>
+          <div class="slot"><span class="k">Carte mère</span><span class="v">B650 · AM5</span><span class="p">28 000</span></div>
+          <div class="slot"><span class="k">Mémoire</span><span class="v">32 Go DDR5</span><span class="p">19 000</span></div>
+          <div class="slot"><span class="k">GPU</span><span class="v">RTX 4060 8 Go</span><span class="p">72 000</span></div>
+          <div class="slot"><span class="k">Alim</span><span class="v">750 W · 80+ Bronze</span><span class="p">16 000</span></div>
+        </div>
+        <div class="total"><span>Consommation estimée 410 W</span><b>177 000 DA</b></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <div class="shead"><div><h2>Le magasin</h2><p>Retrait sur place, paiement en dinars</p></div></div>
+    <div class="store">
+      <div class="panel">
+        <h3>PC Star Informatique</h3>
+        <div class="kv">
+          <div><dt>Adresse</dt><dd>Rue Mimoune Bouadjimi, El Makari Les Castors, Oran</dd></div>
+          <div><dt>Téléphone</dt><dd>0770 65 03 87 · 0669 17 46 17</dd></div>
+          <div><dt>Horaires</dt><dd>Appelez ou écrivez sur WhatsApp avant de venir</dd></div>
+          <div><dt>Paiement</dt><dd>Dinars, au comptoir, au retrait</dd></div>
+        </div>
+        <div style="display:flex;gap:10px;margin-top:24px;flex-wrap:wrap">
+          <button class="btn btn-glow">WhatsApp</button>
+          <button class="btn">Itinéraire Google Maps</button>
+        </div>
+      </div>
+      <div class="map">EL MAKARI LES CASTORS<br>ORAN · ALGÉRIE<br>35.6969° N · 0.6331° W</div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <p>© 2026 PC Star Informatique — Oran, Algérie</p>
+    <div class="links"><a href="#">Garantie &amp; RMA</a><a href="#">Confidentialité</a><a href="#">Conditions</a></div>
+  </div>
+</footer>
+
+</body>
+</html>
