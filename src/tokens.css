@@ -117,3 +117,13 @@ html[data-theme='light'] {
 
   color-scheme: light;
 }
+
+/* § 4.3 ④ : le biseautage est disproportionné sur petit écran — un chanfrein
+   de 10 px sur une carte pleine largeur (360 px) fait « jouet ». Une seule
+   variable change sous 576 px, tout le site suit. */
+@media (max-width: 575.98px) {
+  :root {
+    --chamf: polygon(6px 0, calc(100% - 6px) 0, 100% 6px, 100% calc(100% - 6px), calc(100% - 6px) 100%, 6px 100%, 0 calc(100% - 6px), 0 6px);
+    --chamf-sm: polygon(4px 0, calc(100% - 4px) 0, 100% 4px, 100% calc(100% - 4px), calc(100% - 4px) 100%, 4px 100%, 0 calc(100% - 4px), 0 4px);
+  }
+}

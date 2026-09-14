@@ -1,0 +1,160 @@
+/* ────────────────────────────────────────────────────────────────────────────
+   Direction 03 « Terminal Cyber » · LOT L1 : typographie & géométrie.
+
+   Règles de ce fichier (vérifiées par src/cyberDesign.test.js) :
+   1. AUCUNE couleur en dur — uniquement des var(--…) définis dans tokens.css.
+   2. Media queries uniquement sur l'échelle Bootstrap (575.98 / 767.98 /
+      991.98 / 1199.98 / 1399.98 px) + media sans largeur (reduced-motion…).
+   3. clip-path uniquement via var(--chamf) / var(--chamf-sm) — polygones
+      symétriques = auto-miroir RTL (plan § 5 R1).
+   4. JAMAIS de clip-path sur l'élément interactif lui-même ni sur un
+      sélecteur portant :focus : le biseau passe par un pseudo-élément de
+      fond, la boîte (et l'anneau de focus) reste intacte (plan § 4.3 ③).
+   ──────────────────────────────────────────────────────────────────────────── */
+
+/* ── 1. Typographie : JetBrains Mono partout, Chakra Petch pour les titres.
+      (Le <body> est basculé dans index.css, L1.) ── */
+h1, h2, h3, h4, h5, h6,
+.h1, .h2, .h3, .h4, .h5, .h6 {
+  font-family: var(--font-display);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  line-height: 1.25;
+}
+
+/* R2 (arabe) : l'espacement de lettres ROMPT la liaison cursive des glyphes
+   arabes. Règle globale immédiate : en RTL, letter-spacing = 0 partout. */
+html[dir='rtl'] * {
+  letter-spacing: 0 !important;
+}
+
+/* ── 2. Filets : les contrôles ne reposent jamais sur --line seul (§ 6.1) ── */
+.form-control,
+.form-select {
+  border-color: var(--line-hi) !important;
+}
+
+hr {
+  color: var(--line);
+  opacity: 1;
+}
+
+/* ── 3. Géométrie biseautée — architecture ::before/::after.
+      Couche bordure (::before, inset 0) + couche fond (::after, inset 1px),
+      toutes deux clip-path : le contenu et les ombres restent sur la boîte
+      rectangulaire de l'élément → focus, hover et shadows jamais rognés. ── */
+.app .card,
+.modal-content {
+  position: relative;
+  isolation: isolate;
+}
+
+.app .card {
+  background: transparent;
+  border-color: transparent !important;
+}
+
+/* Couche bordure — absente des cartes explicitement sans bordure. */
+.app .card:not(.border-0)::before,
+.modal-content::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -2;
+  clip-path: var(--chamf);
+  background: var(--line);
+}
+
+.app .card::after,
+.modal-content::after {
+  content: '';
+  position: absolute;
+  inset: 1px;
+  z-index: -1;
+  clip-path: var(--chamf);
+  background: var(--card);
+}
+
+/* Boutons pleins (variantes réellement utilisées : success, warning, light).
+   L'élément garde sa boîte rectangulaire → outline :focus-visible intact.
+   Les variantes outline restent volontairement rectangulaires en L1. */
+.btn-success,
+.btn-warning,
+.btn-light {
+  position: relative;
+  isolation: isolate;
+  background-color: transparent !important;
+  border-color: transparent !important;
+}
+
+.btn-success::before,
+.btn-warning::before,
+.btn-light::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -2;
+  clip-path: var(--chamf-sm);
+  background: var(--bs-btn-border-color, var(--line-hi));
+}
+
+.btn-success::after,
+.btn-warning::after,
+.btn-light::after {
+  content: '';
+  position: absolute;
+  inset: 1px;
+  z-index: -1;
+  clip-path: var(--chamf-sm);
+  background: var(--bs-btn-bg);
+  transition: background-color 0.15s ease;
+}
+
+.btn-success:hover::after,
+.btn-success:focus-visible::after,
+.btn-warning:hover::after,
+.btn-warning:focus-visible::after,
+.btn-light:hover::after,
+.btn-light:focus-visible::after {
+  background: var(--bs-btn-hover-bg);
+}
+
+.btn-success:active::after,
+.btn-warning:active::after,
+.btn-light:active::after {
+  background: var(--bs-btn-active-bg);
+}
+
+/* Boutons pleins en 576px et moins : le chanfrein se réduit tout seul
+   (tokens --chamf/--chamf-sm redéfinis dans tokens.css, § 4.3 ④) ; reste ici
+   la cible tactile ≥ 44 px (§ 4.3 ①, règle globale unique). */
+@media (max-width: 575.98px) {
+  .btn,
+  .nav-link,
+  .navbar-toggler {
+    min-height: 44px;
+  }
+}
+
+/* ── 4. Métadonnées système : espacées, majuscules (latin), mono ── */
+.api-status {
+  font-family: var(--font-mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+/* Filet de sécurité anti-scroll horizontal (§ 4.3 ⑤) : clip ne crée pas de
+   boîte de défilement → position: sticky reste fonctionnel. */
+html {
+  overflow-x: hidden;
+  overflow-x: clip;
+}
+
+/* ── 5. Mouvement réduit : les transitions L1 s'effacent (§ 4.4) ── */
+@media (prefers-reduced-motion: reduce) {
+  .btn-success::after,
+  .btn-warning::after,
+  .btn-light::after {
+    transition: none;
+  }
+}
