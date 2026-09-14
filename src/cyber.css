@@ -598,3 +598,63 @@ html[dir='rtl'] .skip-link:focus {
    monospace » ne survit pas en arabe. L'alignement des valeurs est assuré
    par la structure (tableaux .spec-table / grilles), pas par la chasse
    fixe. Aucune règle nécessaire. */
+
+/* ────────────────────────────────────────────────────────────────────────────
+   LOT L7 : recette responsive finale (§ 4.3 ⑥, § 4.4, § 4.2).
+   ──────────────────────────────────────────────────────────────────────────── */
+
+/* Coquille applicative : 100dvh respecte la barre d'URL mobile — jamais
+   100vh seul sur téléphone (§ 4.3 ⑥). Le repli 100vh précède pour les
+   navigateurs sans dvh. */
+.app {
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+
+/* Ancres : ne pas finir cachées sous le CTA collant du PDP (§ 4.3 ⑥). */
+html {
+  scroll-padding-bottom: 96px;
+}
+
+/* Cartes produit : 1 colonne sous 576px (§ 4.2). :has() est un
+   rehaussement progressif — sans lui (vieux navigateurs), la grille 2
+   colonnes actuelle reste en place, rien ne casse. */
+@media (max-width: 575.98px) {
+  .col-6:has(.product-bs-card) {
+    flex: 0 0 100%;
+    max-width: 100%;
+  }
+}
+
+/* Téléphone en paysage (§ 4.3 ⑥) : nav collante + CTA + FAB peuvent occuper
+   la moitié de la hauteur — le chrome fixe se compacte. */
+@media (max-width: 991.98px) and (max-height: 500px) {
+  .topbar {
+    font-size: 11px;
+    padding-block: 2px;
+  }
+
+  .hero,
+  .hero-simple {
+    padding: 1rem !important;
+  }
+}
+
+/* Mouvement réduit (§ 4.4) : extension à TOUTES les transitions du thème —
+   survols L1-L3, panneaux Bootstrap (offcanvas/modal/collapse), défilement. */
+@media (prefers-reduced-motion: reduce) {
+  .offcanvas,
+  .modal.fade .modal-dialog,
+  .navbar-collapse {
+    transition: none !important;
+  }
+
+  .product-bs-card,
+  .social-btn {
+    transition: none !important;
+  }
+
+  html {
+    scroll-behavior: auto;
+  }
+}

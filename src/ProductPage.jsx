@@ -149,8 +149,9 @@ export default function ProductPage({ t, product, photoIndex, setPhotoIndex, lef
         </div>
       </div>
 
-      {/* Mobile sticky CTA */}
-      <div className="pdp-sticky-cta d-md-none">
+      {/* Mobile sticky CTA — § 4.2 : présent téléphone ET tablette, masqué
+          au bureau (d-lg-none) ; safe-area-inset-bottom dans index.css. */}
+      <div className="pdp-sticky-cta d-lg-none">
         <div className="d-flex align-items-center gap-2">
           <strong className="text-success">{money(product.price)}</strong>
           <button className="btn btn-success flex-grow-1" type="button" disabled={left <= 0} onClick={onAdd}>
