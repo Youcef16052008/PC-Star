@@ -1,0 +1,119 @@
+/* ────────────────────────────────────────────────────────────────────────────
+   PC Star — Direction 03 « Terminal Cyber » · LOT L0 : socle de tokens.
+
+   RÈGLE D'OR : ce fichier ne contient QUE des déclarations de variables
+   (--x: valeur;) — aucune règle de style, aucune couleur en dur ailleurs que
+   dans les valeurs de tokens. Changer de direction graphique plus tard =
+   réécrire CE fichier seul (repli complet : `git revert src/tokens.css`).
+
+   Thème sombre = palette « Terminal Cyber » (maquette 03), avec le correctif
+   d'accessibilité § 6.1 : --muted remonté à #7d8fa1 (AA 4.5:1), la valeur
+   d'origine #5d6f80 étant reléguée à --muted-2 (décoratif ≥ 18 px / non
+   textuel uniquement).
+
+   Thème clair = déclinaison « papier technique » (option B du plan § 3.3) :
+   mêmes polices, mêmes biseautages, mêmes filets, palette inversée. Accent
+   cyan assombri (#0e7490) pour tenir le contraste AA sur fonds clairs.
+
+   Les 16 variables historiques du site sont CONSERVÉES sous leurs noms
+   existants (index.css continue de fonctionner sans réécriture) ; 7 tokens
+   s'ajoutent (--muted-2, --line-hi, --accent-dim, --font-display,
+   --font-mono, --chamf, --chamf-sm). Aucune variable supprimée.
+   ──────────────────────────────────────────────────────────────────────────── */
+
+:root,
+html[data-theme='dark'] {
+  /* Surfaces */
+  --bg: #07090c;            /* maquette --bg      */
+  --card: #0d1116;          /* maquette --panel   */
+  --soft: #111720;          /* maquette --panel-2 */
+  --photo-bg: #0a0f15;      /* fond des vignettes produit (léger retrait) */
+
+  /* Encres */
+  --ink: #dfe7ef;           /* maquette --text    */
+  --muted: #7d8fa1;         /* CORRECTIF § 6.1 : #5d6f80 échouait AA (3.85:1)
+                               → remonté à ≈ 6.0:1 sur --bg pour le texte courant */
+  --muted-2: #5d6f80;       /* NOUVEAU : valeur d'origine de la maquette —
+                               décoratif ≥ 18 px / non textuel UNIQUEMENT (3:1) */
+
+  /* Filets */
+  --line: #1c2733;          /* maquette --line — filet décoratif 1 px */
+  --line-hi: #2a3a4a;       /* NOUVEAU : maquette --line-hi — bordures de
+                               contrôles (champs de saisie) qui ne doivent pas
+                               reposer sur --line seul (§ 6.1) */
+
+  /* Accent — Terminal Cyber est CYAN (arbitrage § 8.1(a) : la direction 03
+     validée remplace le vert historique ; logo.png et favicon restent verts
+     jusqu'à l'arbitrage logo du lot L2). */
+  --blue: #22d3ee;          /* maquette --cyan */
+  --blue-2: #0ea5c4;        /* état survol */
+  --blue-on: #04212a;       /* texte SUR l'accent (9.25:1 sur --blue) */
+  --accent-dim: rgba(34, 211, 238, 0.1); /* NOUVEAU : halos / fonds teintés */
+
+  /* Sémantique */
+  --warn: #fbbf24;          /* ambre — inchangé */
+  --danger: #f87171;        /* rouge — inchangé */
+  --focus: #22d3ee;         /* anneau de focus = accent */
+
+  /* Dégradés / ombres */
+  --hero-from: #0d1116;
+  --hero-to: #07090c;
+  --shadow: rgba(0, 0, 0, 0.5);
+
+  /* Typographie — polices chargées dans index.html (display=swap).
+     Noto Naskh Arabic (déjà chargée) sert de repli aux glyphes arabes que
+     ni Chakra Petch ni JetBrains Mono ne couvrent (plan § 5 R4). */
+  --font-display: 'Chakra Petch', 'Noto Naskh Arabic', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Noto Naskh Arabic', ui-monospace, 'Courier New', monospace;
+
+  /* Géométrie — coins biseautés. polygon symétrique (4 coins chanfreinés) :
+     auto-miroir en RTL, aucune règle [dir='rtl'] nécessaire (plan § 5 R1).
+     L'application se fait au lot L1 via un pseudo-élément ::before pour ne
+     JAMAIS rogner l'anneau de focus (plan § 4.3 ③). */
+  --chamf: polygon(10px 0, calc(100% - 10px) 0, 100% 10px, 100% calc(100% - 10px), calc(100% - 10px) 100%, 10px 100%, 0 calc(100% - 10px), 0 10px);
+  --chamf-sm: polygon(6px 0, calc(100% - 6px) 0, 100% 6px, 100% calc(100% - 6px), calc(100% - 6px) 100%, 6px 100%, 0 calc(100% - 6px), 0 6px);
+
+  /* Ponts Bootstrap 5 (thème-aware) */
+  --bs-body-bg: var(--bg);
+  --bs-body-color: var(--ink);
+  --bs-border-color: var(--line);
+  --bs-secondary-color: var(--muted);
+  --bs-tertiary-bg: var(--soft);
+  --bs-primary: var(--blue-2);
+  --bs-success: var(--blue-2);
+
+  color-scheme: dark;
+}
+
+/* Thème clair « papier technique » — option B (§ 3.3) : l'identité Terminal
+   Cyber est géométrique (biseautages, filets, mono), pas seulement
+   chromatique ; elle survit en palette inversée. Toutes les paires sont
+   vérifiées AA (scripts/contrast-check.mjs). */
+html[data-theme='light'] {
+  --bg: #f2f5f8;
+  --card: #ffffff;
+  --soft: #e7edf4;
+  --photo-bg: #e9eff6;
+
+  --ink: #0b1220;
+  --muted: #5b6b7c;         /* ≥ 4.64:1 sur la surface la plus sombre (soft) */
+  --muted-2: #7b8a9c;       /* décoratif ≥ 18 px / non textuel (3:1) */
+
+  --line: #d5dee8;
+  --line-hi: #b7c5d3;       /* bordures de contrôles */
+
+  --blue: #0e7490;          /* cyan assombri : 4.90:1 sur --bg (AA) */
+  --blue-2: #155e75;        /* état survol */
+  --blue-on: #f8fafc;       /* texte SUR l'accent (5.12:1 sur --blue) */
+  --accent-dim: rgba(14, 116, 144, 0.08);
+
+  --warn: #92400e;          /* ambre assombri pour fonds clairs (6.48:1) */
+  --danger: #c62828;        /* rouge assombri pour fonds clairs (5.14:1) */
+  --focus: #0e7490;
+
+  --hero-from: #ffffff;
+  --hero-to: #e9eff6;
+  --shadow: rgba(11, 18, 32, 0.12);
+
+  color-scheme: light;
+}
