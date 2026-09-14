@@ -1,0 +1,1126 @@
+/* ────────────────────────────────────────────────────────────────────────────
+   PC Star — « Terminal Cyber » : PHOTOCOPIE de la maquette fournie par le
+   client, branchée sur le vrai markup React/Bootstrap de l'app.
+
+   Règles (vérifiées par src/cyberDesign.test.js) :
+   1. AUCUNE couleur en dur — var(--…) uniquement (hors @media print).
+   2. Media queries uniquement sur l'échelle Bootstrap.
+   3. clip-path uniquement via var(--chamf/-sm/-lg) — polygones diagonaux à
+      symétrie rotationale → rendu identique en RTL (T12).
+   4. Jamais de clip-path sur un sélecteur :focus (T5) : le focus se voit par
+      inversion de couleurs (fond cyan / encre sombre), pas par un anneau
+      rogné.
+   ──────────────────────────────────────────────────────────────────────────── */
+
+/* ── 1. Corps : Inter 16 px, interligne 1.6, fond propre (sans trame —
+      le bruit de fond fait « amateur », bonnes pratiques 2026). ── */
+body {
+  font-family: var(--font-display);
+  font-size: 16px;
+  line-height: 1.6;
+  background-color: var(--bg);
+}
+
+/* Arabe : le terminal mono reste LATIN — le corps arabe passe en Cairo,
+   propre et lisible (ni casse ni letter-spacing en arabe). */
+html[dir='rtl'] body {
+  font-family: 'Cairo', 'Noto Naskh Arabic', system-ui, sans-serif;
+  font-size: 16.5px;
+}
+
+html[dir='rtl'] * {
+  letter-spacing: 0 !important;
+}
+
+h1, h2, h3, h4, h5, h6,
+.h1, .h2, .h3, .h4, .h5, .h6 {
+  font-family: var(--font-display);
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+/* ── 2. Étiquettes méta : espacées, majuscules (latin). ── */
+.lbl,
+.cbrand,
+.spec-table th,
+.contact-pick-menu .num {
+  font-size: 10.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted-2);
+}
+
+/* ── 3. Barre système (.topbar = sysbar de la maquette). ── */
+.topbar {
+  background: var(--bg-0) !important;
+  border-bottom: 1px solid var(--line);
+  font-size: 11px;
+  color: var(--ink-2); /* texte foncé lisible sur fond clair */
+}
+
+.topbar .container {
+  align-items: center;
+  min-height: 32px;
+  gap: 16px;
+}
+
+.blink {
+  animation: pcstar-bl 1.6s steps(2, start) infinite;
+}
+
+@keyframes pcstar-bl {
+  to {
+    visibility: hidden;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .blink {
+    animation: none;
+  }
+}
+
+@media (max-width: 767.98px) {
+  .topbar-right {
+    display: none;
+  }
+}
+
+/* ── 4. Nav sticky : blur + filet, logo terminal, liens chanfreinés. ── */
+.shop-navbar {
+  background: color-mix(in srgb, var(--bg) 92%, transparent) !important;
+  backdrop-filter: blur(12px);
+  border-color: var(--line) !important;
+}
+
+.logo {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 17px;
+  letter-spacing: 0.02em;
+  color: var(--ink);
+}
+
+/* Logo officiel (PNG recréé d'après la carte de visite) : habillage
+   dans index.css (fond blanc arrondi) — cyber.css reste sans couleurs
+   en dur (garde-fou T6). */
+
+.shop-navbar .nav-link {
+  font-family: var(--font-display);
+  font-size: 15.5px;
+  font-weight: 600;
+  color: var(--ink-2) !important;
+  border-radius: 8px;
+  transition: background 0.15s, color 0.15s;
+}
+
+.shop-navbar .nav-link:hover {
+  background: var(--soft);
+  color: var(--ink) !important;
+}
+
+.shop-navbar .nav-link.active {
+  background: var(--accent-dim);
+  color: var(--blue) !important;
+  box-shadow: inset 0 -2px 0 var(--blue);
+}
+
+html[dir='rtl'] .shop-navbar .nav-link {
+  font-weight: 700;
+}
+
+html[data-theme='dark'] .navbar-toggler-icon {
+  filter: brightness(1.7);
+}
+
+html[data-theme='light'] .navbar-toggler-icon {
+  filter: brightness(0.55);
+}
+
+@media (max-width: 991.98px) {
+  .navbar-collapse .nav-link {
+    display: flex;
+    align-items: center;
+    width: 100%;
+    min-height: 44px;
+    text-align: start;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .navbar-collapse .navbar-nav .nav-link:last-child {
+    border-bottom: 0;
+  }
+
+  .navbar-toggler {
+    min-height: 44px;
+    min-width: 44px;
+  }
+}
+
+/* ── 5. Boutons : hauteur ≥ 44 px, texte 15 px, coins 8 px — une seule
+      forme primaire + une secondaire (jamais mélangées). ── */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 10px 24px;
+  font-family: var(--font-display);
+  font-size: 15px;
+  font-weight: 600;
+  border: 1px solid var(--line-hi);
+  background: transparent;
+  color: var(--ink);
+  border-radius: 8px;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.btn:hover {
+  background: var(--soft);
+  border-color: var(--danger); /* signature : bordure rouge au survol */
+  color: var(--ink);
+}
+
+/* Focus visible par inversion (jamais d'anneau rogné, T5). */
+.btn:focus-visible,
+.nav-link:focus-visible,
+.contact-pick-menu a:focus-visible {
+  background: var(--blue);
+  color: var(--blue-on);
+  border-color: var(--blue);
+  outline: none;
+}
+
+.btn-sm,
+.btn-group-sm > .btn {
+  min-height: 38px;
+  padding: 7px 16px;
+  font-size: 13.5px;
+}
+
+/* Variante pleine cyan (btn-cyan de la maquette) = btn-success Bootstrap. */
+.btn-success {
+  background: var(--blue);
+  color: var(--blue-on);
+  border-color: var(--blue);
+  font-weight: 600;
+}
+
+.btn-success:hover,
+.btn-success:focus-visible {
+  background: var(--blue);
+  filter: brightness(1.15);
+  color: var(--blue-on);
+}
+
+.btn-success:disabled {
+  background: var(--soft);
+  color: var(--muted-2);
+  border-color: var(--line);
+  filter: none;
+  opacity: 1;
+}
+
+.btn-warning {
+  background: var(--warn);
+  color: var(--blue-on);
+  border-color: var(--warn);
+  font-weight: 600;
+}
+
+.btn-light {
+  background: var(--soft);
+  color: var(--ink);
+  border-color: var(--line-hi);
+}
+
+/* Outline = btn terminal standard. */
+.btn-outline-secondary,
+.btn-outline-dark {
+  --bs-btn-color: var(--ink);
+  --bs-btn-border-color: var(--line-hi);
+  --bs-btn-hover-bg: var(--soft);
+  --bs-btn-hover-color: var(--ink);
+  --bs-btn-hover-border-color: var(--blue);
+  --bs-btn-active-bg: var(--soft);
+  --bs-btn-active-color: var(--ink);
+}
+
+.btn-outline-primary {
+  --bs-btn-color: var(--blue);
+  --bs-btn-border-color: var(--blue);
+  --bs-btn-hover-bg: var(--blue);
+  --bs-btn-hover-color: var(--blue-on);
+  --bs-btn-active-bg: var(--blue-2);
+  --bs-btn-active-color: var(--blue-on);
+}
+
+.btn-outline-danger {
+  --bs-btn-color: var(--danger);
+  --bs-btn-border-color: var(--danger);
+  --bs-btn-hover-bg: var(--danger);
+  --bs-btn-hover-color: var(--blue-on);
+  --bs-btn-active-bg: var(--danger);
+  --bs-btn-active-color: var(--blue-on);
+}
+
+.btn-outline-success {
+  --bs-btn-color: var(--blue);
+  --bs-btn-border-color: var(--line-hi);
+  --bs-btn-hover-bg: var(--blue);
+  --bs-btn-hover-color: var(--blue-on);
+  --bs-btn-hover-border-color: var(--blue);
+  --bs-btn-active-bg: var(--blue-2);
+  --bs-btn-active-color: var(--blue-on);
+}
+
+/* Outline par défaut (secondary) : texte bleu visible sur fond blanc,
+   bordure bleu pâle — plus de bouton « invisible ». */
+.btn-outline-secondary {
+  --bs-btn-color: var(--blue);
+  --bs-btn-border-color: color-mix(in srgb, var(--blue) 45%, var(--line));
+  --bs-btn-hover-bg: var(--accent-dim);
+  --bs-btn-hover-color: var(--blue);
+  --bs-btn-hover-border-color: var(--danger);
+  --bs-btn-active-bg: var(--accent-dim);
+  --bs-btn-active-color: var(--blue);
+  --bs-btn-disabled-color: var(--muted-2);
+  --bs-btn-disabled-border-color: var(--line);
+}
+
+/* Pastille panier façon maquette (.cart b). */
+.btn .badge.rounded-pill {
+  position: absolute;
+  top: -7px;
+  inset-inline-end: -7px;
+  background: var(--blue);
+  color: var(--blue-on);
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 5px;
+  clip-path: var(--chamf-sm);
+  border-radius: 0;
+}
+
+/* Cibles tactiles ≥ 44 px sous 576 px (garde-fou T4). */
+@media (max-width: 575.98px) {
+  .btn,
+  .nav-link,
+  .navbar-toggler {
+    min-height: 44px;
+  }
+}
+
+/* ── 6. Hero maquette : prompt $, titre display, filet cyan, readout. ── */
+.hero,
+.hero-simple {
+  background: transparent;
+  border: 0 !important;
+  border-bottom: 1px solid var(--line) !important;
+  border-radius: 0;
+  position: relative;
+  padding: 4rem 0 3rem !important;
+}
+
+.hero::after,
+.hero-simple::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--blue), transparent);
+  opacity: 0.5;
+}
+
+.prompt {
+  color: var(--blue);
+  font-size: 12px;
+  letter-spacing: 0.1em;
+  margin-bottom: 20px;
+  font-family: var(--font-mono);
+}
+
+/* Titre en casse normale (l'uppercase partout fait « template »),
+   graisse 800, taille fluide 34→54 px. */
+.hero h1,
+.hero-simple h1 {
+  font-size: clamp(2.1rem, 4.5vw, 3.4rem);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  line-height: 1.12;
+  max-width: 24ch;
+}
+
+html[dir='rtl'] .hero h1 {
+  letter-spacing: 0;
+  line-height: 1.3;
+  max-width: 28ch;
+}
+
+.hero h1 em,
+.hero-simple h1 em {
+  font-style: normal;
+  color: var(--blue);
+  text-shadow: 0 0 26px var(--glow);
+}
+
+.hero .lead,
+.hero-simple .lead {
+  color: var(--ink-2);
+  font-size: 17px;
+  line-height: 1.7;
+  max-width: 60ch;
+  margin-top: 22px;
+}
+
+/* Readout : seul élément conservant le chanfrein diagonal (signature de
+   la marque, garde-fou T8), données en mono. */
+.readout {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1px;
+  background: var(--line);
+  border: 1px solid var(--line);
+  clip-path: var(--chamf);
+  margin-top: 48px;
+}
+
+.readout .ro {
+  background: var(--card);
+  padding: 18px 20px;
+}
+
+.readout .ro b {
+  display: block;
+  font-family: var(--font-display);
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+}
+
+.readout .ro span {
+  font-size: 10.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted-2);
+}
+
+@media (max-width: 767.98px) {
+  .readout {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+/* ── 7. Têtes de section : « // TITRE ». ── */
+/* Rythme vertical 8 pt : sections aérées (64 px desktop, 40 mobile). */
+.page > section {
+  border-bottom: 1px solid var(--line);
+  padding: 64px 0;
+}
+
+@media (max-width: 575.98px) {
+  .page > section {
+    padding: 40px 0;
+  }
+}
+
+.page h2,
+.page .h2,
+.page h2.h4 {
+  font-family: var(--font-display);
+  font-size: clamp(1.4rem, 2.5vw, 1.75rem);
+  font-weight: 800;
+  letter-spacing: -0.01em;
+}
+
+.page h2::before,
+.page .h2::before,
+.page h2.h4::before {
+  content: '// ';
+  color: var(--danger); /* rouge étoile du logo — signature bicolore */
+}
+
+/* ── 8. Grille catégories : vraies cartes arrondies, gouttière 16 px. ── */
+.cats {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 16px;
+}
+
+.cats .btn {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--card);
+  color: var(--ink-2);
+  padding: 20px 16px;
+  display: block;
+  text-align: start;
+}
+
+.cats .btn:hover {
+  background: var(--soft);
+  color: var(--blue);
+  border-color: var(--danger);
+  box-shadow: none;
+}
+
+.cats .btn-success,
+.cats .btn.btn-success {
+  background: var(--accent-dim);
+  color: var(--blue);
+  border-color: var(--blue);
+  filter: none;
+}
+
+.cats .btn::before {
+  content: '▣';
+  display: block;
+  color: var(--blue);
+  font-size: 19px;
+  margin-bottom: 12px;
+  opacity: 0.85;
+}
+
+.cats .cat-gpu.btn::before { content: '▤'; }
+.cats .cat-memory.btn::before { content: '▥'; }
+.cats .cat-laptop.btn::before { content: '▦'; }
+.cats .cat-ready.btn::before { content: '▧'; }
+.cats .cat-console.btn::before { content: '▨'; }
+.cats .cat-case.btn::before { content: '▩'; }
+.cats .cat-cooling.btn::before { content: '◧'; }
+.cats .cat-accessories.btn::before { content: '◨'; }
+.cats .cat-repair.btn::before { content: '◩'; }
+.cats .cat-usb.btn::before { content: '◪'; }
+
+@media (max-width: 991.98px) {
+  .cats {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+@media (max-width: 575.98px) {
+  .cats {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .cats .btn {
+    min-height: 44px;
+  }
+}
+
+/* ── 9. Cartes produit : photocopy .card de la maquette. ── */
+.app .card,
+.modal-content {
+  border-radius: 0;
+  border: 1px solid var(--line);
+  background: var(--card);
+}
+
+.product-bs-card {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--card);
+  transition: border-color 0.18s, background 0.18s, box-shadow 0.18s;
+}
+
+/* Respiration interne 20-24 px (standard cartes pro). */
+.product-bs-card .card-body {
+  padding: 20px;
+}
+
+.product-bs-card:hover {
+  border-color: var(--danger); /* bordure rouge au survol (demande client) */
+  background: var(--card);
+  transform: none;
+  box-shadow: 0 8px 24px var(--shadow) !important;
+}
+
+.product-bs-card .photo-frame,
+.product-bs-card .ratio {
+  background: linear-gradient(150deg, var(--photo-bg-2), var(--photo-bg));
+  border-bottom: 1px solid var(--line);
+  clip-path: none;
+}
+
+.product-bs-card .badge {
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  border-radius: 6px;
+}
+
+.product-bs-card h3,
+.product-bs-card .h6 {
+  font-family: var(--font-display);
+  font-size: 14.5px;
+  font-weight: 600;
+  line-height: 1.3;
+  min-height: 2.6em;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+}
+
+.product-bs-card .card-body > :last-child {
+  margin-top: auto;
+}
+
+/* Prix cyan façon .price. */
+.product-bs-card .text-success,
+.pdp-price {
+  font-family: var(--font-display);
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+/* Bouton « + panier » des cartes = .add de la maquette. */
+.product-bs-card .card-body .btn-success.btn-sm {
+  padding: 6px 12px;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  background: transparent;
+  color: var(--ink);
+  border-color: var(--line-hi);
+  font-weight: 500;
+}
+
+.product-bs-card .card-body .btn-success.btn-sm:hover:not(:disabled) {
+  background: var(--blue);
+  color: var(--blue-on);
+  border-color: var(--blue);
+  filter: none;
+}
+
+/* ── 9b. Specs des cartes (i muet + valeur), ligne prix bordée. ── */
+.specs {
+  font-size: 11px;
+  color: var(--ink-2);
+  line-height: 1.8;
+}
+
+.specs i {
+  color: var(--muted-2);
+  font-style: normal;
+}
+
+.card-row {
+  padding-top: 11px;
+  border-top: 1px solid var(--line);
+}
+
+/* ── 9c. Panneaux « split » (configurateur) et « store » (comptoir). ── */
+.split,
+.store {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1px;
+  background: var(--line);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  overflow: hidden;
+}
+
+.split > div,
+.store > div {
+  background: var(--card);
+  padding: 30px;
+}
+
+@media (max-width: 767.98px) {
+  .split,
+  .store {
+    grid-template-columns: 1fr;
+  }
+
+  .split > div,
+  .store > div {
+    padding: 20px;
+  }
+}
+
+.check {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  margin-top: 18px;
+}
+
+.check div {
+  display: flex;
+  gap: 9px;
+  font-size: 12px;
+  color: var(--ink-2);
+  align-items: baseline;
+}
+
+.check .m {
+  color: var(--blue);
+}
+
+.check .w {
+  color: var(--warn);
+}
+
+.slots {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.slot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  padding: 12px 16px;
+  border-radius: 8px;
+}
+
+.slot .k {
+  font-size: 10px;
+  color: var(--muted-2);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+
+.slot .v {
+  font-size: 12.5px;
+  color: var(--ink);
+}
+
+.slot .p {
+  font-size: 12px;
+  color: var(--blue);
+}
+
+.total {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-top: 12px;
+  padding-top: 13px;
+  border-top: 1px solid var(--line-hi);
+}
+
+.total span {
+  font-size: 11px;
+  color: var(--muted-2);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.total b {
+  font-family: var(--font-display);
+  font-size: 23px;
+  font-weight: 700;
+  color: var(--blue);
+}
+
+.kv {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.kv div {
+  display: flex;
+  gap: 14px;
+  font-size: 13px;
+  align-items: baseline;
+}
+
+.kv dt {
+  font-size: 10px;
+  color: var(--muted-2);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  min-width: 84px;
+}
+
+.kv dd {
+  color: var(--ink-2);
+  margin: 0;
+}
+
+.map {
+  background: repeating-linear-gradient(45deg, var(--photo-bg), var(--photo-bg) 10px, var(--card) 10px, var(--card) 20px);
+  display: grid;
+  place-items: center;
+  text-align: center;
+  color: var(--muted-2);
+  font-size: 11.5px;
+  letter-spacing: 0.1em;
+  line-height: 2;
+}
+
+/* Liens du footer. */
+.footer-links button {
+  background: none;
+  border: 0;
+  padding: 0;
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--muted-2);
+  cursor: pointer;
+}
+
+.footer-links button:hover {
+  color: var(--blue);
+}
+
+/* ── Survol rouge : panneaux, slots, menus, nav (demande client). ── */
+.split > div:hover,
+.store > div:hover {
+  box-shadow: inset 0 0 0 1px var(--danger);
+}
+
+.slot:hover {
+  border-color: var(--danger);
+}
+
+.cats .btn:hover {
+  background: var(--soft);
+  color: var(--blue);
+  box-shadow: inset 0 0 0 1px var(--danger);
+}
+
+.contact-pick-menu a:hover {
+  background: var(--soft);
+  color: var(--blue);
+  box-shadow: inset 0 0 0 1px var(--danger);
+}
+
+.shop-navbar .nav-link:hover {
+  background: var(--soft);
+  color: var(--ink) !important;
+  box-shadow: inset 0 -2px 0 var(--danger);
+}
+
+.app .card:hover {
+  border-color: var(--danger);
+}
+
+/* ── 10. Ponts couleur Bootstrap (badges stock, utilitaires).
+      Badges PLEINS (fond opaque + texte blanc) : posés sur les photos
+      produit, ils restent lisibles quel que soit le fond. ── */
+.text-success {
+  color: var(--blue) !important;
+}
+
+.text-bg-success {
+  background-color: var(--blue) !important;
+  border: 0 !important;
+  color: var(--card) !important;
+  box-shadow: 0 2px 8px var(--shadow);
+}
+
+.text-bg-success-subtle {
+  background-color: var(--accent-dim) !important;
+  color: var(--blue) !important;
+}
+
+.text-success-emphasis {
+  color: var(--blue) !important;
+}
+
+.border-success-subtle {
+  border-color: color-mix(in srgb, var(--blue) 35%, var(--line)) !important;
+}
+
+.text-bg-warning {
+  background-color: var(--warn) !important;
+  border: 0 !important;
+  color: var(--card) !important;
+  box-shadow: 0 2px 8px var(--shadow);
+}
+
+.text-warning {
+  color: var(--warn) !important;
+}
+
+.text-bg-danger {
+  background-color: var(--danger) !important;
+  border: 0 !important;
+  color: var(--card) !important;
+  box-shadow: 0 2px 8px var(--shadow);
+}
+
+.bg-danger {
+  background-color: var(--danger) !important;
+}
+
+.badge {
+  font-family: var(--font-display);
+  border-radius: 6px;
+}
+
+/* ── 11. Formulaires / offcanvas / modales terminal. ── */
+.form-control,
+.form-select {
+  border-radius: 8px;
+  min-height: 44px;
+  background: var(--card) !important;
+  border-color: var(--line-hi) !important;
+  color: var(--ink) !important;
+  font-family: var(--font-display);
+  font-size: 15px;
+}
+
+html[dir='rtl'] .form-control,
+html[dir='rtl'] .form-select {
+  font-family: 'Cairo', 'Noto Naskh Arabic', system-ui, sans-serif;
+}
+
+.form-check-input:checked {
+  background-color: var(--blue);
+  border-color: var(--blue);
+}
+
+.form-check-input:focus {
+  border-color: var(--blue);
+  box-shadow: 0 0 0 0.2rem color-mix(in srgb, var(--blue) 25%, transparent);
+}
+
+.offcanvas {
+  background: var(--card) !important;
+  border-color: var(--line-hi) !important;
+  border-radius: 0;
+}
+
+.offcanvas-header {
+  border-bottom: 1px solid var(--line);
+  font-family: var(--font-display);
+  font-weight: 700;
+}
+
+.modal-content {
+  border-color: var(--line-hi);
+  border-radius: 14px;
+}
+
+.list-group-item {
+  border-radius: 0;
+}
+
+.nav-pills .nav-link {
+  border-radius: 8px;
+  color: var(--ink-2);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.nav-pills .nav-link.active {
+  background-color: var(--accent-dim) !important;
+  color: var(--blue) !important;
+  box-shadow: inset 0 -2px 0 var(--blue);
+}
+
+.alert-danger {
+  --bs-alert-color: var(--danger);
+  --bs-alert-bg: color-mix(in srgb, var(--danger) 10%, var(--bg));
+  --bs-alert-border-color: color-mix(in srgb, var(--danger) 35%, var(--line));
+  border-radius: 0;
+}
+
+.empty-state {
+  border-radius: 12px;
+  border: 1px solid var(--line-hi);
+  border-style: solid;
+}
+
+/* Anti-zoom iOS : champs ≥ 16 px sous 576 px (garde-fou T10). */
+@media (max-width: 575.98px) {
+  input,
+  select,
+  textarea {
+    font-size: 16px;
+  }
+}
+
+/* ── 12. Fiche produit / specs : tableau terminal. ── */
+.spec-table th {
+  color: var(--muted-2);
+  font-size: 10.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.pdp-zoom {
+  border-radius: 14px;
+  overflow: hidden;
+}
+
+.pdp-sticky-cta {
+  border-top-color: var(--line-hi);
+}
+
+/* Récap configurateur collant. */
+.app .card.sticky-lg-top {
+  border-radius: 14px;
+  border-color: var(--line-hi);
+}
+
+/* ── 13. Sélecteur de contact. ── */
+.contact-pick-menu {
+  border-radius: 12px;
+  background: var(--card);
+  border: 1px solid var(--line-hi);
+}
+
+.contact-pick-menu a:hover {
+  background: var(--soft);
+  color: var(--blue);
+}
+
+/* ── 14. FAB WhatsApp : pilule propre, sans gimmick. ── */
+.wa-fab {
+  border-radius: 999px;
+  font-family: var(--font-display);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.social-btn {
+  border-radius: 8px !important;
+}
+
+/* Étoiles : ambre tokenisé. */
+.stars {
+  color: var(--warn);
+}
+
+/* ── 15. Footer maquette. ── */
+.site-footer {
+  border-top: 1px solid var(--line);
+  background: transparent;
+}
+
+.site-footer strong {
+  font-family: var(--font-display);
+}
+
+/* ── 16. Largeur de contenu bornée (1200 px) + anti-scroll + ancres. ── */
+.container.page,
+.container.py-4 {
+  max-width: 1200px;
+}
+
+html {
+  overflow-x: hidden;
+  overflow-x: clip;
+  scroll-padding-bottom: 96px;
+}
+
+.app {
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+
+.app [class*='col-'] {
+  min-width: 0;
+}
+
+/* ── 17. Impression (seul bloc à couleurs en dur : papier/encre). ── */
+@media print {
+  *,
+  *::before,
+  *::after {
+    clip-path: none !important;
+    filter: none !important;
+    box-shadow: none !important;
+    text-shadow: none !important;
+  }
+
+  html,
+  body {
+    background: #fff !important;
+  }
+
+  body {
+    -webkit-print-color-adjust: auto;
+    print-color-adjust: auto;
+    background-image: none !important;
+  }
+
+  .app .card::before,
+  .app .card::after,
+  .modal-content::before,
+  .modal-content::after {
+    display: none !important;
+  }
+
+  .app .card,
+  .modal-content {
+    background: #fff !important;
+    border: 1px solid #333 !important;
+  }
+
+  .btn-success,
+  .btn-warning,
+  .btn-light {
+    background-color: #fff !important;
+    color: #000 !important;
+    border: 1px solid #333 !important;
+  }
+}
+
+/* ── 18. RTL : compensation de casse par le poids (R3). ── */
+html[dir='rtl'] .badge,
+html[dir='rtl'] .topbar,
+html[dir='rtl'] .api-status,
+html[dir='rtl'] .spec-table th,
+html[dir='rtl'] .offcanvas-header,
+html[dir='rtl'] .site-footer strong {
+  font-weight: 700;
+}
+
+html[dir='rtl'] .skip-link {
+  left: auto;
+  right: -9999px;
+  border-radius: 0 0 0 8px;
+}
+
+html[dir='rtl'] .skip-link:focus {
+  left: auto;
+  right: 0;
+}
+
+/* ── 19. Téléphone paysage & mouvement réduit. ── */
+@media (max-width: 991.98px) and (max-height: 500px) {
+  .topbar {
+    font-size: 10px;
+  }
+
+  .hero,
+  .hero-simple {
+    padding: 1rem 0 !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .offcanvas,
+  .modal.fade .modal-dialog,
+  .navbar-collapse,
+  .btn,
+  .product-bs-card {
+    transition: none !important;
+  }
+
+  html {
+    scroll-behavior: auto;
+  }
+}

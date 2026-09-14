@@ -24,6 +24,8 @@ import { ensureProductPhotos } from './productPhotos.js'
 import SearchPage from './SearchPage.jsx'
 import BuilderPage from './BuilderPage.jsx'
 import PartThumb from './PartThumb.jsx'
+import ContactButton from './ContactPicker.jsx'
+import { specRows } from './media.js'
 import AuthPanel from './AuthPanel.jsx'
 import ProfilePage from './ProfilePage.jsx'
 import OrdersPage from './OrdersPage.jsx'
@@ -37,11 +39,8 @@ import {
   applyDocumentChrome,
   loadLang,
   loadOrders,
-  loadTheme,
-  resolveTheme,
   saveLang,
-  saveOrders,
-  saveTheme
+  saveOrders
 } from './prefs.js'
 import {
   buildShopView,
@@ -147,6 +146,20 @@ function stockLabel(n, t) {
   return { text: `${n} ${t('inStore')}`, cls: 'stock-ok' }
 }
 
+/** Un lien externe DOIT s'ouvrir même dans un environnement qui bloque les
+    popups (aperçus iframe) : window.open d'abord, repli même onglet ensuite
+    (même pattern que ContactPicker). */
+function openExternal(e, href) {
+  e.preventDefault()
+  let w = null
+  try {
+    w = window.open(href, '_blank')
+  } catch {
+    w = null
+  }
+  if (!w) window.location.href = href
+}
+
 function cartMessage(cart, total, pickup, t) {
   const lines = cart.map((i) => `${i.qty} x ${i.name} (${i.sku})`).join('\n')
   const who = pickup.name ? `${t('waName')}: ${pickup.name}\n` : ''
@@ -175,8 +188,10 @@ function Stars({ product, t }) {
 
 export default function App() {
   const [lang, setLang] = useState(() => loadLang(storage))
-  const [themePref, setThemePref] = useState(() => loadTheme(storage))
-  const [theme, setTheme] = useState(() => resolveTheme(loadTheme(storage)))
+  // Thème sombre supprimé (demande client) : le site tourne en clair,
+  // quels que soient la préférence stockée ou le système.
+  // Site clair uniquement (choix client) : plus de préférence de thème.
+  const theme = 'light'
   const [users, setUsers] = useState(() => loadUsers(storage))
   const [session, setSession] = useState(() => loadSession(storage))
   const [meta, setMeta] = useState(() => loadMeta(storage))
@@ -191,6 +206,7 @@ export default function App() {
   // au logout pour ne JAMAIS laisser les infos du client précédent.
   const [pickup, setPickup] = useState(PICKUP_DEFAULTS)
   const [phoneErr, setPhoneErr] = useState('')
+  const [nameErr, setNameErr] = useState('')
   const [reservations, setReservations] = useState(() => loadOrders(storage))
   const [reserved, setReserved] = useState(null)
   const [build, setBuild] = useState({})
@@ -321,16 +337,6 @@ export default function App() {
     }
   }, [page, lang, selected]) // eslint-disable-line react-hooks/exhaustive-deps
 
-
-  useEffect(() => {
-    const apply = () => setTheme(resolveTheme(themePref))
-    apply()
-    if (themePref !== 'system' || typeof window === 'undefined' || !window.matchMedia) return undefined
-    const mql = window.matchMedia('(prefers-color-scheme: dark)')
-    const onChange = () => apply()
-    mql.addEventListener?.('change', onChange)
-    return () => mql.removeEventListener?.('change', onChange)
-  }, [themePref])
 
   useEffect(() => {
     if (!toast) return undefined
@@ -489,11 +495,16 @@ export default function App() {
           await refreshStock()
           return true
         }
-        setToast(t('deskStatusFail'))
-        return false
+        // Commande inconnue du serveur (créée en mode local), session non
+        // API ou réseau tombé : on bascule sur le repli local au lieu de
+        // laisser le bureau bloqué sur « Could not update status ».
+        const err = r.data?.error
+        if (!r.offline && err !== 'not_found' && err !== 'forbidden') {
+          setToast(t('deskStatusFail'))
+          return false
+        }
       } catch {
-        setToast(t('deskStatusFail'))
-        return false
+        /* réseau mort → repli local ci-dessous */
       }
     }
     // local fallback
@@ -658,11 +669,6 @@ export default function App() {
     saveLang(storage, id)
   }
 
-  function changeTheme(id) {
-    setThemePref(id)
-    saveTheme(storage, id)
-  }
-
   async function logout() {
     if (authMode === 'api') await api.logout()
     setApiUser(null)
@@ -694,6 +700,7 @@ export default function App() {
       return catOk && brandOk && qOk
     })
   }, [category, query, catalog, brandFilter])
+
 
 
   function liveStock(product) {
@@ -732,7 +739,14 @@ export default function App() {
     setCart((prev) => prev.filter((i) => i.id !== id))
   }
 
+  const KNOWN_PAGES = ['shop', 'search', 'builder', 'about', 'orders', 'desk', 'master', 'help', 'profile', 'privacy', 'terms', 'warranty', 'product']
+
   function openProduct(id) {
+    // Anti page blanche : référence inexistante/cachée → retour boutique.
+    if (!catalog.some((p) => p.id === id)) {
+      setPage('shop')
+      return
+    }
     setSelectedId(id)
     setPhotoIndex(0)
     setPage('product')
@@ -741,6 +755,7 @@ export default function App() {
   }
 
   function go(next) {
+    if (!KNOWN_PAGES.includes(next)) next = 'shop'
     if ((next === 'desk' || next === 'master' || next === 'help') && !isMaster) {
       setToast(t(next === 'help' ? 'masterOnlyGuide' : next === 'desk' ? 'masterOnlyDesk' : 'masterForbidden'))
       setAuthOpen(true)
@@ -763,7 +778,17 @@ export default function App() {
 
   async function reserve(e) {
     e.preventDefault()
-    if (!pickup.name.trim() || cart.length === 0) return
+    // BUGFIX : plus de retour silencieux — chaque blocage de validation est
+    // signalé (avant : clic « sans effet » si nom vide ou panier vide).
+    if (cart.length === 0) {
+      setToast(t('cartEmpty'))
+      return
+    }
+    if (!pickup.name.trim()) {
+      setNameErr(t('required'))
+      return
+    }
+    setNameErr('')
     if (!isDzPhone(pickup.phone)) {
       setPhoneErr(t('phoneInvalid'))
       return
@@ -872,6 +897,7 @@ export default function App() {
 
   const msg = cartMessage(cart, total, pickup, t)
   const waHref = `https://wa.me/${STORE.whatsapp}?text=${encodeURIComponent(msg)}`
+  const waHref2 = `https://wa.me/${STORE.whatsapp2}?text=${encodeURIComponent(msg)}`
   const carrier = phoneCarrier(pickup.phone)
 
   const toastText = typeof toast === 'string' ? toast : toast?.kind === 'cart' ? `${toast.name} · ${t('addedToCart')}` : ''
@@ -895,13 +921,17 @@ export default function App() {
           </div>
         </div>
       )}
-      <div className="topbar text-white small py-2">
+      <div className="topbar small py-1">
         <div className="container d-flex flex-wrap justify-content-between gap-2">
-          <span>{STORE.address}</span>
           <span>
-            <a className="link-light text-decoration-none fw-semibold" href={STORE.phoneHref}>
-              {STORE.phone}
-            </a>
+            <span className="text-success" aria-hidden="true">●</span> SYS.ONLINE <span className="blink" aria-hidden="true">_</span>
+            {' · '}
+            {t('storeOpen')} · Oran
+          </span>
+          <span className="topbar-right d-flex gap-3">
+            <span dir="ltr">TEL {STORE.phone}</span>
+            <span dir="ltr">TEL {STORE.phone2}</span>
+            <span>SKU {catalog.length}</span>
           </span>
         </div>
       </div>
@@ -909,7 +939,7 @@ export default function App() {
       <nav className="navbar navbar-expand-lg sticky-top border-bottom shop-navbar">
         <div className="container">
           <button type="button" className="navbar-brand btn btn-link text-decoration-none p-0 logo" onClick={() => go('shop')} aria-label="PC Star Informatique — accueil">
-            <img src="/logo.png" alt="PC Star Informatique" className="logo-img" width="150" height="101" />
+            <img src="/logo.png" alt="PC Star Informatique" className="logo-img" />
           </button>
           <div className="d-flex align-items-center gap-2 order-lg-last ms-auto ms-lg-0">
             <button
@@ -982,17 +1012,7 @@ export default function App() {
                   </button>
                 ))}
               </div>
-              <div className="btn-group btn-group-sm" role="group" aria-label="theme">
-                {[
-                  ['system', '◐'],
-                  ['light', '☀'],
-                  ['dark', '☾']
-                ].map(([id, mark]) => (
-                  <button key={id} type="button" className={`btn ${themePref === id ? 'btn-success' : 'btn-outline-secondary'}`} onClick={() => changeTheme(id)}>
-                    {mark}
-                  </button>
-                ))}
-              </div>
+              {/* Thème sombre supprimé à la demande du client : site blanc. */}
               {user ? (
                 <>
                   {/*
@@ -1028,27 +1048,46 @@ export default function App() {
 
       {page === 'shop' && (
         <main id="main-content" className="container page py-4" tabIndex={-1}>
-          <section className="hero hero-simple p-4 p-md-5 mb-4 rounded-4 border">
-            <h1 className="display-5 fw-bold mb-2">{t('heroTitle')}</h1>
-            <p className="lead text-secondary mb-3">{t('heroBody')}</p>
-            <div className="d-flex flex-wrap gap-2 align-items-center">
-              <span className="badge text-bg-light border">{STORE.address}</span>
-              {/* P21 : badges « espèces au comptoir » et « garantie 1 an » retirés. */}
+          {/* Hero « photocopié » sur la maquette Terminal Cyber : prompt $,
+              titre display, CTA et readout 4 compteurs live. */}
+          <section className="hero hero-simple mb-4">
+            <div className="prompt" dir="ltr">
+              $ pcstar --catalog --stock=live
+              <span className="blink" aria-hidden="true">▊</span>
             </div>
-            <div className="d-flex flex-wrap gap-2 mt-3">
-              <button className="btn btn-success" type="button" onClick={() => go('search')}>{t('advancedSearch')}</button>
-              <button className="btn btn-outline-secondary" type="button" onClick={() => go('builder')}>{t('pcBuilder')}</button>
-              {isMaster && (
-                <button className="btn btn-outline-secondary" type="button" onClick={() => go('help')}>{t('navHelp')}</button>
-              )}
+            <h1 className="fw-bold mb-2">{t('heroTitle')}</h1>
+            <p className="lead mb-3">{t('heroBody')}</p>
+            <div className="d-flex flex-wrap gap-2">
+              <button className="btn btn-success" type="button" onClick={() => document.getElementById('catalog')?.scrollIntoView({ behavior: 'smooth' })}>
+                {t('browseShop')} →
+              </button>
+              <button className="btn" type="button" onClick={() => go('builder')}>
+                {t('pcBuilder')}
+              </button>
+            </div>
+            <div className="readout">
+              <div className="ro">
+                <b>{catalog.length}</b>
+                <span>{t('roRefs')}</span>
+              </div>
+              <div className="ro">
+                <b>{catalog.filter((p) => p.category === 'gpu').length}</b>
+                <span>{t('roGpu')}</span>
+              </div>
+              <div className="ro">
+                <b>{catalog.filter((p) => p.category === 'laptop').length}</b>
+                <span>{t('roLaptops')}</span>
+              </div>
+              <div className="ro">
+                <b dir="ltr">0 DA</b>
+                <span>{t('roPay')}</span>
+              </div>
             </div>
           </section>
 
-          {/* P11 : panneaux « Pièces PC » et « Config PC » supprimés sur
-              demande — seul « Hits DZ » reste (largeur pleine). */}
-          {/* P21 : raccourci « Hits DZ » supprimé — il pointait vers la section retirée. */}
-
-          {/* P21 : section « dz-hit » supprimée à la demande du comptoir. */}
+          {/* À la demande du client : sections « Hits DZ » et « hits marché
+              Algérie » supprimées — la page commence par le hero puis
+              enchaîne directement sur filtres + catalogue (image-1). */}
 
           {/* P11 : section « Configs Star » + ses cartes supprimées sur demande. */}
 
@@ -1064,9 +1103,9 @@ export default function App() {
             ))}
           </div>
 
-          <div className="d-flex flex-wrap gap-2 align-items-center mb-4">
+          <div className="cats mb-4" id="catalog">
             {CATEGORIES.map((c) => (
-              <button key={c.id} type="button" className={`btn btn-sm rounded-pill ${category === c.id ? 'btn-success' : 'btn-outline-secondary'}`} onClick={() => setCategory(c.id)}>
+              <button key={c.id} type="button" className={`btn btn-sm cat-${c.id} ${category === c.id ? 'btn-success' : 'btn-outline-secondary'}`} onClick={() => setCategory(c.id)}>
                 {t(`cat_${c.id}`)}
               </button>
             ))}
@@ -1096,29 +1135,27 @@ export default function App() {
                   <div className="col-6 col-md-4 col-xl-3" key={p.id}>
                     <div className="card h-100 shadow-sm product-bs-card">
                       <button className="btn p-0 border-0 position-relative" type="button" onClick={() => openProduct(p.id)} aria-label={p.name}>
-                        <div className="ratio ratio-1x1 photo-frame overflow-hidden">
+                        <div className="ratio ratio-4x3 photo-frame overflow-hidden">
                           <PartThumb product={p} />
                         </div>
-                        <span className={`badge position-absolute top-0 end-0 m-2 ${st.cls === 'stock-ok' ? 'text-bg-success' : st.cls === 'stock-low' ? 'text-bg-warning' : 'text-bg-danger'}`}>
+                        <span className={`badge position-absolute top-0 start-0 m-2 ${st.cls === 'stock-ok' ? 'text-bg-success' : st.cls === 'stock-low' ? 'text-bg-warning' : 'text-bg-danger'}`}>
                           {st.text}
                         </span>
                       </button>
+                      {/* Corps de carte photocopié sur la maquette :
+                          marque → titre → specs → ligne prix / + panier. */}
                       <div className="card-body d-flex flex-column">
-                        <div className="small text-secondary">{p.sku}</div>
+                        <span className="cbrand">{p.brand}</span>
                         <h3 className="h6 card-title">{p.name}</h3>
-                        <Stars product={p} t={t} />
-                        <div className="small text-secondary mb-2">{p.short}</div>
-                        {(p.tags || []).length > 0 && (
-                          <div className="d-flex flex-wrap gap-1 mb-2">
-                            {(p.tags || []).slice(0, 2).map((tag) => (
-                              <span className="badge text-bg-light border" key={tag}>
-                                {t(`tag_${tag}`) !== `tag_${tag}` ? t(`tag_${tag}`) : tag}
-                              </span>
-                            ))}
-                          </div>
-                        )}
-                        <div className="mt-auto d-flex justify-content-between align-items-center gap-2">
-                          <div className="fw-bold text-success">{money(p.price)}</div>
+                        <div className="specs">
+                          {specRows(p, t).slice(2, 6).map((r) => (
+                            <span className="d-block" key={r.label}>
+                              <i>{r.label}</i> {r.value}
+                            </span>
+                          ))}
+                        </div>
+                        <div className="card-row mt-auto d-flex justify-content-between align-items-center gap-2">
+                          <span className="price text-success">{money(p.price)}</span>
                           <button className="btn btn-sm btn-success" type="button" disabled={left <= 0} onClick={() => add(p)}>
                             {left <= 0 ? t('soldOut') : t('add')}
                           </button>
@@ -1130,6 +1167,123 @@ export default function App() {
               })}
             </div>
           )}
+
+          {/* ── Configurateur : panneau « split » de la maquette ── */}
+          <section className="py-5">
+            <div className="mb-4">
+              <h2 className="h4 mb-1">{t('pcBuilder')}</h2>
+              <p className="small text-secondary mb-0">{t('builderBody', { address: STORE.address })}</p>
+            </div>
+            <div className="split">
+              <div>
+                <h3 className="h5">{t('builderCheckTitle')}</h3>
+                <p className="small">{t('builderCheckBody')}</p>
+                <div className="check">
+                  <div>
+                    <span className="m" dir="ltr">[OK]</span> {t('chkOkSocket')}
+                  </div>
+                  <div>
+                    <span className="m" dir="ltr">[OK]</span> {t('chkOkRam')}
+                  </div>
+                  <div>
+                    <span className="m" dir="ltr">[OK]</span> {t('chkOkPsu')}
+                  </div>
+                  <div>
+                    <span className="w" dir="ltr">[!]</span> {t('chkWarnCase')}
+                  </div>
+                </div>
+                <div className="d-flex gap-2 mt-4">
+                  <button className="btn btn-success" type="button" onClick={() => go('builder')}>
+                    {t('openBuilder')}
+                  </button>
+                </div>
+              </div>
+              <div>
+                <div className="slots">
+                  <div className="slot">
+                    <span className="k" dir="ltr">cpu</span>
+                    <span className="v">Ryzen 5 7600</span>
+                    <span className="p" dir="ltr">42 000</span>
+                  </div>
+                  <div className="slot">
+                    <span className="k" dir="ltr">board</span>
+                    <span className="v">B650 · AM5</span>
+                    <span className="p" dir="ltr">28 000</span>
+                  </div>
+                  <div className="slot">
+                    <span className="k" dir="ltr">ram</span>
+                    <span className="v">32 Go DDR5</span>
+                    <span className="p" dir="ltr">19 000</span>
+                  </div>
+                  <div className="slot">
+                    <span className="k" dir="ltr">gpu</span>
+                    <span className="v">RTX 4060 8 Go</span>
+                    <span className="p" dir="ltr">72 000</span>
+                  </div>
+                  <div className="slot">
+                    <span className="k" dir="ltr">psu</span>
+                    <span className="v">750 W 80+ Bronze</span>
+                    <span className="p" dir="ltr">16 000</span>
+                  </div>
+                </div>
+                <div className="total">
+                  <span dir="ltr">est. 410 W</span>
+                  <b dir="ltr">177 000 DA</b>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          {/* ── Le comptoir : panneau « store » de la maquette ── */}
+          <section className="py-5">
+            <div className="mb-4">
+              <h2 className="h4 mb-1">{t('secStore')}</h2>
+              <p className="small text-secondary mb-0">{t('storeNote')}</p>
+            </div>
+            <div className="store">
+              <div>
+                <h3 className="h5">PC Star Informatique</h3>
+                <div className="kv">
+                  <div>
+                    <dt>{t('kvAddr')}</dt>
+                    <dd>{STORE.address}</dd>
+                  </div>
+                  <div>
+                    <dt>{t('kvTel')}</dt>
+                    <dd dir="ltr">{STORE.phone} · {STORE.phone2}</dd>
+                  </div>
+                  <div>
+                    <dt>{t('kvHours')}</dt>
+                    <dd>{t('storeHours')}</dd>
+                  </div>
+                  <div>
+                    <dt>{t('kvPay')}</dt>
+                    <dd>{t('payCash')}</dd>
+                  </div>
+                </div>
+                <div className="d-flex flex-wrap gap-2 mt-4">
+                  <ContactButton
+                    label="WhatsApp"
+                    btnClass="btn"
+                    choices={[
+                      { title: STORE.phone, href: `https://wa.me/${STORE.whatsapp}`, external: true },
+                      { title: STORE.phone2, href: `https://wa.me/${STORE.whatsapp2}`, external: true }
+                    ]}
+                  />
+                  <a className="btn" href={STORE.mapUrl} target="_blank" rel="noreferrer">
+                    {t('openMaps')}
+                  </a>
+                </div>
+              </div>
+              <div className="map" dir="ltr">
+                EL MAKARI LES CASTORS
+                <br />
+                ORAN · DZ
+                <br />
+                35.6969 N / 0.6331 W
+              </div>
+            </div>
+          </section>
         </main>
       )}
 
@@ -1206,7 +1360,14 @@ export default function App() {
               </ul>
               <div className="d-flex flex-wrap gap-2">
                 {STORE_LINKS.map((l) => (
-                  <a key={l.id} className={`btn btn-sm social-btn social-${l.id} text-white`} href={l.href} target="_blank" rel="noreferrer">
+                  <a
+                    key={l.id}
+                    className={`btn btn-sm social-btn social-${l.css || l.id} text-white`}
+                    href={l.href}
+                    target="_blank"
+                    rel="noreferrer"
+                    onClick={(e) => openExternal(e, l.href)}
+                  >
                     <strong>{l.label}</strong>
                     <span className="d-block small opacity-75">{l.subKey ? t(l.subKey) : l.sub}</span>
                   </a>
@@ -1219,7 +1380,7 @@ export default function App() {
                   <iframe title="PC Star map" src={STORE.mapEmbed} loading="lazy" referrerPolicy="no-referrer-when-downgrade" className="border-0" />
                 </div>
                 <div className="card-body">
-                  <a className="btn btn-outline-success btn-sm" href={STORE.mapUrl} target="_blank" rel="noreferrer">
+                  <a className="btn btn-outline-success btn-sm" href={STORE.mapUrl} target="_blank" rel="noreferrer" onClick={(e) => openExternal(e, STORE.mapUrl)}>
                     Google Maps
                   </a>
                 </div>
@@ -1365,41 +1526,30 @@ export default function App() {
         />
       )}
 
-      <footer className="site-footer border-top mt-auto">
-        <div className="container py-4">
-          <div className="row g-3 align-items-center">
-            <div className="col-md-6">
-              <strong className="d-block">PC Star Informatique</strong>
-              <div className="small text-secondary">{STORE.address}</div>
-              <div className="small text-secondary">{t('pricesInDa')}</div>
-            </div>
-            <div className="col-md-6 d-flex flex-wrap gap-2 justify-content-md-end">
-              <a className="btn btn-sm btn-outline-secondary" href={STORE.phoneHref}>
-                {t('call')} {STORE.phone}
-              </a>
-              <a className="btn btn-sm btn-outline-success" href={`https://wa.me/${STORE.whatsapp}`} target="_blank" rel="noreferrer">
-                WhatsApp
-              </a>
-              <button type="button" className="btn btn-sm btn-outline-secondary" onClick={() => go('about')}>
-                {t('navAbout')}
-              </button>
-              <button type="button" className="btn btn-sm btn-outline-secondary" onClick={() => go('warranty')}>
-                {t('navWarranty')}
-              </button>
-              <button type="button" className="btn btn-sm btn-outline-secondary" onClick={() => go('privacy')}>
-                {t('navPrivacy')}
-              </button>
-              <button type="button" className="btn btn-sm btn-outline-secondary" onClick={() => go('terms')}>
-                {t('navTerms')}
-              </button>
-            </div>
+      {/* Footer photocopié sur la maquette : © à gauche, liens à droite.
+          (Garantie retirée sur demande explicite du client.) */}
+      <footer className="site-footer mt-auto">
+        <div className="container py-4 d-flex flex-wrap justify-content-between align-items-center gap-3">
+          <p className="small mb-0">© 2026 PC STAR INFORMATIQUE — ORAN, DZ</p>
+          <div className="footer-links d-flex gap-3">
+            <button type="button" onClick={() => go('about')}>{t('navAbout')}</button>
+            <button type="button" onClick={() => go('privacy')}>{t('navPrivacy')}</button>
+            <button type="button" onClick={() => go('terms')}>{t('navTerms')}</button>
           </div>
         </div>
       </footer>
 
-      <a className="wa-fab" href={`https://wa.me/${STORE.whatsapp}`} target="_blank" rel="noreferrer">
-        WhatsApp
-      </a>
+      {/* FAB WhatsApp unique : au clic, choix du numéro (07 ou 06). */}
+      <ContactButton
+        wrapClass="wa-fab-wrap"
+        btnClass="wa-fab"
+        dropUp
+        label="WhatsApp"
+        choices={[
+          { title: STORE.phone, href: `https://wa.me/${STORE.whatsapp}`, external: true },
+          { title: STORE.phone2, href: `https://wa.me/${STORE.whatsapp2}`, external: true }
+        ]}
+      />
 
       {/* Cart offcanvas — controlled via Bootstrap Offcanvas API */}
       <div
@@ -1444,9 +1594,14 @@ export default function App() {
                 <a className="btn btn-outline-success btn-sm" href={STORE.mapUrl} target="_blank" rel="noreferrer">
                   {t('openMaps')}
                 </a>
-                <a className="btn btn-outline-secondary btn-sm" href={STORE.phoneHref}>
-                  {t('call')} {STORE.phone}
-                </a>
+                <ContactButton
+                  label={t('call')}
+                  btnClass="btn btn-outline-secondary btn-sm"
+                  choices={[
+                    { title: STORE.phone, href: STORE.phoneHref },
+                    { title: STORE.phone2, href: STORE.phone2Href }
+                  ]}
+                />
                 <button
                   className="btn btn-success"
                   type="button"
@@ -1528,7 +1683,17 @@ export default function App() {
                 </div>
                 <div className="mb-2">
                   <label className="form-label small mb-1" htmlFor="name">{t('yourName')}</label>
-                  <input id="name" className="form-control" value={pickup.name} onChange={(e) => setPickup({ ...pickup, name: e.target.value })} required />
+                  <input
+                    id="name"
+                    className={`form-control ${nameErr ? 'is-invalid' : ''}`}
+                    value={pickup.name}
+                    onChange={(e) => {
+                      setPickup({ ...pickup, name: e.target.value })
+                      setNameErr('')
+                    }}
+                    required
+                  />
+                  {nameErr && <div className="invalid-feedback d-block">{nameErr}</div>}
                 </div>
                 <div className="mb-2">
                   <label className="form-label small mb-1" htmlFor="phone">{t('phone')}</label>
@@ -1566,8 +1731,24 @@ export default function App() {
                 </div>
                 <button className="btn btn-success w-100 mb-2" type="submit">{t('reservePickup')}</button>
                 <div className="d-grid gap-2">
-                  <a className="btn btn-outline-secondary btn-sm" href={waHref} target="_blank" rel="noreferrer">{t('whatsappCart')}</a>
-                  <a className="btn btn-outline-secondary btn-sm" href={STORE.phoneHref}>{t('call')} {STORE.phone}</a>
+                  <ContactButton
+                    block
+                    label={t('whatsappCart')}
+                    btnClass="btn btn-outline-secondary btn-sm"
+                    choices={[
+                      { title: STORE.phone, href: waHref, external: true },
+                      { title: STORE.phone2, href: waHref2, external: true }
+                    ]}
+                  />
+                  <ContactButton
+                    block
+                    label={t('call')}
+                    btnClass="btn btn-outline-secondary btn-sm"
+                    choices={[
+                      { title: STORE.phone, href: STORE.phoneHref },
+                      { title: STORE.phone2, href: STORE.phone2Href }
+                    ]}
+                  />
                 </div>
                 <p className="small text-secondary mt-2 mb-0">{t('storeReady')}</p>
               </form>
@@ -1617,7 +1798,7 @@ export default function App() {
           onApiUser={onApiUser}
         />
       )}
-      {/* P21 : badge d'état « ● API » supprimé à la demande du comptoir. */}
+
     </div>
   )
 }

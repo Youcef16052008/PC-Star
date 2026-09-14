@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { money, starText, STORE, REVIEWS } from './data.js'
 import PartThumb from './PartThumb.jsx'
+import ContactButton from './ContactPicker.jsx'
 import { relatedProducts, specRows } from './media.js'
 
 function stockLabel(n, t) {
@@ -64,25 +65,30 @@ export default function ProductPage({ t, product, photoIndex, setPhotoIndex, lef
       <div className="row g-4">
         <div className="col-md-6">
           <div className="card border-0 shadow-sm overflow-hidden">
-            <div className="ratio ratio-1x1 photo-frame position-relative pdp-zoom photo-skeleton">
-              {photos.length > 0 && failed[photoIndex] ? (
-                <PartThumb product={product} eager />
-              ) : photos.length > 0 ? (
-                <img
-                  key={product.id + '-' + photoIndex}
-                  src={photos[photoIndex]}
-                  alt={product.name}
-                  className="w-100 h-100"
-                  style={{ objectFit: 'contain' }}
-                  loading="eager"
-                  decoding="async"
-                  width={800}
-                  height={800}
-                  onError={() => setFailed((f) => ({ ...f, [photoIndex]: true }))}
-                />
-              ) : (
-                <PartThumb product={product} eager />
-              )}
+            {/* BUGFIX : le badge stock doit rester HORS de .ratio — Bootstrap
+                étire tout enfant direct de .ratio en absolute 100×100, ce qui
+                transformait le badge opaque en bloc géant cachant la photo. */}
+            <div className="position-relative">
+              <div className="ratio ratio-1x1 photo-frame pdp-zoom photo-skeleton">
+                {photos.length > 0 && failed[photoIndex] ? (
+                  <PartThumb product={product} eager />
+                ) : photos.length > 0 ? (
+                  <img
+                    key={product.id + '-' + photoIndex}
+                    src={photos[photoIndex]}
+                    alt={product.name}
+                    className="w-100 h-100"
+                    style={{ objectFit: 'contain' }}
+                    loading="eager"
+                    decoding="async"
+                    width={800}
+                    height={800}
+                    onError={() => setFailed((f) => ({ ...f, [photoIndex]: true }))}
+                  />
+                ) : (
+                  <PartThumb product={product} eager />
+                )}
+              </div>
               <span className={`badge position-absolute top-0 end-0 m-2 ${badge}`}>{st.text}</span>
             </div>
           </div>
@@ -136,21 +142,31 @@ export default function ProductPage({ t, product, photoIndex, setPhotoIndex, lef
             <button className="btn btn-success btn-lg" type="button" disabled={left <= 0} onClick={onAdd}>
               {left <= 0 ? t('soldOut') : t('addToCart')}
             </button>
-            <a
-              className="btn btn-outline-secondary"
-              href={`https://wa.me/${STORE.whatsapp}?text=${encodeURIComponent(t('pdpWaMsg', { name: product.name, sku: product.sku, price: money(product.price) }))}`}
-              target="_blank"
-              rel="noreferrer"
-            >
-              {t('askWhatsapp')}
-            </a>
+            {/* UN bouton WhatsApp → choix du numéro (07 ou 06) */}
+            <ContactButton
+              label={t('askWhatsapp')}
+              btnClass="btn btn-outline-secondary"
+              choices={[
+                {
+                  title: STORE.phone,
+                  href: `https://wa.me/${STORE.whatsapp}?text=${encodeURIComponent(t('pdpWaMsg', { name: product.name, sku: product.sku, price: money(product.price) }))}`,
+                  external: true
+                },
+                {
+                  title: STORE.phone2,
+                  href: `https://wa.me/${STORE.whatsapp2}?text=${encodeURIComponent(t('pdpWaMsg', { name: product.name, sku: product.sku, price: money(product.price) }))}`,
+                  external: true
+                }
+              ]}
+            />
           </div>
           <p className="small text-secondary mt-2 mb-0">{t('pdpCashNote')}</p>
         </div>
       </div>
 
-      {/* Mobile sticky CTA */}
-      <div className="pdp-sticky-cta d-md-none">
+      {/* Mobile sticky CTA — § 4.2 : présent téléphone ET tablette, masqué
+          au bureau (d-lg-none) ; safe-area-inset-bottom dans index.css. */}
+      <div className="pdp-sticky-cta d-lg-none">
         <div className="d-flex align-items-center gap-2">
           <strong className="text-success">{money(product.price)}</strong>
           <button className="btn btn-success flex-grow-1" type="button" disabled={left <= 0} onClick={onAdd}>

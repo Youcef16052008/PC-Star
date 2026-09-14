@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { BUILDER_SLOTS, STORE, checkCompatibility, money, socketsMatch, specOf, splitWarnings } from './data'
 import { BUILD_PRESETS, applyPreset, buildPowerRecap } from './orderLogic.js'
 import PartThumb from './PartThumb.jsx'
+import ContactButton from './ContactPicker.jsx'
 
 function stockLabel(n, t) {
   if (n <= 0) return { text: t('outOfStock'), cls: 'danger' }
@@ -375,19 +376,33 @@ export default function BuilderPage({ t, products, build, setBuild, liveStock, o
                 >
                   {t('copyBuild')}
                 </button>
-                <a
-                  className="btn btn-sm btn-outline-success"
-                  href={`https://wa.me/${STORE.whatsapp}?text=${encodeURIComponent(
-                    t('buildShareMsg', {
-                      lines: BUILDER_SLOTS.map((s) => build[s.key]).filter(Boolean).map((p) => `- ${p.name}`).join('\n'),
-                      total: money(total)
-                    })
-                  )}`}
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  {t('shareBuild')}
-                </a>
+                {/* UN bouton partage → choix du numéro (07 ou 06) */}
+                <ContactButton
+                  label={t('shareBuild')}
+                  btnClass="btn btn-sm btn-outline-success"
+                  choices={[
+                    {
+                      title: STORE.phone,
+                      href: `https://wa.me/${STORE.whatsapp}?text=${encodeURIComponent(
+                        t('buildShareMsg', {
+                          lines: BUILDER_SLOTS.map((s) => build[s.key]).filter(Boolean).map((p) => `- ${p.name}`).join('\n'),
+                          total: money(total)
+                        })
+                      )}`,
+                      external: true
+                    },
+                    {
+                      title: STORE.phone2,
+                      href: `https://wa.me/${STORE.whatsapp2}?text=${encodeURIComponent(
+                        t('buildShareMsg', {
+                          lines: BUILDER_SLOTS.map((s) => build[s.key]).filter(Boolean).map((p) => `- ${p.name}`).join('\n'),
+                          total: money(total)
+                        })
+                      )}`,
+                      external: true
+                    }
+                  ]}
+                />
               </div>
 
               {!socketOk && cpu && board && (

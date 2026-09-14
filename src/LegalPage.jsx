@@ -47,7 +47,7 @@ export default function LegalPage({ t, kind, onBack }) {
                 <strong>{STORE.name}</strong> — {STORE.address}
               </p>
               <p className="text-secondary small mb-0">
-                {STORE.email} · {STORE.phone}
+                {STORE.email} · {STORE.phone} · {STORE.phone2}
               </p>
             </>
           )}

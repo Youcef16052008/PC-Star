@@ -235,10 +235,13 @@ describe('P15 (#7) — photosForProduct : plus de trio SKU fantôme', () => {
     assert.ok(photos.every((p) => !p.startsWith('/photos/sku/')))
   })
 
-  it('produit du catalogue → son trio SKU, présent sur disque', async () => {
+  it('produit du catalogue → packshot studio + trio SKU, présents sur disque', async () => {
     const { photosForProduct } = await import('./productPhotos.js')
     const photos = photosForProduct({ id: 'cpu-7800x3d', name: 'Ryzen 7', category: 'cpu', photos: [] })
-    assert.deepEqual(photos, [1, 2, 3].map((n) => `/photos/sku/cpu-7800x3d-${n}.jpg`))
+    assert.deepEqual(photos, [
+      '/photos/studio/cpu-7800x3d.jpg',
+      ...[1, 2, 3].map((n) => `/photos/sku/cpu-7800x3d-${n}.jpg`)
+    ])
     for (const p of photos) assert.ok(fs.existsSync(path.join(publicDir, p)), `absent : ${p}`)
   })
 

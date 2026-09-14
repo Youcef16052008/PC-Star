@@ -54,4 +54,8 @@ export function applyDocumentChrome({ lang, dir, theme }) {
   root.dir = dir
   root.dataset.theme = theme
   root.style.colorScheme = theme
+  // L0 : theme-color suit le thème (miroir du script inline d'index.html).
+  document
+    .querySelector('meta[name="theme-color"]')
+    ?.setAttribute('content', theme === 'light' ? '#f2f5f8' : '#0d1116')
 }

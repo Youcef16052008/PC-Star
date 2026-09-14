@@ -1,0 +1,131 @@
+/* ────────────────────────────────────────────────────────────────────────────
+   PC Star — socle de tokens. Direction « Terminal Cyber » (maquette fournie
+   par le client, photocopy demandée) : fond quasi noir, cyan, Chakra Petch +
+   JetBrains Mono, chanfreins DIAGONAUX.
+
+   RÈGLE D'OR : ce fichier ne contient QUE des déclarations de variables.
+
+   Accessibilité conservée (garde-fous T2) : --muted remonté à #8fa1b3
+   (AA 4.5:1), la valeur maquette #5d6f80 reléguée à --muted-2 (décoratif
+   ≥ 3:1). Thème clair = déclinaison « papier technique » de la maquette.
+
+   Arabe : ni Chakra Petch ni JetBrains Mono ne couvrent l'arabe → repli
+   Cairo puis Noto Naskh Arabic dans les deux tokens de police (T15), et
+   cyber.css repasse le CORPS en Cairo en RTL (le terminal reste latin).
+   ──────────────────────────────────────────────────────────────────────────── */
+
+:root,
+html[data-theme='dark'] {
+  /* Surfaces « marine corporate » — dérivées du bleu du logo */
+  --bg: #0a1020;
+  --bg-0: #060b18;            /* sysbar — plus sombre que le fond */
+  --card: #101a33;
+  --soft: #162242;
+  --photo-bg: #0c1428;        /* fond des vignettes */
+  --photo-bg-2: #142040;      /* départ du dégradé de vignette */
+
+  /* Encres */
+  --ink: #e8edf8;
+  --ink-2: #a8b4d0;
+  --muted: #93a1c0;           /* AA 4.5:1 sur --soft */
+  --muted-2: #66759c;         /* décoratif / ≥ 3:1 */
+
+  /* Filets */
+  --line: #223055;
+  --line-hi: #33456f;
+
+  /* Accent = bleu du logo, éclairci pour le fond sombre */
+  --blue: #5b7cff;
+  --blue-2: #6d8bff;          /* survol, plus clair */
+  --blue-on: #081120;         /* encre sombre SUR l'accent (≥ 5:1) */
+  --accent-dim: rgba(91, 124, 255, 0.12);
+  --glow: rgba(91, 124, 255, 0.4);      /* halo du <em> du hero */
+  --grid-line: rgba(91, 124, 255, 0.05); /* trame de fond 48 px */
+
+  /* Sémantique */
+  --warn: #ff5a61;          /* rouge étoile (palette 3 couleurs) */
+  --danger: #ff5a61;          /* rouge étoile, version lisible sombre */
+  --focus: #5b7cff;
+
+  /* Marque (carte de visite) */
+  --brand-blue: #6d8bff;
+  --brand-red: #ff4d55;
+
+  /* Dégradés / ombres */
+  --hero-from: #101a33;
+  --hero-to: #0a1020;
+  --shadow: rgba(0, 0, 0, 0.5);
+
+  /* Typographie — 2 familles max (bonnes pratiques e-commerce 2026) :
+     Inter (UI/corps/titres) + JetBrains Mono réservé aux DONNÉES
+     (prix, SKU, prompt). Cairo couvre l'arabe ; Noto Naskh = repli. */
+  --font-display: 'Inter', 'Cairo', 'Noto Naskh Arabic', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Noto Naskh Arabic', ui-monospace, Menlo, monospace;
+
+  /* Géométrie — chanfreins DIAGONAUX de la maquette (coin haut-gauche +
+     coin bas-droit). Symétrie ROTATIONALE (180°) : rendu identique en RTL,
+     aucun miroir [dir='rtl'] nécessaire (vérifié par T12). */
+  --chamf: polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px);
+  --chamf-sm: polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px);
+  --chamf-lg: polygon(14px 0, 100% 0, 100% calc(100% - 14px), calc(100% - 14px) 100%, 0 100%, 0 14px);
+
+  /* Ponts Bootstrap 5 (thème-aware) */
+  --bs-body-bg: var(--bg);
+  --bs-body-color: var(--ink);
+  --bs-border-color: var(--line);
+  --bs-secondary-color: var(--muted);
+  --bs-tertiary-bg: var(--soft);
+  --bs-primary: var(--blue-2);
+  --bs-success: var(--blue-2);
+
+  color-scheme: dark;
+}
+
+/* Thème clair « papier technique » : la même géométrie terminal, palette
+   inversée, cyan assombri pour l'AA. Toutes les paires vérifiées (T2). */
+html[data-theme='light'] {
+  --bg: #f4f6fb;
+  --bg-0: #e9edf6;
+  --card: #ffffff;
+  --soft: #e8edf7;
+  --photo-bg: #eef2fa;
+  --photo-bg-2: #ffffff;
+
+  --ink: #101a33;
+  --ink-2: #3c4a6b;
+  --muted: #4b5878;         /* ≥ 4.6:1 sur --soft */
+  --muted-2: #66759c;       /* décoratif (≥ 3:1) */
+
+  --line: #d7dfee;
+  --line-hi: #b9c4dd;
+
+  --blue: #2947d0;
+  --blue-2: #1d38b0;
+  --blue-on: #ffffff;
+  --accent-dim: rgba(41, 71, 208, 0.08);
+  --glow: rgba(41, 71, 208, 0.25);
+  --grid-line: rgba(41, 71, 208, 0.05);
+
+  --warn: #d81f26;          /* rouge étoile (palette 3 couleurs) */
+  --danger: #d81f26;
+  --focus: #2947d0;
+
+  /* Marque : couleurs exactes de la carte de visite sur fond clair. */
+  --brand-blue: #2947d0;
+  --brand-red: #d81f26;
+
+  --hero-from: #ffffff;
+  --hero-to: #e8edf7;
+  --shadow: rgba(16, 26, 51, 0.12);
+
+  color-scheme: light;
+}
+
+/* Chanfreins réduits sur petit écran (10 px sur 360 px ferait « jouet »). */
+@media (max-width: 575.98px) {
+  :root {
+    --chamf: polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px);
+    --chamf-sm: polygon(4px 0, 100% 0, 100% calc(100% - 4px), calc(100% - 4px) 100%, 0 100%, 0 4px);
+    --chamf-lg: polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px);
+  }
+}

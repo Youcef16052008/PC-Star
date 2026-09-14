@@ -409,11 +409,14 @@ describe('P22 item 2 — une Content-Security-Policy est posée', () => {
     assert.match(html, /<script src="\/theme-boot\.js"><\/script>/, 'bootstrap externalisé')
   })
 
-  it('le bootstrap de thème existe et applique bien le thème', async () => {
+  it('le bootstrap de thème existe et impose le thème clair (décision client)', async () => {
+    // Le client a supprimé le thème sombre : le bootstrap doit poser
+    // data-theme=light avant le paint et ne jamais réintroduire de
+    // préférence système ou de valeur sombre.
     const boot = fs.readFileSync(path.join(process.cwd(), 'public', 'theme-boot.js'), 'utf8')
-    assert.match(boot, /pcstar-theme/, 'lit la préférence de thème')
-    assert.match(boot, /dataset\.theme/, 'pose data-theme avant le paint')
-    assert.match(boot, /prefers-color-scheme/, 'repli sur la préférence système')
+    assert.match(boot, /dataset\.theme = 'light'/, 'pose data-theme light avant le paint')
+    assert.doesNotMatch(boot, /prefers-color-scheme/, 'aucun repli système (sombre supprimé)')
+    assert.doesNotMatch(boot, /'dark'/, 'jamais de thème sombre')
   })
 
   it('vercel.json pose le CSP en production sans casser le fallback SPA', async () => {

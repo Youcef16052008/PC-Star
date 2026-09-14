@@ -40,6 +40,7 @@ export default function DeskPage({ t, lang, reservations, onStatus, onDelete, se
     try {
       const ok = await onStatus(code, status)
       if (!ok) setToast?.(t('deskStatusFail'))
+      else setToast?.(t('deskStatusOk'))
     } catch {
       // P21 : une exception ne doit ni remonter en rejet non géré, ni laisser la
       // carte verrouillée — sans ce catch, `busy` restait pris et les boutons

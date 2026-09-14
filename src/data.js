@@ -53,10 +53,8 @@ export const STORE_LINKS = [
   { id: 'facebook', label: 'Facebook', sub: 'PC Star Informatique', href: 'https://www.facebook.com/pcstar31' },
   // P20 : deux boutons WhatsApp, un par numéro du magasin.
   { id: 'whatsapp', label: 'WhatsApp', sub: STORE.phone, href: `https://wa.me/${STORE.whatsapp}` },
-  { id: 'whatsapp2', label: 'WhatsApp', sub: STORE.phone2, href: `https://wa.me/${STORE.whatsapp2}` },
-  // P22 (bug F) : le sous-titre était du français en dur — il restait français
-  // en interface arabe et anglaise. Les autres entrées sont des noms de marque,
-  // légitimement non traduits ; seule celle-ci est concernée.
+  { id: 'whatsapp2', css: 'whatsapp', label: 'WhatsApp', sub: STORE.phone2, href: `https://wa.me/${STORE.whatsapp2}` },
+  // P22 (bug F) : sous-titre traduit via subKey (ar/fr/en).
   { id: 'maps', label: 'Google Maps', subKey: 'storeMapSub', sub: 'Les Castors, Oran', href: 'https://www.google.com/maps/search/?api=1&query=Rue+Mimoune+Bouadjimi+El+Makari+Les+Castors+Oran' }
 ]
 
