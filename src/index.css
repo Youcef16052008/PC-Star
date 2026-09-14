@@ -191,18 +191,20 @@ a:focus-visible {
   background: linear-gradient(145deg, #3a4658, #1c2430);
 }
 
-.cat-cpu { background: linear-gradient(145deg, #6b7482, #2c3340); }
-.cat-gpu { background: linear-gradient(145deg, #1a7a3a, #0d3d1e); }
-.cat-motherboard { background: linear-gradient(145deg, #1b6b3a, #0c331c); }
-.cat-memory { background: linear-gradient(145deg, #1f4aa8, #16357a); }
-.cat-case { background: linear-gradient(145deg, #3a4658, #1c2430); }
-.cat-cooling { background: linear-gradient(145deg, #2d7d8a, #143d47); }
-.cat-accessories { background: linear-gradient(145deg, #5c5c5c, #2a2a2a); }
-.cat-laptop { background: linear-gradient(145deg, #2d5a8a, #16344f); }
-.cat-ready { background: linear-gradient(145deg, #3d4a62, #1c2430); }
-.cat-usb { background: linear-gradient(145deg, #4a6fa5, #243a5c); }
-.cat-console { background: linear-gradient(145deg, #2f6b4a, #143326); }
-.cat-repair { background: linear-gradient(145deg, #8a5a2d, #4a2e14); }
+/* Palette 3 couleurs (bleu/rouge/blanc) : vignettes en déclinaisons de
+   bleu marine, accent rouge pour l'éparage/console. */
+.cat-cpu { background: linear-gradient(145deg, #33456f, #101a33); }
+.cat-gpu { background: linear-gradient(145deg, #2947d0, #101a33); }
+.cat-motherboard { background: linear-gradient(145deg, #1d38b0, #0a1020); }
+.cat-memory { background: linear-gradient(145deg, #4a63d8, #16224a); }
+.cat-case { background: linear-gradient(145deg, #33456f, #1c2440); }
+.cat-cooling { background: linear-gradient(145deg, #5b7cff, #1d38b0); }
+.cat-accessories { background: linear-gradient(145deg, #7583a6, #33456f); }
+.cat-laptop { background: linear-gradient(145deg, #2947d0, #16224a); }
+.cat-ready { background: linear-gradient(145deg, #3c4a6b, #101a33); }
+.cat-usb { background: linear-gradient(145deg, #4a63d8, #243a6c); }
+.cat-console { background: linear-gradient(145deg, #d81f26, #6b0f14); }
+.cat-repair { background: linear-gradient(145deg, #ff5a61, #8a1218); }
 
 /* Stars */
 .stars {
@@ -210,7 +212,7 @@ a:focus-visible {
   align-items: center;
   gap: 6px;
   font-size: 13px;
-  color: #fbbf24;
+  color: var(--warn); /* rouge étoile en palette 3 couleurs */
   letter-spacing: 0.02em;
 }
 
@@ -320,20 +322,22 @@ html[data-theme='dark'] .text-bg-light {
   transform: translateY(-2px);
 }
 
+/* Palette 3 couleurs : les pastilles sociales passent au bleu/rouge de la
+   marque (seuls les pictos rappellent le réseau, par le libellé). */
 .social-instagram {
-  background: linear-gradient(135deg, #f58529, #dd2a7b 55%, #8134af);
+  background: linear-gradient(135deg, #d81f26, #2947d0);
 }
 
 .social-facebook {
-  background: #1877f2;
+  background: #2947d0;
 }
 
 .social-whatsapp {
-  background: #128c7e;
+  background: #1d38b0;
 }
 
 .social-maps {
-  background: #1f4aa8;
+  background: #101a33;
 }
 
 .wa-fab {
@@ -341,13 +345,15 @@ html[data-theme='dark'] .text-bg-light {
   bottom: 20px;
   inset-inline-start: 20px;
   z-index: 1040;
-  background: #128c7e;
+  /* Palette 3 couleurs (bleu/rouge/blanc) : le FAB contact passe au bleu
+     de la marque au lieu du vert WhatsApp. */
+  background: #2947d0;
   color: #fff !important;
   font-weight: 700;
   font-size: 14px;
   padding: 12px 16px;
   border-radius: 999px;
-  box-shadow: 0 10px 24px rgba(18, 140, 126, 0.45);
+  box-shadow: 0 10px 24px rgba(41, 71, 208, 0.45);
   text-decoration: none;
 }
 
@@ -590,7 +596,7 @@ html[data-theme='dark'] .text-bg-light {
   color: var(--muted) !important;
 }
 html[data-theme='light'] .text-secondary {
-  color: #475569 !important;
+  color: #3c4a6b !important;
 }
 .skip-link:focus {
   outline: 3px solid #fff;

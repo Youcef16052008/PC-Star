@@ -43,7 +43,7 @@ html[data-theme='dark'] {
   --grid-line: rgba(91, 124, 255, 0.05); /* trame de fond 48 px */
 
   /* Sémantique */
-  --warn: #fbbf24;
+  --warn: #ff5a61;          /* rouge étoile (palette 3 couleurs) */
   --danger: #ff5a61;          /* rouge étoile, version lisible sombre */
   --focus: #5b7cff;
 
@@ -105,7 +105,7 @@ html[data-theme='light'] {
   --glow: rgba(41, 71, 208, 0.25);
   --grid-line: rgba(41, 71, 208, 0.05);
 
-  --warn: #92400e;
+  --warn: #d81f26;          /* rouge étoile (palette 3 couleurs) */
   --danger: #d81f26;
   --focus: #2947d0;
 
