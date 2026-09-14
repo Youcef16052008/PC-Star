@@ -1,65 +1,68 @@
 /* ────────────────────────────────────────────────────────────────────────────
-   PC Star — socle de tokens (Direction 03, restylée « pro » sur retour
-   client : fini le look terminal/octogonal, place à une boutique nette).
+   PC Star — socle de tokens. Direction « Terminal Cyber » (maquette fournie
+   par le client, photocopy demandée) : fond quasi noir, cyan, Chakra Petch +
+   JetBrains Mono, chanfreins DIAGONAUX.
 
-   RÈGLE D'OR : ce fichier ne contient QUE des déclarations de variables
-   (--x: valeur;) — aucune règle de style, aucune couleur en dur ailleurs
-   que dans les valeurs de tokens.
+   RÈGLE D'OR : ce fichier ne contient QUE des déclarations de variables.
 
-   Thème sombre : boutique sombre sobre (surfaces graphite, accent VERT
-   émeraude rappelant le logo historique). Thème clair : papier clair.
-   Toutes les paires texte/fond vérifiées WCAG AA (src/cyberDesign.test.js
-   T2 + scripts/contrast-check.mjs).
+   Accessibilité conservée (garde-fous T2) : --muted remonté à #8fa1b3
+   (AA 4.5:1), la valeur maquette #5d6f80 reléguée à --muted-2 (décoratif
+   ≥ 3:1). Thème clair = déclinaison « papier technique » de la maquette.
 
-   Typographie : Inter (latin) + Cairo (arabe) — professionnelles, lisibles,
-   modernes. 'Noto Naskh Arabic' reste le repli déclaré des deux tokens de
-   police (garde-fou T15). JetBrains Mono réservé aux données (prix, SKU).
+   Arabe : ni Chakra Petch ni JetBrains Mono ne couvrent l'arabe → repli
+   Cairo puis Noto Naskh Arabic dans les deux tokens de police (T15), et
+   cyber.css repasse le CORPS en Cairo en RTL (le terminal reste latin).
    ──────────────────────────────────────────────────────────────────────────── */
 
 :root,
 html[data-theme='dark'] {
-  /* Surfaces */
-  --bg: #0b0f14;
-  --card: #121820;
-  --soft: #1a222d;
-  --photo-bg: #0e141b;
+  /* Surfaces (maquette) */
+  --bg: #07090c;
+  --bg-0: #05070a;            /* sysbar — plus sombre que le fond */
+  --card: #0d1116;            /* maquette --panel */
+  --soft: #111720;            /* maquette --panel-2 */
+  --photo-bg: #0a0e13;        /* fond des vignettes (thumb maquette) */
+  --photo-bg-2: #101821;      /* départ du dégradé de vignette */
 
   /* Encres */
-  --ink: #e8edf2;
-  --muted: #97a3b0;         /* ≈ 6.4:1 sur --soft (AA texte courant) */
-  --muted-2: #6e7c8a;       /* décoratif ≥ 18 px / non textuel (≥ 3:1) */
+  --ink: #dfe7ef;             /* maquette --text */
+  --ink-2: #8fa1b3;           /* maquette --text-2 */
+  --muted: #8fa1b3;           /* CORRECTIF AA : texte secondaire lisible */
+  --muted-2: #5d6f80;         /* maquette --muted — décoratif / ≥ 3:1 */
 
   /* Filets */
-  --line: #232d39;
-  --line-hi: #34414f;       /* bordures de contrôles */
+  --line: #1c2733;
+  --line-hi: #2a3a4a;
 
-  /* Accent — vert émeraude (identité logo historique) */
-  --blue: #34d399;
-  --blue-2: #10b981;        /* état survol */
-  --blue-on: #06281c;       /* texte SUR l'accent (≥ 6:1) */
-  --accent-dim: rgba(52, 211, 153, 0.12);
+  /* Accent cyan (maquette) */
+  --blue: #22d3ee;
+  --blue-2: #0ea5c4;
+  --blue-on: #04212a;
+  --accent-dim: rgba(34, 211, 238, 0.1);
+  --glow: rgba(34, 211, 238, 0.4);      /* halo du <em> du hero */
+  --grid-line: rgba(34, 211, 238, 0.035); /* trame de fond 48 px */
 
   /* Sémantique */
   --warn: #fbbf24;
   --danger: #f87171;
-  --focus: #34d399;
+  --focus: #22d3ee;
 
   /* Dégradés / ombres */
-  --hero-from: #121820;
-  --hero-to: #0b0f14;
+  --hero-from: #0d1116;
+  --hero-to: #07090c;
   --shadow: rgba(0, 0, 0, 0.5);
 
-  /* Typographie — polices chargées dans index.html (display=swap).
-     Cairo couvre les glyphes arabes ; Noto Naskh Arabic = repli final. */
-  --font-display: 'Inter', 'Cairo', 'Noto Naskh Arabic', system-ui, sans-serif;
-  --font-mono: 'JetBrains Mono', 'Noto Naskh Arabic', ui-monospace, 'Courier New', monospace;
+  /* Typographie — maquette : Chakra Petch (display) + JetBrains Mono (corps).
+     Cairo / Noto Naskh Arabic = repli des glyphes arabes (T15). */
+  --font-display: 'Chakra Petch', 'Cairo', 'Noto Naskh Arabic', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Cairo', 'Noto Naskh Arabic', ui-monospace, Menlo, monospace;
 
-  /* Géométrie — chanfrein DISCRET (8 px) réservé au hero : signature visuelle
-     légère, plus d'octogones sur les boutons/cartes. polygon symétrique
-     gauche/droite = auto-miroir RTL (garde-fou T12). */
-  --chamf: polygon(8px 0, calc(100% - 8px) 0, 100% 8px, 100% calc(100% - 8px), calc(100% - 8px) 100%, 8px 100%, 0 calc(100% - 8px), 0 8px);
-  --chamf-sm: polygon(5px 0, calc(100% - 5px) 0, 100% 5px, 100% calc(100% - 5px), calc(100% - 5px) 100%, 5px 100%, 0 calc(100% - 5px), 0 5px);
-  --chamf-top: polygon(8px 0, calc(100% - 8px) 0, 100% 8px, 100% 100%, 0 100%, 0 8px);
+  /* Géométrie — chanfreins DIAGONAUX de la maquette (coin haut-gauche +
+     coin bas-droit). Symétrie ROTATIONALE (180°) : rendu identique en RTL,
+     aucun miroir [dir='rtl'] nécessaire (vérifié par T12). */
+  --chamf: polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px);
+  --chamf-sm: polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px);
+  --chamf-lg: polygon(14px 0, 100% 0, 100% calc(100% - 14px), calc(100% - 14px) 100%, 0 100%, 0 14px);
 
   /* Ponts Bootstrap 5 (thème-aware) */
   --bs-body-bg: var(--bg);
@@ -73,41 +76,47 @@ html[data-theme='dark'] {
   color-scheme: dark;
 }
 
-/* Thème clair « papier boutique » : mêmes formes, palette inversée. */
+/* Thème clair « papier technique » : la même géométrie terminal, palette
+   inversée, cyan assombri pour l'AA. Toutes les paires vérifiées (T2). */
 html[data-theme='light'] {
-  --bg: #f6f8fa;
+  --bg: #f2f5f8;
+  --bg-0: #e9eef4;
   --card: #ffffff;
-  --soft: #edf1f5;
-  --photo-bg: #eef2f6;
+  --soft: #e7edf4;
+  --photo-bg: #eef2f7;
+  --photo-bg-2: #ffffff;
 
-  --ink: #101826;
-  --muted: #5a6a7a;         /* ≥ 4.8:1 sur --soft */
-  --muted-2: #7d8b99;       /* décoratif ≥ 18 px / non textuel (≥ 3:1) */
+  --ink: #0b1220;
+  --ink-2: #46586c;
+  --muted: #5b6b7c;         /* ≥ 4.6:1 sur --soft */
+  --muted-2: #7b8a9c;       /* décoratif (≥ 3:1) */
 
-  --line: #d8e0e8;
-  --line-hi: #b9c6d2;
+  --line: #d5dee8;
+  --line-hi: #b7c5d3;
 
-  --blue: #0f7a4d;          /* vert foncé : ≥ 5:1 sur --bg (AA) */
-  --blue-2: #0b5f3c;
-  --blue-on: #f8fafc;       /* ≥ 5:1 sur --blue / --blue-2 */
-  --accent-dim: rgba(15, 122, 77, 0.08);
+  --blue: #0e7490;
+  --blue-2: #155e75;
+  --blue-on: #f8fafc;
+  --accent-dim: rgba(14, 116, 144, 0.08);
+  --glow: rgba(14, 116, 144, 0.25);
+  --grid-line: rgba(14, 116, 144, 0.05);
 
   --warn: #92400e;
   --danger: #c62828;
-  --focus: #0f7a4d;
+  --focus: #0e7490;
 
   --hero-from: #ffffff;
-  --hero-to: #eef2f6;
-  --shadow: rgba(16, 24, 38, 0.12);
+  --hero-to: #e9eff6;
+  --shadow: rgba(11, 18, 32, 0.12);
 
   color-scheme: light;
 }
 
-/* Chanfrein encore plus discret sur petit écran. */
+/* Chanfreins réduits sur petit écran (10 px sur 360 px ferait « jouet »). */
 @media (max-width: 575.98px) {
   :root {
-    --chamf: polygon(5px 0, calc(100% - 5px) 0, 100% 5px, 100% calc(100% - 5px), calc(100% - 5px) 100%, 5px 100%, 0 calc(100% - 5px), 0 5px);
-    --chamf-sm: polygon(4px 0, calc(100% - 4px) 0, 100% 4px, 100% calc(100% - 4px), calc(100% - 4px) 100%, 4px 100%, 0 calc(100% - 4px), 0 4px);
-    --chamf-top: polygon(5px 0, calc(100% - 5px) 0, 100% 5px, 100% 100%, 0 100%, 0 5px);
+    --chamf: polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px);
+    --chamf-sm: polygon(4px 0, 100% 0, 100% calc(100% - 4px), calc(100% - 4px) 100%, 0 100%, 0 4px);
+    --chamf-lg: polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px);
   }
 }

@@ -767,20 +767,17 @@ export default function App() {
       <a className="skip-link" href="#main-content">
         {t('skipToContent')}
       </a>
-      <div className="topbar text-white small py-2">
+      <div className="topbar small py-1">
         <div className="container d-flex flex-wrap justify-content-between gap-2">
-          <span>{STORE.address}</span>
-          {/* L2 : bloc droit masqué sous 768px (cyber.css, § 4.3 ⑤) */}
-          <span className="topbar-right">
-            <a className="link-light text-decoration-none fw-semibold" href={STORE.phoneHref}>
-              {STORE.phone}
-            </a>
+          <span>
+            <span className="text-success" aria-hidden="true">●</span> SYS.ONLINE <span className="blink" aria-hidden="true">_</span>
             {' · '}
-            <a className="link-light text-decoration-none fw-semibold" href={STORE.phone2Href}>
-              {STORE.phone2}
-            </a>
-            {' · '}
-            {t('payCash')}
+            {t('storeOpen')} · Oran
+          </span>
+          <span className="topbar-right d-flex gap-3">
+            <span dir="ltr">TEL {STORE.phone}</span>
+            <span dir="ltr">TEL {STORE.phone2}</span>
+            <span>SKU {catalog.length}</span>
           </span>
         </div>
       </div>
@@ -788,7 +785,8 @@ export default function App() {
       <nav className="navbar navbar-expand-lg sticky-top border-bottom shop-navbar">
         <div className="container">
           <button type="button" className="navbar-brand btn btn-link text-decoration-none p-0 logo" onClick={() => go('shop')} aria-label="PC Star Informatique — accueil">
-            <img src="/logo.png" alt="PC Star Informatique" className="logo-img" width="150" height="101" />
+            <span className="logo-mark" aria-hidden="true">S</span>
+            PC STAR <small>/ ORAN</small>
           </button>
           <div className="d-flex align-items-center gap-2 order-lg-last ms-auto ms-lg-0">
             <button
@@ -895,19 +893,40 @@ export default function App() {
 
       {page === 'shop' && (
         <main id="main-content" className="container page py-4" tabIndex={-1}>
-          <section className="hero hero-simple p-4 p-md-5 mb-4 rounded-4 border">
-            <h1 className="display-5 fw-bold mb-2">{t('heroTitle')}</h1>
-            <p className="lead text-secondary mb-3">{t('heroBody')}</p>
-            <div className="d-flex flex-wrap gap-2 align-items-center">
-              <span className="badge text-bg-light border">{STORE.address}</span>
-              <span className="badge text-bg-success-subtle border border-success-subtle text-success-emphasis">{t('payCash')}</span>
+          {/* Hero « photocopié » sur la maquette Terminal Cyber : prompt $,
+              titre display, CTA et readout 4 compteurs live. */}
+          <section className="hero hero-simple mb-4">
+            <div className="prompt" dir="ltr">
+              $ pcstar --catalog --stock=live
+              <span className="blink" aria-hidden="true">▊</span>
             </div>
-            <div className="d-flex flex-wrap gap-2 mt-3">
-              <button className="btn btn-success" type="button" onClick={() => go('search')}>{t('advancedSearch')}</button>
-              <button className="btn btn-outline-secondary" type="button" onClick={() => go('builder')}>{t('pcBuilder')}</button>
-              {isMaster && (
-                <button className="btn btn-outline-secondary" type="button" onClick={() => go('help')}>{t('navHelp')}</button>
-              )}
+            <h1 className="fw-bold mb-2">{t('heroTitle')}</h1>
+            <p className="lead mb-3">{t('heroBody')}</p>
+            <div className="d-flex flex-wrap gap-2">
+              <button className="btn btn-success" type="button" onClick={() => document.getElementById('catalog')?.scrollIntoView({ behavior: 'smooth' })}>
+                {t('browseShop')} →
+              </button>
+              <button className="btn" type="button" onClick={() => go('builder')}>
+                {t('pcBuilder')}
+              </button>
+            </div>
+            <div className="readout">
+              <div className="ro">
+                <b>{catalog.length}</b>
+                <span>{t('roRefs')}</span>
+              </div>
+              <div className="ro">
+                <b>{catalog.filter((p) => p.category === 'gpu').length}</b>
+                <span>{t('roGpu')}</span>
+              </div>
+              <div className="ro">
+                <b>{catalog.filter((p) => p.category === 'laptop').length}</b>
+                <span>{t('roLaptops')}</span>
+              </div>
+              <div className="ro">
+                <b dir="ltr">0 DA</b>
+                <span>{t('roPay')}</span>
+              </div>
             </div>
           </section>
 
@@ -929,9 +948,9 @@ export default function App() {
             ))}
           </div>
 
-          <div className="d-flex flex-wrap gap-2 align-items-center mb-4">
+          <div className="cats mb-4" id="catalog">
             {CATEGORIES.map((c) => (
-              <button key={c.id} type="button" className={`btn btn-sm rounded-pill ${category === c.id ? 'btn-success' : 'btn-outline-secondary'}`} onClick={() => setCategory(c.id)}>
+              <button key={c.id} type="button" className={`btn btn-sm cat-${c.id} ${category === c.id ? 'btn-success' : 'btn-outline-secondary'}`} onClick={() => setCategory(c.id)}>
                 {t(`cat_${c.id}`)}
               </button>
             ))}
@@ -961,10 +980,10 @@ export default function App() {
                   <div className="col-6 col-md-4 col-xl-3" key={p.id}>
                     <div className="card h-100 shadow-sm product-bs-card">
                       <button className="btn p-0 border-0 position-relative" type="button" onClick={() => openProduct(p.id)} aria-label={p.name}>
-                        <div className="ratio ratio-1x1 photo-frame overflow-hidden">
+                        <div className="ratio ratio-4x3 photo-frame overflow-hidden">
                           <PartThumb product={p} />
                         </div>
-                        <span className={`badge position-absolute top-0 end-0 m-2 ${st.cls === 'stock-ok' ? 'text-bg-success' : st.cls === 'stock-low' ? 'text-bg-warning' : 'text-bg-danger'}`}>
+                        <span className={`badge position-absolute top-0 start-0 m-2 ${st.cls === 'stock-ok' ? 'text-bg-success' : st.cls === 'stock-low' ? 'text-bg-warning' : 'text-bg-danger'}`}>
                           {st.text}
                         </span>
                       </button>

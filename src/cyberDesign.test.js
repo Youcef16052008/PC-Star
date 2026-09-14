@@ -336,15 +336,15 @@ test('T11 impression : clip-path neutralisé + couches biseautées retirées + f
 
 /* ── T12-T15 : RTL / arabe (lot L6, plan § 5) ── */
 
-/* T12 (R1) : les polygones de biseautage doivent être symétriques
-   gauche/droite — c'est ce qui dispense de miroirs [dir='rtl'] et rend le
-   chanfrein correct en lecture arabe. Un futur polygon directionnel ferait
-   échouer ce test et devra ajouter son miroir. */
-test('T12 RTL (R1) : polygones --chamf symétriques gauche/droite', () => {
+/* T12 (R1) : les polygones de biseautage doivent être sûrs en RTL. La
+   maquette client impose des chanfreins DIAGONAUX (coin haut-gauche +
+   coin bas-droit) : symétrie ROTATIONALE 180° → rendu identique en RTL.
+   L'ancienne symétrie gauche/droite reste acceptée. */
+test('T12 RTL (R1) : polygones --chamf sûrs en RTL (rotation 180° ou miroir X)', () => {
   // NB : capture gourmande jusqu'à la DERNIÈRE parenthèse avant le « ; » —
   // les calc(100% - Npx) contiennent eux-mêmes des parenthèses.
   const polys = [...tokensCss.matchAll(/--chamf[a-z-]*:\s*polygon\(([^;]+)\)\s*;/g)]
-  assert.ok(polys.length >= 3, 'tokens.css doit définir --chamf, --chamf-sm et --chamf-top')
+  assert.ok(polys.length >= 3, 'tokens.css doit définir --chamf, --chamf-sm et --chamf-lg')
   const mirrorX = (x) => {
     if (x === '0') return '100%'
     if (x === '100%') return '0'
@@ -372,11 +372,11 @@ test('T12 RTL (R1) : polygones --chamf symétriques gauche/droite', () => {
       return toks
     })
     const norm = (pts) => pts.map(([x, y]) => `${x}|${y}`).sort()
+    const rotated = points.map(([x, y]) => [mirrorX(x), mirrorX(y)])
     const mirrored = points.map(([x, y]) => [mirrorX(x), y])
-    assert.deepEqual(
-      norm(mirrored),
-      norm(points),
-      `polygone NON symétrique — les chanfreins seraient à contre-sens en RTL (§ 5 R1) : ${body.slice(0, 70)}…`
+    assert.ok(
+      norm(rotated).join() === norm(points).join() || norm(mirrored).join() === norm(points).join(),
+      `polygone NI rotation-symétrique NI miroir-symétrique — rendu différent en RTL (§ 5 R1) : ${body.slice(0, 70)}…`
     )
   }
 })
@@ -424,9 +424,10 @@ test('T8 RTL : clip-path uniquement via var(--chamf) / var(--chamf-sm) / var(--c
   assert.ok(clipRules.length > 0, 'cyber.css devrait appliquer le biseautage (var(--chamf…))')
   for (const rule of clipRules) {
     for (const d of rule.declarations.filter((x) => x.prop === 'clip-path')) {
+      /* « none » = annulation de biseau : sans objet RTL, autorisé. */
       assert.match(
         d.value,
-        /^var\(--chamf(-sm|-top)?\)$/,
+        /^var\(--chamf(-sm|-top|-lg)?\)$|^none$/,
         `clip-path hors tokens (risque RTL § 5 R1) : ${rule.selector} → ${d.value}`
       )
     }
