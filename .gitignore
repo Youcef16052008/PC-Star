@@ -112,8 +112,10 @@
 *.key
 
 # PC Star API local DB
+# P16 (#26) : `store.json` contenait les hashes de mots de passe (master +
+# démos) et était SUIVI par git. La base est recréée au démarrage par
+# `ensure()` (master + démos viennent du code), donc rien à versionner ici.
 server/data/
-!server/data/store.json
 
 # Temporary files
 *.tmp

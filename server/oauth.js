@@ -28,17 +28,63 @@ export function oauthConfig() {
   }
 }
 
+/**
+ * P13 (S2) — `returnUrl` vient du client et finit dans un `Location:` portant
+ * un token de session : sans validation, c'est un open redirect qui exporte le
+ * token vers le domaine de l'attaquant.
+ *
+ * Accepté : chemin relatif strict (`/desk`), ou URL absolue dont l'ORIGINE est
+ * celle du front (FRONT_URL / FRONT_ORIGIN / OAUTH_REDIRECT_BASE / VERCEL_URL).
+ * Tout le reste → null (le repli FRONT_URL s'applique).
+ */
+export function safeReturnUrl(raw) {
+  const value = String(raw || '').trim()
+  if (!value || value.length > 500) return null
+  // Injection d'en-tête via CRLF dans le Location.
+  if (/[\r\n\u0000]/.test(value)) return null
+  // Relatif strict : ni protocol-relative (`//evil.com`), ni `/\evil.com`,
+  // ni échappement encodé.
+  if (value.startsWith('/')) {
+    if (value.startsWith('//') || value.startsWith('/\\') || /^\/%2f/i.test(value)) return null
+    return value
+  }
+  let u
+  try {
+    u = new URL(value)
+  } catch {
+    return null
+  }
+  if (u.protocol !== 'https:' && u.protocol !== 'http:') return null
+  const allowed = [
+    BASE,
+    process.env.FRONT_URL,
+    process.env.FRONT_ORIGIN,
+    process.env.OAUTH_REDIRECT_BASE,
+    process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null
+  ].filter(Boolean)
+  const ok = allowed.some((origin) => {
+    try {
+      return new URL(origin).origin === u.origin
+    } catch {
+      return false
+    }
+  })
+  return ok ? value : null
+}
+
 export async function startOAuth(provider, { userId = null, intent = 'login', returnUrl = null } = {}) {
   if (provider !== 'google' && provider !== 'meta') {
     return { ok: false, error: 'provider' }
   }
   const state = newToken()
+  // P13 (S2) : validé à l'entrée, re-validé à la redirection.
+  const safeReturn = safeReturnUrl(returnUrl)
   await updateDbAsync((db) => {
     db.oauthPending[state] = {
       provider,
       userId,
       intent, // login | link
-      returnUrl: returnUrl || null,
+      returnUrl: safeReturn,
       createdAt: Date.now()
     }
     return db
@@ -76,20 +122,66 @@ export async function startOAuth(provider, { userId = null, intent = 'login', re
   return { ok: true, demo: false, authorizeUrl: `https://www.facebook.com/v19.0/dialog/oauth?${params}` }
 }
 
+/**
+ * P13 (S1/S3) — clôture une identité OAuth.
+ *
+ * S1 : le compte **master** ne se connecte QUE par mot de passe. Avant,
+ * `finishIdentity` appariait par e-mail : en mode démo (défaut), taper
+ * `pcstar.info31@gmail.com` dans l'écran de consentement donnait une session
+ * master valide — escalade totale.
+ *
+ * S2 : en démo, l'e-mail n'est vérifié par personne. Seuls les comptes de
+ * démonstration (`demo: true`) ou un lien déjà établi peuvent être ouverts ;
+ * sinon n'importe qui prend le contrôle d'un compte client en tapant son
+ * e-mail (celui d'une commande, par exemple).
+ *
+ * S3 : le token de session ne transite plus par la base (`db._lastAuth`) —
+ * il était recopié dans `store.json` puis dans chaque backup.
+ */
 async function finishIdentity(provider, identity, pending, stateKey) {
-  return updateDbAsync((db) => {
+  // Un e-mail n'est une preuve que si le fournisseur l'a vérifié.
+  const trusted = !DEMO
+  let outcome = null
+
+  await updateDbAsync((db) => {
     let user = null
+
     if (pending.intent === 'link' && pending.userId) {
       user = db.users.find((u) => u.id === pending.userId)
-      if (!user) return db
+      if (!user) {
+        outcome = { ok: false, error: 'state' }
+        return db
+      }
       user.links = user.links || {}
       user.links[provider] = identity
     } else {
-      user = db.users.find(
-        (u) =>
-          (u.links && u.links[provider] && u.links[provider].id === identity.id) ||
-          (identity.email && u.email && u.email === identity.email)
+      const byLink = db.users.find((u) => u.links?.[provider]?.id === identity.id) || null
+      const masterByEmail = Boolean(
+        identity.email && db.users.some((u) => u.role === 'master' && u.email === identity.email)
       )
+      // S1 : l'e-mail du magasin n'entre jamais par OAuth.
+      if (masterByEmail && !byLink) {
+        outcome = { ok: false, error: 'master_email' }
+        return db
+      }
+      const byEmail =
+        identity.email && !masterByEmail
+          ? db.users.find((u) => u.email && u.email === identity.email) || null
+          : null
+      // S2 : en démo, pas d'appropriation d'un compte réel par simple e-mail.
+      if (!trusted && byEmail && !byLink && byEmail.demo !== true) {
+        outcome = { ok: false, error: 'demo_email' }
+        return db
+      }
+      user = byLink || byEmail
+      // P16 : un fournisseur qui ne renvoie PAS d'e-mail (compte Google/Meta
+      // sans e-mail vérifié) créait un utilisateur `email: ''` — impossible à
+      // reconnecter, et tous les suivants se confondaient avec lui. On refuse
+      // la création ; un compte déjà lié (`byLink`) reste utilisable.
+      if (!user && !String(identity.email || '').trim()) {
+        outcome = { ok: false, error: 'no_email' }
+        return db
+      }
       if (!user) {
         user = {
           id: newId(provider === 'google' ? 'g' : 'm'),
@@ -102,6 +194,7 @@ async function finishIdentity(provider, identity, pending, stateKey) {
           accent: 'green',
           provider,
           wilaya: 'Oran',
+          demo: false,
           links: { google: null, meta: null, [provider]: identity }
         }
         db.users.push(user)
@@ -116,9 +209,12 @@ async function finishIdentity(provider, identity, pending, stateKey) {
     const token = newToken()
     db.sessions[token] = { userId: user.id, at: Date.now() }
     if (stateKey) delete db.oauthPending[stateKey]
-    db._lastAuth = { token, user: publicUser(user) }
+    // S3 : renvoyé par closure, jamais écrit dans la base.
+    outcome = { ok: true, token, user: publicUser(user) }
     return db
   })
+
+  return outcome || { ok: false, error: 'state' }
 }
 
 export async function completeDemo(provider, state, profile = {}) {
@@ -141,9 +237,11 @@ export async function completeDemo(provider, state, profile = {}) {
           picture: profile.picture || null
         }
 
+  // Déjà validé par startOAuth (S2) — le pending ne contient qu'une valeur sûre.
   const returnUrl = pending.returnUrl || null
-  const next = await finishIdentity(provider, identity, pending, state)
-  return { ok: true, token: next._lastAuth.token, user: next._lastAuth.user, returnUrl }
+  const done = await finishIdentity(provider, identity, pending, state)
+  if (!done?.ok) return done
+  return { ok: true, token: done.token, user: done.user, returnUrl }
 }
 
 export async function unlinkProvider(userId, provider) {

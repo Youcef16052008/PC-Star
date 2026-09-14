@@ -26,6 +26,50 @@ Project → **Settings → Environment Variables** (Production + Preview) :
 | `FRONT_URL` | `https://TON-PROJET.vercel.app` |
 | `OAUTH_REDIRECT_BASE` | `https://TON-PROJET.vercel.app` |
 | `OAUTH_DEMO` | `1` |
+| `WHATSAPP_TOKEN` | `EAAG…` (optionnel, P19) |
+| `WHATSAPP_PHONE_NUMBER_ID` | `109876543210` (optionnel, P19) |
+| `WHATSAPP_RECIPIENT` | `213770650387,213669174617` (optionnel, défaut = **les deux** numéros du site) |
+
+`FRONT_URL` / `OAUTH_REDIRECT_BASE` servent aussi de **liste blanche de
+redirection OAuth** (P13-S2) : un `returnUrl` d'une autre origine est ignoré.
+
+### Notifications WhatsApp au maître (P19)
+
+Chaque commande déclenche un message WhatsApp au maître (client, téléphone,
+total, articles, lien de rappel). Configuration :
+
+1. https://developers.facebook.com → créer une app (type **Business**) ;
+2. ajouter le produit **WhatsApp** : l'app de test fournit un token temporaire
+   (24 h) et un **Phone number ID** ;
+3. en production : numéro vérifié dans le **WhatsApp Business Manager**, puis
+   un **System user token** permanent ;
+4. renseigner `WHATSAPP_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID` (et éventuellement
+   `WHATSAPP_RECIPIENT`, sinon le numéro affiché sur le site est utilisé).
+
+Sans ces variables, **rien ne casse** : l'envoi est ignoré silencieusement
+(`not_configured`) et la commande passe normalement. Le maître reste notifié
+par le Desk et par la notification navigateur.
+
+**P20 — les deux numéros du magasin.** Le `07…` et le `06…` reçoivent tous les
+deux l'alerte : une commande déclenche **trois** notifications pour le maître,
+une dans le navigateur (Desk) et deux WhatsApp. Les numéros viennent d'une
+source unique, `STORE_WHATSAPP` dans `src/data.js`, partagée par les boutons de
+la page « À propos » et par l'envoi serveur — ajouter un troisième numéro ne
+demande qu'une ligne là. Les envois sont **indépendants** : si un numéro échoue
+(non inscrit sur WhatsApp, quota…), l'autre part quand même, et la réponse
+reste `201` pour le client.
+
+> ⚠️ **Les WebSockets ne fonctionnent pas sur Vercel** (serverless). Le socket
+> Desk `/api/desk-stream` n'est actif que sur un serveur Node longue durée.
+> Sur Vercel, le front retombe **automatiquement** sur le polling toutes les
+> 20 s : aucune configuration à faire, mais une commande peut mettre jusqu'à
+> 20 s à apparaître au comptoir. Le WhatsApp, lui, fonctionne partout.
+
+`TRUST_PROXY` : **ne pas le définir sur Vercel** — la plateforme est détectée
+automatiquement (`process.env.VERCEL`) et `X-Forwarded-For` est alors cru pour
+le rate limiting. À définir à `1` uniquement derrière un reverse proxy que vous
+maîtrisez (nginx, Caddy) ; jamais en exposition directe, sinon l'en-tête peut
+être forgé et le rate-limit contourné.
 
 Après le **premier** deploy, copie l’URL réelle et mets à jour ces 3 variables, puis **Redeploy**.
 

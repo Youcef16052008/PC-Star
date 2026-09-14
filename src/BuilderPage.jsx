@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { BUILDER_SLOTS, STORE, checkCompatibility, money, specOf, splitWarnings } from './data'
+import { BUILDER_SLOTS, STORE, checkCompatibility, money, socketsMatch, specOf, splitWarnings } from './data'
 import { BUILD_PRESETS, applyPreset, buildPowerRecap } from './orderLogic.js'
 import PartThumb from './PartThumb.jsx'
 
@@ -23,7 +23,11 @@ export default function BuilderPage({ t, products, build, setBuild, liveStock, o
   const picked = BUILDER_SLOTS.map((s) => build[s.key]).filter(Boolean)
   const warnings = useMemo(() => checkCompatibility(picked), [picked])
   const { blocks, notes } = useMemo(() => splitWarnings(warnings), [warnings])
-  const socketOk = !cpu || !board || (cpu.compat?.socket && board.compat?.socket && cpu.compat.socket === board.compat.socket)
+  // P17 (rapport #5) : comparaison tolérante aux sockets multiples. Aucun CPU
+  // ni carte mère du catalogue n'a de `compat.socket` en tableau aujourd'hui
+  // (seuls les ventirads), mais la comparaison `===` aurait silently validé un
+  // couple incompatible si ça arrivait.
+  const socketOk = !cpu || !board || socketsMatch(cpu.compat?.socket, board.compat?.socket)
   const requiredReady = BUILDER_SLOTS.filter((s) => s.required).every((s) => build[s.key])
   const total = picked.reduce((s, p) => s + p.price, 0)
   const power = useMemo(() => buildPowerRecap(picked), [picked])
@@ -268,8 +272,20 @@ export default function BuilderPage({ t, products, build, setBuild, liveStock, o
                           </button>
                         </h3>
                         <p className="small text-secondary flex-grow-1 mb-2">{p.short}</p>
-                        {tooHot && <div className="alert alert-danger py-1 px-2 small mb-2">{gpuBlocks[0]}</div>}
-                        {!tooHot && gpuNotes[0] && <div className="alert alert-warning py-1 px-2 small mb-2">{gpuNotes[0]}</div>}
+                        {/* P14 (#4) : `splitWarnings` renvoie des objets
+                            { key, vars, block } — les rendre tels quels faisait
+                            lever « Objects are not valid as a React child »
+                            (écran blanc du Builder). Même motif qu'en sidebar. */}
+                        {tooHot && (
+                          <div className="alert alert-danger py-1 px-2 small mb-2">
+                            {t(gpuBlocks[0].key, gpuBlocks[0].vars)}
+                          </div>
+                        )}
+                        {!tooHot && gpuNotes[0] && (
+                          <div className="alert alert-warning py-1 px-2 small mb-2">
+                            {t(gpuNotes[0].key, gpuNotes[0].vars)}
+                          </div>
+                        )}
                         <div className="d-flex justify-content-between align-items-center gap-2 mt-auto">
                           <span className="fw-bold text-success">{money(p.price)}</span>
                           <button

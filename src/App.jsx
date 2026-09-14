@@ -16,6 +16,10 @@ import {
   starText
 } from './data'
 import * as api from './api.js'
+// P19 : flux Desk temps réel (WebSocket + repli polling) et notifications
+// navigateur — une commande ne doit plus attendre la fenêtre de 20 s.
+import { createDeskStream } from './deskStream.js'
+import { notifyNewOrder, requestNotificationPermission } from './notify.js'
 import { ensureProductPhotos } from './productPhotos.js'
 import SearchPage from './SearchPage.jsx'
 import BuilderPage from './BuilderPage.jsx'
@@ -27,7 +31,7 @@ import MasterPage from './MasterPage.jsx'
 import DeskPage from './DeskPage.jsx'
 import ProductPage from './ProductPage.jsx'
 import LegalPage from './LegalPage.jsx'
-import { localDay, nextLocalOrderCode, orderApiFailure, pickupForUser } from './orderLogic.js'
+import { localDay, mergeServerOrders, nextLocalOrderCode, orderApiFailure, pickupForUser } from './orderLogic.js'
 import { t as translate, LANGS, langMeta } from './i18n.js'
 import {
   applyDocumentChrome,
@@ -52,7 +56,36 @@ import {
   saveUsers
 } from './shopStore.js'
 
-const storage = typeof localStorage !== 'undefined' ? localStorage : null
+/**
+ * P22 (piège 2) — accès au stockage résolu **paresseusement**.
+ *
+ * C'était `const storage = typeof localStorage !== 'undefined' ? localStorage : null`,
+ * évalué une fois pour toutes à l'import du module. Dans tout contexte où
+ * `localStorage` n'existe pas encore à cet instant — harnais de test qui pose
+ * ses globaux après les imports, worker sans DOM, rendu côté serveur — la
+ * constante restait figée à `null` pour toute la durée de vie du module.
+ *
+ * Conséquence observée : l'app retombait sur la langue du navigateur (arabe)
+ * au lieu de `pcstar-lang`, et `loadUsers(null)` ne seedait aucun compte —
+ * donc aucun bouton profil. Le symptôme ressemblait à s'y méprendre à un bug
+ * applicatif alors que le code de l'app était correct.
+ *
+ * Les 21 sites d'appel n'utilisent que `getItem` / `setItem` / `removeItem`
+ * en invocation optionnelle (`storage?.getItem?.(k)`), ce wrapper leur est
+ * donc transparent — et il suit le stockage réel dès qu'il apparaît.
+ */
+const liveStorage = () => (typeof localStorage !== 'undefined' ? localStorage : null)
+const storage = {
+  getItem(key) {
+    return liveStorage()?.getItem(key) ?? null
+  },
+  setItem(key, value) {
+    liveStorage()?.setItem(key, value)
+  },
+  removeItem(key) {
+    liveStorage()?.removeItem(key)
+  }
+}
 
 /** Cart is stored PER ACCOUNT (guest = 'guest'), so switching account = own cart. */
 const cartKeyFor = (uid) => `pcstar-cart-${uid || 'guest'}`
@@ -170,13 +203,27 @@ export default function App() {
   const [brandFilter, setBrandFilter] = useState(null)
   const [stockMap, setStockMap] = useState({}) // id -> live server stock
   const [serverCatalog, setServerCatalog] = useState([]) // produits complets servis par l'API (mode API)
-  // P10 (P7-11) : le fetch catalogue a abouti côté serveur (ok ou 5xx) — auquel
-  // cas c'est la vérité, MÊME vide. Seul l'offline justifie le repli statique.
+  // P10 (P7-11) : le catalogue reçu du serveur est la vérité — mais seulement
+  // s'il a bien été REÇU (200 + tableau). Un 5xx / une base injoignable ne
+  // marque plus le catalogue « prêt » : avant, une panne Neon laissait
+  // serverCatalog vide ET ready → vitrine sans aucun produit (B25).
   const [serverCatalogReady, setServerCatalogReady] = useState(false)
+  // P12 (B25) : l'API a répondu mais sa base est injoignable → catalogue de
+  // base servi en mode dégradé (stock d'origine, sans masquages master).
+  const [catalogDegraded, setCatalogDegraded] = useState(false)
+  const [degradedDismissed, setDegradedDismissed] = useState(false)
   const [cartStep, setCartStep] = useState(0) // 0 cart, 1 info (when items)
   const cartElRef = useRef(null)
   const cartOcRef = useRef(null)
   const prevOrderCount = useRef(0)
+  // P19 : codes déjà vus — la détection par longueur ratait une commande
+  // arrivée en même temps qu'une suppression.
+  const seenOrderCodes = useRef(null)
+  const deskStream = useRef(null)
+  // P21 : code → horodatage de la dernière transition décidée par le maître.
+  // Sert à ne pas laisser une réponse de polling périmée écraser un changement
+  // qui vient d'aboutir (voir `mergeServerOrders`).
+  const orderEditedAt = useRef(new Map())
 
   const t = (key, vars) => translate(lang, key, vars)
   const localUser = useMemo(() => {
@@ -325,20 +372,25 @@ export default function App() {
       if (h?.ok) {
         const cat = await api.getCatalog()
         if (!cancelled) {
+          // P12 (B25) : on ne déclare le catalogue « prêt » que sur une vraie
+          // réponse (200 + tableau). Un 500/502/timeout laissait avant
+          // serverCatalogReady=true avec une liste vide → plus AUCUN produit
+          // alors que la base contenait tout.
           if (cat.ok && Array.isArray(cat.data?.products)) {
             setServerCatalog(cat.data.products)
             const map = {}
             for (const pr of cat.data.products) map[pr.id] = pr.stock
             setStockMap(map)
+            setCatalogDegraded(Boolean(cat.data.degraded))
+            setServerCatalogReady(true)
           }
-          // P10 (P7-11) : le serveur a répondu (200 ou 5xx) → son catalogue
-          // est la vérité, même vide. Seul l'OFFLINE garde le repli statique.
-          if (!cat.offline) setServerCatalogReady(true)
         }
         // Panneaux (P6) : le serveur est la source de vérité pour
         // extraPanels/hiddenPanelIds → le shop est cohérent multi-appareils.
+        // P12 (B25) : jamais en mode dégradé — l'API renverrait des panneaux
+        // vides par défaut et écraserait le cache local.
         const m = await api.getMeta()
-        if (!cancelled && m.ok && m.data?.meta) {
+        if (!cancelled && m.ok && !m.data?.degraded && m.data?.meta) {
           const sm = m.data.meta
           persistMeta({
             ...loadMeta(storage),
@@ -398,9 +450,30 @@ export default function App() {
         const map = {}
         for (const pr of cat.data.products) map[pr.id] = pr.stock
         setStockMap(map)
+        setCatalogDegraded(Boolean(cat.data.degraded))
       }
     } catch {
       /* ignore */
+    }
+  }
+
+  // P19 : suppression définitive d'une commande (master). Le serveur rend le
+  // stock, donc on rafraîchit aussi l'état du catalogue.
+  async function handleOrderDelete(code) {
+    if (!(apiOnline && authMode === 'api' && isMaster)) return false
+    try {
+      const r = await api.deleteOrder(code)
+      if (!r.ok) {
+        setToast(t('deskDeleteFail'))
+        return false
+      }
+      setReservations((prev) => prev.filter((o) => o.code !== code))
+      await refreshStock()
+      setToast(t('orderDeleted'))
+      return true
+    } catch {
+      setToast(t('deskDeleteFail'))
+      return false
     }
   }
 
@@ -409,6 +482,9 @@ export default function App() {
       try {
         const r = await api.patchOrder(code, status)
         if (r.ok && r.data?.order) {
+          // P21 : horodatage AVANT la mise à jour d'état, pour que la fusion
+          // du polling suivant sache que ce statut est plus récent.
+          orderEditedAt.current.set(code, Date.now())
           setReservations((prev) => prev.map((o) => (o.code === code ? { ...o, ...r.data.order } : o)))
           await refreshStock()
           return true
@@ -484,25 +560,66 @@ export default function App() {
     setPickup((p) => pickupForUser(user, p, PICKUP_DEFAULTS))
   }, [authId]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // P19 : demande de permission de notification dès que le master est connecté.
+  // Sans accord explicite, aucune notification navigateur n'est possible. Le
+  // navigateur n'autorise qu'une demande par geste utilisateur : si l'état est
+  // déjà tranché (accordé ou refusé), cet appel ne fait rien.
+  useEffect(() => {
+    if (!isMaster) return
+    requestNotificationPermission().catch(() => {})
+  }, [isMaster])
+
   useEffect(() => {
     if (!isMaster || !apiOnline || authMode !== 'api') return undefined
     let cancelled = false
     async function pull() {
+      // P21 : l'horodatage est pris AVANT l'envoi. Toute transition décidée
+      // après cet instant est plus récente que la réponse qui va arriver.
+      const requestedAt = Date.now()
       const r = await api.listOrders()
       if (cancelled || !r.ok || !Array.isArray(r.data?.orders)) return
-      const next = r.data.orders
-      if (prevOrderCount.current && next.length > prevOrderCount.current && page === 'desk') {
-        deskBeep() // P9 (P7-6) : contexte unique partagé, jamais de leak
-        setToast(t('deskNewOrder'))
+      const server = r.data.orders
+      // P19 : détection par ensemble de codes (pas par longueur) — une
+      // suppression simultanée masquait auparavant l'arrivée d'une commande.
+      // La détection porte sur la liste SERVEUR : c'est elle qui révèle les
+      // arrivées, indépendamment de la fusion ci-dessous.
+      const known = seenOrderCodes.current
+      if (known) {
+        const fresh = server.filter((o) => !known.has(o.code))
+        for (const o of fresh) {
+          if (page === 'desk') {
+            deskBeep() // P9 (P7-6) : contexte unique partagé, jamais de leak
+            setToast(t('deskNewOrder'))
+          }
+          // Notification navigateur : visible même si l'onglet est en
+          // arrière-plan. Silencieuse si la permission n'a pas été accordée.
+          notifyNewOrder(o, t)
+        }
       }
-      prevOrderCount.current = next.length
-      setReservations(next)
+      seenOrderCodes.current = new Set(server.map((o) => o.code))
+      prevOrderCount.current = server.length
+      // P21 : forme FONCTIONNELLE obligatoire. Ce useEffect ne liste pas
+      // `reservations` dans ses dépendances : la variable capturée ici serait
+      // celle du montage, donc périmée. `prev` est l'état réellement courant.
+      setReservations((prev) => mergeServerOrders(server, prev, requestedAt, orderEditedAt.current))
     }
     pull()
-    const id = setInterval(pull, 20000)
+    // P19 : socket en temps réel, avec repli automatique sur le polling si le
+    // socket est indisponible (cas de Vercel, où les WebSockets n'existent pas
+    // en serverless). Le pull reste la source de vérité : le socket ne fait
+    // que déclencher un rafraîchissement immédiat.
+    deskStream.current = createDeskStream({
+      getToken: () => api.getToken(),
+      onEvent: () => {},
+      onRefresh: () => {
+        pull()
+      },
+      enabled: true,
+    })
     return () => {
       cancelled = true
-      clearInterval(id)
+      deskStream.current?.close()
+      deskStream.current = null
     }
   }, [isMaster, apiOnline, authMode, page]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -578,7 +695,6 @@ export default function App() {
     })
   }, [category, query, catalog, brandFilter])
 
-  const dzHits = useMemo(() => catalog.filter((p) => (p.tags || []).includes('dz-hit')).slice(0, 8), [catalog])
 
   function liveStock(product) {
     const base = stockMap[product.id] != null ? stockMap[product.id] : product.stock
@@ -765,6 +881,20 @@ export default function App() {
       <a className="skip-link" href="#main-content">
         {t('skipToContent')}
       </a>
+      {/* P12 (B25) : base injoignable → la vitrine reste debout sur le
+          catalogue de base, mais l'utilisateur doit le savoir (prix/stock
+          d'origine, masquages master ignorés, commandes non persistées). */}
+      {catalogDegraded && !degradedDismissed && (
+        <div className="alert alert-warning rounded-0 mb-0 py-2" role="alert">
+          <div className="container d-flex flex-wrap align-items-center gap-2">
+            <span className="small flex-grow-1">{t('catalogDegraded')}</span>
+            <button type="button" className="btn btn-sm btn-outline-warning" onClick={() => window.location.reload()}>
+              {t('catalogRetry')}
+            </button>
+            <button type="button" className="btn-close" onClick={() => setDegradedDismissed(true)} aria-label={t('close')} />
+          </div>
+        </div>
+      )}
       <div className="topbar text-white small py-2">
         <div className="container d-flex flex-wrap justify-content-between gap-2">
           <span>{STORE.address}</span>
@@ -772,8 +902,6 @@ export default function App() {
             <a className="link-light text-decoration-none fw-semibold" href={STORE.phoneHref}>
               {STORE.phone}
             </a>
-            {' · '}
-            {t('payCash')}
           </span>
         </div>
       </div>
@@ -867,7 +995,21 @@ export default function App() {
               </div>
               {user ? (
                 <>
-                  <button type="button" className={`btn btn-sm ${page === 'profile' ? 'btn-success' : 'btn-outline-secondary'}`} onClick={() => go('profile')}>
+                  {/*
+                    P22 (bug E) : le bouton affichait `{user.name}` seul. La clé
+                    `navProfile` existait dans les 3 langues sans jamais être
+                    rendue, et rien n'indiquait à un lecteur d'écran que ce
+                    bouton ouvre le profil — un compte nommé « A » donnait un
+                    bouton d'un caractère. `aria-label` reprend le nom visible
+                    (WCAG 2.5.3 « label in name ») plus sa fonction.
+                  */}
+                  <button
+                    type="button"
+                    className={`btn btn-sm ${page === 'profile' ? 'btn-success' : 'btn-outline-secondary'}`}
+                    onClick={() => go('profile')}
+                    title={t('navProfile')}
+                    aria-label={`${t('navProfile')} — ${user.name}`}
+                  >
                     {user.name}
                   </button>
                   <button type="button" className="btn btn-sm btn-outline-secondary" onClick={logout}>
@@ -891,8 +1033,7 @@ export default function App() {
             <p className="lead text-secondary mb-3">{t('heroBody')}</p>
             <div className="d-flex flex-wrap gap-2 align-items-center">
               <span className="badge text-bg-light border">{STORE.address}</span>
-              <span className="badge text-bg-success-subtle border border-success-subtle text-success-emphasis">{t('payCash')}</span>
-              <span className="badge text-bg-light border">{t('warrantyBadge')}</span>
+              {/* P21 : badges « espèces au comptoir » et « garantie 1 an » retirés. */}
             </div>
             <div className="d-flex flex-wrap gap-2 mt-3">
               <button className="btn btn-success" type="button" onClick={() => go('search')}>{t('advancedSearch')}</button>
@@ -905,52 +1046,14 @@ export default function App() {
 
           {/* P11 : panneaux « Pièces PC » et « Config PC » supprimés sur
               demande — seul « Hits DZ » reste (largeur pleine). */}
-          <section className="mb-4">
-            <div className="row g-3">
-              <div className="col-12">
-                <button type="button" className="card h-100 shadow-sm border-0 text-start w-100 btn p-0" onClick={() => { setBrandFilter(null); setCategory('all'); go('shop'); setTimeout(() => document.getElementById('dz-hits')?.scrollIntoView({ behavior: 'smooth' }), 50) }}>
-                  <div className="card-body">
-                    <h2 className="h6 text-success">{t('pathHits')}</h2>
-                    <p className="small text-secondary mb-0">{t('pathHitsBody')}</p>
-                  </div>
-                </button>
-              </div>
-            </div>
-          </section>
+          {/* P21 : raccourci « Hits DZ » supprimé — il pointait vers la section retirée. */}
 
-          {dzHits.length > 0 && (
-            <section className="mb-4" id="dz-hits">
-              <h2 className="h4 mb-3">{t('dzHits')}</h2>
-              <div className="row g-3">
-                {dzHits.map((p) => (
-                  <div className="col-6 col-md-4 col-lg-3" key={p.id}>
-                    <div className="card h-100 shadow-sm product-bs-card">
-                      <span className="badge text-bg-success position-absolute m-2 z-1">{t('tag_dz-hit')}</span>
-                      <button type="button" className="btn p-0 border-0" onClick={() => openProduct(p.id)}>
-                        <div className="ratio ratio-1x1 photo-frame overflow-hidden">
-                          <PartThumb product={p} />
-                        </div>
-                      </button>
-                      <div className="card-body p-3">
-                        <div className="small text-secondary">{p.brand}</div>
-                        <h3 className="h6">
-                          <button type="button" className="btn btn-link p-0 text-start text-decoration-none text-body" onClick={() => openProduct(p.id)}>
-                            {p.name}
-                          </button>
-                        </h3>
-                        <div className="fw-bold text-success">{money(p.price)}</div>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </section>
-          )}
+          {/* P21 : section « dz-hit » supprimée à la demande du comptoir. */}
 
           {/* P11 : section « Configs Star » + ses cartes supprimées sur demande. */}
 
           <div className="d-flex flex-wrap gap-2 align-items-center mb-3">
-            <span className="small fw-semibold text-secondary">{t('dzBrands')}</span>
+            {/* P21 : libellé « ماركات جزائرية شائعة » supprimé (filtres conservés). */}
             <button type="button" className={`btn btn-sm ${!brandFilter ? 'btn-success' : 'btn-outline-secondary'}`} onClick={() => setBrandFilter(null)}>
               {t('cat_all')}
             </button>
@@ -1091,7 +1194,6 @@ export default function App() {
                 </li>
                 <li className="list-group-item px-0 text-secondary">{t('storeHours')}</li>
                 <li className="list-group-item px-0 text-secondary">{t('storeReady')}</li>
-                <li className="list-group-item px-0 text-secondary">{t('storeWarranty')}</li>
                 <li className="list-group-item px-0">
                   <a href={`mailto:${STORE.email}`}>{STORE.email}</a>
                 </li>
@@ -1106,7 +1208,7 @@ export default function App() {
                 {STORE_LINKS.map((l) => (
                   <a key={l.id} className={`btn btn-sm social-btn social-${l.id} text-white`} href={l.href} target="_blank" rel="noreferrer">
                     <strong>{l.label}</strong>
-                    <span className="d-block small opacity-75">{l.sub}</span>
+                    <span className="d-block small opacity-75">{l.subKey ? t(l.subKey) : l.sub}</span>
                   </a>
                 ))}
               </div>
@@ -1205,6 +1307,7 @@ export default function App() {
           lang={lang}
           reservations={reservations}
           onStatus={handleOrderStatus}
+          onDelete={handleOrderDelete}
           setToast={setToast}
         />
       )}
@@ -1268,9 +1371,7 @@ export default function App() {
             <div className="col-md-6">
               <strong className="d-block">PC Star Informatique</strong>
               <div className="small text-secondary">{STORE.address}</div>
-              <div className="small text-secondary">
-                {t('payCash')} · {t('warrantyBadge')} · {t('pricesInDa')}
-              </div>
+              <div className="small text-secondary">{t('pricesInDa')}</div>
             </div>
             <div className="col-md-6 d-flex flex-wrap gap-2 justify-content-md-end">
               <a className="btn btn-sm btn-outline-secondary" href={STORE.phoneHref}>
@@ -1453,10 +1554,8 @@ export default function App() {
                 </div>
                 {/* P11 : champ wilaya retiré du panier sur demande — la wilaya
                     reste transmise (profil du client ou « Oran » par défaut). */}
-                <div className="mb-2">
-                  <label className="form-label small mb-1">{t('paymentMethod')}</label>
-                  <div className="form-control bg-success-subtle border-success-subtle fw-semibold">{t('payCash')}</div>
-                </div>
+                {/* P21 : bloc « Mode de paiement / Espèces au comptoir » retiré
+                    du panier — le paiement reste `cash` côté données. */}
                 <div className="mb-3">
                   <label className="form-label small mb-1" htmlFor="slot">{t('timeSlot')}</label>
                   <select id="slot" className="form-select" value={pickup.slot} onChange={(e) => setPickup({ ...pickup, slot: e.target.value })}>
@@ -1518,9 +1617,7 @@ export default function App() {
           onApiUser={onApiUser}
         />
       )}
-      <div className={`api-status ${apiOnline ? 'on' : ''}`} title={apiOnline ? t('backendOnline') : t('backendOffline')} aria-hidden="true">
-        {apiOnline ? '● API' : '○ local'}
-      </div>
+      {/* P21 : badge d'état « ● API » supprimé à la demande du comptoir. */}
     </div>
   )
 }

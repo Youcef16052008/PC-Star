@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { money } from './data.js'
-import { localDay, statusLabelKey } from './orderLogic.js'
+import { localDay, statusLabelKey, waNumber } from './orderLogic.js'
 import * as api from './api.js'
 
 const FILTERS = ['all', 'new', 'preparing', 'ready', 'picked', 'cancelled']
@@ -15,7 +15,7 @@ function badgeClass(status) {
   return 'text-bg-light'
 }
 
-export default function DeskPage({ t, lang, reservations, onStatus, setToast }) {
+export default function DeskPage({ t, lang, reservations, onStatus, onDelete, setToast }) {
   const [filter, setFilter] = useState('all')
   const [q, setQ] = useState('')
   const [busy, setBusy] = useState(null)
@@ -32,10 +32,36 @@ export default function DeskPage({ t, lang, reservations, onStatus, setToast }) 
   }, [reservations, filter, q])
 
   async function changeStatus(code, status) {
-    setBusy(code + status)
+    // P21 : `busy` ne porte plus que le CODE de la commande en cours. Avant il
+    // valait `code + status` et les cinq boutons testaient la simple présence
+    // d'une valeur (`disabled={busy}`) : une seule requête en attente gelait
+    // donc les boutons de TOUTES les cartes, pas seulement celle cliquée.
+    setBusy(code)
     try {
       const ok = await onStatus(code, status)
       if (!ok) setToast?.(t('deskStatusFail'))
+    } catch {
+      // P21 : une exception ne doit ni remonter en rejet non géré, ni laisser la
+      // carte verrouillée — sans ce catch, `busy` restait pris et les boutons
+      // demeuraient grisés sans aucun message pour le maître.
+      setToast?.(t('deskStatusFail'))
+    } finally {
+      // Toujours libéré, même si onStatus lève : sinon la carte reste figée.
+      setBusy(null)
+    }
+  }
+
+  // P19 : suppression définitive — pour les commandes de test du master, qui
+  // n'ont pas à rester dans l'historique ni dans le CSV. Le stock est rendu
+  // côté serveur. Confirmation obligatoire : l'action est irréversible.
+  async function removeOrder(code) {
+    if (!window.confirm(t('confirmDeleteOrder'))) return
+    setBusy(code)
+    try {
+      const ok = onDelete ? await onDelete(code) : false
+      if (!ok) setToast?.(t('deskDeleteFail'))
+    } catch {
+      setToast?.(t('deskDeleteFail')) // P21 : même protection que changeStatus
     } finally {
       setBusy(null)
     }
@@ -52,18 +78,12 @@ export default function DeskPage({ t, lang, reservations, onStatus, setToast }) 
     }
   }
 
-  // wa.me exige le format international (213XXXXXXXXX) — on normalise
-  // 0X…, +213…, 213… et les 9 chiffres.
-  function waPhoneHref(phone) {
-    let d = String(phone || '').replace(/\D/g, '')
-    if (d.startsWith('00')) d = d.slice(2)
-    if (d.startsWith('213')) d = d.slice(3)
-    if (d.length === 9 && /^[567]/.test(d)) d = `213${d}`
-    return d
-  }
-
+  // P14 (#3) : conversion partagée et testée (`waNumber`, src/orderLogic.js).
+  // wa.me exige l'international 213XXXXXXXXX alors que la base stocke le
+  // format local 0XXXXXXXXX — l'ancienne version locale ne traitait que les
+  // 9 chiffres, donc tous les liens WhatsApp du comptoir étaient morts.
   function waLink(r) {
-    const num = waPhoneHref(r.phone)
+    const num = waNumber(r.phone)
     if (!num) return null
     const st = r.status === 'pending' ? 'new' : r.status || 'new'
     const msg =
@@ -153,8 +173,6 @@ export default function DeskPage({ t, lang, reservations, onStatus, setToast }) 
                       {r.phone}
                       {r.carrier ? ` · ${r.carrier}` : ''}
                       {r.wilaya ? ` · ${r.wilaya}` : ''}
-                      {' · '}
-                      {t('payCash')}
                     </p>
                     <ul className="list-group list-group-flush mb-3">
                       {(r.items || []).map((i) => (
@@ -176,7 +194,7 @@ export default function DeskPage({ t, lang, reservations, onStatus, setToast }) 
                         <button
                           type="button"
                           className="btn btn-sm btn-warning"
-                          disabled={busy}
+                          disabled={busy === r.code}
                           onClick={() => changeStatus(r.code, 'preparing')}
                         >
                           {t('deskStartPrep')}
@@ -186,7 +204,7 @@ export default function DeskPage({ t, lang, reservations, onStatus, setToast }) 
                         <button
                           type="button"
                           className="btn btn-sm btn-success"
-                          disabled={busy}
+                          disabled={busy === r.code}
                           onClick={() => changeStatus(r.code, 'ready')}
                         >
                           {t('deskMarkReady')}
@@ -196,7 +214,7 @@ export default function DeskPage({ t, lang, reservations, onStatus, setToast }) 
                         <button
                           type="button"
                           className="btn btn-sm btn-success"
-                          disabled={busy}
+                          disabled={busy === r.code}
                           onClick={() => changeStatus(r.code, 'picked')}
                         >
                           {t('deskMarkPicked')}
@@ -213,10 +231,25 @@ export default function DeskPage({ t, lang, reservations, onStatus, setToast }) 
                         <button
                           type="button"
                           className="btn btn-sm btn-outline-danger"
-                          disabled={busy}
+                          disabled={busy === r.code}
                           onClick={() => changeStatus(r.code, 'cancelled')}
                         >
                           {t('deskCancel')}
+                        </button>
+                      )}
+                      {/* P19 : corbeille — suppression définitive, dispo pour
+                          tous les statuts (y compris « picked » et
+                          « cancelled », que l'annulation ne couvre pas). */}
+                      {onDelete && (
+                        <button
+                          type="button"
+                          className="btn btn-sm btn-danger"
+                          disabled={busy === r.code}
+                          onClick={() => removeOrder(r.code)}
+                          title={t('deskDelete')}
+                          aria-label={`${t('deskDelete')} ${r.code}`}
+                        >
+                          🗑 {t('deskDelete')}
                         </button>
                       )}
                     </div>

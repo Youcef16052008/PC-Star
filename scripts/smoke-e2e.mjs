@@ -22,8 +22,10 @@ const h = await j(`${API}/api/health`)
 ok('health', h.ok && h.data?.ok)
 
 const cat = await j(`${API}/api/catalog`)
-// P6 : 250 SKUs de base, `speakers` (stock 0) filtrée du catalogue public → 249
-ok('catalog', cat.ok && cat.data?.count >= 249, cat.data?.count)
+// P6 : `speakers` (stock 0) est filtrée du catalogue public.
+// P21 : 223 SKUs de base (27 références « dz-hit » retirées à la demande du
+// comptoir) → 222 visibles.
+ok('catalog', cat.ok && cat.data?.count >= 222 && cat.data?.count <= 223, cat.data?.count)
 
 const login = await j(`${API}/api/auth/login`, {
   method: 'POST',
