@@ -47,6 +47,7 @@ const {
   phoneCarrier,
   addProduct
 } = await import('./shopStore.js')
+const { PRODUCTS } = await import('./data.js')
 const {
   applyStockDecrement,
   applyStockRestore,
@@ -225,5 +226,95 @@ describe('P22 bug D — canTransition n’a plus de branche morte', () => {
   it('les états terminaux ne bougent plus', () => {
     assert.equal(canTransition('picked', 'new'), false)
     assert.equal(canTransition('cancelled', 'ready'), false)
+  })
+})
+
+describe('P22 bug H — un SKU déjà pris est refusé, côté client ET serveur', () => {
+  const emptyMeta = () => ({
+    extraProducts: [],
+    hiddenProductIds: [],
+    extraPanels: [],
+    hiddenPanelIds: [],
+    photoOverrides: {}
+  })
+  const BASE_SKU = PRODUCTS.find((p) => p.sku).sku
+
+  it('[client] un SKU manuel qui double le catalogue de base est refusé', () => {
+    const r = addProduct(emptyMeta(), { name: 'Doublon', price: 100, category: 'ssd', sku: BASE_SKU }, PRODUCTS)
+    assert.equal(r.ok, false)
+    assert.equal(r.error, 'sku_taken')
+  })
+
+  it('[client] deux produits ne peuvent pas partager un SKU manuel', () => {
+    const a = addProduct(emptyMeta(), { name: 'A', price: 1, category: 'ssd', sku: 'MON-SKU' }, PRODUCTS)
+    assert.equal(a.ok, true)
+    const b = addProduct(a.meta, { name: 'B', price: 1, category: 'ssd', sku: 'MON-SKU' }, PRODUCTS)
+    assert.equal(b.ok, false)
+    assert.equal(b.error, 'sku_taken')
+  })
+
+  it('[client] un SKU manuel libre reste accepté tel quel', () => {
+    const r = addProduct(emptyMeta(), { name: 'Libre', price: 1, category: 'ssd', sku: 'SKU-LIBRE-1' }, PRODUCTS)
+    assert.equal(r.ok, true)
+    assert.equal(r.product.sku, 'SKU-LIBRE-1')
+  })
+
+  it('[client] un SKU généré évite aussi le catalogue de base', () => {
+    // Trois noms partageant 8 caractères + un produit de base portant déjà le
+    // SKU généré attendu : le suffixe doit sauter la collision.
+    const fake = { id: 'fake-base', sku: 'PS-SAMSUNGS' }
+    const r = addProduct(emptyMeta(), { name: 'Samsung SSD 870 EVO', price: 1, category: 'ssd' }, [fake])
+    assert.equal(r.product.sku, 'PS-SAMSUNGS-2')
+  })
+
+  it('[serveur] POST /api/master/products refuse un SKU du catalogue de base', async () => {
+    const login = await call('POST', '/api/auth/login', {
+      body: { email: 'pcstar.info31@gmail.com', password: 'star31' }
+    })
+    assert.equal(login.status, 200, 'login master')
+    const token = login.data.token
+
+    const r = await call('POST', '/api/master/products', {
+      token,
+      body: { name: 'Doublon serveur', price: 100, category: 'ssd', stock: 1, sku: BASE_SKU }
+    })
+    assert.equal(r.status, 400, `attendu 400, reçu ${r.status} ${JSON.stringify(r.data)}`)
+    assert.equal(r.data.error, 'sku_taken')
+  })
+
+  it('[serveur] deux créations ne peuvent pas partager un SKU saisi', async () => {
+    const login = await call('POST', '/api/auth/login', {
+      body: { email: 'pcstar.info31@gmail.com', password: 'star31' }
+    })
+    const token = login.data.token
+    const first = await call('POST', '/api/master/products', {
+      token,
+      body: { name: 'Unique 1', price: 100, category: 'ssd', stock: 1, sku: 'SKU-UNIQUE-P22' }
+    })
+    assert.equal(first.status, 201, `1re création : ${first.status} ${JSON.stringify(first.data)}`)
+    const second = await call('POST', '/api/master/products', {
+      token,
+      body: { name: 'Unique 2', price: 100, category: 'ssd', stock: 1, sku: 'SKU-UNIQUE-P22' }
+    })
+    assert.equal(second.status, 400)
+    assert.equal(second.data.error, 'sku_taken')
+  })
+
+  it('[serveur] sans SKU saisi, le serveur génère un id unique', async () => {
+    const login = await call('POST', '/api/auth/login', {
+      body: { email: 'pcstar.info31@gmail.com', password: 'star31' }
+    })
+    const token = login.data.token
+    const a = await call('POST', '/api/master/products', {
+      token,
+      body: { name: 'Sans SKU A', price: 100, category: 'ssd', stock: 1 }
+    })
+    const b = await call('POST', '/api/master/products', {
+      token,
+      body: { name: 'Sans SKU B', price: 100, category: 'ssd', stock: 1 }
+    })
+    assert.equal(a.status, 201)
+    assert.equal(b.status, 201)
+    assert.notEqual(a.data.product.sku, b.data.product.sku)
   })
 })

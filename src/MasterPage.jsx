@@ -133,7 +133,10 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, ma
         photoDataUrls: form.photos
       })
       if (!r.ok) {
-        errToast(setToast, t, r, 'masterCreateFail')
+        // P22 (bug H) : le serveur répond `sku_taken` quand le SKU saisi existe
+        // déjà — un message dédié plutôt que « échec de création ».
+        if (r.data?.error === 'sku_taken') setToast(t('masterSkuTaken'))
+        else errToast(setToast, t, r, 'masterCreateFail')
         return
       }
       setForm({ name: '', price: '', stock: '1', category: form.category, brand: 'PC Star', short: '', sku: '', photos: [] })
@@ -142,17 +145,27 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, ma
       onStockRefresh?.()
       return
     }
-    const res = addProduct(meta, {
-      name: form.name,
-      price: Number(form.price),
-      stock: Number(form.stock),
-      category: form.category,
-      brand: form.brand,
-      short: form.short,
-      sku: form.sku || undefined,
-      photos: form.photos
-    })
+    const res = addProduct(
+      meta,
+      {
+        name: form.name,
+        price: Number(form.price),
+        stock: Number(form.stock),
+        category: form.category,
+        brand: form.brand,
+        short: form.short,
+        sku: form.sku || undefined,
+        photos: form.photos
+      },
+      // P22 (bug H) : le catalogue de base compte aussi — un SKU saisi ne doit
+      // pas doubler une référence existante.
+      products
+    )
     if (!res.ok) {
+      if (res.error === 'sku_taken') {
+        setToast(t('masterSkuTaken'))
+        return
+      }
       // P17 (rapport #1) : copier-coller de la page de connexion — un master en
       // mode local voyait « 6 caractères minimum » quand la création du produit
       // échouait (nom vide, prix invalide). Le mode API disait déjà juste.

@@ -135,10 +135,10 @@ Samsung SSD 860 QVO 2To    →  PS-SAMSUNGS
 **Après :** `PS-SAMSUNGS`, `PS-SAMSUNGS-2`, `PS-SAMSUNGS-3`. Un SKU saisi à la
 main n'est jamais réécrit ni suffixé.
 
-**Portée exacte :** le mode API n'était **pas** touché — `POST
-/api/master/products` génère son propre identifiant (`sku-mu0w…`). Vérifié en
-direct : trois créations ont donné trois ids distincts. Le défaut était donc
-limité au mode hors-ligne de MasterPage.
+**Portée exacte — corrigée après coup.** J'avais d'abord écrit que « le mode
+API n'était pas touché ». C'était vrai pour les SKU **générés** (le serveur
+fabrique son propre id `sku-mu0w…`), mais faux pour les SKU **saisis** : c'est
+le bug H ci-dessous.
 
 ### C — Perte de stock dans `applyStockRestore`
 
@@ -174,6 +174,44 @@ tests `st === 'new'` etc., pas via cette fonction.
 
 ---
 
+## 2 bis. Bug H — un SKU déjà pris était accepté (trouvé en re-vérifiant B)
+
+Le correctif B ne couvrait que les SKU **générés**. Un SKU **saisi à la main**
+n'était confronté à rien, ni côté client ni côté serveur.
+
+**Mesuré en direct avant correctif :**
+
+```
+SKU 100-100000910WOF déjà porté par cpu-7800x3d dans le catalogue
+POST /api/master/products  essai 1 → HTTP 201  sku=100-100000910WOF
+POST /api/master/products  essai 2 → HTTP 201  sku=100-100000910WOF
+catalogue public → 3 produits portant ce SKU
+```
+
+Le SKU identifie une référence sur l'étiquette, dans l'export CSV du comptoir
+et dans le dossier de photos : un doublon rend la fiche ambiguë.
+
+**Cause :** `server/masterApi.js` faisait `sku: String(body.sku || finalId).trim()`
+sans aucun contrôle, et `addProduct()` côté client ne vérifiait que les
+collisions entre SKU générés.
+
+**Correctif :** les deux chemins refusent maintenant un SKU déjà porté par le
+catalogue de base ou par un produit du master (`400 {"error":"sku_taken"}`), et
+`uniqueSku()` évite aussi le catalogue de base. Un message dédié
+(`masterSkuTaken`, ajouté dans les 3 langues) remplace le vague « échec de
+création » dans MasterPage.
+
+**Mesuré après, en direct :**
+
+```
+SKU du catalogue de base : HTTP 400  {"ok":false,"error":"sku_taken"}
+SKU libre                : HTTP 201
+le même une 2e fois      : HTTP 400  {"ok":false,"error":"sku_taken"}
+occurrences du SKU de base dans le catalogue : 1
+```
+
+---
+
 ## 3. Trois points trouvés, d'abord laissés ouverts, puis corrigés
 
 Signalés dans un premier temps comme des « décisions de design », ils ont
@@ -195,7 +233,9 @@ profil.
 porte `title={t('navProfile')}` et `aria-label={`${t('navProfile')} — ${user.name}`}`.
 L'`aria-label` **contient le texte visible**, comme l'exige WCAG 2.5.3
 (« label in name ») — sinon la commande vocale « cliquer sur PC Star Desk »
-ne peut pas le cibler. `navProfile` n'est plus une clé morte.
+ne peut pas le cibler. `navProfile` n'est plus une clé morte, et `navAccount`
+— morte pour la même raison, sans aucun emplacement où l'afficher — a été
+supprimée des 3 blocs.
 
 ### F — Du français en dur dans l'interface arabe
 
@@ -212,8 +252,9 @@ employée partout ailleurs dans le fichier (`storeAbout`, `legalTermsP1`,
 DOM pour les trois langues, et un test asserts que l'arabe ne contient plus la
 chaîne française et contient bien des caractères arabes.
 
-i18n passe de 481 à **482 clés × 3 langues, symétriques** (0 manquante,
-0 en trop).
+i18n : 481 → **482 clés × 3 langues, symétriques** (0 manquante, 0 en trop)
+après ajout de `storeMapSub` et `masterSkuTaken`, et suppression de
+`navAccount`.
 
 ### G — Deux machines à états divergentes
 
@@ -269,11 +310,11 @@ rejouées :
 
 | Contrôle | Résultat |
 |---|---|
-| `npm test` | **278/278** (250 avant l'audit → +15 bug A–D → +13 bug E–G) |
-| `npm run build` | ✓ 111 modules, 423,82 kB / 127,51 kB gzip |
+| `npm test` | **285/285** (250 → +15 bug A–D → +13 bug E–G → +7 bug H) |
+| `npm run build` | ✓ 111 modules, 424,35 kB / 127,69 kB gzip |
 | `npm run smoke` | **SMOKE OK** — health, catalog 222, login, order, me-orders, login-master, oauth-start, front 200, robots |
 | Crawl 3 langues | 39 exécutions, 4 026 clics, **0 erreur** |
-| `src/p22Audit.test.js` | 15/15, dont `POST /api/orders` réel sur les trois écritures internationales |
+| `src/p22Audit.test.js` | 22/22 — `POST /api/orders` réel sur les trois écritures internationales + `POST /api/master/products` réel sur les doublons de SKU |
 | `src/p22UI.test.js` | 13/13 — `aria-label` du bouton profil, sous-titre Maps traduit en ar/fr/en, table de transitions partagée |
 
 Le test du bug A démarre un **vrai serveur** (`http.createServer(handler)`) et

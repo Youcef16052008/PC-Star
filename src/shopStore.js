@@ -312,7 +312,7 @@ function cleanPhotos(list) {
  * numériquement tant que le SKU existe déjà parmi les produits du master.
  */
 function uniqueSku(base, existing) {
-  const taken = new Set((existing || []).map((p) => String(p.sku || '')))
+  const taken = new Set((existing || []).map((p) => String(p.sku || '')).filter(Boolean))
   if (!taken.has(base)) return base
   let i = 2
   while (taken.has(`${base}-${i}`)) i += 1
@@ -328,11 +328,28 @@ function skuSlug(title) {
   return s || Date.now().toString(36).toUpperCase().slice(-6)
 }
 
-export function addProduct(meta, { name, price, category, brand, stock, short, photos, sku } = {}) {
+/**
+ * @param {Array} knownSkus P22 (bug H) : SKU déjà pris ailleurs que dans
+ *   `meta.extraProducts` — en pratique ceux du catalogue de base. Sans cette
+ *   liste, un SKU saisi à la main pouvait doubler une référence existante
+ *   (le serveur refuse désormais aussi, voir server/masterApi.js).
+ */
+export function addProduct(meta, { name, price, category, brand, stock, short, photos, sku } = {}, knownSkus = []) {
   const title = String(name || '').trim()
   const n = Number(price)
   if (!title || !Number.isFinite(n) || n < 0) return { ok: false, error: 'product' }
   const cat = String(category || 'accessories')
+  // P22 (bug H) : un SKU saisi doit être libre — dans les produits du master
+  // comme dans le catalogue de base.
+  const manualSku = String(sku || '').trim()
+  if (manualSku) {
+    const taken = new Set(
+      [...(meta.extraProducts || []), ...knownSkus]
+        .map((p) => String(p?.sku || '').trim())
+        .filter(Boolean)
+    )
+    if (taken.has(manualSku)) return { ok: false, error: 'sku_taken' }
+  }
   const product = {
     id: nowId('sku'),
     // P6 : numéro de produit (SKU) saisi par le master, sinon généré.
@@ -340,7 +357,7 @@ export function addProduct(meta, { name, price, category, brand, stock, short, p
     // composé uniquement de caractères invisibles (BOM, zero-width, espaces
     // insécables) survivait à `trim()` et donnait un SKU illisible. On retire
     // ces caractères et on retombe sur un suffixe horodaté — jamais « PS- » seul.
-    sku: String(sku || '').trim() || uniqueSku(`PS-${skuSlug(title)}`, meta.extraProducts),
+    sku: manualSku || uniqueSku(`PS-${skuSlug(title)}`, [...(meta.extraProducts || []), ...knownSkus]),
     name: title,
     short: String(short || title),
     brand: String(brand || 'PC Star'),

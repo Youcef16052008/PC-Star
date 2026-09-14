@@ -49,9 +49,20 @@ export function createProduct(db, body, id) {
   if (id && db.meta.extraProducts.some((p) => p.id === id)) return { ok: false, error: 'invalid' }
 
   const finalId = id || newId('sku')
+  const sku = String(body.sku || finalId).trim()
+  // P22 (bug H) : le SKU saisi n'était confronté à rien. Un master pouvait
+  // créer plusieurs produits portant le SKU d'une référence du catalogue de
+  // base — mesuré en direct : trois produits se sont retrouvés avec
+  // `100-100000910WOF` (celui de `cpu-7800x3d`). Le SKU est ce qui identifie
+  // une référence sur l'étiquette, dans l'export CSV et dans le dossier de
+  // photos : un doublon rend la fiche ambiguë. On refuse.
+  const taken = new Set(
+    [...PRODUCTS, ...db.meta.extraProducts].map((x) => String(x.sku || '').trim()).filter(Boolean)
+  )
+  if (taken.has(sku)) return { ok: false, error: 'sku_taken' }
   const product = {
     id: finalId,
-    sku: String(body.sku || finalId).trim(),
+    sku,
     name,
     brand: String(body.brand || 'PC Star').trim(),
     kind: body.kind || 'part',
