@@ -226,17 +226,21 @@ describe('S2 (#9, suite) — en démo, un e-mail ne suffit plus à prendre un co
 })
 
 describe('S3 (#10) — aucun token de session dans la base ni les backups', () => {
-  it('après un login OAuth réussi, la base ne contient pas _lastAuth', async () => {
+  it('après un login OAuth réussi, la base ne contient ni _lastAuth ni le jeton', async () => {
     const r = await oauthDemo('google', 'check.s3@test.dz')
     assert.equal(r.status, 302)
     assert.ok(r.token, 'le token est bien renvoyé au client')
     const store = readStore()
     assert.equal('_lastAuth' in store, false, '_lastAuth persisté dans store.json')
-    assert.ok(store.sessions[r.token], 'la session existe (c’est elle qui porte le token)')
-    // Le token ne doit apparaître nulle part ailleurs que dans la table des sessions.
-    const sansSessions = { ...store }
-    delete sansSessions.sessions
-    assert.equal(JSON.stringify(sansSessions).includes(r.token), false, 'token présent hors sessions')
+    // Durcissement des jetons (15/09) : la table des sessions est indexée par
+    // EMPREINTE sha256, plus par jeton brut. Un store.json — ou un backup — qui
+    // fuit ne donne donc plus aucune session utilisable.
+    const { hashToken } = await import('../server/db.js')
+    assert.ok(store.sessions[hashToken(r.token)], 'la session existe, sous son empreinte')
+    assert.equal(store.sessions[r.token], undefined, 'le jeton brut ne doit plus être une clé')
+    assert.equal(Object.keys(store.sessions).every((k) => /^[a-f0-9]{64}$/.test(k)), true, 'clés = empreintes sha256')
+    // Le jeton ne doit apparaître NULLE PART dans le fichier, sessions comprises.
+    assert.equal(JSON.stringify(store).includes(r.token), false, 'token présent dans store.json')
   })
 
   it('une base déjà polluée est nettoyée à la lecture', () => {

@@ -10,9 +10,14 @@ import {
   dbPaths,
   dbUrlDiagnostics,
   hashPassAsync,
+  hashToken,
   initDb,
+  createSession,
+  deleteSession,
+  findSession,
   masterAccount,
   newId,
+  putSession,
   newToken,
   publicUser,
   readDbAsync,
@@ -170,7 +175,8 @@ async function userFromReq(req) {
   const token = bearer(req)
   if (!token) return null
   const db = await readDbAsync()
-  const sess = db.sessions[token]
+  // Durcissement des jetons : la base ne contient que des EMPREINTES sha256.
+  const sess = findSession(db, token)
   if (!sess) return null
   const user = db.users.find((u) => u.id === sess.userId)
   return user ? { token, user } : null
@@ -325,8 +331,8 @@ export async function handler(req, res) {
           })()
         }
         db.users.push(user)
-        token = newToken()
-        db.sessions[token] = { userId: user.id, at: Date.now() }
+        // `createSession` génère le jeton et n'en stocke que l'empreinte.
+        token = createSession(db, user.id)
         return db
       })
       if (exists) return send(res, 409, { ok: false, error: 'exists' })
@@ -359,7 +365,7 @@ export async function handler(req, res) {
       const needsRehash = !String(user.passwordHash || '').startsWith('scrypt$')
       const migratedHash = needsRehash ? await hashPassAsync(password) : null
       await updateDbAsync((d) => {
-        d.sessions[token] = { userId: user.id, at: Date.now() }
+        putSession(d, token, user.id)
         // P22 (item 1) — migration transparente du hash de mot de passe.
         //
         // Les comptes seedés (master + 3 démos) sont créés avec
@@ -386,7 +392,7 @@ export async function handler(req, res) {
       const token = bearer(req)
       if (token) {
         await updateDbAsync((db) => {
-          delete db.sessions[token]
+          deleteSession(db, token)
           return db
         })
       }
@@ -510,13 +516,16 @@ export async function handler(req, res) {
       // `userFromReq` renvoie déjà le token de la session en cours : on le
       // conserve, tout le reste est révoqué.
       const currentToken = auth.token
+      // Les clés sont des empreintes : la comparaison porte sur l'empreinte du
+      // jeton courant, jamais sur le jeton lui-même.
+      const currentKey = hashToken(currentToken || '')
       let revoked = 0
       await updateDbAsync((db) => {
         const u = db.users.find((x) => x.id === auth.user.id)
         if (u) u.passwordHash = nextHash
-        for (const [token, sess] of Object.entries(db.sessions || {})) {
-          if (sess && sess.userId === auth.user.id && token !== currentToken) {
-            delete db.sessions[token]
+        for (const [key, sess] of Object.entries(db.sessions || {})) {
+          if (sess && sess.userId === auth.user.id && key !== currentKey) {
+            delete db.sessions[key]
             revoked += 1
           }
         }
@@ -552,9 +561,9 @@ export async function handler(req, res) {
           // LOT 1.5 : même raison que /api/me/password — un reset maître sert
           // typiquement à reprendre la main sur un compte compromis ; laisser
           // les sessions ouvertes annulerait l'opération.
-          for (const [token, sess] of Object.entries(db.sessions || {})) {
+          for (const [key, sess] of Object.entries(db.sessions || {})) {
             if (sess && sess.userId === id) {
-              delete db.sessions[token]
+              delete db.sessions[key]
               revoked += 1
             }
           }
@@ -1203,7 +1212,7 @@ function startLocalServer() {
   attachDeskSocket(server, async (token) => {
     try {
       const db = await readDbAsync()
-      const sess = db.sessions?.[token]
+      const sess = findSession(db, token)
       if (!sess) return false
       return db.users.some((u) => u.id === sess.userId && u.role === 'master')
     } catch {

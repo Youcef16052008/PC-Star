@@ -371,15 +371,28 @@ function csvEscape(v) {
  * P9 (P7-7) : borne le répertoire de backups aux `keep` plus récents
  * (les noms `store-<timestamp>` sont triables chronologiquement).
  */
-export function capBackups(backupDir, keep = 14) {
+/**
+ * BORNE le répertoire de backups à `keep` jeux (P9 / P7-7).
+ *
+ * `protect` (chemin ou nom) désigne un fichier à ne JAMAIS supprimer : c'est le
+ * backup que `backupStore` vient de créer. Sans cette protection, deux backups
+ * tombés dans la même seconde pouvaient voir le plus récent supprimé sur-le-champ
+ * — le tri est alphabétique, et à horodatage égal c'est le suffixe aléatoire qui
+ * décidait de l'« ancienneté ». `backupStore` renvoyait alors un chemin déjà mort.
+ */
+export function capBackups(backupDir, keep = 14, protect = null) {
   if (!fs.existsSync(backupDir)) return 0
+  const protectedName = protect ? path.basename(String(protect)) : null
   const all = fs
     .readdirSync(backupDir)
     .filter((f) => f.startsWith('store-') && f.endsWith('.json'))
     .sort()
   let removed = 0
   while (all.length > keep) {
-    const f = all.shift()
+    // le plus ANCIEN non protégé (et non le premier de la liste)
+    const idx = protectedName ? all.findIndex((f) => f !== protectedName) : 0
+    if (idx < 0) break
+    const [f] = all.splice(idx, 1)
     try {
       fs.unlinkSync(path.join(backupDir, f))
       removed += 1
@@ -393,16 +406,24 @@ export function capBackups(backupDir, keep = 14) {
 export function backupStore(dbPath, backupDir) {
   fs.mkdirSync(backupDir, { recursive: true })
   if (!fs.existsSync(dbPath)) return null
-  const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
   // LOT 3.15 (B5) : le nom portait la seule seconde courante. Deux backups
   // déclenchés dans la même seconde (timer 6 h + sauvegarde manuelle, ou un
   // appel double depuis deux requêtes) écrivaient le MÊME fichier : le second
   // écrasait le premier sans erreur, et `capBackups` croyait avoir 14 jeux alors
-  // qu'il en manquait un. Le suffixe aléatoire rend chaque nom unique ; il vient
-  // APRÈS l'horodatage, donc le tri alphabétique de `capBackups` reste
-  // chronologique et le motif `store-*.json` est inchangé.
+  // qu'il en manquait un.
+  //
+  // Deux garde-fous désormais :
+  //  · l'horodatage descend à la MILLISECONDE (`slice(0, 23)` garde `…-789`,
+  //    sans le `Z`) : le tri alphabétique de `capBackups` reste chronologique à
+  //    l'échelle où deux backups peuvent vraiment se suivre ; les noms legacy à
+  //    la seconde continuent de trier AVANT, donc comme plus anciens ;
+  //  · le suffixe aléatoire rend chaque nom unique, et `capBackups` reçoit le
+  //    chemin créé en `protect` : le bornage ne peut plus supprimer le backup
+  //    qu'on vient de rendre (à milliseconde égale, l'ordre alphabétique des
+  //    suffixes ne dit rien de l'âge réel).
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 23)
   const dest = path.join(backupDir, `store-${stamp}-${crypto.randomBytes(3).toString('hex')}.json`)
   fs.copyFileSync(dbPath, dest)
-  capBackups(backupDir) // P9 (P7-7) : plus de croissance infinie (timer 6 h + manuels)
+  capBackups(backupDir, 14, dest) // P9 (P7-7) : plus de croissance infinie (timer 6 h + manuels)
   return dest
 }

@@ -264,8 +264,10 @@ export function purgeUser(db, id) {
   const target = db.users.find((u) => u.id === id)
   if (!target || target.role === 'master') return { ok: false }
   db.users = db.users.filter((u) => u.id !== id)
-  for (const [token, s] of Object.entries(db.sessions || {})) {
-    if (s && s.userId === id) delete db.sessions[token]
+  // Les clés sont des empreintes de jeton (durcissement) : la purge d'un compte
+  // parcourt les VALEURS, elle est donc indépendante du format de clé.
+  for (const [key, s] of Object.entries(db.sessions || {})) {
+    if (s && s.userId === id) delete db.sessions[key]
   }
   for (const o of db.orders || []) {
     if (o.userId === id) o.userId = null

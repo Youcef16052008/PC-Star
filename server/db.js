@@ -297,7 +297,12 @@ export function normalizeDb(db) {
       cur.email = MASTER.email
       changed = true
     }
-    if (!String(cur.passwordHash || '').startsWith('scrypt$')) {
+    // `changed` ne doit être vrai que si la valeur BOUGE : sans cette seconde
+    // condition, un maître encore en empreinte legacy se voyait réassigner la
+    // MÊME valeur à chaque lecture et `normalizeDb` renvoyait toujours `true`.
+    // Or ce drapeau pilote désormais la persistance (LOT 3.2, B2/B3) : un faux
+    // positif remet une écriture au démarrage là où rien n'a changé.
+    if (!String(cur.passwordHash || '').startsWith('scrypt$') && cur.passwordHash !== MASTER.passwordHash) {
       cur.passwordHash = MASTER.passwordHash
       changed = true
     }
@@ -329,6 +334,17 @@ export function normalizeDb(db) {
   if (!db.sessions) {
     db.sessions = {}
     changed = true
+  }
+  // Durcissement des jetons : les clés antérieures au hachage étaient des JETONS
+  // BRUTS (48 hex). `findSession` ne les reconnaît plus — les laisser reviendrait
+  // à laisser des jetons utilisables dans le fichier et dans chaque backup. La
+  // normalisation les supprime (persistée au démarrage et à chaque écriture) ;
+  // les comptes concernés se reconnectent une fois.
+  for (const key of Object.keys(db.sessions)) {
+    if (!SESSION_KEY_RE.test(String(key))) {
+      delete db.sessions[key]
+      changed = true
+    }
   }
   if (!db.oauthPending) {
     db.oauthPending = {}
@@ -383,8 +399,16 @@ function readDbFromDisk() {
   }
   // P13 (S3) : clés internes de transit présentes SUR DISQUE — `_lastAuth`
   // contient un TOKEN DE SESSION valide, recopié tel quel dans chaque backup.
+  //
+  // Durcissement des jetons : même traitement pour une clé de session qui n'est
+  // pas une empreinte sha256 — c'est un JETON BRUT (état antérieur au
+  // durcissement), donc exactement le même risque. Sans purge immédiate, un
+  // `npm run backup` pris avant la prochaine écriture recopierait des jetons
+  // utilisables (y compris celui du maître).
   const polluted =
-    Object.prototype.hasOwnProperty.call(db, '_lastAuth') || Object.prototype.hasOwnProperty.call(db, '_err')
+    Object.prototype.hasOwnProperty.call(db, '_lastAuth') ||
+    Object.prototype.hasOwnProperty.call(db, '_err') ||
+    Object.keys(db?.sessions || {}).some((k) => !SESSION_KEY_RE.test(String(k)))
   const changed = normalizeDb(db)
   // LOT 3.2 (B2) : la normalisation courante (seed, synchronisation du maître,
   // sessions expirées) n'est persistée qu'UNE fois par processus — au démarrage
@@ -484,9 +508,9 @@ export function stripInternalKeys(db) {
 export function purgeExpired(db) {
   const now = Date.now()
   let changed = false
-  for (const [tok, s] of Object.entries(db.sessions || {})) {
+  for (const [key, s] of Object.entries(db.sessions || {})) {
     if (!s || typeof s.at !== 'number' || now - s.at > SESSION_TTL_MS) {
-      delete db.sessions[tok]
+      delete db.sessions[key]
       changed = true
     }
   }
@@ -771,6 +795,77 @@ export function newId(prefix) {
 
 export function newToken() {
   return crypto.randomBytes(24).toString('hex')
+}
+
+/**
+ * Durcissement demandé hors rapports (15/09) — empreinte d'un jeton de session.
+ *
+ * `db.sessions` était indexé **par jeton** : les jetons valides, y compris celui
+ * du maître, se trouvaient donc en clair dans `store.json` — recopiés tels quels
+ * dans chaque backup (`backupStore`, timer 6 h + sauvegardes manuelles) et dans
+ * chaque quarantine. Une copie qui fuit (dépôt rendu public, poste partagé,
+ * `/tmp` d'une instance Vercel inspecté) donnait des sessions immédiatement
+ * utilisables, sans aucun mot de passe à deviner. Ce n'est pas ce que P13/S3
+ * visait (la copie `_lastAuth`, elle, a été supprimée au lot 1), mais le risque
+ * est le même.
+ *
+ * Désormais la clé est `sha256(token)` en hex (64 caractères). Le jeton brut
+ * n'existe plus que dans la réponse d'authentification et dans le stockage du
+ * navigateur. Propriétés conservées :
+ *  · recherche O(1) par clé d'objet, sans comparaison de jetons en clair ;
+ *  · un jeton est 192 bits aléatoires : son empreinte ne se devine pas et ne se
+ *    retourne pas (aucun dictionnaire exploitable, contrairement à un mot de
+ *    passe — d'où l'absence de sel, qui rendrait la recherche par clé impossible) ;
+ *  · révocation par utilisateur, purge d'expiration et comptage inchangés (ils
+ *    parcourent les VALEURS, pas les clés).
+ *
+ * Conséquence assumée (validée par le commanditaire) : les sessions créées avant
+ * ce changement — clés = jetons bruts, 48 hex — ne sont plus reconnues et sont
+ * purgées à la normalisation. Tout le monde se reconnecte une fois.
+ */
+export function hashToken(token) {
+  return crypto.createHash('sha256').update(String(token ?? '')).digest('hex')
+}
+
+/** Une clé de session valide est une empreinte sha256 (64 hex), jamais un jeton. */
+const SESSION_KEY_RE = /^[a-f0-9]{64}$/
+
+/**
+ * Enregistre une session sous l'empreinte du jeton.
+ * @param {object} db état (muté)
+ * @param {string} token jeton brut — il n'est PAS stocké
+ * @returns {string|null} la clé (empreinte) écrite.
+ */
+export function putSession(db, token, userId, extra = {}) {
+  if (!db || !token) return null
+  if (!db.sessions || typeof db.sessions !== 'object') db.sessions = {}
+  const key = hashToken(token)
+  db.sessions[key] = { userId, at: Date.now(), ...extra }
+  return key
+}
+
+/** Crée un jeton, enregistre la session, renvoie le jeton (à retourner au client). */
+export function createSession(db, userId, extra = {}) {
+  const token = newToken()
+  putSession(db, token, userId, extra)
+  return token
+}
+
+/** Session d'un jeton présenté par un client, ou `null`. */
+export function findSession(db, token) {
+  if (!db || !token) return null
+  return db.sessions?.[hashToken(token)] || null
+}
+
+/** Déconnexion : retire la session du jeton. @returns {boolean} vrai si retirée. */
+export function deleteSession(db, token) {
+  if (!db || !token) return false
+  const key = hashToken(token)
+  if (db.sessions && db.sessions[key]) {
+    delete db.sessions[key]
+    return true
+  }
+  return false
 }
 
 export function publicUser(u) {

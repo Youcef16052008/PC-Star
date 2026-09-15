@@ -827,16 +827,66 @@ transitoire** (503, timeout, réseau coupé) : une API momentanément injoignabl
 déconnectait le maître et coûtait sa session au client qui venait de revenir
 d'OAuth. La purge est maintenant réservée au refus définitif (401). Voir 3.9.
 
-**Observation hors rapports, NON corrigée (à trancher).** Le registre
-`db.sessions` est indexé **par jeton** : les jetons de session valides sont donc
-présents dans `store.json`, et recopiés dans chaque backup. C'est le comportement
-normal d'un stockage de sessions côté serveur (l'équivalent d'une table
-`sessions`), et ce n'est ce que P13/S3 visait (la copie `_lastAuth`, elle, a été
-supprimée). Mais un backup qui fuit donne des sessions utilisables, y compris
-maître. Le durcissement usuel — ne stocker qu'une empreinte du jeton
-(`sha256(token)` comme clé, comparaison à temps constant) — casse les sessions
-existantes au déploiement et touche `db.js`, `index.js` et `oauth.js` : il n'est
-pas dans le plan, il est proposé pour un lot ultérieur.
+**Observation hors rapports — CORRIGÉE à la demande du commanditaire (15/09/2026).**
+
+*Constat.* Le registre `db.sessions` était indexé **par jeton** : les jetons de
+session valides — y compris celui du maître — se trouvaient donc dans
+`store.json`, recopiés dans chaque backup (`backupStore`, timer 6 h + `npm run
+backup`) et dans chaque quarantine. Un backup qui fuit donnait des sessions
+immédiatement utilisables, sans mot de passe à deviner.
+
+*Correction.* La table est désormais indexée par **`sha256(token)`** (hex, 64
+caractères) ; le jeton brut n'existe plus que dans la réponse d'authentification
+et dans le stockage du navigateur. Cinq fonctions centrales remplacent tout accès
+direct (`server/db.js`) : `hashToken`, `putSession`, `createSession`,
+`findSession`, `deleteSession`. Sites convertis : login, inscription, OAuth
+(`server/oauth.js`), déconnexion, `/api/me`, changement de mot de passe, reset
+maître, suppression d'un client (`server/catalog.js`). Les boucles de révocation
+(« toutes les sessions SAUF la courante ») comparent des empreintes et ne voient
+donc jamais le jeton — y compris le jeton courant, passé sous forme d'empreinte.
+
+*Migration.* `normalizeDb` supprime toute clé de session qui n'est pas une
+empreinte (`/^[a-f0-9]{64}$/`) et cette purge est **persistée immédiatement à la
+lecture** — même traitement que `_lastAuth` (P13/S3) — pour qu'aucun backup pris
+dans l'intervalle ne puisse emporter un jeton utilisable. Les jetons bruts font
+48 hex, les empreintes 64 : la distinction est sans ambiguïté. **Conséquence
+assumée** : les sessions en cours au moment du déploiement sont invalidées,
+chacun se reconnecte une fois (arbitrage du commanditaire).
+
+*Effet.* `store.json`, les backups et les quarantines ne contiennent plus aucun
+jeton rejouable ; lire la base ne suffit plus à s'authentifier (présenter
+l'empreinte en guise de jeton renvoie 401).
+
+*Deux défauts découverts en testant ce durcissement, corrigés dans le même
+mouvement.*
+
+1. **`normalizeDb` renvoyait `changed = true` à chaque lecture.** Le bloc de
+   réinjection du maître réassignait son empreinte legacy **à l'identique**
+   (`!startsWith('scrypt$')` reste vrai tant que P22 ne l'a pas migrée en
+   scrypt). Or ce drapeau pilote la persistance depuis le LOT 3.2 (B2/B3) : un
+   faux positif remettait une écriture au démarrage là où rien n'avait changé. La
+   condition exige désormais une valeur réellement différente, et l'idempotence
+   est vérifiée par test.
+2. **`backupStore` pouvait rendre un chemin déjà mort** (reprise du B5, LOT 3.15).
+   Le nom de backup ne descendait qu'à la seconde : à horodatage égal, c'est le
+   suffixe aléatoire qui décidait de l'« ancienneté » dans le tri alphabétique de
+   `capBackups`, et le backup le plus récent pouvait être supprimé par son propre
+   bornage — d'où un test intermittent. Corrigé par l'horodatage à la
+   **milliseconde** (`slice(0, 23)` ; les noms legacy à la seconde trient toujours
+   avant) et par un paramètre `protect` sur `capBackups` : le fichier qu'on vient
+   de créer n'est jamais candidat à la suppression.
+
+*Recette.* Nouveau fichier `src/sessionTokens.test.js` (15 tests : unités
+`hashToken`/`putSession`/`findSession`/`deleteSession`/`normalizeDb`, puis bout
+en bout login, inscription, déconnexion, empreinte rejetée, révocation par
+changement de mot de passe, reset maître, suppression de client, migration des
+clés legacy) ; contrats existants alignés (`securityFixes.test.js` S3,
+`dbIntegrity.test.js` — dont un nouveau cas « clés legacy purgées et persistées
+», `lot3Server.test.js` B2/S3) et deux cas ajoutés à `masterApi.test.js` pour le
+bornage. **Suite : 486/486**, stable sur deux exécutions complètes ; build Vite
+inchangé ; aperçu vivant re-vérifié (12 contrôles : jeton utilisable, aucune clé
+brute en base, empreinte rejetée, clé legacy purgée du fichier et absente des
+backups, déconnexion effective).
 
 **Tests.** Quatre nouveaux fichiers : `src/lot3Client.test.js` (17 — safeStorage
 et ses deux pièges, horodatage du pull Desk, handler 401, plafond de

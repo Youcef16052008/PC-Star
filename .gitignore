@@ -191,3 +191,6 @@ public/photos/uploads/
 
 # Crawl jsdom (L2) — build IIFE jetable
 dist-crawl/
+
+# Aperçu local (base + uploads du serveur lancé en prévisualisation)
+.preview-data/

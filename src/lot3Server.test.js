@@ -65,10 +65,11 @@ before(async () => {
   // Même prédicat que `startLocalServer()` : seul un token de session **master**
   // ouvre un socket Desk.
   attachDeskSocket(server, async (token) => {
-    const { readDbAsync } = await import('../server/db.js')
+    const { readDbAsync, findSession } = await import('../server/db.js')
     try {
       const db = await readDbAsync()
-      const sess = db.sessions?.[token]
+      // Durcissement des jetons : la base est indexée par EMPREINTE sha256.
+      const sess = findSession(db, token)
       if (!sess) return false
       return db.users.some((u) => u.id === sess.userId && u.role === 'master')
     } catch {
@@ -238,9 +239,13 @@ describe('LOT 3.2 (B1 + B2 + B3) — driver fichier : concurrence et lectures', 
     assert.equal(raw._lastAuth, undefined, '_lastAuth ne doit plus être écrit')
     assert.equal(raw._err, undefined, '_err ne doit plus être écrit')
     assert.equal(Object.keys(raw).some((k) => k.startsWith('_')), false, 'aucune clé interne au fichier')
-    // NB : le registre `sessions` est, lui, indexé PAR jeton — c'est le stockage
-    // de sessions côté serveur (comme une table `sessions`), assumé tel quel.
-    assert.ok(raw.sessions?.[token], 'la session maître est bien enregistrée')
+    assert.equal(JSON.stringify(raw).includes(token), false, 'le jeton brut ne doit plus être dans store.json')
+    // Durcissement des jetons (demandé hors rapports) : le registre `sessions`
+    // est indexé par EMPREINTE sha256 du jeton — le jeton brut, lui, n'est plus
+    // nulle part dans le fichier (donc plus dans aucun backup).
+    const { hashToken } = await import('../server/db.js')
+    assert.ok(raw.sessions?.[hashToken(token)], 'la session maître est enregistrée sous son empreinte')
+    assert.equal(Object.keys(raw.sessions).every((k) => /^[a-f0-9]{64}$/.test(k)), true, 'clés = empreintes')
     const me = await call('GET', '/api/me', { token })
     assert.equal(me.status, 200)
   })

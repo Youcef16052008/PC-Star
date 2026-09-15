@@ -12,7 +12,7 @@
  */
 
 import crypto from 'node:crypto'
-import { newId, newToken, readDbAsync, updateDbAsync, publicUser } from './db.js'
+import { createSession, newId, newToken, readDbAsync, updateDbAsync, publicUser } from './db.js'
 
 // LOT 3.13 (B18) : `OAUTH_DEMO` et `OAUTH_REDIRECT_BASE` étaient évalués UNE
 // fois, à l'import du module. Conséquence : un test (ou tout rechargement à
@@ -290,8 +290,9 @@ async function finishIdentity(provider, identity, pending, stateKey) {
       }
     }
 
-    const token = newToken()
-    db.sessions[token] = { userId: user.id, at: Date.now() }
+    // Durcissement des jetons : seule l'empreinte sha256 est stockée ; le jeton
+    // brut repart par closure vers la réponse, jamais vers la base.
+    const token = createSession(db, user.id)
     if (stateKey) delete db.oauthPending[stateKey]
     // S3 : renvoyé par closure, jamais écrit dans la base.
     outcome = { ok: true, token, user: publicUser(user) }
