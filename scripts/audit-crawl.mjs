@@ -10,6 +10,7 @@
  * ce qui faisait disparaître les pages réservées au maître.
  */
 import { JSDOM } from 'jsdom'
+import { masterCredentials } from './masterEnv.mjs'
 
 const LANG = process.argv[2] || 'fr'
 const API = 'http://127.0.0.1:8787'
@@ -56,7 +57,7 @@ globalThis.fetch = (u, init) => {
 const login = await realFetch(API + '/api/auth/login', {
   method: 'POST',
   headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({ email: 'pcstar.info31@gmail.com', password: 'star31' })
+  body: JSON.stringify(masterCredentials('audit-crawl'))
 }).then((r) => r.json())
 if (!login.token) {
   console.log('ÉCHEC login master — audit impossible')

@@ -1,14 +1,55 @@
 import { useEffect, useMemo, useState } from 'react'
-import { CATEGORIES, money } from './data.js'
+// LOT 2.5 (F9) : `PRODUCTS` est le catalogue de base COMPLET — non filtré par
+// stock ni par masquage. C'est la seule source qui contient les SKU des
+// références en rupture ou masquées.
+import { CATEGORIES, PRODUCTS, money } from './data.js'
 import { addPanel, addProduct, deleteCustomer, hideProduct, setProductPhotos, togglePanel } from './shopStore.js'
 import PartThumb from './PartThumb.jsx'
 import * as api from './api.js'
 import { compressDataUrl } from './photoCompress.js'
 
-function errToast(setToast, t, r, fallbackKey) {
+/**
+ * Traduit une réponse d'API en message utilisateur.
+ * Exportée pour test : c'est elle qui nomme le refus de stockage (LOT 4.2/F15)
+ * au lieu d'un « échec » générique qui faisait réessayer en boucle.
+ */
+export function errToast(setToast, t, r, fallbackKey) {
   // P6 : message d'erreur honnête — offline ≠ refus serveur.
-  if (r?.offline || !r) setToast(t('backendOffline'))
-  else setToast(t(fallbackKey))
+  if (r?.offline || !r) {
+    setToast(t('backendOffline'))
+    return
+  }
+  // LOT 4.2 (F15) : le serveur refuse l'upload quand il n'a aucun stockage
+  // durable (Vercel sans `BLOB_READ_WRITE_TOKEN` : les fichiers iraient dans
+  // `/tmp` et mourraient au cold start, laissant des URL de photos mortes en
+  // base). Le message générique « échec » faisait réessayer en boucle ;
+  // celui-ci nomme la cause et la variable à poser.
+  if (r?.data?.error === 'upload_storage') {
+    setToast(t('masterPhotoNoStorage'))
+    return
+  }
+  setToast(t(fallbackKey))
+}
+
+/**
+ * LOT 4.3 (F16) — message de suppression d'un compte client.
+ *
+ * Le serveur annule les commandes EN COURS du compte (le stock réservé est
+ * rendu) et renvoie le détail. Le message le dit : avant, un « Client supprimé »
+ * muet laissait le master croire que rien d'autre ne s'était passé, alors que
+ * des pièces venaient de revenir au stock — et que la trace restait au
+ * comptoir (commandes `cancelled`). Les codes sont bornés à 4 pour ne pas
+ * noyer le toast.
+ */
+export function customerDeletedMessage(t, data) {
+  const cancelled = Array.isArray(data?.cancelled) ? data.cancelled : []
+  if (!cancelled.length) return t('masterCustomerGone')
+  const codes = cancelled
+    .map((c) => c?.code)
+    .filter(Boolean)
+    .slice(0, 4)
+    .join(', ')
+  return t('masterCustomerGoneOrders', { n: cancelled.length, codes })
 }
 
 // P4 (B10) : compression canvas avant envoi (800 px / JPEG q0.8) → le body
@@ -82,6 +123,21 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, ma
 
   const productsLoading = apiOnline && apiProducts.length === 0
   const productsShown = apiOnline ? apiProducts : (masterCatalog || products || [])
+
+  // LOT 2.5 (F9) : liste de référence pour le contrôle de SKU en mode local.
+  //
+  // `addProduct` recevait `products`, c'est-à-dire le catalogue PUBLIC filtré :
+  // `shopView.products` privé des références en rupture (`stock > 0`,
+  // src/App.jsx). Un SKU appartenant à une référence masquée OU en rupture
+  // n'était donc dans aucune des listes examinées, et la création passait —
+  // deux fiches portant la même référence d'étiquette, le même dossier photo et
+  // la même ligne d'export CSV. Côté API le serveur compare déjà à
+  // `[...PRODUCTS, ...extraProducts]` (server/masterApi.js) : le mode local
+  // s'aligne sur cette source de vérité.
+  const allKnownSkus = useMemo(
+    () => [...PRODUCTS, ...(masterCatalog || []), ...(products || []), ...(meta.extraProducts || [])],
+    [masterCatalog, products, meta]
+  )
 
   const customers = useMemo(
     () => (apiOnline ? apiCustomers : users.filter((u) => u.role !== 'master')),
@@ -159,7 +215,9 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, ma
       },
       // P22 (bug H) : le catalogue de base compte aussi — un SKU saisi ne doit
       // pas doubler une référence existante.
-      products
+      // LOT 2.5 (F9) : catalogue COMPLET (base non filtrée + master + extra),
+      // pas la liste publique amputée des ruptures et des masquées.
+      allKnownSkus
     )
     if (!res.ok) {
       if (res.error === 'sku_taken') {
@@ -247,7 +305,12 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, ma
       api.deleteCustomer(id).then((r) => {
         if (r.ok) {
           setApiCustomers((prev) => prev.filter((c) => c.id !== id))
-          setToast(t('masterCustomerGone'))
+          // LOT 4.3 (F16) : le serveur annule les commandes EN COURS du compte
+          // (le stock réservé est rendu) et renvoie le détail. Le master voit
+          // ainsi ce que la suppression a entraîné — avant, un `{ok:true}` muet
+          // laissait des pièces réservées pour un compte qui n'existe plus,
+          // sans aucune trace à l'écran.
+          setToast(customerDeletedMessage(t, r.data))
         } else {
           errToast(setToast, t, r, 'masterActionFail')
         }
@@ -275,7 +338,13 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, ma
         errToast(setToast, t, r, 'masterActionFail')
         return
       }
-      onMeta({ ...meta, hiddenPanelIds: [...current] })
+      // LOT 2.7 (F11 + B20) : la RÉPONSE DU SERVEUR est la source de vérité,
+      // pas le calcul local. Le serveur déduplique (`new Set(...)`) et tronque
+      // `extraPanels` à 12 : un état client reconstruit à partir de `meta`
+      // divergeait donc silencieusement de la base, jusqu'au prochain
+      // rechargement. La réponse ne porte que les deux champs de panneaux —
+      // d'où la fusion, qui préserve `extraProducts`, `productOverrides`, etc.
+      onMeta({ ...meta, ...(r.data?.meta || {}) })
       return
     }
     onMeta(togglePanel(meta, id, on))
@@ -291,7 +360,13 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, ma
         errToast(setToast, t, r, 'masterActionFail')
         return
       }
-      onMeta(res.meta)
+      // LOT 2.7 (F11 + B20) : `res.meta` est le meta calculé LOCALEMENT par
+      // `addPanel`, qui ne connaît pas la troncature serveur
+      // (`body.extraPanels.slice(0, 12)`, server/index.js). Reproduit à
+      // l'audit : au 13ᵉ panneau, le comptoir en affichait 13 alors que la base
+      // n'en gardait que 12 — le 13ᵉ disparaissait au rechargement suivant, sans
+      // aucun message. On prend la réponse du serveur.
+      onMeta({ ...meta, ...(r.data?.meta || {}) })
     } else {
       onMeta(res.meta)
     }

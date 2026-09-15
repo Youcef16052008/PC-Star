@@ -3,7 +3,8 @@
  */
 import { PRODUCTS } from '../src/data.js'
 // P22 (bug G) : table des transitions partagée avec le client.
-import { ORDER_TRANSITIONS } from '../src/orderLogic.js'
+// LOT 2.2 (F3 + F4) : algorithme du code de commande partagé lui aussi.
+import { ORDER_TRANSITIONS, nextOrderCode } from '../src/orderLogic.js'
 
 export const ORDER_STATUSES = ['new', 'preparing', 'ready', 'picked', 'cancelled']
 
@@ -68,7 +69,7 @@ export function priceOf(db, productId) {
  * Try to reserve items atomically. Returns { ok, order?, error?, shortages? }.
  * Decrements stock only when every line is available.
  */
-export function placeOrder(db, body, { userId = null } = {}) {
+export function placeOrder(db, body, { userId = null, unclaimable = false } = {}) {
   ensureStock(db)
   if (!db.orders) db.orders = []
 
@@ -128,6 +129,17 @@ export function placeOrder(db, body, { userId = null } = {}) {
     at: new Date().toISOString(),
     status: 'new'
   }
+  // LOT 4.4 (R20) : commande passée SANS compte au numéro d'un compte existant.
+  // Elle reste visible au comptoir (c'est une vraie commande) mais n'est pas
+  // « revendicable » : `GET /api/me/orders` et l'annulation client ignorent le
+  // match par téléphone pour elle. Sans ce marquage, n'importe qui pouvait
+  // déposer une commande au numéro d'un tiers — elle apparaissait dans SON
+  // historique, et il pouvait l'annuler.
+  // Absent (= non marqué) veut dire revendicable : les commandes existantes et
+  // celles dont le numéro n'appartient à personne gardent le comportement
+  // habituel (un client qui commande en guest puis crée un compte au même
+  // numéro retrouve bien sa commande).
+  if (unclaimable) order.claimable = false
   // P16 (#20) : `.slice(0, 500)` jetait en silence la commande la plus
   // ancienne — de l'historique de comptoir définitivement perdu, sans log ni
   // retour. On ne retire désormais QUE des commandes terminées
@@ -167,18 +179,16 @@ function localDayOf(d) {
  * P9 (P7-4) : code PS-YYYYMMDD-NNNN daté à la « journée » de la commande
  * (date locale du client transmise par `placeOrder`, sinon date locale du
  * serveur). `dayStr` : 'YYYY-MM-DD' valide.
+ *
+ * LOT 2.2 (F3 + F4) : la séquence n'est plus `sameDay.length + 1` mais le
+ * **max** des séquences du jour + 1, via `nextOrderCode` — la fonction partagée
+ * avec le repli hors-ligne du client (`src/orderLogic.js`). Le comptage
+ * produisait un doublon dès qu'une commande du jour était supprimée :
+ * 0001/0002/0003 créées, 0002 supprimée → la suivante recomptait 2 + 1 = 0003,
+ * déjà attribué. Deux `PS-20260915-0003` ont été observés en base à l'audit.
  */
 export function makeOrderCode(db, dayStr) {
-  let prefix
-  if (/^\d{4}-\d{2}-\d{2}$/.test(String(dayStr || ''))) {
-    prefix = `PS-${String(dayStr).replace(/-/g, '')}-`
-  } else {
-    const d = new Date()
-    prefix = `PS-${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}-`
-  }
-  const sameDay = (db.orders || []).filter((o) => String(o.code || '').startsWith(prefix)).length
-  const seq = String(sameDay + 1).padStart(4, '0')
-  return `${prefix}${seq}`
+  return nextOrderCode((db.orders || []).map((o) => o?.code), dayStr)
 }
 
 /** Restore stock when cancelling a reserved order. */
@@ -255,23 +265,58 @@ export function setOrderStatus(db, code, status) {
   return { ok: true, order }
 }
 
+/** Statuts qui réservent encore du stock (donc à rendre si le compte saute). */
+const ACTIVE_ORDER_STATUSES = ['new', 'pending', 'preparing', 'ready']
+
 /**
  * Suppression d'un client : retire l'utilisateur, purge ses sessions
  * (tokens invalidés) et délie ses commandes (nom/télé sont déjà snapshotés
  * dans la commande, userId passe à null — l'historique reste lisible).
  * Renvoie { ok: false } si introuvable ou master.
+ *
+ * LOT 4.3 (F16) : ses commandes EN COURS sont annulées dans le même mouvement.
+ * Avant, `placeOrder` avait décrémenté le stock et la suppression du compte
+ * laissait la commande debout, sans propriétaire : des pièces réservées pour
+ * personne, invisibles depuis la fiche client (qui n'existe plus) et jamais
+ * rendues. `cancelOrder` rend le stock et garde la trace (statut `cancelled`,
+ * `cancelledAt`, nom/télé snapshotés) — le comptoir voit toujours ce qui s'est
+ * passé. Les commandes `picked` (retirées, stock consommé) et déjà `cancelled`
+ * ne bougent pas.
+ *
+ * Le résumé (`cancelled`, `releasedLines`, `left`) est renvoyé à la route, qui
+ * le transmet au master : la suppression d'un compte n'est plus silencieuse.
  */
 export function purgeUser(db, id) {
   const target = db.users.find((u) => u.id === id)
   if (!target || target.role === 'master') return { ok: false }
   db.users = db.users.filter((u) => u.id !== id)
-  for (const [token, s] of Object.entries(db.sessions || {})) {
-    if (s && s.userId === id) delete db.sessions[token]
+  // Les clés sont des empreintes de jeton (durcissement) : la purge d'un compte
+  // parcourt les VALEURS, elle est donc indépendante du format de clé.
+  for (const [key, s] of Object.entries(db.sessions || {})) {
+    if (s && s.userId === id) delete db.sessions[key]
   }
+  const cancelled = []
+  let releasedLines = 0
+  const left = []
   for (const o of db.orders || []) {
-    if (o.userId === id) o.userId = null
+    if (!o || o.userId !== id) continue
+    const status = o.status || 'new'
+    if (ACTIVE_ORDER_STATUSES.includes(status)) {
+      const r = cancelOrder(db, o.code)
+      if (r.ok) {
+        releasedLines += (o.items || []).length
+        cancelled.push({ code: o.code, status, items: (o.items || []).length })
+      } else {
+        // `cancelOrder` ne refuse que `picked` (déjà retirée) : on ne touche
+        // alors ni au statut ni au stock, et on le dit au master.
+        left.push({ code: o.code, status, reason: r.error || 'cancel_failed' })
+      }
+    } else {
+      left.push({ code: o.code, status })
+    }
+    o.userId = null
   }
-  return { ok: true }
+  return { ok: true, cancelled, releasedLines, left }
 }
 
 /** Public catalog with live stock + meta hide/extra. */

@@ -7,10 +7,16 @@
 
 | Qui | E-mail | Mot de passe |
 |-----|--------|--------------|
-| Magasin (master) | pcstar.info31@gmail.com | star31 |
+| Magasin (master) | _variable `MASTER_EMAIL`_ | _variable `MASTER_PASSWORD`_ |
 | Client | karim.oran@demo.dz | karim31 |
 | Client | amina.castors@demo.dz | amina31 |
 | Client | yacine.pc@demo.dz | yacine31 |
+
+> **Compte maître (magasin) :** il n'est plus publié ici. Il est défini par les
+> variables d'environnement `MASTER_EMAIL` et `MASTER_PASSWORD` (voir
+> `.env.example` et `docs/DEPLOY-VERCEL.md`). Les identifiants qui figuraient
+> dans cette page et dans le code sont considérés comme **compromis** et
+> doivent être changés — les retirer du dépôt ne suffit pas.
 
 ## Master
 

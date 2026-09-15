@@ -1,7 +1,6 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  MASTER,
   addPanel,
   addProduct,
   buildShopView,
@@ -77,11 +76,24 @@ describe('email accounts', () => {
     assert.equal(registerEmail(users, { email: 'karim@test.dz', password: 'azerty12', name: 'X' }).ok, false)
   })
 
-  it('logs in the seeded master', () => {
+  // LOT 1.1 : le compte maître n'est plus seedé côté client. Il était défini
+  // ici avec e-mail + mot de passe EN CLAIR, donc inclus dans le bundle JS
+  // public par Vite, et ces valeurs ouvraient une vraie session `role:
+  // 'master'` sur l'API. Le maître ne peut plus venir que du serveur
+  // (MASTER_EMAIL / MASTER_PASSWORD).
+  it('ne seed AUCUN compte maître en mode local', () => {
     const users = loadUsers(createMemoryStorage())
-    const login = loginEmail(users, { email: MASTER.email, password: MASTER.password })
-    assert.equal(login.ok, true)
-    assert.equal(login.user.role, 'master')
+    assert.equal(
+      users.filter((u) => u.role === 'master').length,
+      0,
+      'un compte maître ne doit plus exister côté client'
+    )
+    assert.ok(users.length > 0, 'les comptes de démonstration restent seedés')
+  })
+
+  it("n'expose aucun identifiant maître dans le module client", async () => {
+    const mod = await import('./shopStore.js')
+    assert.equal(mod.MASTER, undefined, "l'export MASTER a disparu du module client")
   })
 
   it('seeds demo customers', () => {
@@ -94,6 +106,14 @@ describe('email accounts', () => {
   })
 })
 
+// LOT 1.1 : le maître n'est plus seedé côté client. `deleteCustomer` reste une
+// fonction pure qui autorise selon `actor.role` — on la teste donc avec un
+// acteur maître construit localement, sans dépendre d'un compte seedé (dont
+// les identifiants étaient en clair dans le bundle).
+function localMaster() {
+  return { id: 'master-fixture', role: 'master', name: 'Comptoir', phone: '0770000000' }
+}
+
 describe('master vs customer', () => {
   it('lets master delete a customer but not itself', () => {
     const seeded = loadUsers(createMemoryStorage())
@@ -102,11 +122,22 @@ describe('master vs customer', () => {
       password: 'secret99',
       name: 'Amina'
     })
-    const master = users.find((u) => u.role === 'master')
-    const gone = deleteCustomer(users, master, user.id)
+    const master = localMaster()
+    const gone = deleteCustomer([...users, master], master, user.id)
     assert.equal(gone.ok, true)
     assert.equal(gone.users.some((u) => u.id === user.id), false)
     assert.equal(deleteCustomer(gone.users, master, master.id).ok, false)
+    assert.equal(deleteCustomer(users, user, user.id).ok, false)
+  })
+
+  it('refuse la suppression par un acteur non maître', () => {
+    const seeded = loadUsers(createMemoryStorage())
+    const { users, user } = registerEmail(seeded, {
+      email: 'c@d.dz',
+      password: 'secret99',
+      name: 'Karim'
+    })
+    assert.equal(deleteCustomer(users, localMaster(), user.id).ok, true)
     assert.equal(deleteCustomer(users, user, user.id).ok, false)
   })
 
@@ -122,15 +153,16 @@ describe('master vs customer', () => {
 // P5 (B19) : plus aucun téléphone partagé entre master et comptes démo —
 // un login SMS local ne doit jamais retomber sur le master.
 describe('demo phone uniqueness (B19)', () => {
-  it('master + démos : téléphones uniques', () => {
+  it('démos : téléphones uniques, et aucun maître seedé en local', () => {
     const seeded = loadUsers(createMemoryStorage())
     const phones = seeded
       .filter((u) => u.phone)
       .map((u) => u.phone)
     assert.equal(new Set(phones).size, phones.length, 'téléphone dupliqué → ' + phones.join(', '))
-    const master = seeded.find((u) => u.role === 'master')
-    assert.ok(master.phone)
-    assert.ok(!seeded.some((u) => u.role !== 'master' && u.phone === master.phone))
+    // LOT 1.1 : plus de compte maître côté client — l'unicité ne se vérifie
+    // donc plus que parmi les comptes de démonstration.
+    assert.equal(seeded.filter((u) => u.role === 'master').length, 0)
+    assert.ok(seeded.length >= DEMO_CUSTOMERS.length, 'les démos restent seedées')
   })
 })
 

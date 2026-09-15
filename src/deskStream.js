@@ -17,6 +17,12 @@ const POLL_MS = 20000 // inchangé : filet de sécurité
 const LIVE_POLL_MS = 5 * 60 * 1000 // socket vivant : le polling ne sert que de filet
 const RECONNECT_MIN_MS = 2000
 const RECONNECT_MAX_MS = 30000
+// LOT 3.10 (B14) : plafond de tentatives CONSÉCUTIVES. Sur Vercel il n'existe
+// pas de WebSocket en serverless : l'upgrade échoue à chaque fois, pour toujours.
+// Retenter indéfiniment ne fait que consommer du réseau et du CPU pour rien (et
+// noie la console). Après ce nombre d'échecs d'affilée, on ARRÊTE de retenter le
+// socket et on reste sur le polling, qui est de toute façon la source de vérité.
+const MAX_RECONNECT_FAILS = 8
 
 /**
  * @param {object} opts
@@ -26,6 +32,8 @@ const RECONNECT_MAX_MS = 30000
  * @param {() => boolean} opts.enabled        actif seulement en mode master
  * @param {number} [opts.pollMs]              cadence du polling de repli
  * @param {number} [opts.livePollMs]          cadence du filet quand le socket vit
+ * @param {number} [opts.maxReconnectFails]   tentatives consécutives avant abandon (0 = illimité)
+ * @param {(info: {fails: number}) => void} [opts.onGiveUp] appelé quand le socket est abandonné
  * @returns {{ close: () => void, isLive: () => boolean, refreshNow: () => void }}
  */
 export function createDeskStream({
@@ -36,6 +44,8 @@ export function createDeskStream({
   livePollMs = LIVE_POLL_MS,
   reconnectMinMs = RECONNECT_MIN_MS,
   reconnectMaxMs = RECONNECT_MAX_MS,
+  maxReconnectFails = MAX_RECONNECT_FAILS,
+  onGiveUp,
 }) {
   let ws = null
   let pollId = null
@@ -45,6 +55,8 @@ export function createDeskStream({
   let live = false
   let connecting = false
   let pollTick = 0
+  let failStreak = 0 // échecs consécutifs d'ouverture (LOT 3.10 / B14)
+  let gaveUp = false // socket définitivement abandonné → polling seul
 
   function startPolling() {
     if (pollId !== null || closed) return
@@ -66,8 +78,23 @@ export function createDeskStream({
     }
   }
 
+  /** LOT 3.10 (B14) : comptabilise un échec et décide si on retente encore. */
+  function noteFailure() {
+    failStreak += 1
+    if (maxReconnectFails > 0 && failStreak >= maxReconnectFails) {
+      gaveUp = true
+      try {
+        onGiveUp?.({ fails: failStreak })
+      } catch {
+        /* ignore */
+      }
+      return false
+    }
+    return true
+  }
+
   function scheduleReconnect() {
-    if (closed || reconnectId !== null) return
+    if (closed || reconnectId !== null || gaveUp) return
     reconnectId = setTimeout(() => {
       reconnectId = null
       open()
@@ -76,7 +103,7 @@ export function createDeskStream({
   }
 
   function open() {
-    if (closed || connecting || live) return
+    if (closed || connecting || live || gaveUp) return
     const token = getToken?.()
     if (!token) {
       // Sans token, pas de socket : polling seul.
@@ -101,11 +128,15 @@ export function createDeskStream({
     try {
       // Origine courante : fonctionne derrière le proxy Vite comme en prod.
       const proto = loc.protocol === 'https:' ? 'wss:' : 'ws:'
-      sock = new WebSocket(`${proto}//${loc.host}/api/desk-stream?token=${encodeURIComponent(token)}`)
+      // LOT 3.18 (R14) : le token n'est PLUS dans l'URL. Il passait dans les
+      // journaux d'accès du proxy, dans l'historique des caches et dans les
+      // outils de diagnostic ; l'authentification se fait par le premier
+      // message envoyé juste après l'ouverture (voir `onopen`).
+      sock = new WebSocket(`${proto}//${loc.host}/api/desk-stream`)
     } catch {
       connecting = false
       startPolling()
-      scheduleReconnect()
+      if (noteFailure()) scheduleReconnect()
       return
     }
     ws = sock
@@ -114,6 +145,15 @@ export function createDeskStream({
       connecting = false
       live = true
       reconnectDelay = reconnectMinMs
+      failStreak = 0
+      // LOT 3.18 (R14) : premier message = authentification. Le serveur ferme le
+      // socket (code 4401/4403/4408) si le token manque, est invalide, ou
+      // n'arrive pas dans les 5 s — et `onclose` nous replie sur le polling.
+      try {
+        sock.send(JSON.stringify({ type: 'auth', token }))
+      } catch {
+        /* la fermeture qui suit déclenche le repli */
+      }
       // Socket vivant : on garde le polling mais seulement en filet, à cadence
       // réduite (5 min) — le socket fait le travail.
       stopPolling()
@@ -165,10 +205,12 @@ export function createDeskStream({
       connecting = false
       live = false
       ws = null
-      // Repli : le polling reprend immédiatement, puis on retente le socket.
+      // Repli : le polling reprend immédiatement, puis on retente le socket —
+      // sauf si le plafond d'échecs consécutifs est atteint (LOT 3.10 / B14) :
+      // dans un environnement sans WebSocket, retenter ne sert à rien.
       stopPolling()
       startPolling()
-      scheduleReconnect()
+      if (noteFailure()) scheduleReconnect()
     }
   }
 
@@ -193,6 +235,9 @@ export function createDeskStream({
       live = false
     },
     isLive: () => live,
+    /** LOT 3.10 (B14) : vrai quand le socket a été abandonné (polling seul). */
+    socketGaveUp: () => gaveUp,
+    reconnectFails: () => failStreak,
     refreshNow() {
       pollTick += 1
       try {

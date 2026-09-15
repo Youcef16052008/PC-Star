@@ -164,7 +164,18 @@ export default function DeskPage({ t, lang, reservations, onStatus, onDelete, se
                   <div className="card-body d-flex flex-column">
                     <div className="d-flex justify-content-between align-items-start gap-2 mb-2">
                       <span className="badge text-bg-dark font-monospace">{r.code}</span>
-                      <span className={`badge ${badgeClass(st)}`}>{t(statusLabelKey(st))}</span>
+                      <span className="d-flex gap-1 flex-wrap justify-content-end">
+                        {/* LOT 2.3 (F5) : commande créée pendant une coupure
+                            réseau, jamais parvenue au serveur. Elle n'est ni
+                            dans l'export CSV, ni visible des autres appareils :
+                            le maître doit le voir sur la carte, pas le deviner. */}
+                        {r.localOnly === true && (
+                          <span className="badge text-bg-warning" title={t('ordersLocalOnly')}>
+                            {t('ordersLocalOnly')}
+                          </span>
+                        )}
+                        <span className={`badge ${badgeClass(st)}`}>{t(statusLabelKey(st))}</span>
+                      </span>
                     </div>
                     <div className="small text-secondary mb-1">
                       {r.slot || '—'} · {formatAt(r.at)}

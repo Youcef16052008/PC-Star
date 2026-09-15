@@ -145,21 +145,55 @@ export function orderApiFailure(r) {
 }
 
 /**
- * P8 (P7-2) : prochain code local de commande pour `date` — dérivé du max des
+ * LOT 2.2 (F3 + F4) — prochain code de commande, dérivé du **max** des
+ * séquences du jour. Fonction PARTAGÉE : le client (repli hors-ligne) et le
+ * serveur (`server/catalog.js`) appellent exactement le même algorithme.
+ *
+ * Avant :
+ *  · le client dérivait déjà du max (P8 / P7-2) ;
+ *  · le serveur comptait les commandes du jour (`sameDay.length + 1`).
+ *
+ * Le comptage produisait des collisions dès qu'une commande du jour était
+ * supprimée (`DELETE /api/orders/:code`, P19) : 0001, 0002, 0003 créées, 0002
+ * supprimée → la suivante recomptait 2 + 1 = **0003, déjà attribué**. Deux
+ * `PS-20260915-0003` ont été observés en base pendant l'audit. Le code est la
+ * clé affichée au comptoir, reprise dans l'export CSV, le message WhatsApp et
+ * `PATCH /api/orders/:code` (qui ne traite que la première occurrence trouvée) :
+ * un doublon rend la commande ambiguë partout.
+ *
+ * `day` : 'YYYY-MM-DD'. Toute autre valeur → journée locale courante.
+ */
+export function nextOrderCode(existingCodes = [], day) {
+  const d = /^\d{4}-\d{2}-\d{2}$/.test(String(day || ''))
+    ? // Les composants sont passés un par un : `new Date('YYYY-MM-DD')` serait
+      // interprété en UTC et reculerait d'un jour avant 1 h à Oran (UTC+1).
+      new Date(Number(day.slice(0, 4)), Number(day.slice(5, 7)) - 1, Number(day.slice(8, 10)), 12)
+    : new Date()
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const dd = String(d.getDate()).padStart(2, '0')
+  const re = new RegExp(`^PS-${y}${m}${dd}-(\\d+)$`)
+  let max = 0
+  for (const raw of existingCodes || []) {
+    const mt = re.exec(String(raw?.code || raw || ''))
+    if (mt) max = Math.max(max, parseInt(mt[1], 10))
+  }
+  return makeOrderCode(d, max + 1)
+}
+
+/**
+ * P8 (P7-2) : prochain code LOCAL de commande pour `date` — dérivé du max des
  * codes existants du jour (jamais `length + 1`) : plus de collision quand la
  * liste client ne contient pas toutes les commandes du jour.
+ *
+ * LOT 2.2 : simple adaptation de `nextOrderCode` au paramètre `Date` historique
+ * (les appelants et les tests existants passent une Date, pas une chaîne).
  */
 export function nextLocalOrderCode(existingCodes = [], date = new Date()) {
   const y = date.getFullYear()
   const m = String(date.getMonth() + 1).padStart(2, '0')
-  const day = String(date.getDate()).padStart(2, '0')
-  const re = new RegExp(`^PS-${y}${m}${day}-(\\d+)$`)
-  let max = 0
-  for (const raw of existingCodes) {
-    const mt = re.exec(String(raw || ''))
-    if (mt) max = Math.max(max, parseInt(mt[1], 10))
-  }
-  return makeOrderCode(date, max + 1)
+  const d = String(date.getDate()).padStart(2, '0')
+  return nextOrderCode(existingCodes, `${y}-${m}-${d}`)
 }
 
 /**
@@ -293,6 +327,20 @@ export function applyPreset(catalog, preset) {
  * requête (`editedAfter`) garde son statut local ; toutes les autres prennent
  * la valeur du serveur, qui reste la source de vérité.
  *
+ * LOT 2.3 (F5) : les commandes **locales-only** survivent à la fusion. Avant,
+ * la fonction ne renvoyait que `server.map(...)` : une commande créée pendant
+ * une coupure réseau (repli hors-ligne de `reserve()`, marquée `localOnly`)
+ * disparaissait de l'écran au premier `pull()` réussi — définitivement, puisque
+ * le serveur ne l'a jamais reçue. Elle restait dans `localStorage` mais plus
+ * dans l'état, donc invisible au comptoir comme dans « Mes commandes ».
+ *
+ * Seules les commandes explicitement marquées `localOnly` à la création sont
+ * réinjectées. Ce choix est délibéré : une copie locale d'une commande
+ * supprimée côté serveur (par un autre appareil du maître) n'a PAS ce marqueur
+ * et ne ressuscite donc pas. Si le serveur connaît finalement le même code
+ * (collision de séquence, cf. `nextOrderCode`), c'est l'objet serveur qui gagne
+ * et le marqueur tombe.
+ *
  * @param {Array}  serverOrders  commandes renvoyées par GET /api/orders
  * @param {Array}  localOrders   état local courant
  * @param {number} editedAfter   horodatage du départ de la requête (ms)
@@ -305,7 +353,7 @@ export function mergeServerOrders(serverOrders, localOrders, editedAfter, edited
   if (!editedAt || typeof editedAt.get !== 'function') return server
 
   const localByCode = new Map(local.map((o) => [o?.code, o]))
-  return server.map((o) => {
+  const merged = server.map((o) => {
     const at = editedAt.get(o?.code)
     // Non édité localement, ou édité AVANT le départ de la requête : la réponse
     // du serveur est postérieure au changement, on la prend.
@@ -315,4 +363,11 @@ export function mergeServerOrders(serverOrders, localOrders, editedAfter, edited
     // local (et l'objet serveur pour tout le reste).
     return mine ? { ...o, status: mine.status } : o
   })
+
+  const serverCodes = new Set(server.map((o) => o?.code))
+  const orphans = local.filter((o) => o?.localOnly === true && o?.code && !serverCodes.has(o.code))
+  // Les commandes locales-only sont les plus récentes (créées pendant la
+  // coupure) : devant, comme le reste de la liste triée du plus récent au plus
+  // ancien.
+  return [...orphans, ...merged]
 }

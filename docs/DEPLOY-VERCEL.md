@@ -105,6 +105,42 @@ Settings → Domains → ajoute `pcstar.dz` (ou autre) → DNS chez ton registra
 
 **Pour le magasin Oran au quotidien** : le catalogue + réservation locale/localStorage marchent ; les orders API peuvent se vider après sleep.
 
+### Rate-limit : compteurs **en mémoire**, donc **par instance** (LOT 3.19 / R17)
+
+`server/rateLimit.js` tient ses compteurs dans une `Map` en mémoire du process.
+C'est un choix assumé, pas un oubli — mais il faut savoir ce qu'il vaut sur
+Vercel :
+
+| Situation | Effet réel |
+|-----------|-----------|
+| Serveur local (`npm run api`) | Un seul process → la limite est **exacte** (20 tentatives/min par IP sur `/api/auth/login`, etc.) |
+| Vercel, trafic normal | Une instance « chaude » sert la plupart des requêtes → la limite tient **en pratique** |
+| Vercel, cold start / montée en charge / plusieurs régions | Chaque nouvelle instance repart avec des compteurs **vides** : un attaquant qui provoque des cold starts (ou qui est routé sur plusieurs instances) peut multiplier son budget par le nombre d'instances |
+| Vercel, après inactivité | L'instance est recyclée → les compteurs repartent de zéro |
+
+**Conséquence à connaître** : sur Vercel, le rate-limit applicatif est un
+**frein**, pas une frontière. La vraie défense contre le brute-force reste :
+
+1. un mot de passe maître long (≥ 20 caractères, `MASTER_PASSWORD`) ;
+2. le hachage `scrypt` côté serveur ;
+3. les limites **plateforme** de Vercel (WAF / Attack Challenge, plan payant) si
+   le magasin est exposé à des attaques répétées.
+
+**Si le multi-instances devient réel** (trafic soutenu, ou exigence de sécurité
+formelle) : déplacer les compteurs dans un store partagé —
+`@upstash/ratelimit` + Upstash Redis (compatible serverless, quelques lignes
+dans `server/rateLimit.js`, le contrat `{ ok, retryAfter }` ne change pas) ou
+Vercel KV. Tant que ce n'est pas fait, la limite ci-dessus s'applique et est
+**documentée ici volontairement**.
+
+### WebSocket Desk : indisponible sur Vercel (LOT 3.10 / B14)
+
+Les fonctions serverless Vercel ne font pas de WebSocket. `attachDeskSocket()`
+n'est appelé **que** par le serveur local ; sur Vercel, le front tente le socket,
+échoue, puis **arrête** d'essayer après 8 échecs consécutifs et reste sur le
+polling (20 s). Aucune configuration à faire : le Desk fonctionne dans les deux
+cas, il est simplement moins « instantané » sur Vercel.
+
 ### Quand tu voudras de la persistance (plus tard, toujours sans VPS)
 
 1. **Vercel KV** ou **Upstash Redis** pour `store.json`  
@@ -124,7 +160,7 @@ Le code est déjà découpé (`server/db.js`) pour brancher ça sans tout casser
 
 - [ ] `https://TON.app` charge le shop  
 - [ ] `https://TON.app/api/health` → `{ ok: true }`  
-- [ ] Login master `pcstar.info31@gmail.com` / `star31`  
+- [ ] Login master avec les valeurs posées dans `MASTER_EMAIL` / `MASTER_PASSWORD`  
 - [ ] Ajout panier + réserve (tél DZ)  
 - [ ] Footer garantie / privacy  
 - [ ] HTTPS cadenas navigateur  

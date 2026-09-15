@@ -20,12 +20,19 @@ Sans API, le site marche en mode local (`○ local`). Avec API (`● API`), le m
 
 | Rôle | E-mail | Mot de passe | Peut faire |
 |------|--------|--------------|------------|
-| **Master** (magasin) | `pcstar.info31@gmail.com` | `star31` | Desk list, Admin (ajouter / masquer produits, clients) |
+| **Master** (magasin) | _`MASTER_EMAIL`_ | _`MASTER_PASSWORD`_ | Desk list, Admin (ajouter / masquer produits, clients) |
 | Client Karim | `karim.oran@demo.dz` | `karim31` | Panier, réserve, profil simple |
 | Client Amina | `amina.castors@demo.dz` | `amina31` | idem |
 | Client Yacine | `yacine.pc@demo.dz` | `yacine31` | idem |
 
 Tu peux aussi taper e-mail + mot de passe à la main, ou **Créer un compte**.
+
+> **Compte maître (magasin) :** il n'est plus publié ici. Il est défini par les
+> variables d'environnement `MASTER_EMAIL` et `MASTER_PASSWORD` (voir
+> `.env.example` et `docs/DEPLOY-VERCEL.md`). Les identifiants qui figuraient
+> dans cette page et dans le code sont considérés comme **compromis** et
+> doivent être changés — les retirer du dépôt ne suffit pas.
+
 
 ## Master (magasin)
 

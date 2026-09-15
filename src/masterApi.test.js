@@ -175,6 +175,50 @@ describe('P9 (P7-7) — bornage des backups (capBackups / backupStore)', () => {
     }
   })
 
+  it('capBackups ne supprime jamais le fichier protégé (B5 — même seconde)', () => {
+    const dir = tmpDir()
+    try {
+      // 14 backups d'une même seconde, suffixes aléatoires « grands ».
+      for (let i = 0; i < 14; i += 1) {
+        fs.writeFileSync(path.join(dir, `store-2026-09-15T10-00-05-000-f${String(i).padStart(5, '0')}.json`), '{}')
+      }
+      // Le backup le PLUS RÉCENT, mais dont le suffixe le fait trier EN PREMIER :
+      // sans protection, capBackups le prenait pour le plus ancien et le
+      // supprimait — backupStore renvoyait alors un chemin déjà mort.
+      const fresh = 'store-2026-09-15T10-00-05-000-000000.json'
+      fs.writeFileSync(path.join(dir, fresh), '{}')
+
+      const removed = capBackups(dir, 14, fresh)
+      assert.equal(removed, 1, 'un seul jeu doit partir (15 → 14)')
+      assert.ok(fs.existsSync(path.join(dir, fresh)), 'le backup protégé a été supprimé')
+      assert.equal(fs.readdirSync(dir).filter((f) => f.startsWith('store-')).length, 14)
+      // sans protection, le même répertoire perd bien le fichier le plus « petit »
+      const removed2 = capBackups(dir, 13)
+      assert.equal(removed2, 1)
+      assert.equal(fs.existsSync(path.join(dir, fresh)), false, 'sans protect, le tri alphabétique décide')
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('backupStore horodate à la milliseconde et rend toujours un fichier existant', () => {
+    const dir = tmpDir()
+    const dbPath = path.join(dir, 'store.json')
+    fs.writeFileSync(dbPath, '{"ok":1}')
+    try {
+      for (let i = 0; i < 20; i += 1) {
+        const dest = backupStore(dbPath, dir)
+        assert.ok(dest && fs.existsSync(dest), `itération ${i} : backup déjà borné/supprimé`)
+        // …-789-<6 hex>.json : millisecondes + suffixe aléatoire
+        assert.match(path.basename(dest), /^store-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}-[0-9a-f]{6}\.json$/)
+      }
+      const backups = fs.readdirSync(dir).filter((f) => f.startsWith('store-') && f !== 'store.json')
+      assert.equal(backups.length, 14, `bornage : ${backups.length} jeux`)
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
   it('backupStore applique le bornage automatiquement (plus de croissance infinie)', () => {
     const dir = tmpDir()
     const dbPath = path.join(dir, 'store.json')

@@ -4,6 +4,27 @@ import PartThumb from './PartThumb.jsx'
 import ContactButton from './ContactPicker.jsx'
 import { relatedProducts, specRows } from './media.js'
 
+/**
+ * LOT 2.6 (F10) — texte du bloc « besoins » d'une fiche produit.
+ *
+ * `needs` est désormais un TABLEAU (normalisé côté serveur,
+ * `normalizeNeeds`) mais peut encore être une chaîne dans une base antérieure
+ * ou créée en mode local. Deux pièges corrigés ici :
+ *  · React concatène un tableau de chaînes SANS séparateur (« Socket AM5BIOS à
+ *    jour ») — d'où la jointure explicite ;
+ *  · `[]` est truthy en JS : la condition d'affichage `product.needs` aurait
+ *    dessiné un encart vide pour tout produit sans besoins.
+ */
+function needsText(needs) {
+  if (Array.isArray(needs)) {
+    return needs
+      .map((x) => String(x ?? '').trim())
+      .filter(Boolean)
+      .join(' · ')
+  }
+  return String(needs ?? '').trim()
+}
+
 function stockLabel(n, t) {
   if (n <= 0) return { text: t('outOfStock'), cls: 'stock-out' }
   if (n <= 3) return { text: `${n} ${t('left')}`, cls: 'stock-low' }
@@ -132,9 +153,9 @@ export default function ProductPage({ t, product, photoIndex, setPhotoIndex, lef
               </table>
             </div>
           )}
-          {(product.needsKey || product.needs) && (
+          {(product.needsKey || needsText(product.needs)) && (
             <div className={`alert py-2 ${left <= 0 ? 'alert-danger' : 'alert-secondary'}`}>
-              {product.needsKey ? t(product.needsKey) : product.needs}
+              {product.needsKey ? t(product.needsKey) : needsText(product.needs)}
             </div>
           )}
 
