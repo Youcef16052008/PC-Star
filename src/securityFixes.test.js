@@ -12,6 +12,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import http from 'node:http'
+import { TEST_MASTER_EMAIL, TEST_MASTER_PASSWORD } from '../scripts/test-env.mjs'
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pcstar-sec-'))
 process.env.PCSTAR_DATA_DIR = dir
@@ -93,7 +94,7 @@ describe('S1 (#2) — OAuth ne peut plus ouvrir une session master', () => {
     const before = readStore().sessions || {}
     const beforeMaster = Object.values(before).filter((s) => s.userId === 'master-pcstar').length
 
-    const r = await oauthDemo('google', 'pcstar.info31@gmail.com')
+    const r = await oauthDemo('google', TEST_MASTER_EMAIL)
     assert.equal(r.status, 403, `attendu 403, reçu ${r.status}`)
     assert.equal(r.token, null, 'aucun token ne doit être émis')
     assert.equal(r.location, null, 'aucune redirection')
@@ -105,7 +106,7 @@ describe('S1 (#2) — OAuth ne peut plus ouvrir une session master', () => {
   })
 
   it('pareil via Meta', async () => {
-    const r = await oauthDemo('meta', 'pcstar.info31@gmail.com')
+    const r = await oauthDemo('meta', TEST_MASTER_EMAIL)
     assert.equal(r.status, 403)
     assert.equal(r.token, null)
   })
@@ -122,7 +123,7 @@ describe('S1 (#2) — OAuth ne peut plus ouvrir une session master', () => {
 
   it('le master garde son login par mot de passe', async () => {
     const r = await call('POST', '/api/auth/login', {
-      body: { email: 'pcstar.info31@gmail.com', password: 'star31' }
+      body: { email: TEST_MASTER_EMAIL, password: TEST_MASTER_PASSWORD }
     })
     assert.equal(r.status, 200)
     const me = await call('GET', '/api/me', { token: r.data.token })
@@ -271,7 +272,7 @@ describe('S4 (#11) — X-Forwarded-For ne contourne plus le rate-limit', () => {
       const r = await fetch(`${base}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Forwarded-For': `10.0.0.${i}` },
-        body: JSON.stringify({ email: 'pcstar.info31@gmail.com', password: 'mauvais' })
+        body: JSON.stringify({ email: TEST_MASTER_EMAIL, password: 'mauvais' })
       })
       if (r.status === 429) {
         first429 = i

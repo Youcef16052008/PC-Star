@@ -16,10 +16,16 @@ npm run build
 
 | Role | Email | Password |
 |------|-------|----------|
-| **Master** (store) | `pcstar.info31@gmail.com` | `star31` |
+| **Master** (store) | _set via `MASTER_EMAIL` / `MASTER_PASSWORD`_ | _not published_ |
 | Customer | `karim.oran@demo.dz` | `karim31` |
 | Customer | `amina.castors@demo.dz` | `amina31` |
 | Customer | `yacine.pc@demo.dz` | `yacine31` |
+
+> **Master account:** no longer published here. It is defined by the
+> `MASTER_EMAIL` / `MASTER_PASSWORD` environment variables (see `.env.example`).
+> The credentials that used to be printed on this page **and shipped in the
+> client bundle** are considered compromised and must be rotated — removing
+> them from the repo is not enough.
 
 Full how-to: **[docs/GUIDE-DEMO.md](docs/GUIDE-DEMO.md)** · [FR](docs/GUIDE-DEMO-FR.md) · [AR](docs/GUIDE-DEMO-AR.md)  
 Also in the app menu: **Guide**.

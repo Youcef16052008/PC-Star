@@ -4,6 +4,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import http from 'node:http'
+import { TEST_MASTER_EMAIL, TEST_MASTER_PASSWORD } from '../scripts/test-env.mjs'
 
 // Base temporaire isolée — ne touche jamais server/data/store.json.
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pcstar-api-'))
@@ -66,7 +67,7 @@ describe('routes (P2) — handler HTTP réel', () => {
     const cat = await call('GET', '/api/catalog')
     assert.ok(!cat.data.products.some((p) => p.id === 'speakers'), 'speakers (stock 0) absente du catalogue public')
     const master = await call('POST', '/api/auth/login', {
-      body: { email: 'pcstar.info31@gmail.com', password: 'star31' }
+      body: { email: TEST_MASTER_EMAIL, password: TEST_MASTER_PASSWORD }
     })
     const list = await call('GET', '/api/master/products', { token: master.data.token })
     const sp = list.data.products.find((p) => p.id === 'speakers')
@@ -118,7 +119,7 @@ describe('routes (P2) — handler HTTP réel', () => {
 
     // la commande passe « preparing » : plus annulable par le client
     const master = await call('POST', '/api/auth/login', {
-      body: { email: 'pcstar.info31@gmail.com', password: 'star31' }
+      body: { email: TEST_MASTER_EMAIL, password: TEST_MASTER_PASSWORD }
     })
     const prepping = await call('PATCH', `/api/orders/${code}`, { token: master.data.token, body: { status: 'preparing' } })
     assert.equal(prepping.status, 200)
@@ -145,7 +146,7 @@ describe('routes (P2) — handler HTTP réel', () => {
 
   it('P6 : panneaux synchronisés via /api/master/panels (master only, borné)', async () => {
     const master = await call('POST', '/api/auth/login', {
-      body: { email: 'pcstar.info31@gmail.com', password: 'star31' }
+      body: { email: TEST_MASTER_EMAIL, password: TEST_MASTER_PASSWORD }
     })
     const tok = master.data.token
     // non-master → 403
@@ -180,7 +181,7 @@ describe('routes (P2) — handler HTTP réel', () => {
     const noAuth = await call('GET', '/api/customers')
     assert.equal(noAuth.status, 403)
     const master = await call('POST', '/api/auth/login', {
-      body: { email: 'pcstar.info31@gmail.com', password: 'star31' }
+      body: { email: TEST_MASTER_EMAIL, password: TEST_MASTER_PASSWORD }
     })
     assert.equal(master.status, 200)
     const withAuth = await call('GET', '/api/customers', { token: master.data.token })
@@ -206,7 +207,7 @@ describe('routes (P2) — handler HTTP réel', () => {
 
   it('produit créé par le master : visible dans /api/catalog, prix recalculé à la commande', async () => {
     const master = await call('POST', '/api/auth/login', {
-      body: { email: 'pcstar.info31@gmail.com', password: 'star31' }
+      body: { email: TEST_MASTER_EMAIL, password: TEST_MASTER_PASSWORD }
     })
     const created = await call('POST', '/api/master/products', {
       token: master.data.token,
@@ -231,7 +232,7 @@ describe('routes (P2) — handler HTTP réel', () => {
 
   it('masquage d’un produit master via HTTP : disparaît du catalogue public', async () => {
     const master = await call('POST', '/api/auth/login', {
-      body: { email: 'pcstar.info31@gmail.com', password: 'star31' }
+      body: { email: TEST_MASTER_EMAIL, password: TEST_MASTER_PASSWORD }
     })
     const created = await call('POST', '/api/master/products', {
       token: master.data.token,
@@ -260,7 +261,7 @@ describe('routes (P2) — handler HTTP réel', () => {
     const cust = await call('GET', '/api/me', { token: custTok })
     assert.equal(cust.status, 200)
     const master = await call('POST', '/api/auth/login', {
-      body: { email: 'pcstar.info31@gmail.com', password: 'star31' }
+      body: { email: TEST_MASTER_EMAIL, password: TEST_MASTER_PASSWORD }
     })
     const del = await call('DELETE', `/api/customers/${cust.data.user.id}`, { token: master.data.token })
     assert.equal(del.status, 200)
@@ -288,7 +289,7 @@ describe('P9 — bugs opérationnels (P7-4 / P7-5 / P7-8)', () => {
     const anon = await call('GET', '/api/master/meta')
     assert.equal(anon.status, 403)
     const master = await call('POST', '/api/auth/login', {
-      body: { email: 'pcstar.info31@gmail.com', password: 'star31' }
+      body: { email: TEST_MASTER_EMAIL, password: TEST_MASTER_PASSWORD }
     })
     // un override existe → observable dans le meta complet…
     const put = await call('PUT', '/api/master/products/cpu-5500', {
@@ -308,7 +309,7 @@ describe('P9 — bugs opérationnels (P7-4 / P7-5 / P7-8)', () => {
 
   it('P7-8 : PUT /api/meta supprimé (plus d\'écrasement du meta)', async () => {
     const master = await call('POST', '/api/auth/login', {
-      body: { email: 'pcstar.info31@gmail.com', password: 'star31' }
+      body: { email: TEST_MASTER_EMAIL, password: TEST_MASTER_PASSWORD }
     })
     const put = await call('PUT', '/api/meta', { token: master.data.token, body: { meta: { hiddenPanelIds: ['desk'] } } })
     assert.equal(put.status, 404)
@@ -319,7 +320,7 @@ describe('P9 — bugs opérationnels (P7-4 / P7-5 / P7-8)', () => {
 
   it('P7-4 : commande avec « journée » locale → code daté à cette journée + CSV cohérent', async () => {
     const master = await call('POST', '/api/auth/login', {
-      body: { email: 'pcstar.info31@gmail.com', password: 'star31' }
+      body: { email: TEST_MASTER_EMAIL, password: TEST_MASTER_PASSWORD }
     })
     // journée future fixe : le code DOIT porter cette date (pas la date serveur)
     const day = '2027-01-05'
@@ -359,7 +360,7 @@ describe('P10 — robustesse (P7-10 / P7-12 / P7-15 / P7-18)', () => {
 
   it('P7-12 : export CSV préfixé du BOM UTF-8 (lisible dans Excel)', async () => {
     const master = await call('POST', '/api/auth/login', {
-      body: { email: 'pcstar.info31@gmail.com', password: 'star31' }
+      body: { email: TEST_MASTER_EMAIL, password: TEST_MASTER_PASSWORD }
     })
     const res = await fetch(base + '/api/orders/export.csv', {
       headers: { Authorization: `Bearer ${master.data.token}` }
@@ -430,7 +431,7 @@ describe('P10 — robustesse (P7-10 / P7-12 / P7-15 / P7-18)', () => {
 describe('P8 (P7-3) — archive des commandes (Neon only, repli store.json)', () => {
   it('POST /api/master/archive sans DATABASE_URL → 200 ok:false, les commandes restent', async () => {
     const master = await call('POST', '/api/auth/login', {
-      body: { email: 'pcstar.info31@gmail.com', password: 'star31' }
+      body: { email: TEST_MASTER_EMAIL, password: TEST_MASTER_PASSWORD }
     })
     const before = await call('GET', '/api/orders')
     assert.ok(before.status === 200 || before.status === 403)
@@ -458,7 +459,7 @@ describe('P12 (B25) — GET /api/db/status (sonde de base, master)', () => {
 
   it('master → 200 : driver, latence et compteurs (diagnostic vitrine vide)', async () => {
     const master = await call('POST', '/api/auth/login', {
-      body: { email: 'pcstar.info31@gmail.com', password: 'star31' }
+      body: { email: TEST_MASTER_EMAIL, password: TEST_MASTER_PASSWORD }
     })
     const r = await call('GET', '/api/db/status', { token: master.data.token })
     assert.equal(r.status, 200)

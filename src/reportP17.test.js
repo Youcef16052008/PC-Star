@@ -67,7 +67,7 @@ describe('P17 (#1) — toast de création de produit en mode local', () => {
       React.createElement(MasterPage, {
         t,
         lang: 'fr',
-        user: { id: 'master-pcstar', role: 'master', name: 'Desk', email: 'pcstar.info31@gmail.com' },
+        user: { id: 'master-pcstar', role: 'master', name: 'Desk', email: 'master@test.pcstar.local' },
         users: [],
         onUsers: () => {},
         products: PRODUCTS,

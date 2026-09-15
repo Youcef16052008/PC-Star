@@ -1,8 +1,24 @@
-export const MASTER = {
-  email: 'pcstar.info31@gmail.com',
-  password: 'star31',
-  name: 'PC Star Desk'
-}
+/**
+ * LOT 1.1 — plus AUCUN compte maître côté client.
+ *
+ * Cet export contenait auparavant l'e-mail et le mot de passe du compte maître
+ * EN CLAIR : Vite les incluait dans le bundle JS public, et ces valeurs
+ * ouvraient une vraie session `role: 'master'` sur l'API (reproduit à
+ * l'époque : `POST /api/auth/login` -> 200 + token).
+ *
+ * Le compte maître est désormais défini côté serveur uniquement, depuis
+ * `MASTER_EMAIL` / `MASTER_PASSWORD` (voir `masterAccount()` dans
+ * `server/db.js`). Les anciennes valeurs sont considérées comme compromises :
+ * elles doivent être changées, pas seulement retirées du code.
+ *
+ * Ce commentaire ne répète volontairement aucune des valeurs exposées — elles
+ * resteraient lisibles dans les sources, donc dans le dépôt.
+ *
+ * Conséquence assumée : le mode 100 % local (aucune API) n'a plus de comptoir —
+ * les pages Desk/Master exigent une session maître, qui ne peut venir que du
+ * serveur. C'est cohérent avec leur conception (elles étaient déjà vides en
+ * l'absence d'API).
+ */
 
 const KEY_USERS = 'pcstar-users'
 const KEY_META = 'pcstar-catalog'
@@ -62,20 +78,6 @@ export function createMemoryStorage(seed = {}) {
 
 function nowId(prefix) {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`
-}
-
-function masterUser() {
-  return {
-    id: 'master-pcstar',
-    role: 'master',
-    email: MASTER.email,
-    password: hashPass(MASTER.password),
-    name: MASTER.name,
-    phone: '0770650387',
-    avatar: 'star',
-    accent: 'green',
-    provider: 'email'
-  }
 }
 
 function emptyMeta() {
@@ -144,10 +146,9 @@ export function loadUsers(storage) {
     }
   }
   let changed = false
-  if (!list.some((u) => u.role === 'master')) {
-    list = [masterUser(), ...list]
-    changed = true
-  }
+  // LOT 1.1 : le maître n'est plus seedé en local (voir le commentaire en tête
+  // de fichier). Un `master` déjà présent dans un `localStorage` antérieur est
+  // conservé tel quel — il ne donne accès à rien que le mode local.
   DEMO_CUSTOMERS.forEach((d) => {
     if (!list.some((u) => u.id === d.id || (d.email && u.email === d.email))) {
       list = [...list, demoUser(d)]

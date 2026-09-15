@@ -4,6 +4,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import http from 'node:http'
+import { TEST_MASTER_EMAIL, TEST_MASTER_PASSWORD } from '../scripts/test-env.mjs'
 
 // P19 — notification du master + suppression de commande.
 //
@@ -67,7 +68,7 @@ async function call(method, pathname, { body, token } = {}) {
 }
 
 async function masterToken() {
-  const r = await call('POST', '/api/auth/login', { body: { email: 'pcstar.info31@gmail.com', password: 'star31' } })
+  const r = await call('POST', '/api/auth/login', { body: { email: TEST_MASTER_EMAIL, password: TEST_MASTER_PASSWORD } })
   assert.ok(r.data?.token, `login master impossible : ${JSON.stringify(r.data)}`)
   return r.data.token
 }

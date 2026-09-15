@@ -6,6 +6,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import http from 'node:http'
 import { photoCandidates } from './media.js'
+import { TEST_MASTER_EMAIL, TEST_MASTER_PASSWORD } from '../scripts/test-env.mjs'
 
 // P5 (B12) : flux de création produit + photos, sans fichiers `tmp-*`.
 // Les env doivent être posés AVANT l'import des modules serveur (ils lisent
@@ -114,7 +115,7 @@ describe('savePhotoDataUrls + unlinkUpload (B12)', () => {
 describe('POST /api/master/products (B12, bout en bout)', () => {
   async function masterToken() {
     const r = await call('POST', '/api/auth/login', {
-      body: { email: 'pcstar.info31@gmail.com', password: 'star31' }
+      body: { email: TEST_MASTER_EMAIL, password: TEST_MASTER_PASSWORD }
     })
     assert.equal(r.status, 200, JSON.stringify(r.data))
     return r.data.token

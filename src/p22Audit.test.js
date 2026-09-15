@@ -4,6 +4,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import http from 'node:http'
+import { TEST_MASTER_EMAIL, TEST_MASTER_PASSWORD } from '../scripts/test-env.mjs'
 
 // ---------------------------------------------------------------------------
 // P22 — Audit « toutes les pages, tous les boutons » (13 pages, 1 155 boutons
@@ -269,7 +270,7 @@ describe('P22 bug H — un SKU déjà pris est refusé, côté client ET serveur
 
   it('[serveur] POST /api/master/products refuse un SKU du catalogue de base', async () => {
     const login = await call('POST', '/api/auth/login', {
-      body: { email: 'pcstar.info31@gmail.com', password: 'star31' }
+      body: { email: TEST_MASTER_EMAIL, password: TEST_MASTER_PASSWORD }
     })
     assert.equal(login.status, 200, 'login master')
     const token = login.data.token
@@ -284,7 +285,7 @@ describe('P22 bug H — un SKU déjà pris est refusé, côté client ET serveur
 
   it('[serveur] deux créations ne peuvent pas partager un SKU saisi', async () => {
     const login = await call('POST', '/api/auth/login', {
-      body: { email: 'pcstar.info31@gmail.com', password: 'star31' }
+      body: { email: TEST_MASTER_EMAIL, password: TEST_MASTER_PASSWORD }
     })
     const token = login.data.token
     const first = await call('POST', '/api/master/products', {
@@ -302,7 +303,7 @@ describe('P22 bug H — un SKU déjà pris est refusé, côté client ET serveur
 
   it('[serveur] sans SKU saisi, le serveur génère un id unique', async () => {
     const login = await call('POST', '/api/auth/login', {
-      body: { email: 'pcstar.info31@gmail.com', password: 'star31' }
+      body: { email: TEST_MASTER_EMAIL, password: TEST_MASTER_PASSWORD }
     })
     const token = login.data.token
     const a = await call('POST', '/api/master/products', {
@@ -374,7 +375,7 @@ describe('P22 item 1 — le hash non salé des comptes seedés migre à la conne
   it('le compte maître, seedé lui aussi, est bien passé en scrypt', () => {
     // Il a été migré par les connexions des tests précédents — c'est
     // précisément le comportement attendu.
-    assert.ok(readHash('pcstar.info31@gmail.com').startsWith('scrypt$'))
+    assert.ok(readHash(TEST_MASTER_EMAIL).startsWith('scrypt$'))
   })
 })
 

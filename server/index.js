@@ -10,7 +10,7 @@ import {
   dbPaths,
   dbUrlDiagnostics,
   hashPass,
-  MASTER,
+  masterAccount,
   newId,
   newToken,
   publicUser,
@@ -216,8 +216,13 @@ export async function handler(req, res) {
       const dbInfo = dbUrlDiagnostics()
       return send(res, 200, {
         ok: true,
+        // LOT 1.1 : l'e-mail du maître n'est plus divulgué ici (rapport
+        // d'audit #27). Cette route est publique : elle donnait l'identifiant
+        // du compte maître sans authentification — ce qui, combiné au mot de
+        // passe présent dans le bundle, livrait l'accès complet sans aucun
+        // outil. `cors` reste (utile au diagnostic navigateur) mais plus
+        // aucune identité.
         oauth: oauthConfig(),
-        master: MASTER.email,
         cors: FRONT_ORIGIN,
         payments: ['cash'],
         db: {
@@ -1030,11 +1035,30 @@ function startLocalServer() {
   return server
 }
 
+/**
+ * LOT 1.1 — démarrage local : échec EXPLICITE si le compte maître n'est pas
+ * configuré. En pratique `server/db.js` lève déjà au chargement du module (donc
+ * avant d'arriver ici) ; ce garde couvre le cas où l'import est différé et
+ * garantit un code de sortie non nul avec le message plutôt qu'une pile brute.
+ * Sous Vercel le module est importé par invocation : la même erreur remonte
+ * dans les logs de fonction, ce qui est préférable à un repli sur un secret
+ * codé en dur.
+ */
+function assertMasterConfigured() {
+  try {
+    masterAccount()
+  } catch (err) {
+    console.error(`\n${err.message}\n`)
+    process.exit(1)
+  }
+}
+
 // Local / long-running only — Vercel imports { handler } without listen
 const isMain =
   process.argv[1] &&
   fileURLToPath(import.meta.url) === path.resolve(process.argv[1])
 if (isMain && !process.env.VERCEL) {
+  assertMasterConfigured()
   startLocalServer()
 }
 

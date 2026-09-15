@@ -124,7 +124,7 @@ Le code est déjà découpé (`server/db.js`) pour brancher ça sans tout casser
 
 - [ ] `https://TON.app` charge le shop  
 - [ ] `https://TON.app/api/health` → `{ ok: true }`  
-- [ ] Login master `pcstar.info31@gmail.com` / `star31`  
+- [ ] Login master avec les valeurs posées dans `MASTER_EMAIL` / `MASTER_PASSWORD`  
 - [ ] Ajout panier + réserve (tél DZ)  
 - [ ] Footer garantie / privacy  
 - [ ] HTTPS cadenas navigateur  

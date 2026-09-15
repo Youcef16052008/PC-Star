@@ -1,12 +1,17 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
-import { hashPass, verifyPass, hashPassLegacy } from '../server/db.js'
 import { rateLimit, __rateLimitInternals } from '../server/rateLimit.js'
+// LOT 1.1 : `server/db.js` évalue le compte maître au chargement du module et
+// lève si MASTER_EMAIL/MASTER_PASSWORD manquent. L'environnement de test doit
+// donc être posé AVANT — d'où l'import dynamique ci-dessous (un import
+// statique de db.js placé plus haut serait évalué avant `test-env.mjs`).
+import { TEST_MASTER_EMAIL, TEST_MASTER_PASSWORD } from '../scripts/test-env.mjs'
+const { hashPass, verifyPass, hashPassLegacy } = await import('../server/db.js')
 
 describe('password hashing', () => {
   it('verifies legacy sha256 seeds', () => {
-    const leg = hashPassLegacy('star31')
-    assert.equal(verifyPass('star31', leg), true)
+    const leg = hashPassLegacy(TEST_MASTER_PASSWORD)
+    assert.equal(verifyPass(TEST_MASTER_PASSWORD, leg), true)
     assert.equal(verifyPass('wrong', leg), false)
   })
 

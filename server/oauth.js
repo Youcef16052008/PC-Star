@@ -126,9 +126,10 @@ export async function startOAuth(provider, { userId = null, intent = 'login', re
  * P13 (S1/S3) — clôture une identité OAuth.
  *
  * S1 : le compte **master** ne se connecte QUE par mot de passe. Avant,
- * `finishIdentity` appariait par e-mail : en mode démo (défaut), taper
- * `pcstar.info31@gmail.com` dans l'écran de consentement donnait une session
- * master valide — escalade totale.
+ * `finishIdentity` appariait par e-mail : en mode démo (défaut), taper l'e-mail
+ * du magasin dans l'écran de consentement donnait une session master valide —
+ * escalade totale. (Depuis le LOT 1.1 cet e-mail vient de `MASTER_EMAIL` ; il
+ * n'est plus codé en dur, et `GET /api/health` ne le divulgue plus.)
  *
  * S2 : en démo, l'e-mail n'est vérifié par personne. Seuls les comptes de
  * démonstration (`demo: true`) ou un lien déjà établi peuvent être ouverts ;

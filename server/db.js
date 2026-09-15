@@ -15,19 +15,6 @@ const DB_FILE = path.join(DATA_DIR, 'store.json')
 const DB_TMP_FILE = path.join(DATA_DIR, 'store.json.tmp')
 const MAX_CORRUPT_BACKUPS = 3
 
-const MASTER = {
-  id: 'master-pcstar',
-  role: 'master',
-  email: 'pcstar.info31@gmail.com',
-  passwordHash: hashPassLegacy('star31'),
-  name: 'PC Star Desk',
-  phone: '0770650387',
-  avatar: 'star',
-  accent: 'green',
-  provider: 'email',
-  links: { google: null, meta: null }
-}
-
 function hashPass(password) {
   const salt = crypto.randomBytes(8).toString('hex')
   const hash = crypto.scryptSync(String(password), `pcstar:${salt}`, 32).toString('hex')
@@ -37,6 +24,60 @@ function hashPass(password) {
 function hashPassLegacy(password) {
   return crypto.createHash('sha256').update(`pcstar:${password}`).digest('hex')
 }
+
+/**
+ * LOT 1.1 — le compte maître n'est plus codé en dur.
+ *
+ * Avant : l'e-mail et le mot de passe du maître étaient **littéraux** dans ce
+ * fichier et dans `src/shopStore.js` — donc présents dans le bundle JS public
+ * (retrouvés par `grep` sur `dist/assets/index-*.js`), et `POST /api/auth/login`
+ * avec ces valeurs ouvrait une vraie session `role: 'master'`. Les mêmes
+ * identifiants étaient en plus publiés dans cinq fichiers de documentation.
+ * Les valeurs d'origine ne sont volontairement **pas** répétées ici : elles
+ * resteraient lisibles dans le dépôt, donc exploitables.
+ *
+ * Désormais l'e-mail et le mot de passe viennent de l'environnement
+ * (`MASTER_EMAIL` / `MASTER_PASSWORD`) et il n'existe **aucune valeur par
+ * défaut** : `masterAccount()` lève si l'une des deux variables manque. Le
+ * serveur refuse donc de démarrer — ou l'invocation serverless échoue
+ * visiblement — plutôt que de retomber sur un secret connu de tous.
+ *
+ * L'`id` reste fixe (`master-pcstar`) : il n'est pas secret, et le rendre
+ * variable casserait les références existantes en base.
+ *
+ * Déclaration placée APRÈS `hashPassLegacy` : l'objet `MASTER` est évalué au
+ * chargement du module et n'a donc plus à compter sur le hoisting des
+ * déclarations de fonction (rapport d'audit, item #55/W).
+ */
+export function masterAccount() {
+  const email = String(process.env.MASTER_EMAIL || '').trim().toLowerCase()
+  const password = String(process.env.MASTER_PASSWORD || '')
+  // `.trim()` sur le mot de passe : une variable posée à blanc (`MASTER_PASSWORD=`
+  // dans un .env, ou des espaces) ne doit PAS passer pour un mot de passe.
+  if (!email || !password.trim()) {
+    throw new Error(
+      '[pcstar] compte maître non configuré — MASTER_EMAIL et MASTER_PASSWORD sont obligatoires.\n' +
+        '  · local       : renseignez-les dans .env (voir .env.example)\n' +
+        '  · Vercel      : Project → Settings → Environment Variables\n' +
+        '  · tests       : chargé automatiquement par scripts/test-env.mjs\n' +
+        "Aucune valeur par défaut n'est fournie : un secret codé en dur finirait dans le bundle public."
+    )
+  }
+  return {
+    id: 'master-pcstar',
+    role: 'master',
+    email,
+    passwordHash: hashPassLegacy(password),
+    name: String(process.env.MASTER_NAME || 'PC Star Desk'),
+    phone: String(process.env.MASTER_PHONE || '0770650387'),
+    avatar: 'star',
+    accent: 'green',
+    provider: 'email',
+    links: { google: null, meta: null }
+  }
+}
+
+const MASTER = masterAccount()
 
 export function verifyPass(password, stored) {
   if (!stored) return false
@@ -147,7 +188,35 @@ export function readDb() {
     return db
   }
   if (!Array.isArray(db.users)) db.users = [MASTER, ...DEMOS]
-  if (!db.users.some((u) => u.role === 'master')) db.users.unshift(MASTER)
+  // LOT 1.1 — le maître suit l'environnement.
+  //
+  // Avant ce correctif, la ligne ci-dessous se contentait de réinjecter un
+  // maître *s'il n'y en avait aucun*. Sur une base déjà constituée, le compte
+  // maître existant — créé à l'époque où ses identifiants étaient codés en dur
+  // et livrés dans le bundle public — restait donc **indéfiniment** en place :
+  // poser MASTER_EMAIL / MASTER_PASSWORD n'aurait rien changé pour lui.
+  //
+  // On aligne maintenant l'e-mail sur l'environnement, et le hash **seulement
+  // s'il n'est pas déjà en scrypt**. Cette restriction est essentielle : la
+  // migration P22 (item 1, dans la route login) re-sel en scrypt au premier
+  // accès réussi. Sans elle, chaque lecture remettrait le hash legacy et
+  // provoquerait un `writeDb` — donc un re-hash scrypt — à chaque connexion.
+  let masterSynced = false
+  const masterIdx = (db.users || []).findIndex((u) => u && u.role === 'master')
+  if (masterIdx < 0) {
+    db.users = [MASTER, ...(db.users || [])]
+    masterSynced = true
+  } else {
+    const cur = db.users[masterIdx]
+    if (cur.email !== MASTER.email) {
+      cur.email = MASTER.email
+      masterSynced = true
+    }
+    if (!String(cur.passwordHash || '').startsWith('scrypt$')) {
+      cur.passwordHash = MASTER.passwordHash
+      masterSynced = true
+    }
+  }
   if (!Array.isArray(db.orders)) db.orders = []
   if (!db.stock || typeof db.stock !== 'object') db.stock = {}
   if (!db.meta) db.meta = emptyDb().meta
@@ -175,7 +244,7 @@ export function readDb() {
   // P5 (B11) : bornes de croissance — sessions > 7 j, consentements OAuth
   // abandonnés > 15 min. Écriture si quelque chose a été purgé… ou si le
   // marqueur de seed (#8) vient d'être posé.
-  if (purgeExpired(db) || stripped || seeded) writeDb(db)
+  if (purgeExpired(db) || stripped || seeded || masterSynced) writeDb(db)
   return db
 }
 

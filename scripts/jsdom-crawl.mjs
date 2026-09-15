@@ -16,10 +16,14 @@ import { spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { JSDOM, VirtualConsole } from 'jsdom'
 import { dict } from '../src/i18n.js'
+import { masterCredentials } from './masterEnv.mjs'
 
 const FRONT = 'http://127.0.0.1:4173'
 const API = 'http://127.0.0.1:8787'
-const MASTER = { email: 'pcstar.info31@gmail.com', password: 'star31' }
+// LOT 1.2 : identifiants lus dans l'environnement (voir scripts/masterEnv.mjs).
+// `masterCredentials` charge aussi le `.env` dans `process.env`, donc l'API
+// démarrée ci-dessous en processus enfant hérite des mêmes valeurs.
+const MASTER = masterCredentials('jsdom-crawl')
 const LANGS = ['ar', 'fr', 'en']
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))

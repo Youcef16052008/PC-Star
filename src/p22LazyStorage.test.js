@@ -47,7 +47,11 @@ globalThis.fetch = async () => {
 window.fetch = globalThis.fetch
 
 const settle = (ms) => act(async () => new Promise((r) => setTimeout(r, ms)))
-const USER_NAME = 'PC Star Desk'
+// LOT 1.1 : le compte maître n'est plus seedé côté client (`master-pcstar`
+// n'existe plus en mode local). Le test porte sur le fait que les comptes sont
+// seedés et que le bouton profil porte le nom du compte connecté — on utilise
+// donc un compte de démonstration.
+const USER_NAME = 'Karim B.'
 
 before(() => {})
 
@@ -65,7 +69,7 @@ after(async () => {
 async function renderIn(lang) {
   window.localStorage.clear()
   window.localStorage.setItem('pcstar-lang', lang)
-  window.localStorage.setItem('pcstar-session', JSON.stringify({ userId: 'master-pcstar' }))
+  window.localStorage.setItem('pcstar-session', JSON.stringify({ userId: 'demo-karim' }))
   const host = window.document.createElement('div')
   window.document.getElementById('root').appendChild(host)
   const root = createRoot(host)

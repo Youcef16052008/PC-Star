@@ -1,7 +1,11 @@
 #!/usr/bin/env node
 /** API smoke: health → catalog → login → order → me/orders → legal pages via front */
+import { masterCredentials } from './masterEnv.mjs'
+
 const API = process.env.API || 'http://127.0.0.1:8787'
 const FRONT = process.env.FRONT || 'http://127.0.0.1:5173'
+// LOT 1.2 : plus d'identifiants codés en dur dans les scripts de recette.
+const MASTER = masterCredentials('smoke-e2e')
 
 async function j(url, opts = {}) {
   const r = await fetch(url, opts)
@@ -57,7 +61,7 @@ ok('me-orders', mine.ok && Array.isArray(mine.data?.orders) && mine.data.orders.
 const master = await j(`${API}/api/auth/login`, {
   method: 'POST',
   headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({ email: 'pcstar.info31@gmail.com', password: 'star31' })
+  body: JSON.stringify(MASTER)
 })
 ok('login-master', master.ok && master.data?.token)
 

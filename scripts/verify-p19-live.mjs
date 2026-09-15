@@ -6,6 +6,7 @@
  * 4. socket sans token / non-master → refusé
  */
 import WebSocket from 'ws'
+import { masterCredentials } from './masterEnv.mjs'
 
 const BASE = 'http://127.0.0.1:8787'
 const out = []
@@ -25,7 +26,7 @@ async function call(method, path, { body, token } = {}) {
   return { status: res.status, data }
 }
 
-const login = await call('POST', '/api/auth/login', { body: { email: 'pcstar.info31@gmail.com', password: 'star31' } })
+const login = await call('POST', '/api/auth/login', { body: masterCredentials('verify-p19-live') })
 const token = login.data?.token
 ok('login master', !!token, token ? '(token obtenu)' : JSON.stringify(login.data))
 if (!token) { console.log(out.join('\n')); process.exit(1) }

@@ -4,6 +4,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import http from 'node:http'
+import { TEST_MASTER_EMAIL, TEST_MASTER_PASSWORD } from '../scripts/test-env.mjs'
 
 // P18 — écriture hors répertoire d'uploads.
 //
@@ -83,7 +84,7 @@ describe('P18 — safeUploadName', () => {
 
 describe('P18 — PUT /api/master/products/:id ne peut plus écrire hors uploads', () => {
   it('un id en traversal ne crée aucun fichier hors du répertoire d’uploads', async () => {
-    const token = (await call('POST', '/api/auth/login', { body: { email: 'pcstar.info31@gmail.com', password: 'star31' } })).data?.token
+    const token = (await call('POST', '/api/auth/login', { body: { email: TEST_MASTER_EMAIL, password: TEST_MASTER_PASSWORD } })).data?.token
     assert.ok(token, 'login master impossible')
 
     const before = outsideFiles()
@@ -105,7 +106,7 @@ describe('P18 — PUT /api/master/products/:id ne peut plus écrire hors uploads
   })
 
   it('un upload légitime continue de fonctionner', async () => {
-    const token = (await call('POST', '/api/auth/login', { body: { email: 'pcstar.info31@gmail.com', password: 'star31' } })).data?.token
+    const token = (await call('POST', '/api/auth/login', { body: { email: TEST_MASTER_EMAIL, password: TEST_MASTER_PASSWORD } })).data?.token
     const created = await call('POST', '/api/master/products', {
       body: { name: 'Souris test upload', category: 'accessories', brand: 'Test', price: 1900, stock: 2, short: 'test', photoDataUrls: [PNG] },
       token

@@ -68,14 +68,17 @@ const { canTransition, ORDER_TRANSITIONS, ORDER_STATUSES } = await import('./ord
 const { setOrderStatus } = await import('../server/catalog.js')
 
 const settle = (ms) => act(async () => new Promise((r) => setTimeout(r, ms)))
-const USER_NAME = 'PC Star Desk'
+// LOT 1.1 : le compte maître n'est plus seedé côté client (`master-pcstar`
+// n'existe plus en mode local). Le test porte sur le nom visible du compte
+// connecté, quel qu'il soit : on utilise un compte de démonstration.
+const USER_NAME = 'Karim B.'
 
 /** Monte App dans `lang` avec une session locale, rend le DOM racine. */
 async function renderIn(lang) {
   window.localStorage.clear()
   window.localStorage.setItem('pcstar-lang', lang)
-  // `loadUsers` seed le compte maître sous l'id fixe `master-pcstar`.
-  window.localStorage.setItem('pcstar-session', JSON.stringify({ userId: 'master-pcstar' }))
+  // `loadUsers` seed les comptes de démonstration sous des ids fixes.
+  window.localStorage.setItem('pcstar-session', JSON.stringify({ userId: 'demo-karim' }))
   const host = window.document.createElement('div')
   window.document.getElementById('root').appendChild(host)
   const root = createRoot(host)
