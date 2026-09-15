@@ -888,6 +888,12 @@ inchangé ; aperçu vivant re-vérifié (12 contrôles : jeton utilisable, aucun
 brute en base, empreinte rejetée, clé legacy purgée du fichier et absente des
 backups, déconnexion effective).
 
+> Chiffre rectifié au lot 4 : `npm test` liste ses fichiers explicitement et
+> `src/sessionTokens.test.js` n'y avait pas été ajouté — ces 15 tests étaient
+> verts (exécutés fichier par fichier) mais ne tournaient pas dans la suite de
+> référence. Liste complétée au lot 4 : **528 tests**. Voir « Découverte de
+> processus » plus bas.
+
 **Tests.** Quatre nouveaux fichiers : `src/lot3Client.test.js` (17 — safeStorage
 et ses deux pièges, horodatage du pull Desk, handler 401, plafond de
 reconnexion), `src/lot3Server.test.js` (25 — écritures concurrentes du driver
@@ -926,6 +932,128 @@ configuration OAuth figée à l'import (B18) → 1 ; socket authentifié d'offic
 (R14) → 5 ; écriture pendant la lecture rétablie (B2) → 1 ; plafond de
 reconnexion retiré (B14) → 2 ; token remis dans l'URL du socket (R14) → 1 ;
 `try/catch` retiré de `getItem` (F7) → 1. Aucun test du lot n'est vacant.
+
+### ✅ Fait — lot 4, multi-appareil & données (15/09/2026)
+
+Les cinq items du lot 4 (§7) sont corrigés : F14, F15, F16, R20, U11.
+
+**4.1 (F14) — noms de photos uploadées.** `savePhotoDataUrls` construisait le nom
+`${id}-${Date.now().toString(36)}-${i}.${ext}` : deux envois du même produit
+tombés dans la même milliseconde (double clic sur « enregistrer », deux onglets
+master, retry) produisaient le **même** nom. Sur le repli filesystem,
+`writeFileSync` écrasait la première photo sans erreur (deux URL de la fiche
+pointaient vers un seul fichier) ; sur Vercel Blob, `put` avec
+`allowOverwrite: false` **échouait**, donc tout l'enregistrement tombait et la
+compensation supprimait les photos déjà envoyées. Un suffixe aléatoire de 6 hex
+est ajouté (`…-<ts36>-<6hex>-<i>.ext`) : le nom reste dans la borne de 200
+caractères de `safeUploadName` et le motif `store-*`/`sku-*` inchangé. La branche
+Blob fixe désormais **explicitement** `addRandomSuffix: false` : tout le contrat
+de LOT 1.11 (la base stocke `/api/upload-file?name=<clé>`, puis
+`resolveBlobUrl`/`deleteBlob` reconstruisent cette clé) suppose que la clé Blob
+est exactement le nom envoyé — si l'option basculait, chaque photo pointerait
+vers une clé inexistante.
+
+**4.2 (F15) — plus d'upload éphémère sous Vercel.** Sans
+`BLOB_READ_WRITE_TOKEN`, le repli filesystem écrit dans `/tmp/pcstar-uploads` :
+la photo « montait » (201, URL en base, aperçu immédiat tant que l'instance
+vivait), puis `/api/upload-file` renvoyait 404 au cold start suivant — des URL
+mortes en base, sans aucun signal au moment de l'upload. **Arbitrage : refuser
+plutôt que fabriquer des photos fantômes.** `uploadBlob` lève
+`UPLOAD_STORAGE_UNAVAILABLE` sous serverless sans Blob ; les trois routes photo
+passent par un nouveau `savePhotoDataUrlsSafe` qui traduit ce code en
+`error: 'upload_storage'` (au lieu de laisser l'exception partir dans le
+gestionnaire global et répondre « server »), et `errToast` côté master affiche un
+message qui nomme la variable à poser (`masterPhotoNoStorage`, 3 langues). Le
+repli filesystem local est inchangé.
+
+**4.3 (F16) — suppression d'un client.** `purgeUser` déliait les commandes
+(`userId = null`) sans les annuler : le stock décrémenté par `placeOrder` restait
+réservé pour un compte qui n'existe plus, sans trace nulle part (la fiche client
+venait de disparaître). Les commandes **en cours** (`new`, `pending`,
+`preparing`, `ready`) sont maintenant annulées via `cancelOrder` — qui rend le
+stock et garde la trace (`status: 'cancelled'`, `cancelledAt`, nom/télé
+snapshotés) ; `picked` (retirée, stock consommé) et `cancelled` (déjà rendue) ne
+bougent pas, donc aucun double rendu. La fonction renvoie le détail
+(`cancelled`, `releasedLines`, `left`), la route `DELETE /api/customers/:id` le
+transmet, et le master voit un toast qui le dit
+(`masterCustomerGoneOrders`, 3 langues) au lieu d'un « Client supprimé » muet.
+
+**4.4 (R20) — commande guest au numéro d'un tiers.** `POST /api/orders`
+recherchait un compte au numéro saisi… non : il ne cherchait rien, et
+`GET /api/me/orders` rattachait par téléphone toute commande guest au titulaire
+du numéro. Un inconnu pouvait donc déposer une commande dans l'historique
+d'autrui — et le titulaire l'annuler. La commande est maintenant marquée
+`claimable: false` **à la création** quand le numéro appartient à un compte
+existant et que l'acheteur n'est pas ce compte (guest, ou un autre compte
+connecté qui livre à ce numéro) ; `isClaimableGuest` (nouveau prédicat partagé
+par la lecture et l'annulation) écarte ces lignes. La commande n'est **pas
+refusée** : commander au numéro d'un proche reste légitime, elle est simplement
+non revendicable — et le comptoir la voit toujours.
+*Migration rétroactive volontairement écartée* : marquer les lignes déjà en base
+masquerait aussi les commandes passées par un client **avant** son inscription
+(le cas légitime que la règle à la création préserve), et rien ne permet de les
+distinguer — les comptes ne portent pas de date de création. On ne réécrit donc
+pas l'historique ; les lignes antérieures au correctif gardent le comportement
+d'alors.
+
+**4.5 (U11) — commandes legacy `pending`.** Plus rien ne crée ce statut, mais
+`GET /api/orders` le remappait en `new` à l'affichage pendant que `PATCH`
+(transitions) et `DELETE` lisaient le statut **brut** : le comptoir voyait
+« nouvelle » pour une commande dont les transitions étaient évaluées depuis
+`pending`. **Arbitrage : migration plutôt qu'affichage distinct.** `normalizeDb`
+passe les lignes `pending` en `new` (une fois, persisté à la prochaine écriture —
+LOT 3.2/B2 interdit l'écriture à la lecture), et la route sert désormais le
+statut réel. Le front garde ses remappings défensifs (`DeskPage`, `OrdersPage`,
+`statusLabelKey`) : ils sont inertes tant que la migration tient, et évitent
+qu'un statut inattendu ne tombe hors des colonnes du Desk.
+
+**Module partagé.** `server/phone.js` (nouveau) porte `normalizePhone` /
+`isDzPhone` côté serveur : `index.js` abandonne ses copies locales (P22 bug A) et
+R20 s'appuie sur la même règle que les routes. Le front garde la sienne dans
+`src/shopStore.js` — un module serveur n'a pas à tirer le stockage client.
+
+**Découverte de processus — trois fichiers de tests n'étaient pas dans la
+suite.** `npm test` liste les fichiers **explicitement** (pas de glob) :
+`src/sessionTokens.test.js` (15 tests, durcissement des jetons), puis
+`src/lot4Server.test.js` (18) et `src/lot4UI.test.js` (9) n'étaient donc jamais
+exécutés par `npm test` — d'où le total « 486 » annoncé au commit précédent, qui
+ne les comptait pas. La liste est complétée ; **la suite passe de 486 à 528
+tests**. Les tests eux-mêmes étaient verts (exécutés fichier par fichier), mais
+une couverture qui ne tourne pas dans la suite de référence ne protège rien :
+tout nouveau fichier de test doit être ajouté au script.
+
+**Tests.** `src/lot4Server.test.js` (18 : noms uniques à milliseconde gelée,
+formes et bornes des noms, `addRandomSuffix: false`, refus serverless vérifié
+dans un **processus fils** avec `VERCEL=1` — rien d'écrit —, repli local
+préservé, traduction du refus par les routes, `purgeUser` sur les cinq statuts +
+rendu de stock exact + idempotence, bout en bout suppression d'un compte,
+les cinq cas R20 — tiers, numéro libre, titulaire, autre compte, numéro du
+maître —, migration `pending`, fidélité du statut servi, absence de remapping)
+et `src/lot4UI.test.js` (9 : `errToast` — stockage, offline, repli ;
+`customerDeletedMessage` — sans commande, avec codes, bornage à 4 ; MasterPage
+**réel** dans jsdom : clic sur « Supprimer » → toast de résumé avec le code de
+la commande, fiche retirée ; échec → message d'échec, pas de résumé inventé).
+
+Sensibilité vérifiée — chaque correctif retiré **un par un**, puis restauré
+(13 mutations, toutes rouges) : suffixe aléatoire retiré (F14) → 2 tests ;
+`addRandomSuffix: true` (F14) → 1 ; refus serverless neutralisé (F15) → 1 ;
+`upload_storage` requalifié en `server` (F15) → 1 ; message client neutralisé
+(F15) → 1 ; annulation des commandes neutralisée (F16) → 2 ; résumé retiré de la
+réponse (F16) → 1 ; toast de résumé remplacé par le message muet (F16) → 1 ;
+marquage `claimable` retiré (R20) → 2 ; prédicat de lecture neutralisé (R20) →
+2 ; détection à la création neutralisée (R20) → 2 ; migration `pending`
+neutralisée (U11) → 2 ; remapping d'affichage réintroduit (U11) → 1. Aucun test
+du lot n'est vacant.
+
+Aperçu vivant re-vérifié (API + front réels) : deux créations de produit avec
+photo lancées ensemble → 2 fichiers distincts, aucun échec ; double envoi sur le
+même produit → 200/200 ; suppression d'un client avec une commande `new` →
+`cancelled: [{code…}]`, stock rendu (9 → 11), commande conservée en historique
+(`userId: null`) ; commande guest au numéro d'un compte → `claimable: false`,
+absente de son historique, annulation refusée (404), visible au comptoir ;
+numéro libre → commande retrouvée après inscription ; ligne legacy `pending` →
+servie `new`, persistée à l'écriture suivante, transition possible ; sessions
+toujours indexées par empreinte sha256.
 
 ### ⚠️ Reste à faire par l'exploitant (lot 0 — reporté à la fin, à la demande)
 

@@ -44,6 +44,7 @@ import {
   deleteOrder
 } from './catalog.js'
 import { rateLimit, clientKey } from './rateLimit.js'
+import { normalizePhone, isDzPhone } from './phone.js'
 // P10 (P7-18) : liste connue des wilayas servies par le shop (source partagée
 // src/data.js, déjà importée côté master via PRODUCTS).
 import { PRODUCTS, SLOTS, WILAYAS_NEAR } from '../src/data.js'
@@ -182,23 +183,49 @@ async function userFromReq(req) {
   return user ? { token, user } : null
 }
 
-// P22 (bug A) : les deux fonctions dupliquaient la même logique et partageaient
-// donc le même trou — le préfixe de sortie international `00` n'était pas
-// retiré. `POST /api/orders` renvoyait 400 `{"error":"phone"}` pour
-// `00 213 550 123 456` alors que `+213 550 123 456` passait en 201.
-// `isDzPhone` délègue maintenant à `normalizePhone` : une seule règle.
-function normalizePhone(value) {
-  let d = String(value || '').replace(/\D/g, '')
-  if (d.startsWith('00')) d = d.slice(2)
-  if (d.startsWith('213')) d = `0${d.slice(3)}`
-  if (d.length === 9 && /^[567]/.test(d)) d = `0${d}`
-  return d
+// P22 (bug A) / LOT 4.4 (R20) : `normalizePhone` et `isDzPhone` vivent dans
+// `server/phone.js` — une seule règle côté serveur, partagée avec `db.js`
+// (migration R20) au lieu d'une troisième copie.
+
+/**
+ * LOT 4.2 (F15) — enregistre les photos d'un produit, sans jamais laisser une
+ * exception d'upload remonter en 500 générique.
+ *
+ * Les trois routes photo appelaient `savePhotoDataUrls` HORS de tout `try` :
+ * un échec de stockage (Blob injoignable, ou — depuis ce lot — repli
+ * filesystem refusé sous Vercel parce que `/tmp` est éphémère) partait dans le
+ * gestionnaire global et le master voyait « server » sans savoir quoi faire.
+ * On traduit l'absence de stockage durable en code d'erreur explicite
+ * (`upload_storage`), que le front sait nommer, et on journalise la cause.
+ *
+ * @returns {{ paths: string[] } | { paths: [], error: string, status: number }}
+ */
+async function savePhotoDataUrlsSafe(productId, dataUrls) {
+  try {
+    return { paths: await savePhotoDataUrls(productId, dataUrls) }
+  } catch (err) {
+    if (err && err.code === 'UPLOAD_STORAGE_UNAVAILABLE') {
+      console.error('[pcstar] upload photo refusé — aucun stockage durable :', err.message)
+      return { paths: [], error: 'upload_storage', status: 500 }
+    }
+    console.error('[pcstar] échec upload photo :', String((err && err.message) || err))
+    return { paths: [], error: 'server', status: 500 }
+  }
 }
 
-function isDzPhone(value) {
-  return /^0[567]\d{8}$/.test(normalizePhone(value))
+/**
+ * LOT 4.4 (R20) — une commande GUEST appartient-elle à ce compte ?
+ *
+ * Trois conditions : pas de propriétaire (`userId == null`), un numéro de
+ * compte non vide, et le même numéro. La quatrième est nouvelle : la commande
+ * doit être **revendicable**. `claimable: false` est posé par `placeOrder`
+ * quand le numéro appartient à un compte existant et que l'acheteur n'est pas
+ * ce compte (et par la migration `normalizeDb` pour les lignes déjà en base) :
+ * un tiers ne peut plus déposer une commande dans l'historique d'autrui.
+ */
+function isClaimableGuest(order, phone) {
+  return Boolean(order && order.userId == null && phone && order.phone === phone && order.claimable !== false)
 }
-
 function phoneCarrier(value) {
   const p = normalizePhone(value)
   if (!isDzPhone(p)) return null
@@ -447,9 +474,12 @@ export async function handler(req, res) {
       // P10 (P7-15) : le match par téléphone ne s'applique qu'aux commandes
       // GUEST (userId null) — avant, deux comptes au même numéro voyaient (et
       // annulaient) les commandes de l'autre.
-      const orders = (db.orders || []).filter(
-        (o) => o.userId === uid || (o.userId == null && phone && o.phone === phone)
-      )
+      // LOT 4.4 (R20) : et seulement si la commande est revendicable. Une
+      // commande guest déposée au numéro d'un compte existant par UN TIERS
+      // (`claimable: false`, posé à la création ou par la migration) ne doit pas
+      // apparaître dans SON historique — sinon un inconnu peut garnir le compte
+      // d'autrui, et le titulaire annule une commande qu'il n'a jamais passée.
+      const orders = (db.orders || []).filter((o) => o.userId === uid || isClaimableGuest(o, phone))
       return send(res, 200, { ok: true, orders })
     }
 
@@ -461,10 +491,11 @@ export async function handler(req, res) {
       const db0 = await readDbAsync()
       const uid = auth.user.id
       const phone = auth.user.phone || ''
-      // P10 (P7-15) : même règle que GET — guest (userId null) ou propriétaire
-      const mine = (db0.orders || []).find(
-        (o) => o.code === code && (o.userId === uid || (o.userId == null && phone && o.phone === phone))
-      )
+      // P10 (P7-15) : même règle que GET — guest (userId null) ou propriétaire.
+      // LOT 4.4 (R20) : `isClaimableGuest` écarte les commandes non
+      // revendicables — un tiers ne peut pas les annuler via le compte du
+      // titulaire du numéro.
+      const mine = (db0.orders || []).find((o) => o.code === code && (o.userId === uid || isClaimableGuest(o, phone)))
       if (!mine) return send(res, 404, { ok: false, error: 'not_found' })
       if (mine.status !== 'new' && mine.status !== 'pending') {
         return send(res, 409, { ok: false, error: 'status' })
@@ -762,10 +793,14 @@ export async function handler(req, res) {
       const auth = await userFromReq(req)
       if (!auth || auth.user.role !== 'master') return send(res, 403, { ok: false, error: 'forbidden' })
       const db = await readDbAsync()
-      const orders = (db.orders || []).map((o) => ({
-        ...o,
-        status: o.status === 'pending' ? 'new' : o.status || 'new'
-      }))
+      // LOT 4.5 (U11) : plus de remapping `pending → new` à l'affichage.
+      // `readDb` migre les lignes legacy (normalizeDb), donc le statut servi est
+      // le statut RÉEL — le même que celui sur lequel travaillent `PATCH`
+      // (transitions) et `DELETE`. Avant, le comptoir voyait `new` pendant que
+      // la base disait `pending` : une commande pouvait être refusée en
+      // transition sans raison visible, et le filtre « nouvelles » du Desk
+      // mentait sur son contenu.
+      const orders = (db.orders || []).map((o) => ({ ...o, status: o.status || 'new' }))
       return send(res, 200, { ok: true, orders })
     }
 
@@ -809,14 +844,29 @@ export async function handler(req, res) {
       const rawSlot = body.slot == null ? '' : String(body.slot).trim()
       if (rawSlot && !SLOTS.includes(rawSlot)) return send(res, 400, { ok: false, error: 'slot' })
       const auth = await userFromReq(req)
+      const orderPhone = normalizePhone(body.phone)
       let result = null
       await updateDbAsync((db) => {
+        // LOT 4.4 (R20) : le numéro saisi appartient-il à un compte existant ?
+        // Si oui et que l'acheteur n'est PAS ce compte (commande guest, ou un
+        // autre utilisateur connecté qui livre chez ce numéro), la commande est
+        // marquée non revendicable : elle reste visible au comptoir, mais elle
+        // n'entre pas dans l'historique du titulaire du numéro et il ne peut pas
+        // l'annuler. La commande n'est PAS refusée — commander au numéro d'un
+        // proche reste un usage légitime.
+        // Le test se fait DANS la transaction : il porte sur l'état qui sera
+        // persisté, pas sur une lecture antérieure.
+        const owner = (db.users || []).find(
+          (u) => u && u.role !== 'master' && normalizePhone(u.phone || '') === orderPhone
+        )
+        const requesterId = auth?.user?.id || null
+        const unclaimable = Boolean(owner) && owner.id !== requesterId
         result = placeOrder(
           db,
           {
             name: orderName,
-            phone: normalizePhone(body.phone),
-            carrier: phoneCarrier(body.phone),
+            phone: orderPhone,
+            carrier: phoneCarrier(orderPhone),
             wilaya: orderWilaya,
             // P9 (P7-4) : « journée » locale du client (validée dans placeOrder)
             day: body.day || '',
@@ -825,7 +875,7 @@ export async function handler(req, res) {
             items: body.items,
             total: body.total
           },
-          { userId: auth?.user?.id || null }
+          { userId: requesterId, unclaimable }
         )
         return db
       })
@@ -920,7 +970,9 @@ export async function handler(req, res) {
       // vrai id du produit. Plus de double-écriture `tmp-*` ni d'orphelins.
       const hasDataUrls = Array.isArray(body.photoDataUrls) && body.photoDataUrls.length > 0
       const newProductId = hasDataUrls ? newId('sku') : null
-      const saved = hasDataUrls ? await savePhotoDataUrls(newProductId, body.photoDataUrls) : []
+      const photoSave = hasDataUrls ? await savePhotoDataUrlsSafe(newProductId, body.photoDataUrls) : { paths: [] }
+      if (photoSave.error) return send(res, photoSave.status, { ok: false, error: photoSave.error })
+      const saved = photoSave.paths
       try {
         await updateDbAsync((db) => {
           if (saved.length) body.photos = [...(body.photos || []), ...saved].slice(0, 6)
@@ -946,9 +998,12 @@ export async function handler(req, res) {
       if (!auth || auth.user.role !== 'master') return send(res, 403, { ok: false, error: 'forbidden' })
       const id = decodeURIComponent(pathname.split('/').pop())
       const body = await readBody(req)
-      const newPaths = Array.isArray(body.photoDataUrls) && body.photoDataUrls.length
-        ? await savePhotoDataUrls(id, body.photoDataUrls)
-        : []
+      const putSave =
+        Array.isArray(body.photoDataUrls) && body.photoDataUrls.length
+          ? await savePhotoDataUrlsSafe(id, body.photoDataUrls)
+          : { paths: [] }
+      if (putSave.error) return send(res, putSave.status, { ok: false, error: putSave.error })
+      const newPaths = putSave.paths
       let result = null
       try {
         await updateDbAsync((db) => {
@@ -986,7 +1041,9 @@ export async function handler(req, res) {
       const parts = pathname.split('/')
       const id = decodeURIComponent(parts[parts.length - 2])
       const body = await readBody(req)
-      const paths = await savePhotoDataUrls(id, body.photoDataUrls || body.photos || [])
+      const photoOnly = await savePhotoDataUrlsSafe(id, body.photoDataUrls || body.photos || [])
+      if (photoOnly.error) return send(res, photoOnly.status, { ok: false, error: photoOnly.error })
+      const paths = photoOnly.paths
       if (!paths.length && !Array.isArray(body.photos)) return send(res, 400, { ok: false, error: 'photos' })
       let result = null
       try {
@@ -1145,12 +1202,22 @@ export async function handler(req, res) {
       const auth = await userFromReq(req)
       if (!auth || auth.user.role !== 'master') return send(res, 403, { ok: false, error: 'forbidden' })
       const id = pathname.split('/').pop()
-      let ok = false
+      // LOT 4.3 (F16) : `purgeUser` annule désormais les commandes en cours du
+      // compte (le stock réservé est rendu) et renvoie le détail. La réponse le
+      // transmet : le master voit ce que la suppression a entraîné au lieu d'un
+      // `{ok:true}` muet laissant des pièces réservées pour personne.
+      let purged = { ok: false }
       await updateDbAsync((db) => {
-        ok = purgeUser(db, id).ok
+        purged = purgeUser(db, id)
         return db
       })
-      return send(res, ok ? 200 : 400, { ok })
+      if (!purged.ok) return send(res, 400, { ok: false })
+      return send(res, 200, {
+        ok: true,
+        cancelled: purged.cancelled || [],
+        releasedLines: purged.releasedLines || 0,
+        left: purged.left || []
+      })
     }
 
     if (req.method === 'GET' && pathname === '/api/config') {

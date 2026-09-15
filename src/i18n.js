@@ -157,6 +157,10 @@ export const dict = {
     masterSku: 'رقم المنتج / SKU',
     masterSkuPh: 'اختياري — مثال: HDMI-15M',
     masterCustomerGone: 'حُذف الزبون',
+    // LOT 4.3 (F16) : la suppression d'un compte annonce ce qu'elle a entraîné.
+    masterCustomerGoneOrders: 'حُذف الزبون — أُلغيت {n} طلبات وأُعيد المخزون: {codes}',
+    // LOT 4.2 (F15) : refus de stockage durable (Vercel sans Blob).
+    masterPhotoNoStorage: 'لم تُحفظ الصورة: لا يوجد تخزين دائم على الخادم (BLOB_READ_WRITE_TOKEN ناقص في Vercel)',
     masterCreateFail: 'تعذّر إضافة المنتج',
     masterSkuTaken: 'رقم المنتج (SKU) موجود مسبقًا. اختر رقمًا آخر.',
     masterActionFail: 'فشلت العملية، أعد المحاولة',
@@ -686,6 +690,13 @@ export const dict = {
     masterSku: 'Numéro produit / SKU',
     masterSkuPh: 'optionnel — ex. : HDMI-15M',
     masterCustomerGone: 'Client supprimé',
+    // LOT 4.3 (F16) : la suppression d'un compte annonce ce qu'elle a entraîné
+    // (commandes en cours annulées, stock réservé rendu) au lieu d'un « supprimé »
+    // muet laissant des pièces réservées pour personne.
+    masterCustomerGoneOrders: 'Client supprimé — {n} commande(s) annulée(s), stock rendu : {codes}',
+    // LOT 4.2 (F15) : refus de stockage durable (Vercel sans BLOB_READ_WRITE_TOKEN).
+    masterPhotoNoStorage:
+      'Photo non enregistrée : aucun stockage durable côté serveur (BLOB_READ_WRITE_TOKEN manquant sous Vercel)',
     masterSkuTaken: 'Ce numéro de produit (SKU) existe déjà. Choisissez-en un autre.',
     masterCreateFail: 'Échec de la création du produit',
     masterActionFail: 'Action échouée, réessayez',
@@ -1215,6 +1226,10 @@ export const dict = {
     masterSkuPh: 'optional — e.g. HDMI-15M',
     masterSkuTaken: 'This product number (SKU) already exists. Pick another one.',
     masterCustomerGone: 'Customer deleted',
+    // LOT 4.3 (F16) : deleting an account reports what it entailed.
+    masterCustomerGoneOrders: 'Customer deleted — {n} order(s) cancelled, stock returned: {codes}',
+    // LOT 4.2 (F15) : no durable storage (Vercel without BLOB_READ_WRITE_TOKEN).
+    masterPhotoNoStorage: 'Photo not saved: no durable storage on the server (BLOB_READ_WRITE_TOKEN missing on Vercel)',
     masterCreateFail: 'Failed to create product',
     masterActionFail: 'Action failed, try again',
     panelsLocalOnly: 'Panels are saved locally only (not available with the server)',

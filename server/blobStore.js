@@ -86,7 +86,14 @@ export async function uploadBlob(name, buffer, contentType = 'image/jpeg') {
   if (blob) {
     await blob.put(`${BLOB_PREFIX}${safe}`, buffer, {
       contentType,
-      access: 'public'
+      access: 'public',
+      // LOT 4.1 (F14) : explicite plutôt qu'implicite. Tout le contrat de
+      // LOT 1.11 repose sur le fait que la clé Blob est EXACTEMENT `safe` —
+      // c'est ce nom qui est stocké en base (`/api/upload-file?name=…`), puis
+      // résolu par `resolveBlobUrl` et supprimé par `deleteBlob`. Si
+      // `addRandomSuffix` devenait vrai (défaut documentaire actuel : false),
+      // chaque photo uploadée pointerait vers une clé inexistante.
+      addRandomSuffix: false
     })
     // LOT 1.11 : on retourne le chemin RELATIF (même forme que la branche
     // filesystem serverless), pas `put.url` (CDN). La route /api/upload-file
@@ -95,12 +102,23 @@ export async function uploadBlob(name, buffer, contentType = 'image/jpeg') {
     // stocke plus d'URL vercel-storage.com.
     return { url: `${UPLOAD_PUBLIC_PREFIX}?name=${encodeURIComponent(safe)}`, storage: 'blob' }
   }
-  // Filesystem fallback (local dev / serverless sans Blob)
-  if (IS_SERVERLESS) {
-    fs.mkdirSync(UPLOAD_DIR, { recursive: true })
-  } else {
-    ensureUploadDir()
+  // LOT 4.2 (F15) : sous Vercel, le repli filesystem écrit dans
+  // `/tmp/pcstar-uploads` — éphémère par construction. La photo « montait »
+  // (201, URL en base, aperçu immédiat tant que l'instance vivait), puis
+  // `/api/upload-file` renvoyait 404 au cold start suivant : une URL morte en
+  // base, sans aucun signal au moment de l'upload. Mieux vaut refuser tout de
+  // suite et le dire, que de fabriquer des photos fantômes.
+  if (IS_SERVERLESS && !blob) {
+    const err = new Error(
+      '[pcstar] upload photo impossible : aucun stockage durable en serverless. ' +
+        'Renseigner BLOB_READ_WRITE_TOKEN (Vercel Blob) — sans lui les fichiers partent ' +
+        'dans /tmp et meurent au cold start.'
+    )
+    err.code = 'UPLOAD_STORAGE_UNAVAILABLE'
+    throw err
   }
+  // Filesystem fallback (local dev uniquement)
+  ensureUploadDir()
   const file = path.join(UPLOAD_DIR, safe)
   // Double garde : le chemin résolu doit rester DANS UPLOAD_DIR.
   const rel = path.relative(UPLOAD_DIR, file)

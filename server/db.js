@@ -350,6 +350,30 @@ export function normalizeDb(db) {
     db.oauthPending = {}
     changed = true
   }
+  // LOT 4.5 (U11) : plus rien ne CRÉE le statut `pending` (héritage d'une
+  // version antérieure), mais `GET /api/orders` le remappait en `new` à
+  // l'affichage pendant que `PATCH`/`DELETE` travaillaient sur le statut BRUT :
+  // une commande legacy apparaissait comme `new` au comptoir, puis ses
+  // transitions étaient évaluées depuis `pending`. Le mensonge d'affichage est
+  // supprimé (voir la route) et les lignes legacy sont migrées ici, une fois
+  // pour toutes — après quoi `pending` n'existe plus nulle part en base.
+  //
+  // LOT 4.4 (R20), migration volontairement ABSENTE : marquer rétroactivement
+  // `claimable: false` toute commande guest au numéro d'un compte existant
+  // masquerait aussi les commandes passées par ce client AVANT son
+  // inscription — le cas légitime que la règle à la création préserve. Rien ne
+  // permet de les distinguer (les comptes ne portent pas de date de création,
+  // et les lignes legacy non plus) : on ne réécrit donc pas l'historique. La
+  // règle s'applique à la création (`placeOrder`, route `POST /api/orders`) ;
+  // les lignes antérieures au correctif gardent le comportement d'alors.
+  if (Array.isArray(db.orders) && db.orders.length) {
+    for (const o of db.orders) {
+      if (o && o.status === 'pending') {
+        o.status = 'new'
+        changed = true
+      }
+    }
+  }
   // P13 (S3) : clés internes de transit — elles n'ont rien à faire dans la base
   // persistante. `_lastAuth` contenait un TOKEN DE SESSION valide, recopié tel
   // quel dans chaque backup de store.json. `_err` empoisonnait les inscriptions

@@ -291,7 +291,17 @@ export async function savePhotoDataUrls(productId, dataUrls = []) {
     const ext = mime === 'png' ? 'png' : mime === 'webp' ? 'webp' : 'jpg'
     const buf = Buffer.from(m[3], 'base64')
     if (buf.length > MAX_BYTES || buf.length < 32) continue
-    const name = `${safeId}-${Date.now().toString(36)}-${i}.${ext}`
+    // LOT 4.1 (F14) : l'horodatage seul ne suffit pas. Deux envois du même
+    // produit tombés dans la même milliseconde (double clic sur « enregistrer »,
+    // deux onglets master, retry réseau) produisaient le MÊME nom :
+    //  · repli filesystem → `writeFileSync` écrasait la première photo sans
+    //    erreur, et les deux URL de la fiche pointaient vers un seul fichier ;
+    //  · Vercel Blob → `put` avec `allowOverwrite: false` (défaut) **échouait**,
+    //    donc tout l'enregistrement tombait (et la compensation supprimait les
+    //    photos déjà envoyées).
+    // Un suffixe aléatoire rend le nom unique ; il reste DANS la limite de 200
+    // caractères de `safeUploadName` (id ≤ 64 + base36 + 6 hex + index + ext).
+    const name = `${safeId}-${Date.now().toString(36)}-${crypto.randomBytes(3).toString('hex')}-${i}.${ext}`
     const { url } = await uploadBlob(name, buf, `image/${ext}`)
     out.push(url)
   }

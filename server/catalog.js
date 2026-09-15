@@ -69,7 +69,7 @@ export function priceOf(db, productId) {
  * Try to reserve items atomically. Returns { ok, order?, error?, shortages? }.
  * Decrements stock only when every line is available.
  */
-export function placeOrder(db, body, { userId = null } = {}) {
+export function placeOrder(db, body, { userId = null, unclaimable = false } = {}) {
   ensureStock(db)
   if (!db.orders) db.orders = []
 
@@ -129,6 +129,17 @@ export function placeOrder(db, body, { userId = null } = {}) {
     at: new Date().toISOString(),
     status: 'new'
   }
+  // LOT 4.4 (R20) : commande passée SANS compte au numéro d'un compte existant.
+  // Elle reste visible au comptoir (c'est une vraie commande) mais n'est pas
+  // « revendicable » : `GET /api/me/orders` et l'annulation client ignorent le
+  // match par téléphone pour elle. Sans ce marquage, n'importe qui pouvait
+  // déposer une commande au numéro d'un tiers — elle apparaissait dans SON
+  // historique, et il pouvait l'annuler.
+  // Absent (= non marqué) veut dire revendicable : les commandes existantes et
+  // celles dont le numéro n'appartient à personne gardent le comportement
+  // habituel (un client qui commande en guest puis crée un compte au même
+  // numéro retrouve bien sa commande).
+  if (unclaimable) order.claimable = false
   // P16 (#20) : `.slice(0, 500)` jetait en silence la commande la plus
   // ancienne — de l'historique de comptoir définitivement perdu, sans log ni
   // retour. On ne retire désormais QUE des commandes terminées
@@ -254,11 +265,26 @@ export function setOrderStatus(db, code, status) {
   return { ok: true, order }
 }
 
+/** Statuts qui réservent encore du stock (donc à rendre si le compte saute). */
+const ACTIVE_ORDER_STATUSES = ['new', 'pending', 'preparing', 'ready']
+
 /**
  * Suppression d'un client : retire l'utilisateur, purge ses sessions
  * (tokens invalidés) et délie ses commandes (nom/télé sont déjà snapshotés
  * dans la commande, userId passe à null — l'historique reste lisible).
  * Renvoie { ok: false } si introuvable ou master.
+ *
+ * LOT 4.3 (F16) : ses commandes EN COURS sont annulées dans le même mouvement.
+ * Avant, `placeOrder` avait décrémenté le stock et la suppression du compte
+ * laissait la commande debout, sans propriétaire : des pièces réservées pour
+ * personne, invisibles depuis la fiche client (qui n'existe plus) et jamais
+ * rendues. `cancelOrder` rend le stock et garde la trace (statut `cancelled`,
+ * `cancelledAt`, nom/télé snapshotés) — le comptoir voit toujours ce qui s'est
+ * passé. Les commandes `picked` (retirées, stock consommé) et déjà `cancelled`
+ * ne bougent pas.
+ *
+ * Le résumé (`cancelled`, `releasedLines`, `left`) est renvoyé à la route, qui
+ * le transmet au master : la suppression d'un compte n'est plus silencieuse.
  */
 export function purgeUser(db, id) {
   const target = db.users.find((u) => u.id === id)
@@ -269,10 +295,28 @@ export function purgeUser(db, id) {
   for (const [key, s] of Object.entries(db.sessions || {})) {
     if (s && s.userId === id) delete db.sessions[key]
   }
+  const cancelled = []
+  let releasedLines = 0
+  const left = []
   for (const o of db.orders || []) {
-    if (o.userId === id) o.userId = null
+    if (!o || o.userId !== id) continue
+    const status = o.status || 'new'
+    if (ACTIVE_ORDER_STATUSES.includes(status)) {
+      const r = cancelOrder(db, o.code)
+      if (r.ok) {
+        releasedLines += (o.items || []).length
+        cancelled.push({ code: o.code, status, items: (o.items || []).length })
+      } else {
+        // `cancelOrder` ne refuse que `picked` (déjà retirée) : on ne touche
+        // alors ni au statut ni au stock, et on le dit au master.
+        left.push({ code: o.code, status, reason: r.error || 'cancel_failed' })
+      }
+    } else {
+      left.push({ code: o.code, status })
+    }
+    o.userId = null
   }
-  return { ok: true }
+  return { ok: true, cancelled, releasedLines, left }
 }
 
 /** Public catalog with live stock + meta hide/extra. */
