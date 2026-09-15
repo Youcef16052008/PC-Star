@@ -100,7 +100,13 @@ export function sanitizeProductPatch(patch = {}) {
   }
   if (patch.price != null) {
     const price = Number(patch.price)
-    if (!Number.isFinite(price) || price < 0) return { ok: false, error: 'price' }
+    // LOT 1.12 : `price < 0` laissait passer **0**. Or `priceOf`
+    // (server/catalog.js) renvoie `Math.max(0, …)` : un produit du catalogue
+    // mis à 0 DA par override produisait des commandes à 0 DA, acceptées et
+    // recalculées à 0 par le serveur — sans aucun avertissement. Asymétrie
+    // vérifiée : `createProduct` exige déjà `price > 0`. Reproduit à l'audit :
+    // `PUT /api/master/products/cpu-7600 {"price":0}` → 200, `price: 0`.
+    if (!Number.isFinite(price) || price <= 0) return { ok: false, error: 'price' }
     out.price = Math.round(price)
   }
   if (patch.brand != null) out.brand = String(patch.brand).trim().slice(0, 60)
@@ -259,8 +265,31 @@ export function ordersToCsv(orders, { day = null } = {}) {
   return rows.map((r) => r.map(csvEscape).join(',')).join('\n') + '\n'
 }
 
+/**
+ * LOT 1.8 — neutralisation de l'injection de formule.
+ *
+ * Reproduit à l'audit : une commande dont le `name` valait `=HYPERLINK(…)` ou
+ * `+cmd|/C calc` ressortait telle quelle dans `GET /api/orders/export.csv`.
+ * Le quoting existant ne protège pas : il entoure la cellule de guillemets mais
+ * **conserve le `=` initial**, qu'Excel interprète comme une formule. Le
+ * `+cmd|…`, lui, n'était même pas quoté (aucun délimiteur dedans).
+ *
+ * Tous les champs du CSV sont contrôlés par le client (voir la validation de
+ * `placeOrder`, lot 1.9) : un visiteur peut donc déposer une formule qui
+ * s'exécutera à l'ouverture du fichier par le maître.
+ *
+ * Neutralisation : une apostrophe devant toute cellule commençant par `= + - @`
+ * (plus tabulation et retour chariot, vecteurs équivalents). C'est la parade
+ * habituelle ; elle rend la cellule textuelle dans Excel/LibreOffice/Sheets.
+ * Effet de bord assumé : un nom commençant réellement par `-` (par exemple
+ * « -1 ») s'affichera avec une apostrophe visible dans certains tableurs —
+ * préférable à l'exécution de code.
+ */
+const CSV_FORMULA_PREFIX = /^[=+\-@\t\r]/
+
 function csvEscape(v) {
-  const s = String(v ?? '')
+  let s = String(v ?? '')
+  if (CSV_FORMULA_PREFIX.test(s)) s = `'${s}`
   // P16 : `\r` ajouté — un retour chariot seul sortait de la cellule et
   // décalait toutes les colonnes suivantes dans Excel.
   if (/["\,\n\r]/.test(s)) return `"${s.replace(/"/g, '""')}"`

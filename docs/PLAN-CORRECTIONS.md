@@ -157,10 +157,11 @@ la suite est aujourd'hui aveugle à ces chemins (voir §10).
 > | **Lot 1.1** (secrets hors du code) | ✅ **Fait** | `masterAccount()` lit l'environnement et **lève** s'il manque (aucune valeur par défaut) ; plus de `MASTER` côté client ; `/api/health` ne divulgue plus l'e-mail maître ; synchronisation du maître sur les **bases existantes**. |
 > | **Lot 1.2** (secrets hors de la doc) | ✅ **Fait** | README, 3 guides de démo, DEPLOY-VERCEL, spec superpowers, 4 scripts de recette. |
 > | **Lot 1.10** (R8, `/api/health`) | ✅ **Fait** | Retiré du même mouvement : l'import `MASTER` disparaissait de `server/index.js`, le champ ne pouvait pas rester. |
-> | **Lot 7.2/7.3** (tests de non-régression) | 🟡 **Partiel** | `src/masterSecrets.test.js` (8 tests) couvre les lots 1.1/1.2 + la migration de base existante. Le contrôle du **bundle** reste à ajouter (nécessite un build). |
-> | Lots 1.3→1.9, 1.11→1.15, 2, 3, 4, 5, 6 | ⬜ **À faire** | |
+> | **Lot 1.3→1.9, 1.11→1.15** (reste du lot 1) | ✅ **Fait** | Voir §9 « Reste du lot 1 ». 59 nouveaux tests, vérifiés **régressifs** (les corrections retirées, les tests échouent). |
+> | **Lot 7.2/7.3** (tests de non-régression) | 🟡 **Partiel** | `src/masterSecrets.test.js` (8 tests) couvre les lots 1.1/1.2 + la migration de base existante ; `src/serverFixes.test.js` (48) et `src/clientFixes.test.js` (11) couvrent le reste du lot 1. Le contrôle du **bundle** a été mené à la main (`npm run build` puis `grep` : aucun secret, aucune URL `vercel-storage`) mais reste à automatiser. |
+> | Lots 2, 3, 4, 5, 6 | ⬜ **À faire** | |
 >
-> **Suite de tests : 315 → 325** (10 nouveaux), tous verts.
+> **Suite de tests : 315 → 325 → 384**, tous verts (112 suites).
 
 Sept lots, ordonnés par risque décroissant. Les lots 1 et 2 sont les seuls
 **bloquants** ; les lots 3 à 7 peuvent être menés en parallèle ensuite.
@@ -362,6 +363,139 @@ quatre scripts de recette (`smoke-e2e.mjs`, `audit-crawl.mjs`,
 `verify-p19-live.mjs`, `jsdom-crawl.mjs`) qui passent par le nouveau
 `scripts/masterEnv.mjs`. `.env.example` documente les deux variables
 obligatoires.
+
+### ✅ Fait — reste du lot 1 (15/09/2026)
+
+Ordre suivi : 1.4/1.5 → 1.6 → 1.7/1.8/1.9 → 1.11/1.12/1.13/1.14/1.15/1.18 → 1.3.
+Le lot 0 (rotation des secrets réels) est **reporté à la fin** à la demande du
+commanditaire : c'est une action d'exploitant sur Vercel, pas du code.
+
+**1.4 — champ « mot de passe actuel » (F2).** Le serveur exigeait `current`
+depuis P16 (#13) ; `api.changePassword(password)` n'envoyait que `{ password }`
+et `ProfilePage` n'avait aucun champ correspondant → **403 systématique**, la
+fonctionnalité était morte pour tous les utilisateurs. Corrigé côté client
+uniquement (le serveur était juste) : `changePassword(password, current)`, champ
+`#pf-pw-current` avec `<label>` réel et `autoComplete="current-password"`, et les
+deux autres champs étiquetés au passage. Les trois clés i18n
+(`currentPassword`, `authErrorCurrentPassword`, `passwordRevokedSessions`) sont
+ajoutées en **fr / en / ar**. Un 403 `current_password` affiche désormais
+« mot de passe actuel incorrect » au lieu de « 6 caractères minimum ».
+
+**1.5 — purge des sessions (R6).** `POST /api/me/password` supprime toutes les
+sessions de l'utilisateur **sauf la courante** (`auth.token`, déjà renvoyé par
+`userFromReq`) et répond `{ ok, revoked }` ; le reset maître
+(`/api/master/customers/:id/reset-password`) les supprime **toutes** — un reset
+sert typiquement à reprendre un compte compromis. L'UI affiche le nombre de
+sessions révoquées (`role="status"`).
+
+**1.6 — rate-limit + hachage asynchrone (R4/R5).** Limites ajoutées :
+`/api/auth/register` 20/10 min, `GET /api/me` 120/min, `PUT /api/me` 30/min,
+`/api/me/password` 5/10 min, `/api/oauth/start` 10/min — toutes **avant**
+l'authentification, pour couper aussi un flot non authentifié qui coûterait une
+lecture de base par requête. `hashPassAsync` (`crypto.scrypt` + callback)
+remplace `scryptSync` sur les **quatre** routes qui hachent : inscription,
+changement de mot de passe, reset maître, et la migration de hash du login
+(P22 item 1) qui appelait `hashPass` **dans le mutateur** — verrou d'écriture
+tenu ~35 ms de plus à chaque connexion d'un compte seedé. Le seuil
+d'inscription est aligné sur celui du login (20) : 10 pénaliserait les foyers
+derrière une seule IP publique, cas courant en Algérie.
+
+**1.7 — échappement HTML du consentement démo (R2).** `demoConsentHtml`
+interpolait `state` — query param brut, donc entièrement contrôlé par le
+visiteur — dans un attribut. Fonction `esc()` appliquée à **toutes** les
+interpolations (`state`, `label`, `name`, `email`, bouton), pour ne plus avoir à
+décider lesquelles sont « sûres ». La CSP du serveur bloquait déjà l'exécution du
+handler ; elle ne bloquait pas l'injection de balisage (hameçonnage, ajout de
+champs, détournement du `form action`).
+
+**1.8 — injection de formule CSV (R3).** `csvEscape` préfixe désormais `'`
+devant toute cellule commençant par `= + - @`, tabulation ou retour chariot. Le
+quoting existant ne protégeait pas : il entoure la cellule mais **conserve le
+`=` initial**, qu'Excel interprète. Effet de bord assumé et documenté : un nom
+commençant réellement par `-` s'affichera avec une apostrophe dans certains
+tableurs.
+
+**1.9 — validation serveur des commandes (R9).** `POST /api/orders` valide
+`name` (non vide, ≤ 64), `wilaya` (whitelist `WILAYAS_NEAR`, repli `Oran` si
+absente) et `slot` (whitelist `SLOTS`, vide accepté) ; `POST /api/auth/register`
+valide `wilaya` comme le faisait déjà `PUT /api/me` (P10). Le plan ne demandait
+la borne de longueur que pour les commandes : elle est posée au même plafond
+(64) sur **l'inscription** et sur **`PUT /api/me`**, parce que c'est le même
+nom, affiché aux mêmes endroits (comptoir, export CSV, message WhatsApp) — un
+`maxlength` client n'est qu'indicatif, un `fetch` direct l'ignore. Le code
+d'erreur `name_too_long` est mappé en `authErrorName` dans `AuthPanel` et
+`ProfilePage` (fr / en / ar) : sans cela `t()` retombe sur la clé et
+l'utilisateur lit le code brut. **Non corrigé,
+volontairement :** `carrier`. Le rapport le listait comme libre, mais la route le
+**recalcule** déjà côté serveur (`phoneCarrier(body.phone)`) et ignore la valeur
+envoyée — le champ client n'atteint jamais la base.
+
+**1.11 — plus d'URL CDN en base (R7, option b).** `uploadBlob` renvoie le chemin
+relatif `/api/upload-file?name=…` **même quand le contenu part sur Vercel Blob**
+(la route fait déjà un 302 vers `resolveBlobUrl(name)`). Les deux branches
+renvoient la même forme d'URL, `img-src 'self'` suffit (un 302 ne fait pas
+partie des sources soumises à CSP), et `deleteBlob` résout le chemin relatif en
+objet Blob avant le repli filesystem — sinon la compensation d'erreur de
+`savePhotoDataUrls` (P18) aurait laissé des objets orphelins. Les URL CDN déjà
+stockées restent supprimables.
+
+**1.12 — `price ≤ 0` refusé au patch (R11).** `sanitizeProductPatch` exige
+`price > 0`, comme `createProduct` : l'asymétrie permettait de mettre une
+référence du catalogue à 0 DA, et `priceOf` recalculait les commandes à 0 sans
+avertissement.
+
+**1.13 / 1.18 — repli OAuth validé et journalisé (R13/R18).**
+`configuredFrontUrl()` (server/oauth.js) valide `FRONT_URL` → `FRONT_ORIGIN` →
+`OAUTH_REDIRECT_BASE` → `VERCEL_URL`, garde **origine + chemin**, et tombe sur
+`BASE`. Une valeur malformée est journalisée **une fois** par valeur
+(`warnOnce`), avec un message qui relie la cause au symptôme : sans schéma,
+`new URL()` levait dans `safeReturnUrl` et **tout** returnUrl légitime était
+rejeté en silence. Le `Location` porteur de token ne concatène plus
+`process.env.FRONT_URL` brut.
+
+**1.14 — comparaison à temps constant (R15).** La dernière branche de
+`verifyPass` (empreinte legacy sha256 non salée) comparait avec `===` ; elle
+utilise `timingSafeEqual` comme les deux autres, avec garde de longueur. Gain
+marginal (empreinte non salée) mais l'incohérence entre branches d'une même
+fonction de vérification n'a pas lieu d'être.
+
+**1.15 — limites et erreurs explicites sur OAuth (R16).** `/api/oauth/start` est
+limité (10/min) ; `intent: 'link'` **sans session** renvoie désormais
+`400 auth_required` au lieu d'être stocké avec `userId: null` puis de retomber
+silencieusement sur la branche login (`finishIdentity` exige `intent === 'link'
+&& userId`) — le paramètre du client était ignoré sans erreur.
+
+**1.3 — mode local assumé comme mode démo (R10).** `hashPass` de
+`src/shopStore.js` est un FNV-1a 32 bits : non réparable côté navigateur, et
+aucun secret ne doit de toute façon vivre dans le bundle. `AuthPanel` affiche en
+mode local un encart `role="alert"` qui nomme l'algorithme, dit que les comptes
+restent dans le navigateur, et interdit d'y saisir un vrai mot de passe ou une
+donnée sensible. Clés `demoModeTitle` / `demoModeNote` en fr / en / ar. Les trois
+comptes de démonstration (`karim31`, `amina31`, `yacine31`) sont **conservés** :
+`role: 'customer'`, non privilégiés, documentés comme tels — leur suppression
+relève d'une décision produit, pas de ce lot.
+
+**Tests** — `src/serverFixes.test.js` (48 tests) et `src/clientFixes.test.js`
+(11 tests), ajoutés au script `test` de `package.json`. Les limites de débit étant en mémoire **par processus**, les tests
+qui les épuisent tournent contre des serveurs enfants dédiés (base et compteurs
+propres) plutôt que contre le handler importé dans le processus du runner.
+Sensibilité vérifiée : `===` remis dans `verifyPass`, purge de sessions retirée,
+neutralisation CSV supprimée → 5 tests échouent.
+
+**Découvertes hors rapports** (ni corrigées ici, ni perdues — à traiter dans un
+lot ultérieur) :
+
+- La branche `s.startsWith('sha256$pcstar:')` de `verifyPass` est **morte** :
+  elle compare la valeur stockée à `sha256$pcstar:<mot de passe EN CLAIR>`,
+  alors qu'une empreinte legacy préfixée vaudrait `sha256$pcstar:<hex>`. Aucune
+  donnée réelle n'entre dans ce format (vérifié sur la base du commit d'origine
+  `fdbd778`). Les comptes seedés sont en fait traités par la **dernière**
+  branche (hex nu). Inoffensive, mais elle ne protège rien.
+- Les comptes seedés (maître + trois démos) sont donc vérifiés par cette
+  dernière branche, celle que 1.14 corrige. Leur connexion par mot de passe est
+  maintenant couverte par un test (`src/serverFixes.test.js`), avec contrôle de
+  la migration P22 vers scrypt au premier login — c'était le seul appelant
+  synchrone restant, il fallait un garde-fou.
 
 ### ⚠️ Reste à faire par l'exploitant (lot 0)
 

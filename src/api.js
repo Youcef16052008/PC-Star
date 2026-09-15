@@ -210,6 +210,18 @@ export async function cancelMyOrder(code) {
   return req(`/api/me/orders/${encodeURIComponent(code)}/cancel`, { method: 'POST' })
 }
 
-export async function changePassword(password) {
-  return req('/api/me/password', { method: 'POST', body: { password } })
+/**
+ * LOT 1.4 : `current` est OBLIGATOIRE.
+ *
+ * Le serveur exige le mot de passe actuel depuis P16 (#13) — sinon un token de
+ * session volé suffisait à verrouiller le compte. Mais cette fonction
+ * n'envoyait que `{ password }` : la route répondait 403 `current_password` à
+ * chaque appel, et le changement de mot de passe était mort pour 100 % des
+ * utilisateurs (aucun test ne couvrait le chemin client → serveur).
+ *
+ * `current` est transmis tel quel : c'est le serveur qui le compare au hash
+ * stocké (`verifyPass`), jamais le client.
+ */
+export async function changePassword(password, current) {
+  return req('/api/me/password', { method: 'POST', body: { password, current } })
 }

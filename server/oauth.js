@@ -72,6 +72,77 @@ export function safeReturnUrl(raw) {
   return ok ? value : null
 }
 
+/**
+ * LOT 1.13 / 1.18 — URL du front utilisée en REPLI, validée.
+ *
+ * Deux défauts distincts, corrigés ensemble :
+ *
+ * 1. `server/index.js` concaténait `process.env.FRONT_URL` brut dans un
+ *    `Location:` porteur d'un token de session. `safeReturnUrl` validait le
+ *    `returnUrl` fourni par le client, mais pas ce repli — une variable
+ *    d'environnement malformée produisait donc une redirection non validée.
+ *
+ * 2. `safeReturnUrl` comparait `FRONT_URL` / `FRONT_ORIGIN` via
+ *    `new URL(origin).origin`. Si l'administrateur pose `FRONT_URL=pcstar.dz`
+ *    (sans schéma), `new URL()` lève, le `catch` renvoie `false`, et **toute**
+ *    URL de retour légitime est rejetée — silencieusement, sans aucun log. Le
+ *    symptôme visible est un retour OAuth qui part sur `127.0.0.1:5173`.
+ *
+ * Ici : chaque candidate est validée, un avertissement est journalisé UNE fois
+ * par valeur invalide (pas à chaque requête), et le repli final est une origine
+ * explicite.
+ */
+const warnedOrigins = new Set()
+
+function warnOnce(key, message) {
+  if (warnedOrigins.has(key)) return
+  warnedOrigins.add(key)
+  console.warn(message)
+}
+
+/** @returns {string|null} l'URL absolue valide (origine + chemin), ou null. */
+function asAbsoluteUrl(raw, name) {
+  const value = String(raw || '').trim()
+  if (!value) return null
+  try {
+    const u = new URL(value)
+    if (u.protocol !== 'https:' && u.protocol !== 'http:') {
+      warnOnce(name + ':' + value, `[pcstar-oauth] ${name}=${value} : schéma non http(s) — valeur ignorée.`)
+      return null
+    }
+    // Origin + chemin (sans le slash final) : `FRONT_URL=https://x.dz/boutique`
+    // doit garder son préfixe de chemin dans le `Location` de repli, sinon le
+    // retour OAuth tombe à la racine du domaine. Le hash et les paramètres
+    // d'origine sont écartés — on y recollera `?oauth_token=…`.
+    return `${u.origin}${u.pathname}`.replace(/\/+$/, '')
+  } catch {
+    warnOnce(
+      name + ':' + value,
+      `[pcstar-oauth] ${name}=${value} n'est pas une URL absolue (schéma manquant ?).\n` +
+        `  · cette valeur est IGNORÉE, et elle casse aussi la validation des returnUrl légitimes\n` +
+        `  · attendu : https://mon-domaine.dz (ou http://127.0.0.1:5173 en local)`
+    )
+    return null
+  }
+}
+
+export function configuredFrontUrl() {
+  for (const [name, raw] of [
+    ['FRONT_URL', process.env.FRONT_URL],
+    ['FRONT_ORIGIN', process.env.FRONT_ORIGIN],
+    ['OAUTH_REDIRECT_BASE', process.env.OAUTH_REDIRECT_BASE]
+  ]) {
+    const ok = asAbsoluteUrl(raw, name)
+    if (ok) return ok
+  }
+  const fromVercel = asAbsoluteUrl(
+    process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : '',
+    'VERCEL_URL'
+  )
+  if (fromVercel) return fromVercel
+  return BASE
+}
+
 export async function startOAuth(provider, { userId = null, intent = 'login', returnUrl = null } = {}) {
   if (provider !== 'google' && provider !== 'meta') {
     return { ok: false, error: 'provider' }
@@ -260,12 +331,37 @@ export async function unlinkProvider(userId, provider) {
   return { ok: true, user: publicUser(user) }
 }
 
+/**
+ * LOT 1.7 — échappement HTML.
+ *
+ * `demoConsentHtml` interpolait `state` directement dans un attribut :
+ * `state` vient du query param brut (`server/index.js`, route
+ * `/api/oauth/(google|meta)/demo`), donc entièrement contrôlé par le visiteur.
+ * Reproduit à l'audit avec `?state="><img src=x onerror=alert(1)>` : la réponse
+ * servait `<input type="hidden" name="state" value=""><img src=x onerror=…>"/>`.
+ *
+ * La CSP du serveur (`script-src 'self'`) empêche l'exécution du handler — la
+ * nuance était exacte dans le rapport — mais pas l'injection de balisage :
+ * hameçonnage sur la page de consentement, ajout de champs, détournement du
+ * `form action`. D'où l'échappement, y compris pour `label`/`name`/`email`
+ * qui, eux, sont des littéraux internes : une fonction d'échappement appliquée
+ * partout évite d'avoir à décider quels interpolateurs sont « sûrs ».
+ */
+function esc(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
 export function demoConsentHtml(provider, state) {
   const label = provider === 'google' ? 'Google' : 'Meta (Facebook)'
   const color = provider === 'google' ? '#4285F4' : '#1877F2'
   return `<!doctype html>
 <html lang="fr"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Lier ${label} · PC Star</title>
+<title>Lier ${esc(label)} · PC Star</title>
 <style>
 body{font-family:system-ui,sans-serif;background:#0b1220;color:#f1f5f9;display:grid;place-items:center;min-height:100vh;margin:0}
 .card{background:#151d2e;border:1px solid #2a364c;border-radius:16px;padding:24px;max-width:400px;width:92%}
@@ -279,12 +375,12 @@ button{margin-top:16px;width:100%;padding:12px;border:0;border-radius:10px;backg
 <form class="card" method="POST" action="/api/oauth/${provider}/demo">
   <h1>Connexion ${label}</h1>
   <p>Mode démo PC Star — aucun secret OAuth réel. En production, branchez les clés ${label}.</p>
-  <input type="hidden" name="state" value="${state}"/>
+  <input type="hidden" name="state" value="${esc(state || '')}"/>
   <label>Nom</label>
-  <input name="name" value="${provider === 'google' ? 'Google Demo' : 'Meta Demo'}" required/>
+  <input name="name" value="${esc(provider === 'google' ? 'Google Demo' : 'Meta Demo')}" required/>
   <label>E-mail</label>
-  <input name="email" type="email" value="${provider === 'google' ? 'google.user@pcstar.dz' : 'meta.user@pcstar.dz'}"/>
-  <button type="submit">Autoriser ${label}</button>
+  <input name="email" type="email" value="${esc(provider === 'google' ? 'google.user@pcstar.dz' : 'meta.user@pcstar.dz')}"/>
+  <button type="submit">Autoriser ${esc(label)}</button>
   <p class="note">Vous serez renvoyé vers la boutique avec une session liée.</p>
 </form>
 </body></html>`

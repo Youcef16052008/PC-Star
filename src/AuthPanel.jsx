@@ -6,6 +6,9 @@ import * as api from './api.js'
 const ERR = {
   email: 'authErrorEmail',
   password: 'authErrorPassword',
+  // LOT 1.9 : sans cette entrée, `fail(code)` affichait la clé brute
+  // (« name_too_long ») — `t()` retombe sur la clé quand elle est inconnue.
+  name_too_long: 'authErrorName',
   exists: 'authErrorExists',
   auth: 'authErrorAuth',
   phone: 'authErrorPhone',
@@ -151,6 +154,22 @@ export default function AuthPanel({ t, users, onUsers, onSession, onClose, setTo
             <span className={`badge mb-3 ${apiOnline ? 'text-bg-success' : 'text-bg-secondary'}`}>
               {apiOnline ? t('backendOnline') : t('backendOffline')}
             </span>
+
+            {/* LOT 1.3 — le mode local ASSUMÉ comme mode démonstration.
+                `hashPass` de `src/shopStore.js` est un FNV-1a 32 bits : il
+                n'est pas réparable côté navigateur (pas de scrypt/bcrypt dans
+                le web sans API asynchrone lourde, et surtout AUCUN secret ne
+                doit vivre dans le bundle). Le rapport était exact : la seule
+                réponse honnête est de (a) ne stocker là aucun compte sensible
+                et (b) LE DIRE. Un badge « Mode local (sans serveur) » ne le
+                disait pas — un visiteur pouvait y créer un compte avec son vrai
+                mot de passe et croire qu'il était protégé. */}
+            {!apiOnline && (
+              <div className="alert alert-warning py-2 small" role="alert">
+                <strong className="d-block mb-1">{t('demoModeTitle')}</strong>
+                {t('demoModeNote')}
+              </div>
+            )}
 
             <ul className="nav nav-pills mb-3 gap-2">
               <li className="nav-item">

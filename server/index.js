@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url'
 import {
   dbPaths,
   dbUrlDiagnostics,
-  hashPass,
+  hashPassAsync,
   masterAccount,
   newId,
   newToken,
@@ -21,6 +21,7 @@ import {
 } from './db.js'
 import {
   completeDemo,
+  configuredFrontUrl,
   demoConsentHtml,
   oauthConfig,
   safeReturnUrl,
@@ -39,7 +40,7 @@ import {
 import { rateLimit, clientKey } from './rateLimit.js'
 // P10 (P7-18) : liste connue des wilayas servies par le shop (source partagée
 // src/data.js, déjà importée côté master via PRODUCTS).
-import { PRODUCTS, WILAYAS_NEAR } from '../src/data.js'
+import { PRODUCTS, SLOTS, WILAYAS_NEAR } from '../src/data.js'
 // P19 : notification du master (WhatsApp Cloud API + socket Desk).
 import { broadcastDesk, formatOrderMessage, sendWhatsApp, whatsappConfig } from './notify.js'
 import { attachDeskSocket } from './deskSocket.js'
@@ -237,12 +238,40 @@ export async function handler(req, res) {
 
     // session
     if (req.method === 'GET' && pathname === '/api/me') {
+      // LOT 1.6 : limité — la route appelait `readDbAsync()` à chaque requête
+      // sans aucun garde-fou (rapport d'audit #12).
+      // Le contrôle est placé AVANT `userFromReq` à dessein : la limite doit
+      // aussi couper un flot de requêtes NON authentifiées, qui coûteraient
+      // sinon chacune une lecture de base avant de répondre 401.
+      const rl = rateLimit({ windowMs: 60_000, max: 120, key: clientKey(req, 'me') })
+      if (!rl.ok)
+        return send(res, 429, { ok: false, error: 'rate', retryAfter: rl.retryAfter }, {
+          'Retry-After': String(Math.max(1, rl.retryAfter || 1))
+        })
       const auth = await userFromReq(req)
       if (!auth) return send(res, 401, { ok: false, error: 'auth' })
       return send(res, 200, { ok: true, user: publicUser(auth.user) })
     }
 
     if (req.method === 'POST' && pathname === '/api/auth/register') {
+      // LOT 1.6 : la route était SANS rate-limit alors que `/api/auth/login`
+      // était à 20/min. Reproduit à l'audit : 25 inscriptions d'affilée →
+      // 25 × 201 en 985 ms, sans authentification, avec énumération d'e-mails
+      // illimitée via le 409 `exists`.
+      //
+      // Fenêtre longue (10 min) : une inscription est un acte rare et coûteux
+      // (scrypt), pas un clic de navigation — le compteur ne doit pas se
+      // réinitialiser en une minute.
+      // Seuil 20 : aligné sur `/api/auth/login`. Un seuil plus bas (10)
+      // pénaliserait les foyers et établissements partagés derrière une seule
+      // IP publique, cas courant en Algérie où plusieurs clients sortent par la
+      // même adresse — et c'est précisément ce que le 429 `Retry-After`
+      // signalerait à tort comme une attaque.
+      const rl = rateLimit({ windowMs: 600_000, max: 20, key: clientKey(req, 'register') })
+      if (!rl.ok)
+        return send(res, 429, { ok: false, error: 'rate', retryAfter: rl.retryAfter }, {
+          'Retry-After': String(Math.max(1, rl.retryAfter || 1))
+        })
       const body = await readBody(req)
       const email = String(body.email || '')
         .trim()
@@ -251,6 +280,12 @@ export async function handler(req, res) {
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return send(res, 400, { ok: false, error: 'email' })
       if (password.length < 6) return send(res, 400, { ok: false, error: 'password' })
       if (body.phone && !isDzPhone(body.phone)) return send(res, 400, { ok: false, error: 'phone' })
+      // LOT 1.9 : le nom n'avait aucune borne — le `maxlength` client n'est
+      // qu'indicatif, un `fetch` direct l'ignore. Même plafond que les
+      // commandes (64) : c'est le même nom, affiché aux mêmes endroits
+      // (comptoir, export CSV, WhatsApp).
+      const regName = String(body.name || '').trim()
+      if (regName.length > 64) return send(res, 400, { ok: false, error: 'name_too_long' })
       let token = null
       let user = null
       // P14 (#1) : l'erreur passe par une variable de closure. Avant, elle
@@ -258,6 +293,12 @@ export async function handler(req, res) {
       // inscription suivante ressortait en 409 « exists » alors que
       // l'utilisateur était quand même créé en silence.
       let exists = false
+      // LOT 1.6 : hash calculé HORS du mutateur. `hashPass` était synchrone
+      // (`scryptSync`, mesuré à 30,8–43,0 ms) et tournait DANS la mutation :
+      // sur une route sans authentification ni limite, 25 inscriptions
+      // bloquaient le thread principal ~770 ms. Le rate-limit seul ne suffisait
+      // pas — chaque requête acceptée restait un blocage.
+      const passwordHash = await hashPassAsync(password)
       await updateDbAsync((db) => {
         if (db.users.some((u) => u.email === email)) {
           exists = true
@@ -267,14 +308,20 @@ export async function handler(req, res) {
           id: newId('u'),
           role: 'customer',
           email,
-          passwordHash: hashPass(password),
-          name: String(body.name || email.split('@')[0]).trim(),
+          passwordHash,
+          name: regName || email.split('@')[0].trim(),
           phone: body.phone ? normalizePhone(body.phone) : '',
           avatar: 'chip',
           accent: 'green',
           provider: 'email',
           links: { google: null, meta: null },
-          wilaya: body.wilaya || 'Oran'
+          // LOT 1.9 : comme `PUT /api/me` (P10), la wilaya d'inscription doit
+          // appartenir à la liste connue — avant, n'importe quelle chaîne
+          // libre était stockée puis réinjectée dans les commandes du compte.
+          wilaya: (() => {
+            const w = String(body.wilaya || '').trim()
+            return WILAYAS_NEAR.includes(w) ? w : 'Oran'
+          })()
         }
         db.users.push(user)
         token = newToken()
@@ -303,6 +350,13 @@ export async function handler(req, res) {
         return send(res, 401, { ok: false, error: 'auth' })
       }
       const token = newToken()
+      // LOT 1.6 : la migration de hash ci-dessous (P22 item 1) appelait
+      // `hashPass` — donc `scryptSync` — DANS le mutateur : le verrou
+      // d'écriture de la base était tenu ~35 ms de plus à chaque connexion
+      // d'un compte seedé, et le thread principal était bloqué. Le hash est
+      // calculé avant, et seulement quand la migration est réellement utile.
+      const needsRehash = !String(user.passwordHash || '').startsWith('scrypt$')
+      const migratedHash = needsRehash ? await hashPassAsync(password) : null
       await updateDbAsync((d) => {
         d.sessions[token] = { userId: user.id, at: Date.now() }
         // P22 (item 1) — migration transparente du hash de mot de passe.
@@ -319,8 +373,8 @@ export async function handler(req, res) {
         // la connexion vient de réussir — pour le re-saler en scrypt. Aucun
         // changement visible pour l'utilisateur.
         const u = d.users.find((x) => x.id === user.id)
-        if (u && !String(u.passwordHash || '').startsWith('scrypt$')) {
-          u.passwordHash = hashPass(password)
+        if (u && migratedHash && !String(u.passwordHash || '').startsWith('scrypt$')) {
+          u.passwordHash = migratedHash
         }
         return d
       })
@@ -339,6 +393,13 @@ export async function handler(req, res) {
     }
 
     if (req.method === 'PUT' && pathname === '/api/me') {
+      // LOT 1.6 : limité (lecture + écriture de base à chaque appel), avant
+      // l'authentification pour la même raison que sur GET /api/me.
+      const rl = rateLimit({ windowMs: 60_000, max: 30, key: clientKey(req, 'me-write') })
+      if (!rl.ok)
+        return send(res, 429, { ok: false, error: 'rate', retryAfter: rl.retryAfter }, {
+          'Retry-After': String(Math.max(1, rl.retryAfter || 1))
+        })
       const auth = await userFromReq(req)
       if (!auth) return send(res, 401, { ok: false, error: 'auth' })
       const body = await readBody(req)
@@ -349,11 +410,14 @@ export async function handler(req, res) {
       // que ces valeurs) + troncature 32 ; sinon on garde l'existant/'Oran'.
       // Avant : n'importe quelle chaîne libre était stockée.
       const rawWilaya = body.wilaya == null ? null : String(body.wilaya).trim().slice(0, 32)
+      // LOT 1.9 : borne identique à l'inscription et aux commandes.
+      const meName = body.name == null ? null : String(body.name).trim()
+      if (meName != null && meName.length > 64) return send(res, 400, { ok: false, error: 'name_too_long' })
       let user = null
       await updateDbAsync((db) => {
         const u = db.users.find((x) => x.id === auth.user.id)
         if (!u) return db
-        if (body.name != null) u.name = String(body.name).trim() || u.name
+        if (meName != null) u.name = meName || u.name
         if (body.phone != null) u.phone = body.phone ? normalizePhone(body.phone) : ''
         if (body.avatar) u.avatar = body.avatar
         if (body.accent) u.accent = body.accent
@@ -409,6 +473,12 @@ export async function handler(req, res) {
 
     // Password change (authenticated)
     if (req.method === 'POST' && pathname === '/api/me/password') {
+      // LOT 1.6 : limité — chaque appel coûte un scrypt et une écriture.
+      const rl = rateLimit({ windowMs: 600_000, max: 5, key: clientKey(req, 'password') })
+      if (!rl.ok)
+        return send(res, 429, { ok: false, error: 'rate', retryAfter: rl.retryAfter }, {
+          'Retry-After': String(Math.max(1, rl.retryAfter || 1))
+        })
       const auth = await userFromReq(req)
       if (!auth) return send(res, 401, { ok: false, error: 'auth' })
       const body = await readBody(req)
@@ -418,15 +488,42 @@ export async function handler(req, res) {
       // session seul suffisait : un token volé (XSS, URL partagée, ou
       // `_lastAuth` recopié dans un backup de store.json) permettait de
       // verrouiller le compte. Le master garde sa voie dédiée (reset-password).
+      //
+      // LOT 1.4 : le client n'envoyait JAMAIS ce champ (`api.changePassword`
+      // ne transmettait que `{ password }`, et `ProfilePage` n'avait aucun
+      // champ « mot de passe actuel ») → 403 systématique, fonctionnalité
+      // morte pour 100 % des utilisateurs. Le serveur, lui, était correct :
+      // c'est le client qui a été aligné.
       if (!verifyPass(String(body.current || ''), auth.user.passwordHash)) {
         return send(res, 403, { ok: false, error: 'current_password' })
       }
+      // LOT 1.6 : hash asynchrone, hors du mutateur (voir /api/auth/register).
+      const nextHash = await hashPassAsync(next)
+      // LOT 1.5 : les sessions existantes sont INVALIDÉES. Reproduit à
+      // l'audit : après un changement de mot de passe réussi, l'ANCIEN token
+      // renvoyait encore 200 sur /api/me. Un attaquant en possession d'un token
+      // volé conservait donc l'accès après que la victime avait changé son mot
+      // de passe — ce qui vidait de son sens la réaction à une compromission.
+      // `purgeUser` le faisait déjà pour les suppressions de compte ; le
+      // changement de mot de passe, non.
+      // `userFromReq` renvoie déjà le token de la session en cours : on le
+      // conserve, tout le reste est révoqué.
+      const currentToken = auth.token
+      let revoked = 0
       await updateDbAsync((db) => {
         const u = db.users.find((x) => x.id === auth.user.id)
-        if (u) u.passwordHash = hashPass(next)
+        if (u) u.passwordHash = nextHash
+        for (const [token, sess] of Object.entries(db.sessions || {})) {
+          if (sess && sess.userId === auth.user.id && token !== currentToken) {
+            delete db.sessions[token]
+            revoked += 1
+          }
+        }
         return db
       })
-      return send(res, 200, { ok: true })
+      // La session COURANTE est conservée : l'utilisateur vient de saisir son
+      // mot de passe, le déconnecter dans la foulée serait inutilement punitif.
+      return send(res, 200, { ok: true, revoked })
     }
 
     // Master reset customer password (demo/store desk)
@@ -442,22 +539,50 @@ export async function handler(req, res) {
       // être fourni explicitement (≥ 6 caractères).
       const next = String(body.password || '')
       if (next.length < 6) return send(res, 400, { ok: false, error: 'password' })
+      // LOT 1.6 : hash asynchrone, hors du mutateur.
+      const nextHash = await hashPassAsync(next)
       let ok = false
+      let revoked = 0
       await updateDbAsync((db) => {
         const u = db.users.find((x) => x.id === id && x.role !== 'master')
         if (u) {
-          u.passwordHash = hashPass(next)
+          u.passwordHash = nextHash
           ok = true
+          // LOT 1.5 : même raison que /api/me/password — un reset maître sert
+          // typiquement à reprendre la main sur un compte compromis ; laisser
+          // les sessions ouvertes annulerait l'opération.
+          for (const [token, sess] of Object.entries(db.sessions || {})) {
+            if (sess && sess.userId === id) {
+              delete db.sessions[token]
+              revoked += 1
+            }
+          }
         }
         return db
       })
-      return send(res, ok ? 200 : 404, { ok })
+      return send(res, ok ? 200 : 404, { ok, revoked })
     }
 
     // OAuth start
     if (req.method === 'POST' && pathname === '/api/oauth/start') {
+      // LOT 1.15 : la route était publique et sans limite. Reproduit à
+      // l'audit : 12 appels d'affilée → 12 entrées `oauthPending` en base
+      // (purgées à 15 min, mais remplissables en continu).
+      const rl = rateLimit({ windowMs: 60_000, max: 10, key: clientKey(req, 'oauth-start') })
+      if (!rl.ok)
+        return send(res, 429, { ok: false, error: 'rate', retryAfter: rl.retryAfter }, {
+          'Retry-After': String(Math.max(1, rl.retryAfter || 1))
+        })
       const body = await readBody(req)
       const auth = await userFromReq(req)
+      // LOT 1.15 : `intent: 'link'` SANS session était accepté et stocké avec
+      // `userId: null`. `finishIdentity` exige `intent === 'link' && userId`,
+      // donc le flux retombait silencieusement sur la branche login : le
+      // paramètre du client était ignoré sans erreur. On refuse maintenant
+      // explicitement plutôt que de mentir sur l'opération demandée.
+      if (body.intent === 'link' && !auth) {
+        return send(res, 400, { ok: false, error: 'auth_required' })
+      }
       const resStart = await startOAuth(body.provider, {
         userId: body.intent === 'link' ? auth?.user?.id : null,
         intent: body.intent === 'link' ? 'link' : 'login',
@@ -495,7 +620,13 @@ export async function handler(req, res) {
       }
       // P13 (S2) : re-validation au moment de la redirection (défense en
       // profondeur) — jamais de token envoyé vers une origine tierce.
-      const front = safeReturnUrl(done.returnUrl) || process.env.FRONT_URL || 'http://127.0.0.1:5173'
+      // LOT 1.13 : `safeReturnUrl` valide soigneusement le `returnUrl` fourni
+      // par le CLIENT, mais le repli concaténait `process.env.FRONT_URL` brut
+      // dans un `Location` porteur d'un token de session. Une variable
+      // d'environnement mal configurée (sans schéma, par exemple) produisait
+      // donc une redirection non validée. Le repli passe désormais par
+      // `configuredFrontUrl()`, qui valide et journalise.
+      const front = safeReturnUrl(done.returnUrl) || configuredFrontUrl()
       const redir = `${String(front).replace(/\/$/, '')}/?oauth_token=${encodeURIComponent(done.token)}&oauth_provider=${provider}`
       res.writeHead(302, { Location: redir, ...corsHeaders() })
       return res.end()
@@ -617,20 +748,47 @@ export async function handler(req, res) {
         return send(res, 400, { ok: false, error: 'order' })
       }
       if (!isDzPhone(body.phone)) return send(res, 400, { ok: false, error: 'phone' })
+      // LOT 1.9 : validation serveur des champs de commande.
+      //
+      // Reproduit à l'audit : `POST /api/orders` avec `wilaya:"XXXX"` et
+      // `slot:"<script>"` → **201**, valeurs stockées telles quelles (CSV, Desk,
+      // WhatsApp, page « Mes commandes »). Le nom, lui, n'avait AUCUNE borne
+      // de longueur.
+      //
+      // Corrections :
+      // · `name` : non vide après trim, ≤ 64 caractères (le `<input maxlength>`
+      //   client n'est qu'indicatif — `fetch` direct l'ignore).
+      // · `wilaya` : doit appartenir à `WILAYAS_NEAR` (même liste que le select
+      //   du panier/profil et que `PUT /api/me`, déjà borné depuis P10).
+      //   Absente/vide → « Oran », le défaut historique.
+      // · `slot` : doit appartenir à `SLOTS`, ou être vide (retrait sans
+      //   créneau — le comptoir et le message WhatsApp gèrent déjà ce cas).
+      //
+      // Non corrigé volontairement : `carrier`. Le rapport le listait comme
+      // libre, mais la route le **recalcule** déjà côté serveur
+      // (`phoneCarrier(body.phone)`) et ignore la valeur envoyée — le champ
+      // client n'a jamais atteint la base.
+      const orderName = String(body.name || '').trim()
+      if (!orderName || orderName.length > 64) return send(res, 400, { ok: false, error: 'name' })
+      const rawOrderWilaya = body.wilaya == null ? '' : String(body.wilaya).trim()
+      const orderWilaya = rawOrderWilaya ? (WILAYAS_NEAR.includes(rawOrderWilaya) ? rawOrderWilaya : null) : 'Oran'
+      if (orderWilaya == null) return send(res, 400, { ok: false, error: 'wilaya' })
+      const rawSlot = body.slot == null ? '' : String(body.slot).trim()
+      if (rawSlot && !SLOTS.includes(rawSlot)) return send(res, 400, { ok: false, error: 'slot' })
       const auth = await userFromReq(req)
       let result = null
       await updateDbAsync((db) => {
         result = placeOrder(
           db,
           {
-            name: String(body.name).trim(),
+            name: orderName,
             phone: normalizePhone(body.phone),
             carrier: phoneCarrier(body.phone),
-            wilaya: body.wilaya || 'Oran',
+            wilaya: orderWilaya,
             // P9 (P7-4) : « journée » locale du client (validée dans placeOrder)
             day: body.day || '',
             payment: 'cash',
-            slot: body.slot || '',
+            slot: rawSlot,
             items: body.items,
             total: body.total
           },

@@ -21,6 +21,28 @@ function hashPass(password) {
   return `scrypt$${salt}$${hash}`
 }
 
+/**
+ * LOT 1.6 — variante asynchrone de `hashPass`, à utiliser sur TOUTE route
+ * HTTP.
+ *
+ * `scryptSync` bloque le thread principal : mesuré à 30,8–43,0 ms par hash sur
+ * cette machine (770 ms pour 25 hashes). Sur `/api/auth/register` — sans
+ * authentification et, avant le lot 1.6, sans rate-limit — c'était un vecteur
+ * de déni de service à coût nul pour l'attaquant.
+ *
+ * `hashPass` (synchrone) reste utilisé là où il n'y a pas le choix : le seed du
+ * compte maître, évalué au chargement du module.
+ */
+export function hashPassAsync(password) {
+  return new Promise((resolve, reject) => {
+    const salt = crypto.randomBytes(8).toString('hex')
+    crypto.scrypt(String(password), `pcstar:${salt}`, 32, (err, derived) => {
+      if (err) return reject(err)
+      resolve(`scrypt$${salt}$${derived.toString('hex')}`)
+    })
+  })
+}
+
 function hashPassLegacy(password) {
   return crypto.createHash('sha256').update(`pcstar:${password}`).digest('hex')
 }
@@ -97,7 +119,15 @@ export function verifyPass(password, stored) {
     const expectedBuffer = Buffer.from(expected)
     return actual.length === expectedBuffer.length && crypto.timingSafeEqual(actual, expectedBuffer)
   }
-  return s === hashPassLegacy(password)
+  // LOT 1.14 : comparaison à temps constant. Les deux branches ci-dessus
+  // utilisaient déjà `timingSafeEqual` ; celle-ci comparait deux chaînes avec
+  // `===` (longueur et préfixe commun observables par le temps). L'empreinte
+  // est un sha256 non salé, donc le gain est marginal — mais l'incohérence
+  // entre branches d'une même fonction de vérification n'a pas lieu d'être.
+  const legacyActual = Buffer.from(s)
+  const legacyExpected = Buffer.from(hashPassLegacy(password))
+  if (legacyActual.length !== legacyExpected.length) return false
+  return crypto.timingSafeEqual(legacyActual, legacyExpected)
 }
 
 const DEMOS = [
