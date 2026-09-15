@@ -31,12 +31,19 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
  * virgules sont conservées dans le texte (« Alimentation 750W, 20 cm » reste un
  * seul besoin) : les séparer serait une interprétation, pas une normalisation.
  */
+/** Borne d'une ligne de `needs` — cf. `short` (200) et `name` (120) ci-dessous. */
+export const MAX_NEED_LINE = 160
+
 export function normalizeNeeds(value) {
   if (value == null) return []
   const parts = Array.isArray(value)
     ? value.map((x) => String(x ?? '').trim())
     : String(value).split(/[\r\n]+/).map((x) => x.trim())
-  return parts.filter(Boolean).slice(0, 12)
+  // Bornée comme TOUS les autres champs texte de `sanitizeProductPatch` : sans
+  // cette coupe, une ligne de 4 Ko partait en base puis dans la fiche produit,
+  // l'export CSV et le message WhatsApp — `needs` était le seul champ texte non
+  // borné du patch.
+  return parts.filter(Boolean).slice(0, 12).map((x) => x.slice(0, MAX_NEED_LINE))
 }
 
 /**

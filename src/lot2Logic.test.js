@@ -12,6 +12,7 @@ import {
   createProduct,
   listMasterProducts,
   normalizeNeeds,
+  MAX_NEED_LINE,
   sanitizeProductPatch,
   updateProduct
 } from '../server/masterApi.js'
@@ -255,6 +256,21 @@ describe('LOT 2.6 (F10) — `needs` : chaîne et tableau acceptés, normalisés 
     assert.deepEqual(normalizeNeeds('Alim 750W, 20 cm'), ['Alim 750W, 20 cm'])
     // Plafond conservé (12).
     assert.equal(normalizeNeeds(Array.from({ length: 30 }, (_, i) => `n${i}`)).length, 12)
+  })
+
+  it('une ligne est bornée comme les autres champs texte du patch', () => {
+    // `name` ≤ 120, `short` ≤ 200, `brand` ≤ 60, `sku` ≤ 40 : `needs` était le
+    // seul champ texte non borné. Sans coupe, une ligne de 4 Ko partait en base,
+    // puis dans la fiche produit, l'export CSV et le message WhatsApp.
+    const long = 'x'.repeat(4000)
+    const out = normalizeNeeds(long)
+    assert.equal(out.length, 1, 'une seule ligne')
+    assert.equal(out[0].length, MAX_NEED_LINE, `bornée à ${MAX_NEED_LINE} caractères`)
+    const patched = sanitizeProductPatch({ needs: ['ok', long] })
+    assert.equal(patched.ok, true)
+    assert.equal(patched.patch.needs[1].length, MAX_NEED_LINE)
+    // Les lignes courtes ne bougent pas.
+    assert.deepEqual(normalizeNeeds('Socket AM5\nBIOS à jour'), ['Socket AM5', 'BIOS à jour'])
   })
 
   it('le patch accepte une CHAÎNE (le bug : 400 `needs`)', () => {

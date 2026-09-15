@@ -580,7 +580,10 @@ branche « override du catalogue de base » — pour un produit **créé** par l
 répondant 200 avec un produit inchangé. Corrigé. Côté front, `needsText()`
 (`src/ProductPage.jsx`) : un tableau se joint avec ` · ` (React concatène un
 tableau de chaînes **sans séparateur**) et `[]` — truthy en JS — n'affiche plus un
-encart vide.
+encart vide. Au passage, chaque ligne est bornée à 160 caractères
+(`MAX_NEED_LINE`) : `needs` était le **seul** champ texte du patch non borné —
+`name` ≤ 120, `short` ≤ 200, `brand` ≤ 60, `sku` ≤ 40 — et une ligne de 4 Ko
+partait en base puis dans la fiche produit, l'export CSV et le message WhatsApp.
 
 **2.7 (F11 + B20) — la réponse du serveur est la source de vérité.** `submitPanel`
 prenait `res.meta`, le meta calculé **localement** par `addPanel` : au 13ᵉ panneau,
@@ -616,14 +619,19 @@ l'animation, le backdrop, le focus-trap et le blocage de scroll — sans effet s
 que l'app **décide**. Aucun test existant ne dépendait du comportement inerte.
 
 **Tests** — deux fichiers ajoutés au script `test` de `package.json` :
-`src/lot2Logic.test.js` (**26 tests**, logique pure : codes de commande après
+`src/lot2Logic.test.js` (**27 tests**, logique pure : codes de commande après
 suppression / annulation / vue partielle / journée invalide / fuseau, fusion des
 commandes locales-only, normalisation et migration de `needs` y compris le patch sur
 un produit créé) et `src/lot2UI.test.js` (**13 tests**, composants **réels** rendus
 en jsdom : `App` — configurateur → panier, poste partagé Karim → Amina ;
 `MasterPage` — SKU en rupture, SKU masqué, SKU libre, 13ᵉ panneau, masque de panneau
 avec meta périmé ; `OrdersPage` — union guest, badge, mode sans compte). Suite
-complète : **424 tests, 0 échec** ; `npm run build` passe.
+complète : **425 tests, 0 échec** ; `npm run build` passe. Vérification bout-en-bout
+sur le serveur de prévisualisation : 3 commandes créées (`PS-20260915-0001/0002/0003`),
+la 2ᵉ supprimée, la suivante → **`0004`** (avant : `0003`, déjà attribué) ; produit
+créé avec `needs` en chaîne puis patché en chaîne, en tableau et en nombre →
+**200** à chaque fois, valeur normalisée en tableau ; SKU d'une référence en rupture
+du catalogue de base → **400 `sku_taken`** côté serveur comme côté local.
 
 Sensibilité vérifiée — chaque correctif retiré **un par un**, puis restauré :
 branche `'cart'` remise après le garde-fou → 1 test échoue ; les deux
