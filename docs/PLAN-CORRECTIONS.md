@@ -152,7 +152,7 @@ la suite est aujourd'hui aveugle à ces chemins (voir §10).
 >
 > | Lot | État | Détail |
 > |---|---|---|
-> | **Lot 0** (rotation des secrets) | ⚠️ **À faire par l'exploitant** | Le code ne contient plus les identifiants, mais le déploiement en production doit poser `MASTER_EMAIL` / `MASTER_PASSWORD` avec un mot de passe **neuf**. Voir §9. |
+> | **Lot 0** (rotation des secrets) | ⚠️ **À faire par l'exploitant — reporté à la fin** | À la demande du commanditaire (15/09), ce lot passe **en dernier** : c'est une action sur le déploiement réel, pas du code. Le code ne contient plus les identifiants, mais la production doit poser `MASTER_EMAIL` / `MASTER_PASSWORD` avec un mot de passe **neuf**. Procédure en §9. |
 > | **Lot 7.1** (isolation des tests) | ✅ **Fait** | `scripts/test-env.mjs` + `--import` dans le script `test`. Vérifié : la suite passe **avec un `.env` hostile** (Neon morte + `MASTER_*` + `WHATSAPP_TOKEN`), alors qu'elle échouait sur 17 tests avant. |
 > | **Lot 1.1** (secrets hors du code) | ✅ **Fait** | `masterAccount()` lit l'environnement et **lève** s'il manque (aucune valeur par défaut) ; plus de `MASTER` côté client ; `/api/health` ne divulgue plus l'e-mail maître ; synchronisation du maître sur les **bases existantes**. |
 > | **Lot 1.2** (secrets hors de la doc) | ✅ **Fait** | README, 3 guides de démo, DEPLOY-VERCEL, spec superpowers, 4 scripts de recette. |
@@ -497,10 +497,14 @@ lot ultérieur) :
   la migration P22 vers scrypt au premier login — c'était le seul appelant
   synchrone restant, il fallait un garde-fou.
 
-### ⚠️ Reste à faire par l'exploitant (lot 0)
+### ⚠️ Reste à faire par l'exploitant (lot 0 — reporté à la fin, à la demande)
 
-Le code est propre ; **le secret diffusé reste valide tant qu'il n'est pas
-changé sur le déploiement réel.**
+**Rappel du risque tant que ce lot n'est pas fait :** le code est propre, mais
+**le secret diffusé reste valide** sur le déploiement réel. Toute personne ayant
+lu le bundle ou la documentation d'avant correction peut encore se connecter en
+`master` sur la production actuelle. C'est pourquoi ce lot était prévu AVANT le
+code ; il est ici reporté à la fin sur instruction explicite du commanditaire,
+et reste la **seule** étape qui ne peut pas être faite depuis ce dépôt.
 
 1. Choisir un `MASTER_EMAIL` et un `MASTER_PASSWORD` **neufs et forts**.
    ⚠️ Ne **pas** réutiliser `pcstar.info31@gmail.com` comme `MASTER_EMAIL` :
