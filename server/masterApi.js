@@ -1,6 +1,7 @@
 /**
  * Master catalog CRUD + photo upload helpers.
  */
+import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -259,7 +260,13 @@ export function updateProduct(db, id, rawPatch) {
   if (patch.hidden === false) {
     db.meta.hiddenProductIds = (db.meta.hiddenProductIds || []).filter((x) => x !== id)
   }
-  db.meta.productOverrides[id] = next
+  // LOT 3.14 (B4) : un override sans aucune clé n'est PAS stocké. Masquer puis
+  // réafficher un produit du catalogue laissait `productOverrides[id] = {}` pour
+  // toujours — une entrée résiduelle qui gonfle store.json, se recopie dans
+  // chaque backup et dans chaque export de meta, et fait croire à un override
+  // là où il n'y en a pas. On efface la clé dès qu'elle redevient vide.
+  if (Object.keys(next).length === 0) delete db.meta.productOverrides[id]
+  else db.meta.productOverrides[id] = next
   const merged = { ...base, ...next, stock: liveStockOf(db, id), source: 'catalog' }
   return { ok: true, product: merged }
 }
@@ -387,7 +394,14 @@ export function backupStore(dbPath, backupDir) {
   fs.mkdirSync(backupDir, { recursive: true })
   if (!fs.existsSync(dbPath)) return null
   const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
-  const dest = path.join(backupDir, `store-${stamp}.json`)
+  // LOT 3.15 (B5) : le nom portait la seule seconde courante. Deux backups
+  // déclenchés dans la même seconde (timer 6 h + sauvegarde manuelle, ou un
+  // appel double depuis deux requêtes) écrivaient le MÊME fichier : le second
+  // écrasait le premier sans erreur, et `capBackups` croyait avoir 14 jeux alors
+  // qu'il en manquait un. Le suffixe aléatoire rend chaque nom unique ; il vient
+  // APRÈS l'horodatage, donc le tri alphabétique de `capBackups` reste
+  // chronologique et le motif `store-*.json` est inchangé.
+  const dest = path.join(backupDir, `store-${stamp}-${crypto.randomBytes(3).toString('hex')}.json`)
   fs.copyFileSync(dbPath, dest)
   capBackups(backupDir) // P9 (P7-7) : plus de croissance infinie (timer 6 h + manuels)
   return dest

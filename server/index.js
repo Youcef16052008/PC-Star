@@ -10,6 +10,7 @@ import {
   dbPaths,
   dbUrlDiagnostics,
   hashPassAsync,
+  initDb,
   masterAccount,
   newId,
   newToken,
@@ -627,7 +628,26 @@ export async function handler(req, res) {
       // donc une redirection non validée. Le repli passe désormais par
       // `configuredFrontUrl()`, qui valide et journalise.
       const front = safeReturnUrl(done.returnUrl) || configuredFrontUrl()
-      const redir = `${String(front).replace(/\/$/, '')}/?oauth_token=${encodeURIComponent(done.token)}&oauth_provider=${provider}`
+      // LOT 3.18 (R14) : le token revient par FRAGMENT (`#oauth_token=…`) et non
+      // plus en query. Un fragment n'est jamais renvoyé au serveur : il ne finit
+      // donc ni dans les journaux d'accès du front, ni dans le `Referer` des
+      // requêtes suivantes, ni dans l'historique d'un proxy. Le client le lit au
+      // montage puis nettoie l'URL (`history.replaceState`).
+      const tok = encodeURIComponent(done.token)
+      const prov = encodeURIComponent(provider)
+      let redir
+      try {
+        const u = new URL(String(front))
+        u.search = ''
+        u.hash = `#oauth_token=${tok}&oauth_provider=${prov}`
+        redir = u.toString()
+      } catch {
+        // `configuredFrontUrl()` peut renvoyer une base non-URL si
+        // OAUTH_REDIRECT_BASE est mal renseigné : on retombe sur la concaténation
+        // (le token ne part de toute façon pas vers une origine tierce, il est
+        // re-validé juste au-dessus).
+        redir = `${String(front).replace(/\/$/, '')}/#oauth_token=${tok}&oauth_provider=${prov}`
+      }
       res.writeHead(302, { Location: redir, ...corsHeaders() })
       return res.end()
     }
@@ -681,14 +701,18 @@ export async function handler(req, res) {
       // contenait tout. On sert maintenant le catalogue de base (250 SKU,
       // stock d'origine, sans overrides/masquages master) et on marque la
       // réponse `degraded` + `db` pour que l'UI le dise explicitement.
-      const { db, ok, driver, error } = await readDbSafe()
+      const { db, ok, driver, error, asOf, source } = await readDbSafe()
       const products = publicCatalog(db)
       return send(res, 200, {
         ok: true,
         products,
         count: products.length,
         degraded: !ok,
-        db: { driver, reachable: ok, error }
+        // LOT 3.16 (B19) : le repli est DATÉ. `asOf` = horodatage de la
+        // dernière lecture réussie (`source: 'cache'`), `null` quand aucune
+        // lecture n'a jamais abouti (`source: 'static'` = catalogue du build).
+        // Le front affiche l'âge au lieu de laisser deviner.
+        db: { driver, reachable: ok, error, asOf: asOf ?? null, source: source || (ok ? 'db' : 'static') }
       })
     }
 
@@ -1139,7 +1163,21 @@ export async function handler(req, res) {
   } catch (err) {
     // P10 (P7-10) : corps trop gros → 413 explicite (pas un 500/OOM)
     if (err && err.code === 'BODY_TOO_LARGE') {
-      return send(res, 413, { ok: false, error: 'too_large' })
+      // LOT 3.12 (B17) : on a refusé le corps AVANT de l'avoir lu jusqu'au bout.
+      // Répondre sur une connexion keep-alive pendant que le client envoie
+      // encore ses octets, c'est prendre deux risques : la réponse n'est pas lue
+      // (le client attend de pouvoir écrire) et la requête SUIVANTE, sur le même
+      // socket, commence au milieu d'un corps abandonné → délimitation cassée.
+      // On répond donc avec `Connection: close` et on ferme le socket dès que la
+      // réponse est partie : le client renverra une requête propre.
+      res.once('finish', () => {
+        try {
+          req.socket?.destroySoon?.()
+        } catch {
+          /* déjà fermé */
+        }
+      })
+      return send(res, 413, { ok: false, error: 'too_large' }, { Connection: 'close' })
     }
     console.error(err)
     return send(res, 500, { ok: false, error: 'server', message: String(err.message || err) })
@@ -1147,6 +1185,17 @@ export async function handler(req, res) {
 }
 
 function startLocalServer() {
+  // LOT 3.2 (B2) : la normalisation de la base (seed des démos, synchronisation
+  // du maître sur l'environnement, purge des sessions expirées, clés internes)
+  // est persistée UNE fois au démarrage. Avant, `readDb()` écrivait pendant la
+  // lecture : n'importe quel GET pouvait provoquer une écriture disque.
+  try {
+    if (!process.env.DATABASE_URL) initDb()
+  } catch (err) {
+    console.error('[pcstar-db] initialisation au démarrage échouée — les lectures réessaieront.', {
+      message: String((err && err.message) || err)
+    })
+  }
   const server = http.createServer(handler)
   // P19 : socket Desk — connexion acceptée uniquement pour un token de session
   // master. Non branché sous Vercel (les WebSockets n'y existent pas en

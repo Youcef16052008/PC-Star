@@ -14,17 +14,29 @@
 import crypto from 'node:crypto'
 import { newId, newToken, readDbAsync, updateDbAsync, publicUser } from './db.js'
 
-const DEMO = process.env.OAUTH_DEMO !== '0'
-const BASE =
-  process.env.OAUTH_REDIRECT_BASE ||
-  (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://127.0.0.1:8787')
+// LOT 3.13 (B18) : `OAUTH_DEMO` et `OAUTH_REDIRECT_BASE` étaient évalués UNE
+// fois, à l'import du module. Conséquence : un test (ou tout rechargement à
+// chaud) qui posait ces variables APRÈS le premier import continuait de voir
+// celles du démarrage — mode démo impossible à désactiver, base de redirection
+// impossible à changer en cours de route. Les deux deviennent des fonctions :
+// chaque appel lit l'environnement courant.
+export function oauthDemo() {
+  return process.env.OAUTH_DEMO !== '0'
+}
+
+export function oauthBase() {
+  return (
+    process.env.OAUTH_REDIRECT_BASE ||
+    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://127.0.0.1:8787')
+  )
+}
 
 export function oauthConfig() {
   return {
-    demo: DEMO,
+    demo: oauthDemo(),
     googleConfigured: Boolean(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET),
     metaConfigured: Boolean(process.env.META_APP_ID && process.env.META_APP_SECRET),
-    redirectBase: BASE
+    redirectBase: oauthBase()
   }
 }
 
@@ -56,7 +68,7 @@ export function safeReturnUrl(raw) {
   }
   if (u.protocol !== 'https:' && u.protocol !== 'http:') return null
   const allowed = [
-    BASE,
+    oauthBase(),
     process.env.FRONT_URL,
     process.env.FRONT_ORIGIN,
     process.env.OAUTH_REDIRECT_BASE,
@@ -140,7 +152,7 @@ export function configuredFrontUrl() {
     'VERCEL_URL'
   )
   if (fromVercel) return fromVercel
-  return BASE
+  return oauthBase()
 }
 
 export async function startOAuth(provider, { userId = null, intent = 'login', returnUrl = null } = {}) {
@@ -162,7 +174,7 @@ export async function startOAuth(provider, { userId = null, intent = 'login', re
   })
 
   const cfg = oauthConfig()
-  if (DEMO || (provider === 'google' && !cfg.googleConfigured) || (provider === 'meta' && !cfg.metaConfigured)) {
+  if (oauthDemo() || (provider === 'google' && !cfg.googleConfigured) || (provider === 'meta' && !cfg.metaConfigured)) {
     // Relative URL so Vite proxy / browser same-origin works in preview
     return {
       ok: true,
@@ -174,7 +186,7 @@ export async function startOAuth(provider, { userId = null, intent = 'login', re
   if (provider === 'google') {
     const params = new URLSearchParams({
       client_id: process.env.GOOGLE_CLIENT_ID,
-      redirect_uri: `${BASE}/api/oauth/google/callback`,
+      redirect_uri: `${oauthBase()}/api/oauth/google/callback`,
       response_type: 'code',
       scope: 'openid email profile',
       state,
@@ -186,7 +198,7 @@ export async function startOAuth(provider, { userId = null, intent = 'login', re
 
   const params = new URLSearchParams({
     client_id: process.env.META_APP_ID,
-    redirect_uri: `${BASE}/api/oauth/meta/callback`,
+    redirect_uri: `${oauthBase()}/api/oauth/meta/callback`,
     state,
     scope: 'email,public_profile'
   })
@@ -212,7 +224,7 @@ export async function startOAuth(provider, { userId = null, intent = 'login', re
  */
 async function finishIdentity(provider, identity, pending, stateKey) {
   // Un e-mail n'est une preuve que si le fournisseur l'a vérifié.
-  const trusted = !DEMO
+  const trusted = !oauthDemo()
   let outcome = null
 
   await updateDbAsync((db) => {

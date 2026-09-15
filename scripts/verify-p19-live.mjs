@@ -32,7 +32,9 @@ ok('login master', !!token, token ? '(token obtenu)' : JSON.stringify(login.data
 if (!token) { console.log(out.join('\n')); process.exit(1) }
 
 // --- 1) socket master ---
-const wsUrl = `ws://127.0.0.1:8787/api/desk-stream?token=${encodeURIComponent(token)}`
+// LOT 3.18 (R14) : plus de token dans l'URL — l'authentification est le premier
+// message envoyé après l'ouverture.
+const wsUrl = 'ws://127.0.0.1:8787/api/desk-stream'
 const ws = new WebSocket(wsUrl)
 const events = []
 // Le gestionnaire `message` doit être posé AVANT d'attendre `open` : le serveur
@@ -49,6 +51,7 @@ await new Promise((resolve, reject) => {
   const to = setTimeout(() => reject(new Error('timeout ouverture socket')), 8000)
   ws.on('open', () => {
     clearTimeout(to)
+    ws.send(JSON.stringify({ type: 'auth', token }))
     resolve()
   })
   ws.on('error', (e) => {
@@ -92,26 +95,40 @@ ok('commande absente de la liste', !listed.data.orders.some((o) => o.code === co
 const anon = await call('DELETE', '/api/orders/PS-PEUIMPORTE')
 ok('DELETE anonyme refusé', anon.status === 403, `HTTP ${anon.status}`)
 
+// LOT 3.18 (R14) : l'upgrade est accepté (aucun token dans l'URL), mais le
+// socket est fermé avec un code applicatif tant que l'authentification n'est pas
+// bonne : 4401 = premier message invalide, 4403 = token non-master,
+// 4408 = aucune authentification dans les 5 s.
 const noTok = await new Promise((resolve) => {
   const s = new WebSocket('ws://127.0.0.1:8787/api/desk-stream')
-  const to = setTimeout(() => { try { s.close() } catch { /* */ }; resolve('timeout') }, 5000)
-  s.on('unexpected-response', (_req, res) => { clearTimeout(to); resolve(res.statusCode) })
-  s.on('open', () => { clearTimeout(to); try { s.close() } catch { /* */ }; resolve('ouvert(!)') })
+  const to = setTimeout(() => { try { s.close() } catch { /* */ }; resolve('timeout') }, 8000)
+  s.on('unexpected-response', (_req, res) => { clearTimeout(to); resolve(`http_${res.statusCode}`) })
+  s.on('open', () => s.send(JSON.stringify({ type: 'ping' })))
+  s.on('close', (code) => { clearTimeout(to); resolve(code) })
   s.on('error', () => { clearTimeout(to); resolve('erreur-connexion') })
 })
-ok('socket sans token refusé', noTok === 401, `réponse: ${noTok}`)
+ok('socket sans authentification fermé (4401)', noTok === 4401, `code: ${noTok}`)
+
+const silent = await new Promise((resolve) => {
+  const s = new WebSocket('ws://127.0.0.1:8787/api/desk-stream')
+  const to = setTimeout(() => { try { s.close() } catch { /* */ }; resolve('timeout') }, 9000)
+  s.on('close', (code) => { clearTimeout(to); resolve(code) })
+  s.on('error', () => { clearTimeout(to); resolve('erreur-connexion') })
+})
+ok('socket muet fermé (4408)', silent === 4408, `code: ${silent}`)
 
 const client = await call('POST', '/api/auth/register', { body: { email: `p19.direct.${Date.now()}@example.dz`, password: 'motdepasse123', name: 'Client' } })
 const cTok = client.data?.token
 const badSock = await new Promise((resolve) => {
   if (!cTok) return resolve('pas-de-token-client')
-  const s = new WebSocket(`ws://127.0.0.1:8787/api/desk-stream?token=${encodeURIComponent(cTok)}`)
-  const to = setTimeout(() => { try { s.close() } catch { /* */ }; resolve('timeout') }, 5000)
-  s.on('unexpected-response', (_req, res) => { clearTimeout(to); resolve(res.statusCode) })
-  s.on('open', () => { clearTimeout(to); try { s.close() } catch { /* */ }; resolve('ouvert(!)') })
+  const s = new WebSocket('ws://127.0.0.1:8787/api/desk-stream')
+  const to = setTimeout(() => { try { s.close() } catch { /* */ }; resolve('timeout') }, 8000)
+  s.on('unexpected-response', (_req, res) => { clearTimeout(to); resolve(`http_${res.statusCode}`) })
+  s.on('open', () => s.send(JSON.stringify({ type: 'auth', token: cTok })))
+  s.on('close', (code) => { clearTimeout(to); resolve(code) })
   s.on('error', () => { clearTimeout(to); resolve('erreur-connexion') })
 })
-ok('socket non-master refusé', badSock === 403, `réponse: ${badSock}`)
+ok('socket non-master refusé (4403)', badSock === 4403, `code: ${badSock}`)
 
 ws.close()
 console.log(out.join('\n'))

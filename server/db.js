@@ -13,7 +13,44 @@ const DATA_DIR = process.env.PCSTAR_DATA_DIR
     : path.join(__dirname, 'data')
 const DB_FILE = path.join(DATA_DIR, 'store.json')
 const DB_TMP_FILE = path.join(DATA_DIR, 'store.json.tmp')
+/**
+ * LOT 3.2 (B1) — verrou consultatif inter-processus pour le driver FICHIER.
+ *
+ * `updateDb` est un read-modify-write : deux processus (deux terminaux
+ * `npm run dev:api`, un script `backup` pendant que le serveur tourne, deux
+ * workers) pouvaient lire le même état puis écrire chacun le sien — la dernière
+ * écriture gagnait et la mutation de l'autre était **perdue** (survente réelle :
+ * deux commandes simultanées, une seule en base). Le driver Neon, lui, verrouille
+ * déjà la ligne (`SELECT … FOR UPDATE`, server/neonStore.js) : ce verrou ne
+ * concerne que le fichier.
+ */
+const DB_LOCK_FILE = path.join(DATA_DIR, 'store.json.lock')
 const MAX_CORRUPT_BACKUPS = 3
+/** Attente maximale du verrou avant d'écrire quand même (base dégradée > base bloquée). */
+const LOCK_TIMEOUT_MS = 4000
+/** Au-delà, un verrou est réputé orphelin (processus tué) et repris. */
+const LOCK_STALE_MS = 10000
+
+/**
+ * LOT 3.2 (B3) — cache mémoire du driver fichier.
+ *
+ * Chaque requête relisait et reparsait `store.json` en entier (`readDbAsync`
+ * est appelé par tous les handlers) : sur un catalogue de 250 références plus
+ * les commandes, c'est plusieurs centaines de Ko parsés par requête, y compris
+ * pour `GET /api/health`. Le cache est invalidé par `statSync` (mtime + taille),
+ * donc il suit aussi les écritures d'un AUTRE processus.
+ */
+const cache = { stat: null, db: null, hits: 0, reads: 0, writes: 0 }
+
+/**
+ * LOT 3.16 (B19) — dernier état lu avec succès, tous drivers. Sert au repli
+ * dégradé : plutôt que de servir le catalogue statique du build sans savoir de
+ * quand il date, on peut servir la dernière lecture réussie en disant son âge.
+ */
+const lastGood = { at: 0, db: null }
+
+/** Normalisation déjà persistée une fois dans ce processus (LOT 3.2 / B2). */
+let initialized = false
 
 function hashPass(password) {
   const salt = crypto.randomBytes(8).toString('hex')
@@ -216,7 +253,114 @@ function ensure() {
   }
 }
 
-export function readDb() {
+/**
+ * LOT 3.2 (B2) — normalisation de l'état, **en mémoire uniquement**.
+ *
+ * C'était le corps de `readDb()` : structure manquante, synchronisation du
+ * maître sur l'environnement, seed des comptes de démonstration, clés internes
+ * de transit, sessions et consentements expirés. Il se terminait par
+ * `writeDb(db)` — donc **une écriture disque pendant une lecture**, sur
+ * n'importe quel GET, dès qu'une session avait expiré ou qu'un `_lastAuth`
+ * traînait. Les produits de la normalisation sont désormais :
+ *  · appliqués en mémoire à CHAQUE lecture (ce que voit le handler reste juste) ;
+ *  · persistés au **démarrage** (`initDb`, une fois par processus) et à chaque
+ *    **écriture** (`writeDb`).
+ *
+ * @returns {boolean} `true` si l'état a changé — donc s'il y a lieu de persister.
+ */
+export function normalizeDb(db) {
+  let changed = false
+  if (!Array.isArray(db.users)) {
+    db.users = [MASTER, ...DEMOS]
+    changed = true
+  }
+  // LOT 1.1 — le maître suit l'environnement.
+  //
+  // Avant ce correctif, la réinjection se contentait d'ajouter un maître *s'il
+  // n'y en avait aucun*. Sur une base déjà constituée, le compte maître
+  // existant — créé à l'époque où ses identifiants étaient codés en dur et
+  // livrés dans le bundle public — restait donc **indéfiniment** en place :
+  // poser MASTER_EMAIL / MASTER_PASSWORD n'aurait rien changé pour lui.
+  //
+  // On aligne l'e-mail sur l'environnement, et le hash **seulement s'il n'est
+  // pas déjà en scrypt**. Cette restriction est essentielle : la migration P22
+  // (item 1, dans la route login) re-sel en scrypt au premier accès réussi.
+  // Sans elle, chaque lecture remettrait le hash legacy et provoquerait un
+  // `writeDb` — donc un re-hash scrypt — à chaque connexion.
+  const masterIdx = (db.users || []).findIndex((u) => u && u.role === 'master')
+  if (masterIdx < 0) {
+    db.users = [MASTER, ...(db.users || [])]
+    changed = true
+  } else {
+    const cur = db.users[masterIdx]
+    if (cur.email !== MASTER.email) {
+      cur.email = MASTER.email
+      changed = true
+    }
+    if (!String(cur.passwordHash || '').startsWith('scrypt$')) {
+      cur.passwordHash = MASTER.passwordHash
+      changed = true
+    }
+  }
+  if (!Array.isArray(db.orders)) {
+    db.orders = []
+    changed = true
+  }
+  if (!db.stock || typeof db.stock !== 'object') {
+    db.stock = {}
+    changed = true
+  }
+  if (!db.meta) {
+    db.meta = emptyDb().meta
+    changed = true
+  }
+  // P16 (#8) : les démos sont injectées UNE fois, au premier démarrage, puis
+  // marquées. Avant, ce `forEach` tournait à chaque lecture : un
+  // `DELETE /api/customers/demo-karim` renvoyait 200 et le compte revenait à la
+  // requête suivante (le client croyait la suppression faite). Le maître, lui,
+  // reste réinjecté : sans lui, plus personne ne peut se connecter au comptoir.
+  if (db.meta.demoSeeded !== true) {
+    DEMOS.forEach((d) => {
+      if (!db.users.some((u) => u.id === d.id || u.email === d.email)) db.users.push({ ...d })
+    })
+    db.meta.demoSeeded = true
+    changed = true
+  }
+  if (!db.sessions) {
+    db.sessions = {}
+    changed = true
+  }
+  if (!db.oauthPending) {
+    db.oauthPending = {}
+    changed = true
+  }
+  // P13 (S3) : clés internes de transit — elles n'ont rien à faire dans la base
+  // persistante. `_lastAuth` contenait un TOKEN DE SESSION valide, recopié tel
+  // quel dans chaque backup de store.json. `_err` empoisonnait les inscriptions
+  // suivantes. Retirées de l'état en mémoire ET avant toute persistance.
+  if (stripInternalKeys(db)) changed = true
+  // P5 (B11) : bornes de croissance — sessions > 7 j, consentements OAuth
+  // abandonnés > 15 min.
+  if (purgeExpired(db)) changed = true
+  return changed
+}
+
+/** Empreinte du fichier : mtime + taille. `null` si absent/illisible. */
+function statOf() {
+  try {
+    const st = fs.statSync(DB_FILE)
+    return { mtimeMs: st.mtimeMs, size: st.size }
+  } catch {
+    return null
+  }
+}
+
+function sameStat(a, b) {
+  return Boolean(a && b && a.mtimeMs === b.mtimeMs && a.size === b.size)
+}
+
+/** Lecture disque réelle : parse + normalisation **en mémoire**. */
+function readDbFromDisk() {
   ensure()
   let db
   try {
@@ -224,76 +368,97 @@ export function readDb() {
     db = JSON.parse(raw)
   } catch (err) {
     // Base corrompue (écriture tronquée, disque plein…) : on ne l'écrase PAS
-    // silencieusement. On la quarantaine pour diagnostic, on log, et on
-    // repart propre.
+    // silencieusement. On la quarantaine pour diagnostic, on log, et on repart
+    // propre. C'est la seule écriture qu'une LECTURE puisse encore provoquer —
+    // et elle sauvegarde d'abord l'état illisible.
     const backup = quarantineDb()
     console.error('[pcstar-db] store.json illisible — base réinitialisée.', {
       reason: String(err && err.message ? err.message : err),
       backup: backup || null
     })
     db = emptyDb()
+    normalizeDb(db)
     writeDb(db)
     return db
   }
-  if (!Array.isArray(db.users)) db.users = [MASTER, ...DEMOS]
-  // LOT 1.1 — le maître suit l'environnement.
+  // P13 (S3) : clés internes de transit présentes SUR DISQUE — `_lastAuth`
+  // contient un TOKEN DE SESSION valide, recopié tel quel dans chaque backup.
+  const polluted =
+    Object.prototype.hasOwnProperty.call(db, '_lastAuth') || Object.prototype.hasOwnProperty.call(db, '_err')
+  const changed = normalizeDb(db)
+  // LOT 3.2 (B2) : la normalisation courante (seed, synchronisation du maître,
+  // sessions expirées) n'est persistée qu'UNE fois par processus — au démarrage
+  // (`initDb`) ou, à défaut, au premier accès (Vercel serverless n'a pas de
+  // phase de démarrage). Les GET suivants ne touchent plus au disque.
   //
-  // Avant ce correctif, la ligne ci-dessous se contentait de réinjecter un
-  // maître *s'il n'y en avait aucun*. Sur une base déjà constituée, le compte
-  // maître existant — créé à l'époque où ses identifiants étaient codés en dur
-  // et livrés dans le bundle public — restait donc **indéfiniment** en place :
-  // poser MASTER_EMAIL / MASTER_PASSWORD n'aurait rien changé pour lui.
-  //
-  // On aligne maintenant l'e-mail sur l'environnement, et le hash **seulement
-  // s'il n'est pas déjà en scrypt**. Cette restriction est essentielle : la
-  // migration P22 (item 1, dans la route login) re-sel en scrypt au premier
-  // accès réussi. Sans elle, chaque lecture remettrait le hash legacy et
-  // provoquerait un `writeDb` — donc un re-hash scrypt — à chaque connexion.
-  let masterSynced = false
-  const masterIdx = (db.users || []).findIndex((u) => u && u.role === 'master')
-  if (masterIdx < 0) {
-    db.users = [MASTER, ...(db.users || [])]
-    masterSynced = true
-  } else {
-    const cur = db.users[masterIdx]
-    if (cur.email !== MASTER.email) {
-      cur.email = MASTER.email
-      masterSynced = true
-    }
-    if (!String(cur.passwordHash || '').startsWith('scrypt$')) {
-      cur.passwordHash = MASTER.passwordHash
-      masterSynced = true
-    }
-  }
-  if (!Array.isArray(db.orders)) db.orders = []
-  if (!db.stock || typeof db.stock !== 'object') db.stock = {}
-  if (!db.meta) db.meta = emptyDb().meta
-  // P16 (#8) : les démos sont injectées UNE fois, au premier démarrage, puis
-  // marquées. Avant, ce `forEach` tournait à chaque lecture : un
-  // `DELETE /api/customers/demo-karim` renvoyait 200 et le compte revenait à la
-  // requête suivante (le client croyait la suppression faite). Le master, lui,
-  // reste réinjecté : sans lui, plus personne ne peut se connecter au comptoir.
-  let seeded = false
-  if (db.meta.demoSeeded !== true) {
-    DEMOS.forEach((d) => {
-      if (!db.users.some((u) => u.id === d.id || u.email === d.email)) db.users.push({ ...d })
-    })
-    db.meta.demoSeeded = true
-    seeded = true
-  }
-  if (!db.sessions) db.sessions = {}
-  if (!db.oauthPending) db.oauthPending = {}
-  // P13 (S3) : clés internes de transit — elles n'ont rien à faire dans la
-  // base persistante. `_lastAuth` contenait un TOKEN DE SESSION valide,
-  // recopié tel quel dans chaque backup de store.json. `_err` empoisonnait
-  // les inscriptions suivantes. Les deux sont retirées à chaque lecture (et
-  // la base est réécrite pour purger les copies déjà présentes sur disque).
-  const stripped = stripInternalKeys(db)
-  // P5 (B11) : bornes de croissance — sessions > 7 j, consentements OAuth
-  // abandonnés > 15 min. Écriture si quelque chose a été purgé… ou si le
-  // marqueur de seed (#8) vient d'être posé.
-  if (purgeExpired(db) || stripped || seeded || masterSynced) writeDb(db)
+  // Exception assumée : un fichier pollué par une clé interne est purgé SANS
+  // attendre. C'est une question de sécurité (un `npm run backup` pris dans
+  // l'intervalle recopierait le token), et c'est rare — en régime normal ces
+  // clés ne vivent que le temps d'un `updateDb`, qui ne les persiste pas.
+  if (polluted || (changed && !initialized)) writeDb(db)
   return db
+}
+
+/**
+ * LOT 3.2 (B3) — lecture de l'état, avec cache mémoire invalidé par `statSync`.
+ *
+ * Ne retourne PAS une copie : les handlers qui normalisent en lisant
+ * (`ensureStock`, `migrateNeeds`) modifient l'état en mémoire, ce qui est
+ * idempotent et sera persisté par la prochaine écriture. Toute mutation à
+ * persister passe par `updateDb`/`writeDb`.
+ */
+export function readDb() {
+  const st = statOf()
+  if (cache.db && sameStat(cache.stat, st)) {
+    cache.hits += 1
+    return cache.db
+  }
+  cache.reads += 1
+  const db = readDbFromDisk()
+  cache.stat = statOf()
+  cache.db = db
+  lastGood.at = Date.now()
+  lastGood.db = db
+  return db
+}
+
+/**
+ * LOT 3.2 (B2) — à appeler au démarrage du serveur : crée le fichier s'il
+ * manque, normalise et **persiste une fois** (seed des démos, synchronisation du
+ * maître, purge des sessions expirées, clés internes). Idempotent.
+ */
+export function initDb() {
+  const db = readDbFromDisk()
+  initialized = true
+  cache.stat = statOf()
+  cache.db = db
+  lastGood.at = Date.now()
+  lastGood.db = db
+  return db
+}
+
+/** Diagnostics : cache, compteurs de lecture/écriture, dernière lecture réussie. */
+export function dbCacheStats() {
+  return {
+    cached: Boolean(cache.db),
+    hits: cache.hits,
+    reads: cache.reads,
+    writes: cache.writes,
+    stat: cache.stat ? { ...cache.stat } : null,
+    lastGoodAt: lastGood.at || null
+  }
+}
+
+/** Vide le cache et l'état d'initialisation — tests et changement de base. */
+export function resetDbCache() {
+  cache.stat = null
+  cache.db = null
+  cache.hits = 0
+  cache.reads = 0
+  cache.writes = 0
+  lastGood.at = 0
+  lastGood.db = null
+  initialized = false
 }
 
 /**
@@ -385,17 +550,46 @@ export async function readDbSafe() {
   try {
     if (driver === 'neon') {
       const { readNeonState } = await import('./neonStore.js')
-      return { db: await readNeonState(emptyDb), ok: true, driver, error: null }
+      const db = await readNeonState(emptyDb)
+      lastGood.at = Date.now()
+      lastGood.db = db
+      return { db, ok: true, driver, error: null, asOf: lastGood.at, source: 'db' }
     }
-    return { db: readDb(), ok: true, driver, error: null }
+    const db = readDb()
+    return { db, ok: true, driver, error: null, asOf: lastGood.at || Date.now(), source: 'db' }
   } catch (error) {
     const message = String((error && error.message) || error)
-    console.error('[pcstar-db] lecture d\'état échouée — repli sur le catalogue de base.', {
+    // LOT 3.16 (B19) : le repli est désormais DATÉ et SOURCÉ. Avant, une base
+    // injoignable servait `emptyDb()` — le catalogue statique du build — sans
+    // aucune indication d'âge : l'utilisateur voyait des prix dont personne ne
+    // pouvait dire s'ils dataient de cinq secondes ou de trois mois.
+    //
+    // Deux replis, dans l'ordre :
+    //  · `cache` — la dernière lecture réussie de CE processus (`lastGood`),
+    //    avec son horodatage : c'est l'état le plus proche de la vérité ;
+    //  · `static` — aucune lecture n'a jamais réussi (démarrage base morte) :
+    //    catalogue de base du build, `asOf: null` dit « âge inconnu ».
+    //
+    // Dans les deux cas `ok: false` → les réponses gardent `degraded: true` et
+    // les ÉCRITURES restent strictes (`updateDbAsync` lève) : jamais faire
+    // croire qu'une commande a été enregistrée.
+    const fromCache = Boolean(lastGood.db)
+    console.error('[pcstar-db] lecture d\'état échouée — repli.', {
       driver,
       message,
+      fallback: fromCache ? 'cache' : 'static',
+      asOf: fromCache ? new Date(lastGood.at).toISOString() : null,
       hint: driver === 'neon' ? 'Vérifier DATABASE_URL (endpoint -pooler, branche existante, compute non suspendu).' : null
     })
-    return { db: emptyDb(), ok: false, driver, error: message }
+    const db = fromCache ? { ...lastGood.db } : emptyDb()
+    return {
+      db,
+      ok: false,
+      driver,
+      error: message,
+      asOf: fromCache ? lastGood.at : null,
+      source: fromCache ? 'cache' : 'static'
+    }
   }
 }
 
@@ -436,19 +630,132 @@ export async function updateDbAsync(mutator) {
   return updateNeonState(mutator, emptyDb)
 }
 
-export function writeDb(db) {
-  ensure()
-  // Écriture atomique : tmp puis rename (même FS) — un crash ne peut pas
-  // laisser un store.json tronqué.
-  fs.writeFileSync(DB_TMP_FILE, JSON.stringify(db, null, 2))
-  fs.renameSync(DB_TMP_FILE, DB_FILE)
+/** Dort `ms` sans boucle active (le verrou est tenu quelques millisecondes). */
+function sleepSync(ms) {
+  try {
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
+  } catch {
+    const until = Date.now() + ms
+    while (Date.now() < until) {
+      /* dernier recours si Atomics est indisponible */
+    }
+  }
 }
 
+/**
+ * LOT 3.2 (B1) — verrou fichier inter-processus autour du read-modify-write.
+ *
+ * `fs.openSync(…, 'wx')` est atomique : un seul processus obtient le fichier de
+ * verrou. Attente bornée (`LOCK_TIMEOUT_MS`) puis écriture sans verrou plutôt
+ * que blocage infini — une base dégradée vaut mieux qu'une base figée, et le
+ * message est tracé. Un verrou orphelin (processus tué sans `finally`) est
+ * repris après `LOCK_STALE_MS`.
+ *
+ * @param {(locked: boolean) => any} fn exécuté avec le verrou (ou sans, si
+ *   l'attente a expiré / le système de fichiers ne le permet pas).
+ */
+function withDbLock(fn) {
+  ensure()
+  const deadline = Date.now() + LOCK_TIMEOUT_MS
+  let locked = false
+  for (;;) {
+    try {
+      const fd = fs.openSync(DB_LOCK_FILE, 'wx')
+      try {
+        fs.writeSync(fd, `${process.pid}:${Date.now()}`)
+      } finally {
+        fs.closeSync(fd)
+      }
+      locked = true
+      break
+    } catch (err) {
+      // Autre chose que « existe déjà » (FS sans création possible, /tmp
+      // read-only…) : on écrit sans verrou plutôt que de tout bloquer.
+      if (!err || err.code !== 'EEXIST') break
+      let stale = false
+      try {
+        stale = Date.now() - fs.statSync(DB_LOCK_FILE).mtimeMs > LOCK_STALE_MS
+      } catch {
+        stale = true // le verrou vient de disparaître : on retente tout de suite
+      }
+      if (stale) {
+        try {
+          fs.unlinkSync(DB_LOCK_FILE)
+        } catch {
+          /* un autre processus l'a déjà repris */
+        }
+        continue
+      }
+      if (Date.now() >= deadline) break
+      sleepSync(10)
+    }
+  }
+  if (!locked) {
+    console.error('[pcstar-db] verrou d\'écriture non obtenu — écriture sans verrou.', {
+      lockFile: DB_LOCK_FILE,
+      timeoutMs: LOCK_TIMEOUT_MS
+    })
+  }
+  try {
+    return fn(locked)
+  } finally {
+    if (locked) {
+      try {
+        fs.unlinkSync(DB_LOCK_FILE)
+      } catch {
+        /* déjà repris par un autre processus */
+      }
+    }
+  }
+}
+
+/**
+ * Écriture atomique : tmp puis rename (même FS) — un crash ne peut pas laisser
+ * un store.json tronqué.
+ *
+ * LOT 3.2 (B2) : l'état persisté est normalisé (structure, purge des entrées
+ * expirées, clés internes de transit retirées). C'est le pendant de la
+ * normalisation en mémoire de `readDb` : la propreté du disque est garantie au
+ * démarrage et à chaque écriture, jamais pendant une lecture.
+ *
+ * L'objet de l'appelant n'est pas amputé de `_lastAuth` — les handlers le
+ * lisent juste après l'écriture (token de la session créée).
+ */
+export function writeDb(db) {
+  ensure()
+  const clean = { ...db }
+  delete clean._lastAuth
+  delete clean._err
+  normalizeDb(clean)
+  fs.writeFileSync(DB_TMP_FILE, JSON.stringify(clean, null, 2))
+  fs.renameSync(DB_TMP_FILE, DB_FILE)
+  initialized = true
+  cache.writes += 1
+  cache.stat = statOf()
+  cache.db = clean
+  lastGood.at = Date.now()
+  lastGood.db = clean
+  return clean
+}
+
+/**
+ * LOT 3.2 (B1) — read-modify-write sous verrou, sur une lecture FRAÎCHE.
+ *
+ * Avant : `readDb()` (donc, depuis B3, un état potentiellement en cache) puis
+ * écriture sans verrou. Deux processus pouvaient lire le même état et écrire
+ * chacun le sien : la dernière écriture gagnait, la mutation de l'autre était
+ * perdue. Sous Vercel, chaque instance a son propre `/tmp` — le verrou n'y
+ * change rien, c'est la divergence entre instances que le lot 4 documente ; ici
+ * c'est le multi-process local (deux `npm run dev:api`, un `npm run backup`
+ * pendant que le serveur tourne) qui perdait des mutations.
+ */
 export function updateDb(mutator) {
-  const db = readDb()
-  const next = mutator(db) || db
-  writeDb(next)
-  return next
+  return withDbLock(() => {
+    const db = readDbFromDisk()
+    const next = mutator(db) || db
+    writeDb(next)
+    return next
+  })
 }
 
 /** P16 : chemins réels de la base (respecte PCSTAR_DATA_DIR). */

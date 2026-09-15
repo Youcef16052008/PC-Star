@@ -99,6 +99,14 @@ describe('API en mode dégradé (B25)', () => {
     assert.equal(data.db.driver, 'neon')
     assert.equal(data.db.reachable, false)
     assert.ok(data.db.error)
+    // LOT 3.16 (B19) : le repli est DATÉ et SOURCÉ, pour que le bandeau client
+    // puisse dire depuis quand les prix affichés datent (au lieu de laisser
+    // deviner s'ils ont cinq secondes ou trois mois).
+    //  · `static` + `asOf: null` → aucune lecture n'a jamais abouti dans ce
+    //    process : c'est le catalogue du build, âge inconnu ;
+    //  · `cache` + `asOf` (ms) → la dernière lecture réussie, datée.
+    assert.equal(data.db.source, 'static')
+    assert.equal(data.db.asOf, null)
     const cpu = data.products.find((p) => p.id === 'cpu-7800x3d')
     assert.ok(cpu, 'produit de base servi')
     assert.equal(cpu.stock, 6, 'stock d’origine du catalogue')

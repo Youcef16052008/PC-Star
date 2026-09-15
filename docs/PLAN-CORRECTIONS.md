@@ -231,6 +231,13 @@ qui tient.**
 
 ### 🛡️ Lot 3 — Robustesse & concurrence (F7, F8, B1→B19, B21, R14, R17)
 
+> ✅ **Fait** (15/09/2026) — 3.1 à 3.19 (**B22 était FAUX** dans les rapports :
+> rien à corriger, aucun code touché), plus une découverte faite en écrivant les
+> tests (le démarrage purgeait le jeton API sur une panne transitoire) et une
+> observation non corrigée, à trancher (jetons de session présents dans
+> `store.json` et donc dans les backups). Détail, tests et vérification de
+> sensibilité (17 mutations) au §9.
+
 | # | Correction | Fichiers | Taille | Critère d'acceptation |
 |---|---|---|---|---|
 | 3.1 | **F7 + F8** — Un **seul** helper de stockage sûr (`safeStorage`) avec try/catch sur `getItem`/`setItem`/`removeItem` + repli mémoire, utilisé partout : wrapper `App.jsx`, `prefs.js`, `shopStore.js`, `api.js` | `src/App.jsx:76-87`, `src/prefs.js`, `src/shopStore.js`, `src/api.js` (nouveau module partagé) | M | Sonde : avec un storage qui lève `SecurityError`, l'app **monte** et fonctionne en mémoire (test jsdom) |
@@ -640,6 +647,235 @@ meta local dans `submitPanel` → 1, dans `doTogglePanel` → 1 ; filtre strict
 `userId === user.id` → 2 ; badge guest retiré → 1 ; branche préfixée de `verifyPass`
 revenant au mot de passe en clair → 1 (pass-the-hash). Aucun test du lot n'est
 vacant.
+
+### ✅ Fait — lot 3, robustesse & concurrence (15/09/2026)
+
+Ordre suivi : 3.1 → 3.2 → 3.3→3.11 + 3.16 (client, `App.jsx`) → 3.12 → 3.13 →
+3.14 → 3.15 → 3.10 → 3.18 → 3.19 → 3.17 (vérifié déjà satisfait). **B22 était
+FAUX** dans les deux rapports (voir `VERIFICATION-RAPPORT-AUDIT-2.md`) : rien à
+corriger, aucun code touché.
+
+**3.1 (F7 + F8) — un seul stockage sûr : `src/safeStorage.js` (nouveau).**
+Tous les accès (`App.jsx`, `prefs.js`, `shopStore.js`, `api.js`) passent
+désormais par un wrapper qui ne lève **jamais** et retombe sur un repli mémoire
+par clé. Deux pièges traités explicitement : `typeof localStorage !== 'undefined'`
+ne protège pas (le getter de `Window` lève `SecurityError`, et `typeof`
+l'évalue) ; la résolution reste **paresseuse** (P22) — le stockage réel est
+résolu à chaque appel, jamais capturé à l'évaluation du module. Une clé dont
+l'écriture persistante échoue est « ombrée » : sa copie mémoire fait foi à la
+lecture, sinon un `QuotaExceededError` en cours de session (photos master en
+data-URL) laisserait relire la valeur périmée du disque. L'UI le dit
+(`storageBlockedNote`, fr/en/ar) : c'est la seule façon honnête d'expliquer un
+panier qui ne survit pas au rechargement. Le wrapper maison d'`App.jsx` — ajouté
+précisément pour ces iframes, mais **sans** try/catch — est supprimé.
+
+**3.2 (B1 + B2 + B3) — driver fichier de `server/db.js` réécrit.**
+(a) `purgeExpired` / `stripInternalKeys` / seed des démos / synchronisation du
+maître ne tournent plus à chaque lecture : normalisation **en mémoire** à la
+lecture, persistée au démarrage (`initDb()`, appelé par `startLocalServer`) et à
+chaque écriture. Un GET n'écrit plus sur le disque. Exception assumée : un
+fichier qui contient encore `_lastAuth`/`_err` est purgé **immédiatement** à la
+lecture — la propriété de sécurité (aucun token dans les backups) passe avant
+l'absence d'écriture. (b) Verrou fichier `store.json.lock` (`openSync('wx')`,
+atomique) autour du read-modify-write, attente bornée 4 s, verrou orphelin repris
+après 10 s, repli « écriture sans verrou » **tracé** plutôt que blocage ;
+`updateDb` relit sous verrou (pas de cache) donc deux processus ne se marchent
+plus dessus. (c) Cache mémoire invalidé par `mtimeMs` + `size`, avec compteurs
+(`dbCacheStats`). Le driver Neon n'a pas besoin du verrou : `updateNeonState`
+verrouille déjà sa ligne.
+
+**3.3 → 3.7 — état React : effets de bord hors des updaters, valeurs à jour.**
+`App.jsx` reçoit des **miroirs synchrones** (`cartRef`, `reservationsRef`) et
+quatre helpers : `setCart` (calcule `next` hors updater, met à jour état +
+miroir, persiste **après**, renvoie `next`), `loadCart` (sans écriture),
+`syncReservations` (état + miroir, pour les données d'origine serveur) et
+`commitReservations` (état + miroir + copie navigateur, pour les mutations
+locales). Tous les sites qui écrivaient dans le stockage **depuis** un updater
+ont été convertis : en StrictMode, React rappelle les updaters — une mutation
+produisait deux écritures, et la clé de stockage était choisie au moment du
+*rappel*, pas de l'appel (B6). Sur ces miroirs s'appuient : le code de
+commande locale calculé sur `reservationsRef.current` avant les `await` (B7 —
+deux réservations hors-ligne quasi simultanées produisaient le même code) ; la
+garde de stock évaluée **dans** la mise à jour, sur `prev` (B8 — double-clic
+avec stock 1 = 2 unités au panier, puis 409 `stock` ou survente locale), idem
+pour le plafond de `setQty` ; l'annulation d'une commande **serveur** en mode
+mixte appelle `refreshStock()` au lieu d'incrémenter `stockMap` (B9 — unités
+fantômes à l'affichage, le serveur ayant déjà rendu le stock) ; et une garde de
+fraîcheur par numéro de séquence sur `refreshStock` **et** sur le chargement
+initial (B10 — trois appels croisés : c'était la réponse la plus lente, donc la
+plus ancienne, qui s'appliquait en dernier). `applyCatalog()` est maintenant le
+point d'application unique d'une réponse de catalogue, et c'est lui qui marque le
+catalogue serveur « prêt » : sans cela, une réponse de démarrage périmée —
+jetée par la garde — aurait laissé `serverCatalogReady` à `false` alors que
+l'état frais était déjà en mémoire, et la boutique serait retombée sur le
+catalogue statique.
+
+**3.8 + 3.9 (B11 + B12 + B13) — sessions mortes : le dire, et ne pas les
+provoquer.** `src/api.js` expose `setUnauthorizedHandler` /
+`clearUnauthorizedHandler` : tout 401 sur une route authentifiée passe par un
+seul point, qui purge le jeton, repasse en mode local, coupe `apiOnline` et
+affiche `sessionExpired` — **une seule fois** par session morte (`sessionExpiredNotified`,
+réarmé dès qu'une session est appliquée). Les routes `/api/auth/*` sont exclues :
+un 401 de `login` est une réponse normale (« identifiants incorrects »), pas une
+session expirée ; un échec réseau (statut 0) n'est pas un 401. Le retour OAuth
+appelle `applyApiSession()`, à **tentatives bornées** (3, repli 700 ms
+progressif) avec message d'échec visible (`authRetryFailed`) : avant, une API
+lente au retour OAuth laissait l'utilisateur sur la vitrine, sans retry et sans
+aucun message. Le démarrage utilise la même fonction (2 tentatives) et **ne purge
+le jeton que sur un refus définitif (401)** — sur un 503, un timeout ou un réseau
+coupé, le jeton est conservé : la session est toujours valable côté serveur et le
+chargement suivant retentera. C'est le test qui a fait sortir ce cas : la purge
+sur panne transitoire déconnectait le maître pour rien.
+
+**3.10 (B14 + B15) — socket Desk : on arrête d'insister, et on compte juste.**
+Côté client (`src/deskStream.js`), après **8 échecs consécutifs** d'ouverture
+(upgrade refusé, constructeur qui lève, fermeture immédiate) le socket est
+abandonné (`socketGaveUp()`, callback `onGiveUp`) et le polling — source de
+vérité — continue seul : sur Vercel, où il n'y a pas de WebSocket serverless, on
+retentait indéfiniment pour rien. Une ouverture réussie remet le compteur à zéro
+(échecs *consécutifs*). Côté serveur, heartbeat `ping`/`pong` toutes les 30 s :
+un client qui n'a pas répondu au ping précédent est retiré du registre puis
+terminé. Un socket TCP à moitié mort (onglet en veille, coupure sans FIN) reste
+`readyState === OPEN` pour toujours : le comptoir se croyait en direct et
+`deskClientCount()` comptait des fantômes.
+
+**3.11 (B16) — commandes arrivées pendant l'absence du comptoir.**
+`seenOrderCodes` est une ref : elle repart de zéro à chaque chargement, et le
+premier pull se contentait de l'initialiser — les résas arrivées pendant la nuit
+s'affichaient sans bip ni notification. `prefs.js` persiste désormais
+l'horodatage du dernier pull réussi (`pcstar-desk-seen-at`, pris **avant**
+l'envoi) ; au premier pull, les commandes plus récentes que cet horodatage sont
+annoncées : toast agrégé (`deskNewOrders {n}`, ou `deskNewOrder` pour une seule)
+et notifications navigateur **bornées à 3** (`MAX_MISSED_NOTIFY`) — 20 résas
+nocturnes ne doivent pas produire 20 notifications. Sans horodatage (tout
+premier démarrage), l'initialisation reste silencieuse : annoncer tout
+l'historique serait du bruit. Le pull s'arrête net sur 401 (le handler global
+prend la main) au lieu de fusionner quoi que ce soit.
+
+**3.12 (B17) — 413 ferme la connexion.** Le corps est refusé **avant** d'avoir
+été lu jusqu'au bout ; répondre sur une connexion keep-alive pendant que le
+client envoie encore ses octets, c'est prendre le risque que la réponse ne soit
+pas lue et que la requête suivante, sur le même socket, commence au milieu d'un
+corps abandonné. La réponse porte `Connection: close` et le socket est fermé
+(`destroySoon`) dès qu'elle est partie.
+
+**3.13 (B18) — configuration OAuth lue à la demande.** `OAUTH_DEMO` et
+`OAUTH_REDIRECT_BASE` étaient évalués une fois, à l'import du module : un test
+(ou un rechargement à chaud) qui les posait ensuite continuait de voir les
+valeurs du démarrage. `oauthDemo()` / `oauthBase()` remplacent les constantes :
+toutes les lectures suivent l'environnement courant.
+
+**3.14 (B4) — plus d'override résiduel.** Masquer puis réafficher un produit du
+catalogue laissait `meta.productOverrides[id] = {}` pour toujours : entrée
+résiduelle recopiée dans chaque backup et chaque export de meta. La clé est
+effacée dès que l'override redevient vide ; un override réel survit à
+masquer/réafficher.
+
+**3.15 (B5) — backups uniques.** Le nom ne portait que la seconde courante :
+deux backups dans la même seconde (timer 6 h + sauvegarde manuelle) écrivaient le
+même fichier, silencieusement, et `capBackups` croyait avoir 14 jeux. Suffixe
+aléatoire de 3 octets **après** l'horodatage — le tri alphabétique reste
+chronologique et le motif `store-*.json` est inchangé (aligné sur `quarantineDb`).
+
+**3.16 (B19) — repli dégradé daté.** `readDbSafe()` distingue deux replis :
+`cache` (dernière lecture réussie de ce processus, avec son horodatage) et
+`static` (aucune lecture n'a jamais abouti → catalogue du build, `asOf: null` =
+âge inconnu). `/api/catalog` les expose (`db.asOf`, `db.source`) et le bandeau
+client affiche l'âge via `Intl.RelativeTimeFormat` dans la langue de l'interface
+(`catalogDegradedSince` / `catalogDegradedStatic`, fr/en/ar) — au lieu de laisser
+deviner si les prix ont cinq secondes ou trois mois. Les écritures restent
+strictes : jamais faire croire qu'une commande a été enregistrée.
+
+**3.17 (B21) — déjà satisfait, vérifié et verrouillé.** `hashPassLegacy`
+(`server/db.js`) est déclaré **avant** `const MASTER = masterAccount()` : plus
+aucune dépendance au hoisting. Un test assertit désormais l'ordre dans le source
+(une réorganisation innocente en apparence ne peut plus réintroduire le piège) et
+l'absence du mot de passe en clair dans l'objet maître.
+
+**3.18 (R14) — plus aucun token dans une URL.** (a) Retour OAuth : le serveur
+redirige avec `#oauth_token=…` (fragment) au lieu de `?oauth_token=…`. Un
+fragment n'est jamais renvoyé au serveur : il ne finit ni dans les journaux
+d'accès du front, ni dans le `Referer` des requêtes suivantes, ni dans
+l'historique d'un proxy. Le client lit le fragment (l'ancien paramètre en query
+reste accepté en repli le temps qu'un retour déjà en vol atterrisse), applique la
+session, puis nettoie l'URL par `history.replaceState` **immédiatement**.
+(b) WebSocket Desk : l'upgrade est accepté sans token dans l'URL ; le client
+s'authentifie par son **premier message** (`{type:'auth',token}`). Tant qu'il
+n'est pas authentifié, le socket n'est pas dans le registre de diffusion (il ne
+reçoit rien) et il est fermé au bout de 5 s. Codes applicatifs : `4401` premier
+message non-authentification, `4403` token invalide ou non-master, `4408` aucune
+authentification dans le délai, `4429` trop de sockets en attente (plafond 32,
+anti-abus puisque l'upgrade n'est plus filtré). Un front ancien en cache qui
+envoie encore `?token=` reste accepté (même vérification master) le temps du
+déploiement. Les tests et `scripts/verify-p19-live.mjs` ont été mis à jour : ils
+assertaient l'ancien contrat (token en query, refus 401/403 à l'upgrade).
+
+**3.19 (R17) — rate-limit : limite documentée et assumée.** Les compteurs vivent
+dans une `Map` en mémoire du process : exacte sur un serveur local, mais sur
+Vercel chaque instance (cold start, montée en charge, région) a **ses**
+compteurs — un attaquant qui multiplie les instances multiplie son budget. Ce
+n'est donc pas une frontière de sécurité sur Vercel, c'est un frein ; la défense
+réelle reste un `MASTER_PASSWORD` long + scrypt (+ WAF Vercel). En-tête de
+`server/rateLimit.js` et section dédiée dans `docs/DEPLOY-VERCEL.md` §7 (tableau
+des cas, et la marche à suivre si le multi-instances devient réel :
+`@upstash/ratelimit` ou Vercel KV, contrat `{ ok, retryAfter }` inchangé). La
+même section documente l'absence de WebSocket sur Vercel et le repli polling.
+
+**Découverte en écrivant les tests (corrigée, hors rapports).** Le démarrage
+purgeait le jeton API dès que `me()` échouait, **y compris sur une panne
+transitoire** (503, timeout, réseau coupé) : une API momentanément injoignable
+déconnectait le maître et coûtait sa session au client qui venait de revenir
+d'OAuth. La purge est maintenant réservée au refus définitif (401). Voir 3.9.
+
+**Observation hors rapports, NON corrigée (à trancher).** Le registre
+`db.sessions` est indexé **par jeton** : les jetons de session valides sont donc
+présents dans `store.json`, et recopiés dans chaque backup. C'est le comportement
+normal d'un stockage de sessions côté serveur (l'équivalent d'une table
+`sessions`), et ce n'est ce que P13/S3 visait (la copie `_lastAuth`, elle, a été
+supprimée). Mais un backup qui fuit donne des sessions utilisables, y compris
+maître. Le durcissement usuel — ne stocker qu'une empreinte du jeton
+(`sha256(token)` comme clé, comparaison à temps constant) — casse les sessions
+existantes au déploiement et touche `db.js`, `index.js` et `oauth.js` : il n'est
+pas dans le plan, il est proposé pour un lot ultérieur.
+
+**Tests.** Quatre nouveaux fichiers : `src/lot3Client.test.js` (17 — safeStorage
+et ses deux pièges, horodatage du pull Desk, handler 401, plafond de
+reconnexion), `src/lot3Server.test.js` (25 — écritures concurrentes du driver
+fichier, absence d'écriture à la lecture, clés internes, `db.asOf`/`source`,
+413 + `Connection: close`, OAuth lu à la demande, override vide, backups uniques,
+ordre des déclarations, les 6 cas d'authentification WebSocket, heartbeat et
+fantômes), `src/lot3UI.test.js` (15 — bandeau dégradé daté/Statique/absent,
+session expirée annoncée une seule fois, résas manquées annoncées ou non,
+double-clic avec stock 1, retour OAuth par fragment et par query legacy, retry
+borné, échec définitif, réponses de catalogue croisées, écriture unique en
+StrictMode) et `src/lot3StorageBlocked.test.js` (1 — sonde d'acceptation de 3.1 :
+`localStorage` qui lève sur chaque accès, l'app monte, affiche la boutique, le
+dit, et le panier fonctionne en mémoire). Tests existants mis à jour là où ils
+assertaient l'ancien contrat : `securityFixes` (fragment), `notifyP19` (URL du
+socket sans token + premier message), `apiDegraded` (`db.source`/`asOf`).
+Suite complète : **483 tests, 0 échec** ; `npm run build` passe.
+
+Vérification bout-en-bout sur le serveur de prévisualisation (API réelle + front
+réel) : catalogue sain → `db.source='db'`, `asOf` horodaté ; corps de 16 Mo →
+**413 avec `Connection: close`** ; parcours OAuth démo complet → `Location:
+…/#oauth_token=…` (**aucun** token en query) et le jeton du fragment répond 200
+sur `/api/me` ; socket Desk → muet fermé **4408** après 5,02 s, premier message
+`ping` fermé **4401**, token invalide fermé **4403**, token master → `hello
+{authed:true}` et socket conservé ; trois backups déclenchés dans la même seconde
+→ trois fichiers distincts (`store-2026-09-15T19-00-49-221e62.json` au démarrage
+du serveur).
+
+Sensibilité vérifiée — chaque correctif retiré **un par un**, puis restauré
+(17 mutations) : écriture remise dans l'updater (B6) → 1 test rouge ; garde de
+stock remise avant l'updater (B8) → 1 ; garde de fraîcheur retirée (B10) → 1 ;
+handler 401 rendu inerte (B11) → 2 ; horodatage du Desk ignoré (B16) → 1 ; purge
+sur panne transitoire rétablie (B12) → 1 ; âge du repli masqué (B19) → 1 ;
+`Connection: close` retiré (B17) → 1 ; `asOf`/`source` retirés (B19 serveur) → 1 ;
+override vide conservé (B4) → 2 ; suffixe aléatoire retiré (B5) → 2 ;
+configuration OAuth figée à l'import (B18) → 1 ; socket authentifié d'office
+(R14) → 5 ; écriture pendant la lecture rétablie (B2) → 1 ; plafond de
+reconnexion retiré (B14) → 2 ; token remis dans l'URL du socket (R14) → 1 ;
+`try/catch` retiré de `getItem` (F7) → 1. Aucun test du lot n'est vacant.
 
 ### ⚠️ Reste à faire par l'exploitant (lot 0 — reporté à la fin, à la demande)
 

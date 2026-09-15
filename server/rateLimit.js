@@ -1,4 +1,19 @@
-/** Simple in-memory rate limit (per IP + bucket). */
+/**
+ * Rate-limit applicatif — compteurs **en mémoire**, par IP + bucket.
+ *
+ * LOT 3.19 (R17) — limite assumée et documentée : une `Map` en mémoire vit dans
+ * UN process. Elle est exacte sur un serveur local (un seul process) mais, sur
+ * Vercel, chaque instance serverless (cold start, montée en charge, région
+ * différente) possède SES propres compteurs : un attaquant qui multiplie les
+ * instances multiplie d'autant son budget. Ce n'est donc pas une frontière de
+ * sécurité sur Vercel, c'est un frein — la défense réelle contre le
+ * brute-force reste un `MASTER_PASSWORD` long + le hachage scrypt (+ le WAF
+ * Vercel si besoin).
+ *
+ * Pour un comptage partagé : brancher `@upstash/ratelimit` (Upstash Redis) ou
+ * Vercel KV en gardant le même contrat `{ ok, retryAfter }`. Détails et tableau
+ * des cas dans `docs/DEPLOY-VERCEL.md` §7.
+ */
 const buckets = new Map()
 // P10 (P7-9) : bornage mémoire — au-delà de ce nombre de clés, on balaye les
 // buckets expirés (une clé expirée = windowMs sans appel). Sans cela, sur une

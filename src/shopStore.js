@@ -26,6 +26,12 @@ const KEY_SESSION = 'pcstar-session'
 const KEY_SAVED_SEARCHES = 'pcstar-saved-searches'
 const MAX_SAVED_SEARCHES = 10
 
+// LOT 3.1 (F7 + F8) : accès au stockage qui ne lève jamais + repli mémoire.
+// `loadUsers` / `loadSession` / `loadMeta` étaient appelés dans les
+// initializers de `useState` d'`App.jsx` : avec un `localStorage` bloqué
+// (iframe tierce), ils levaient un `SecurityError` pendant le rendu.
+import { asSafeStorage, safeStorage } from './safeStorage.js'
+
 export function hashPass(password) {
   let h = 2166136261
   const s = String(password || '')
@@ -134,8 +140,8 @@ function demoUser(seed) {
   return { ...rest, password: hashPass(passwordPlain) }
 }
 
-export function loadUsers(storage) {
-  const raw = storage?.getItem?.(KEY_USERS)
+export function loadUsers(storage = safeStorage) {
+  const raw = asSafeStorage(storage).getItem(KEY_USERS)
   let list = []
   if (raw) {
     try {
@@ -168,14 +174,14 @@ export function phoneCarrier(value) {
   return null
 }
 
-export function saveUsers(storage, users) {
-  storage?.setItem?.(KEY_USERS, JSON.stringify(users))
+export function saveUsers(storage = safeStorage, users) {
+  asSafeStorage(storage).setItem(KEY_USERS, JSON.stringify(users))
 }
 
 /** P10 (P7-14) : recherches sauvées persistées (bornées à 10). */
-export function loadSavedSearches(storage = typeof localStorage !== 'undefined' ? localStorage : null) {
+export function loadSavedSearches(storage = safeStorage) {
   try {
-    const raw = storage?.getItem?.(KEY_SAVED_SEARCHES)
+    const raw = asSafeStorage(storage).getItem(KEY_SAVED_SEARCHES)
     if (!raw) return []
     const list = JSON.parse(raw)
     return Array.isArray(list) ? list.slice(0, MAX_SAVED_SEARCHES) : []
@@ -184,20 +190,17 @@ export function loadSavedSearches(storage = typeof localStorage !== 'undefined' 
   }
 }
 
-export function saveSavedSearches(storage = typeof localStorage !== 'undefined' ? localStorage : null, list = []) {
+export function saveSavedSearches(storage = safeStorage, list = []) {
   // P15 (#5) : `null` explicite (c'était l'appel de SearchPage) écrasait le
   // paramètre par défaut → AUCUNE persistance, toute la feature P7-14 était
   // inopérante. On retombe sur localStorage quand aucun storage n'est fourni.
-  const store = storage || (typeof localStorage !== 'undefined' ? localStorage : null)
-  try {
-    store?.setItem?.(KEY_SAVED_SEARCHES, JSON.stringify((list || []).slice(0, MAX_SAVED_SEARCHES)))
-  } catch {
-    /* quota/iframe : les recherches sauvées restent en mémoire */
-  }
+  // `asSafeStorage` couvre le quota et l'iframe : les recherches sauvées
+  // restent en mémoire pour la page, sans `try/catch` local.
+  asSafeStorage(storage).setItem(KEY_SAVED_SEARCHES, JSON.stringify((list || []).slice(0, MAX_SAVED_SEARCHES)))
 }
 
-export function loadSession(storage) {
-  const raw = storage?.getItem?.(KEY_SESSION)
+export function loadSession(storage = safeStorage) {
+  const raw = asSafeStorage(storage).getItem(KEY_SESSION)
   if (!raw) return null
   try {
     return JSON.parse(raw)
@@ -206,13 +209,14 @@ export function loadSession(storage) {
   }
 }
 
-export function saveSession(storage, session) {
-  if (!session) storage?.removeItem?.(KEY_SESSION)
-  else storage?.setItem?.(KEY_SESSION, JSON.stringify(session))
+export function saveSession(storage = safeStorage, session) {
+  const st = asSafeStorage(storage)
+  if (!session) st.removeItem(KEY_SESSION)
+  else st.setItem(KEY_SESSION, JSON.stringify(session))
 }
 
-export function loadMeta(storage) {
-  const raw = storage?.getItem?.(KEY_META)
+export function loadMeta(storage = safeStorage) {
+  const raw = asSafeStorage(storage).getItem(KEY_META)
   if (!raw) return emptyMeta()
   try {
     const parsed = JSON.parse(raw)
@@ -222,8 +226,8 @@ export function loadMeta(storage) {
   }
 }
 
-export function saveMeta(storage, meta) {
-  storage?.setItem?.(KEY_META, JSON.stringify(meta))
+export function saveMeta(storage = safeStorage, meta) {
+  asSafeStorage(storage).setItem(KEY_META, JSON.stringify(meta))
 }
 
 export function registerEmail(users, { email, password, name, phone } = {}) {

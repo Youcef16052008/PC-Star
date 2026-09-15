@@ -82,7 +82,14 @@ async function oauthDemo(provider, email, { returnUrl, intent = 'login' } = {}) 
     status: res.status,
     location: res.headers.get('location'),
     text: await res.text(),
-    token: new URLSearchParams((res.headers.get('location') || '').split('?')[1] || '').get('oauth_token')
+    // LOT 3.18 (R14) : le token revient par FRAGMENT (`#oauth_token=`), plus en
+    // query — il ne finit donc ni dans les journaux d'accès du front, ni dans un
+    // `Referer`. Le helper lit le fragment (et reste tolérant à l'ancien format).
+    token: (() => {
+      const loc = res.headers.get('location') || ''
+      const fromHash = new URLSearchParams(loc.split('#')[1] || '').get('oauth_token')
+      return fromHash || new URLSearchParams(loc.split('?')[1] || '').get('oauth_token')
+    })()
   }
 }
 
@@ -162,7 +169,8 @@ describe('S2 (#9) — returnUrl : plus d’open redirect ni de fuite de token', 
     assert.equal(r.status, 302)
     assert.ok(r.location, 'une redirection a lieu')
     assert.equal(r.location.includes('evil.example'), false, `fuite : ${r.location}`)
-    assert.match(r.location, /^http:\/\/127\.0\.0\.1:5173\/\?oauth_token=/)
+    assert.match(r.location, /^http:\/\/127\.0\.0\.1:5173\/#oauth_token=/)
+    assert.equal(r.location.includes('?oauth_token='), false, 'R14 : le token ne doit plus passer en query')
   })
 
   it('returnUrl relatif → Location relative : le token ne quitte jamais l’origine', async () => {
@@ -173,7 +181,7 @@ describe('S2 (#9) — returnUrl : plus d’open redirect ni de fuite de token', 
     try {
       const r = await oauthDemo('google', 'relatif.pur@test.dz', { returnUrl: '/' })
       assert.equal(r.status, 302)
-      assert.match(r.location, /^\/\?oauth_token=/, `Location = ${r.location}`)
+      assert.match(r.location, /^\/#oauth_token=/, `Location = ${r.location}`)
       assert.equal(/^https?:\/\//.test(r.location), false, 'aucun hôte dans le Location')
     } finally {
       process.env.FRONT_URL = saved
@@ -183,11 +191,11 @@ describe('S2 (#9) — returnUrl : plus d’open redirect ni de fuite de token', 
   it('returnUrl relatif et même origine → conservés', async () => {
     const rel = await oauthDemo('google', 'rel.s2@test.dz', { returnUrl: '/orders' })
     assert.equal(rel.status, 302)
-    assert.match(rel.location, /^\/orders\/\?oauth_token=/)
+    assert.match(rel.location, /^\/orders\/#oauth_token=/)
 
     const same = await oauthDemo('meta', 'same.s2@test.dz', { returnUrl: 'http://127.0.0.1:5173/desk' })
     assert.equal(same.status, 302)
-    assert.match(same.location, /^http:\/\/127\.0\.0\.1:5173\/desk\/\?oauth_token=/)
+    assert.match(same.location, /^http:\/\/127\.0\.0\.1:5173\/desk#oauth_token=/)
   })
 })
 

@@ -337,6 +337,7 @@ describe('P19 — createDeskStream (client)', () => {
       writable: true
     })
     let instance = null
+    const sentFrames = []
     globalThis.WebSocket = class {
       constructor(url) {
         this.url = url
@@ -345,6 +346,9 @@ describe('P19 — createDeskStream (client)', () => {
         this.onmessage = null
         this.onclose = null
         this.onerror = null
+      }
+      send(frame) {
+        sentFrames.push(String(frame))
       }
       close() {
         this.onclose?.()
@@ -365,10 +369,18 @@ describe('P19 — createDeskStream (client)', () => {
     })
     try {
       assert.ok(instance, 'le socket doit être créé')
-      assert.match(instance.url, /\/api\/desk-stream\?token=tok-master/)
+      // LOT 3.18 (R14) : AUCUN token dans l'URL du socket (il partait dans les
+      // journaux du proxy et l'historique). L'authentification est le premier
+      // message envoyé après l'ouverture.
+      assert.match(instance.url, /\/api\/desk-stream$/)
+      assert.equal(instance.url.includes('token='), false, `token dans l'URL : ${instance.url}`)
 
       instance.onopen?.()
       assert.equal(stream.isLive(), true)
+      assert.equal(sentFrames.length, 1, 'le premier message doit être l\'authentification')
+      const auth = JSON.parse(sentFrames[0])
+      assert.equal(auth.type, 'auth')
+      assert.equal(auth.token, 'tok-master')
       assert.ok(refreshes >= 1, 'un rafraîchissement immédiat est attendu à l\'ouverture')
 
       const before = refreshes
