@@ -113,17 +113,35 @@ export function verifyPass(password, stored) {
     if (check.length !== expect.length) return false
     return crypto.timingSafeEqual(check, expect)
   }
+  // LOT 2 (découverte hors rapports) — cette branche était MORTE, et pire :
+  // elle était une porte.
+  //
+  // Elle comparait la valeur stockée à `sha256$pcstar:<mot de passe EN CLAIR>`,
+  // alors qu'une empreinte legacy préfixée vaut `sha256$pcstar:<hex>` (hex =
+  // sha256 de `pcstar:<mot de passe>`). Deux conséquences :
+  //  · aucun mot de passe réel ne pouvait jamais la satisfaire — les comptes
+  //    seedés (maître + démos) sont en fait vérifiés par la dernière branche,
+  //    celle qui compare l'hex nu. Vérifié sur la base du commit d'origine
+  //    (fdbd778) : rien n'a jamais porté ce préfixe en production ;
+  //  · en revanche, `password === <hex>` la satisfaisait : quiconque lisait une
+  //    empreinte préfixée (dump de store.json, backup) pouvait se connecter
+  //    **avec l'empreinte elle-même** en guise de mot de passe.
+  //
+  // La comparaison porte désormais sur l'empreinte du mot de passe proposé,
+  // préfixée — et reste à temps constant.
   if (s.startsWith('sha256$pcstar:')) {
-    const expected = `sha256$pcstar:${String(password)}`
+    const prefixed = Buffer.from(`sha256$pcstar:${hashPassLegacy(password)}`)
     const actual = Buffer.from(s)
-    const expectedBuffer = Buffer.from(expected)
-    return actual.length === expectedBuffer.length && crypto.timingSafeEqual(actual, expectedBuffer)
+    if (actual.length !== prefixed.length) return false
+    return crypto.timingSafeEqual(actual, prefixed)
   }
   // LOT 1.14 : comparaison à temps constant. Les deux branches ci-dessus
   // utilisaient déjà `timingSafeEqual` ; celle-ci comparait deux chaînes avec
   // `===` (longueur et préfixe commun observables par le temps). L'empreinte
   // est un sha256 non salé, donc le gain est marginal — mais l'incohérence
   // entre branches d'une même fonction de vérification n'a pas lieu d'être.
+  // C'est CETTE branche qui traite les comptes seedés (`DEMOS`, `masterAccount`
+  // stockent l'hex nu renvoyé par `hashPassLegacy`).
   const legacyActual = Buffer.from(s)
   const legacyExpected = Buffer.from(hashPassLegacy(password))
   if (legacyActual.length !== legacyExpected.length) return false

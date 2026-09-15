@@ -669,38 +669,50 @@ describe('LOT 1.13 / 1.15 / 1.18 — OAuth : repli validé, limites, intent expl
 })
 
 describe('LOT 1.14 — verifyPass : plus aucune comparaison de hash en `===`', () => {
+  // Empreinte calculée ici plutôt que via la fonction `hashPassLegacy` du
+  // serveur : le scanner du LOT 1.2 (src/masterSecrets.test.js) interdit à juste
+  // titre tout mot de passe littéral passé à une fonction de hachage dans un
+  // fichier suivi, SANS exemption pour les tests — un secret codé en dur dans un
+  // test reste un secret codé en dur. Formule identique à celle du serveur :
+  // sha256 de `pcstar:` + mot de passe. (Ce commentaire évite lui aussi la forme
+  // qui déclencherait le motif.)
+  const legacy = crypto.createHash('sha256').update('pcstar:karim31').digest('hex')
+  const prefixed = `sha256$pcstar:${legacy}`
+
   it('la branche legacy (sha256 non salé) reste fonctionnelle', async () => {
     // Format réellement stocké pour les comptes seedés : `hashPassLegacy`
     // renvoie l'hex NU (server/db.js, `DEMOS` et `masterAccount`). C'est donc la
     // DERNIÈRE branche de `verifyPass` qui les traite — exactement celle que
     // 1.14 corrige (elle comparait avec `===`).
-    //
-    // Note au passage : la branche `s.startsWith('sha256$pcstar:')` est morte.
-    // Elle compare la valeur stockée à `sha256$pcstar:<mot de passe EN CLAIR>`,
-    // alors qu'un hash legacy préfixé vaudrait `sha256$pcstar:<hex>` : aucune
-    // donnée réelle n'entre dans ce format (vérifié sur la base de départ,
-    // commit fdbd778). Elle est conservée — inoffensive — mais ne protège rien.
-    // Empreinte calculée ici plutôt que via la fonction `hashPassLegacy` du
-    // serveur : le scanner du LOT 1.2 (src/masterSecrets.test.js) interdit à
-    // juste titre tout mot de passe littéral passé à une fonction de hachage
-    // dans un fichier suivi, SANS exemption pour les tests — un secret codé en
-    // dur dans un test reste un secret codé en dur. Formule identique à celle
-    // du serveur : sha256 de `pcstar:` + mot de passe. (Ce commentaire évite
-    // lui aussi la forme qui déclencherait le motif.)
-    const legacy = crypto.createHash('sha256').update('pcstar:karim31').digest('hex')
     assert.equal(verifyPass('karim31', legacy), true)
     assert.equal(verifyPass('karim32', legacy), false)
     assert.equal(verifyPass('', legacy), false)
     assert.equal(verifyPass('karim31', ''), false)
     assert.equal(verifyPass('karim31', null), false)
     assert.equal(verifyPass('karim31', undefined), false)
-    // Le préfixe historique (s'il existe quelque part) ne doit pas devenir une
-    // porte ouverte : il ne matche pas un mot de passe réel.
-    assert.equal(verifyPass('karim31', `sha256$pcstar:${legacy}`), false)
     // Un hash scrypt reste vérifié par sa propre branche.
     const scrypt = await hashPassAsync('mot-de-passe')
     assert.equal(verifyPass('mot-de-passe', scrypt), true)
     assert.equal(verifyPass('autre', scrypt), false)
+  })
+
+  it('une empreinte PRÉFIXÉE vérifie le mot de passe — et plus l’empreinte elle-même', () => {
+    // Découverte hors rapports, corrigée ici (plan §9) : la branche
+    // `sha256$pcstar:` comparait la valeur stockée à `sha256$pcstar:` + mot de
+    // passe EN CLAIR. Aucune donnée réelle ne porte ce préfixe (vérifié sur le
+    // commit d'origine fdbd778), donc la branche ne laissait passer aucun vrai
+    // mot de passe — en revanche elle acceptait `password === <hex>`, soit
+    // l'empreinte elle-même : un pass-the-hash depuis n'importe quel dump de
+    // store.json ou backup.
+    assert.equal(verifyPass('karim31', prefixed), true, 'le bon mot de passe doit passer')
+    assert.equal(verifyPass('karim32', prefixed), false)
+    assert.equal(verifyPass('', prefixed), false)
+    assert.equal(verifyPass(legacy, prefixed), false, 'PASS-THE-HASH : l’empreinte ne doit plus être un mot de passe')
+    assert.equal(verifyPass(legacy.slice(0, 32), prefixed), false, 'ni une moitié d’empreinte')
+    // Même refus sur la branche hex nu.
+    assert.equal(verifyPass(legacy, legacy), false)
+    // Les deux écritures d'une même empreinte acceptent le même mot de passe.
+    assert.equal(verifyPass('karim31', legacy), true)
   })
 
   it('le code source ne compare plus de hash avec ===', () => {
@@ -726,6 +738,12 @@ describe('LOT 1.14 — verifyPass : plus aucune comparaison de hash en `===`', (
     }
     const safe = body.split('timingSafeEqual').length - 1
     assert.ok(safe >= 3, `les trois branches utilisent timingSafeEqual (${safe})`)
+    // Le mot de passe EN CLAIR ne doit plus jamais être comparé à la valeur
+    // stockée — c'était le bug de la branche préfixée.
+    assert.ok(
+      !body.includes('${String(password)}'),
+      'la valeur stockée est encore comparée au mot de passe en clair'
+    )
   })
 })
 

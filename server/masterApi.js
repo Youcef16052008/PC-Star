@@ -11,8 +11,52 @@ import { uploadBlob, deleteBlob, MAX_BYTES, MAX_PHOTOS } from './blobStore.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
+/**
+ * LOT 2.6 (F10) — `needs` normalisé en **tableau de chaînes**.
+ *
+ * Le bug était une asymétrie entre deux chemins d'écriture :
+ *  · `createProduct` stockait `needs: String(body.needs || '').trim()` — une
+ *    CHAÎNE (comme le fait aussi le client, `src/shopStore.js` : `needs: ''`) ;
+ *  · `sanitizeProductPatch` exigeait `Array.isArray(patch.needs)` et renvoyait
+ *    `{ ok: false, error: 'needs' }` sinon.
+ *
+ * Autrement dit : un produit créé par le maître ne pouvait plus être édité sur
+ * ce champ — `PUT /api/master/products/:id {"needs": "…"}` répondait **400**, et
+ * même `{"needs": ["…"]}` sur un produit stocké en chaîne produisait un objet
+ * au type incohérent d'une fiche à l'autre. Le front affiche `product.needs`
+ * tel quel (src/ProductPage.jsx) : une chaîne s'affiche, un tableau se
+ * concatène sans séparateur — d'où la normalisation ET le rendu corrigé.
+ *
+ * Chaîne → tableau : découpe sur les retours à la ligne uniquement. Les
+ * virgules sont conservées dans le texte (« Alimentation 750W, 20 cm » reste un
+ * seul besoin) : les séparer serait une interprétation, pas une normalisation.
+ */
+export function normalizeNeeds(value) {
+  if (value == null) return []
+  const parts = Array.isArray(value)
+    ? value.map((x) => String(x ?? '').trim())
+    : String(value).split(/[\r\n]+/).map((x) => x.trim())
+  return parts.filter(Boolean).slice(0, 12)
+}
+
+/**
+ * LOT 2.6 : migration des produits déjà stockés avec une chaîne. Appelée sur
+ * les chemins master qui lisent/écrivent `extraProducts` — la base se
+ * normalise au premier accès, sans script de migration dédié.
+ */
+function migrateNeeds(db) {
+  const extras = db?.meta?.extraProducts
+  if (!Array.isArray(extras)) return
+  for (const p of extras) {
+    // Champ absent compris : la forme stockée devient uniforme (`[]` plutôt que
+    // `undefined`), ce qui évite au front de tester les deux cas.
+    if (p && !Array.isArray(p.needs)) p.needs = normalizeNeeds(p.needs)
+  }
+}
+
 export function listMasterProducts(db) {
   ensureStock(db)
+  migrateNeeds(db)
   const hidden = new Set(db.meta?.hiddenProductIds || [])
   // P8 (P7-1) : la vue master doit refléter les overrides (prix/nom/stock/
   // photos) exactement comme le catalogue public — sinon le master édite des
@@ -74,7 +118,9 @@ export function createProduct(db, body, id) {
     related: [],
     photos: Array.isArray(body.photos) ? body.photos.slice(0, MAX_PHOTOS) : [],
     short: String(body.short || '').trim(),
-    needs: String(body.needs || '').trim(),
+    // LOT 2.6 (F10) : tableau, comme au patch — plus de produit qu'on ne peut
+    // pas éditer sur ce champ.
+    needs: normalizeNeeds(body.needs),
     compat: body.compat && typeof body.compat === 'object' ? body.compat : {},
     tags: Array.isArray(body.tags) ? body.tags : []
   }
@@ -129,8 +175,12 @@ export function sanitizeProductPatch(patch = {}) {
       .slice(0, MAX_PHOTOS)
   }
   if (patch.needs != null) {
-    if (!Array.isArray(patch.needs)) return { ok: false, error: 'needs' }
-    out.needs = patch.needs.map((x) => String(x)).slice(0, 12)
+    // LOT 2.6 (F10) : chaîne OU tableau, normalisé en tableau. Le refus pur et
+    // simple d'une chaîne rendait tout produit créé par `createProduct`
+    // in-éditable sur ce champ. Un type non convertible (nombre, objet) reste
+    // accepté en tant que texte — `String()` — plutôt que refusé : le champ est
+    // descriptif, et un 400 ici bloquait l'enregistrement du reste du patch.
+    out.needs = normalizeNeeds(patch.needs)
   }
   if (patch.stock != null) {
     const stock = Number(patch.stock)
@@ -143,6 +193,7 @@ export function sanitizeProductPatch(patch = {}) {
 
 export function updateProduct(db, id, rawPatch) {
   ensureStock(db)
+  migrateNeeds(db)
   const sane = sanitizeProductPatch(rawPatch || {})
   if (!sane.ok) return { ok: false, error: sane.error }
   const patch = sane.patch
@@ -159,6 +210,12 @@ export function updateProduct(db, id, rawPatch) {
     if (patch.short != null) cur.short = String(patch.short)
     if (patch.sku != null) cur.sku = String(patch.sku)
     if (patch.photos != null && Array.isArray(patch.photos)) cur.photos = patch.photos.slice(0, MAX_PHOTOS)
+    // LOT 2.6 (F10), second volet : `needs` n'était repris que dans la branche
+    // « override du catalogue de base » ci-dessous. Pour un produit CRÉÉ par le
+    // maître (`extraProducts`), le champ était validé par
+    // `sanitizeProductPatch` puis **silencieusement jeté** : la route répondait
+    // 200 avec un produit inchangé. Le master croyait avoir enregistré.
+    if (patch.needs != null) cur.needs = patch.needs
     if (patch.stock != null) {
       cur.stock = Math.max(0, Math.floor(Number(patch.stock) || 0))
       setStock(db, id, cur.stock)

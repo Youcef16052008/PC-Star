@@ -183,6 +183,9 @@ Estimations en « unités de changement » (U) : S = < 30 lignes, M = 30–120, 
 
 ### 🔐 Lot 1 — Secrets & authentification (R1→R13, R15, R16, F2, R6)
 
+> ✅ **Fait** (15/09/2026) — détail au §9. Le lot 0 (rotation des secrets réels
+> sur Vercel) reste à faire par l'exploitant, reporté à la fin à la demande.
+
 **Objectif : plus aucun secret dans le code ou le bundle, et une authentification
 qui tient.**
 
@@ -209,6 +212,9 @@ qui tient.**
 ---
 
 ### 🧩 Lot 2 — Bloquants fonctionnels (F1, F3, F4, F5, F6, F9, F10, F11, F12)
+
+> ✅ **Fait** (15/09/2026) — 2.1 à 2.8, plus la découverte hors rapports
+> (branche `sha256$pcstar:` de `verifyPass`). Détail et tests au §9.
 
 | # | Correction | Fichiers | Taille | Critère d'acceptation |
 |---|---|---|---|---|
@@ -485,17 +491,147 @@ neutralisation CSV supprimée → 5 tests échouent.
 **Découvertes hors rapports** (ni corrigées ici, ni perdues — à traiter dans un
 lot ultérieur) :
 
-- La branche `s.startsWith('sha256$pcstar:')` de `verifyPass` est **morte** :
-  elle compare la valeur stockée à `sha256$pcstar:<mot de passe EN CLAIR>`,
+- ✅ **Corrigée au lot 2** (voir ci-dessous) — la branche
+  `s.startsWith('sha256$pcstar:')` de `verifyPass` était **morte**, et pire :
+  elle comparait la valeur stockée à `sha256$pcstar:<mot de passe EN CLAIR>`,
   alors qu'une empreinte legacy préfixée vaudrait `sha256$pcstar:<hex>`. Aucune
   donnée réelle n'entre dans ce format (vérifié sur la base du commit d'origine
   `fdbd778`). Les comptes seedés sont en fait traités par la **dernière**
-  branche (hex nu). Inoffensive, mais elle ne protège rien.
+  branche (hex nu). L'analyse du lot 1 la disait « inoffensive » : elle était en
+  réalité **une porte** — `password === <hex>` la satisfaisait, soit un
+  pass-the-hash depuis n'importe quel dump de `store.json` ou backup.
 - Les comptes seedés (maître + trois démos) sont donc vérifiés par cette
   dernière branche, celle que 1.14 corrige. Leur connexion par mot de passe est
   maintenant couverte par un test (`src/serverFixes.test.js`), avec contrôle de
   la migration P22 vers scrypt au premier login — c'était le seul appelant
   synchrone restant, il fallait un garde-fou.
+
+### ✅ Fait — lot 2, bloquants fonctionnels (15/09/2026)
+
+Ordre suivi : découverte hors rapports (`verifyPass`) → 2.1 → 2.2 → 2.3 → 2.4 →
+2.5 → 2.6 → 2.7 → 2.8.
+
+**Découverte hors rapports — `verifyPass`, branche `sha256$pcstar:`
+(`server/db.js`).** Le lot 1 la disait morte et inoffensive ; elle était en fait
+**une porte** : la comparaison portait sur `sha256$pcstar:` + le mot de passe **en
+clair**, donc `password === <hex>` la satisfaisait — quiconque lisait une
+empreinte préfixée (dump de `store.json`, backup) pouvait se connecter **avec
+l'empreinte elle-même**. Aucun mot de passe réel ne pouvait en revanche la
+satisfaire, d'où l'illusion d'une branche morte. La comparaison porte désormais
+sur l'empreinte du mot de passe proposé (`hashPassLegacy(password)` préfixé),
+toujours à temps constant, et la branche hex nu — celle qui traite réellement les
+comptes seedés — est inchangée.
+
+**2.1 (F1) — `go('cart')`.** La branche `next === 'cart'` est remontée **en tête**
+de `go()`, avant la réécriture `if (!KNOWN_PAGES.includes(next)) next = 'shop'`.
+`KNOWN_PAGES` reste la liste des pages réelles : le panier est un *offcanvas*, pas
+une page. Depuis le configurateur, « Ajouter la config au panier » ouvre
+effectivement le panier au lieu de renvoyer sur la boutique.
+
+**2.2 (F3 + F4) — un seul algorithme de code de commande.** Nouvelle fonction
+partagée `nextOrderCode(existingCodes, day)` dans `src/orderLogic.js` : séquence =
+**max** des codes du jour + 1. `makeOrderCode` (`server/catalog.js`) et
+`nextLocalOrderCode` (client, repli hors-ligne) l'appellent tous les deux — le
+serveur comptait `sameDay.length + 1`, ce qui produisait un doublon dès qu'une
+commande du jour était supprimée (0001/0002/0003, 0002 supprimée → la suivante
+recomptait 0003, déjà attribué ; deux `PS-20260915-0003` observés en base pendant
+l'audit). Détail de fuseau : les composants de la date sont passés **un par un** à
+`new Date(...)` — `new Date('YYYY-MM-DD')` serait interprété en UTC et reculerait
+d'un jour avant 1 h à Oran (UTC+1).
+
+**2.3 (F5) — les commandes hors-ligne survivent à la fusion.** Le repli local de
+`reserve()` marque la commande `localOnly: true` (jamais le chemin API) ;
+`mergeServerOrders` réinjecte les orphelins ainsi marqués **devant** la liste
+serveur. Deux garde-fous : une copie locale d'une commande supprimée côté serveur
+n'a pas ce marqueur et ne ressuscite donc pas ; en cas de collision de code,
+l'objet **serveur** gagne et le marqueur tombe. `handleOrderDelete` a reçu la voie
+locale correspondante (sans elle, `DELETE /api/orders/:code` répondrait 404 et la
+fusion suivante ferait revenir la commande) — la copie navigateur part avec l'état.
+Un badge `ordersLocalOnly` (clé existante, fr/en/ar) signale la commande sur
+`DeskPage` et `OrdersPage` : elle n'est ni dans l'export CSV, ni visible des autres
+appareils.
+
+**2.4 (F6) — la confirmation d'un compte ne suit pas le suivant.**
+`setReserved(null)` ajouté dans `logout()` **et** dans l'effet `authId` (qui
+réinitialisait déjà le panier et le formulaire de retrait). Les deux gardes sont
+nécessaires : `logout()` n'entraîne pas toujours un changement d'`authId`
+observable. Sur un poste partagé, le client suivant voyait « Réservation confirmée ·
+Karim B. · 12:30 · 45 000 DA » — la confirmation d'un autre, avec ses données.
+
+**2.5 (F9) — contrôle de SKU sur le catalogue complet.** `MasterPage` construit
+`allKnownSkus = [...PRODUCTS, ...masterCatalog, ...products, ...meta.extraProducts]`
+et le passe à `addProduct`. Avant, seul `products` — le catalogue **public filtré**
+(`stock > 0`, `src/App.jsx:273`) — était examiné : le SKU d'une référence en
+rupture **ou masquée** n'était dans aucune liste et la création passait, donnant
+deux fiches avec la même référence d'étiquette, le même dossier photo et la même
+ligne d'export CSV. Le mode local s'aligne sur la source de vérité du serveur
+(`[...PRODUCTS, ...extraProducts]`, `server/masterApi.js`).
+
+**2.6 (F10) — `needs` unifié.** `normalizeNeeds()` (exporté) ramène chaîne **ou**
+tableau à un tableau de 12 chaînes au plus ; la découpe d'une chaîne se fait sur
+les **retours à la ligne uniquement** — les virgules restent dans le texte
+(« Alim 750W, 20 cm » est un seul besoin : les séparer serait une interprétation).
+`createProduct` stocke un tableau, `sanitizeProductPatch` accepte les deux formes,
+et `migrateNeeds()` normalise la base au premier accès des chemins master (champ
+**absent** compris : `[]` plutôt que `undefined`, forme uniforme). Un **second
+volet**, découvert par les tests : `updateProduct` n'appliquait `needs` que dans la
+branche « override du catalogue de base » — pour un produit **créé** par le maître
+(`extraProducts`), le champ était validé puis **silencieusement jeté**, la route
+répondant 200 avec un produit inchangé. Corrigé. Côté front, `needsText()`
+(`src/ProductPage.jsx`) : un tableau se joint avec ` · ` (React concatène un
+tableau de chaînes **sans séparateur**) et `[]` — truthy en JS — n'affiche plus un
+encart vide.
+
+**2.7 (F11 + B20) — la réponse du serveur est la source de vérité.** `submitPanel`
+prenait `res.meta`, le meta calculé **localement** par `addPanel` : au 13ᵉ panneau,
+le comptoir en affichait 13 alors que la base n'en gardait que 12
+(`body.extraPanels.slice(0, 12)`), et le 13ᵉ disparaissait au rechargement suivant
+sans aucun message. `doTogglePanel` reconstruisait de même le meta côté client. Les
+deux prennent désormais `onMeta({ ...meta, ...(r.data?.meta || {}) })`. La **fusion**
+est indispensable (volet B20) : la réponse de `PUT /api/master/panels` ne porte que
+`hiddenPanelIds` et `extraPanels` — remplacer le meta entier aurait écrasé
+`extraProducts`, `productOverrides` et `photoOverrides` à chaque manipulation de
+panneau. Les branches locales (hors API) conservent le calcul local, seul juste dans
+ce mode.
+
+**2.8 (F12) — commandes guest de l'appareil.** `OrdersPage` liste pour un compte
+connecté l'**union** `o.userId === user.id || o.userId == null`, chaque commande
+sans compte étant marquée d'un badge `orderGuestBadge` (clé ajoutée en fr / en / ar).
+Avant, les commandes passées en guest depuis cet appareil disparaissaient dès la
+connexion — y compris celle qui venait d'être faite, le client se connectant souvent
+**après** avoir réservé (le serveur, lui, les rattache déjà par téléphone dans
+`/api/me/orders`). Limite assumée et documentée dans le code : sur un appareil
+partagé, un compte connecté voit aussi les commandes guest d'un tiers faites sur le
+même navigateur — c'est la frontière de confiance du `localStorage`, la même que
+celle du serveur qui rattache par numéro saisi ; le badge dit d'où vient la ligne.
+
+**Chargeur de tests — `scripts/jsx-test-loader.mjs`.** Le stub Bootstrap posé au P20
+se contentait d'un drapeau interne sans toucher l'élément. Or c'est la classe `show`
+posée par `Offcanvas.show()` qui rend le panier visible : sans elle, aucune assertion
+DOM sur l'ouverture du panier (2.1, 2.4) n'était possible. Le stub reproduit
+désormais ce que l'API réelle fait au DOM — classe `show`, attributs ARIA, événements
+`show`/`shown` et `hide`/`hidden` — et tient un registre par élément
+(`getOrCreateInstance` ne recrée plus une instance à chaque appel). Restent simulés :
+l'animation, le backdrop, le focus-trap et le blocage de scroll — sans effet sur ce
+que l'app **décide**. Aucun test existant ne dépendait du comportement inerte.
+
+**Tests** — deux fichiers ajoutés au script `test` de `package.json` :
+`src/lot2Logic.test.js` (**26 tests**, logique pure : codes de commande après
+suppression / annulation / vue partielle / journée invalide / fuseau, fusion des
+commandes locales-only, normalisation et migration de `needs` y compris le patch sur
+un produit créé) et `src/lot2UI.test.js` (**13 tests**, composants **réels** rendus
+en jsdom : `App` — configurateur → panier, poste partagé Karim → Amina ;
+`MasterPage` — SKU en rupture, SKU masqué, SKU libre, 13ᵉ panneau, masque de panneau
+avec meta périmé ; `OrdersPage` — union guest, badge, mode sans compte). Suite
+complète : **424 tests, 0 échec** ; `npm run build` passe.
+
+Sensibilité vérifiée — chaque correctif retiré **un par un**, puis restauré :
+branche `'cart'` remise après le garde-fou → 1 test échoue ; les deux
+`setReserved(null)` retirés → 2 ; `products` passé au lieu de `allKnownSkus` → 2 ;
+meta local dans `submitPanel` → 1, dans `doTogglePanel` → 1 ; filtre strict
+`userId === user.id` → 2 ; badge guest retiré → 1 ; branche préfixée de `verifyPass`
+revenant au mot de passe en clair → 1 (pass-the-hash). Aucun test du lot n'est
+vacant.
 
 ### ⚠️ Reste à faire par l'exploitant (lot 0 — reporté à la fin, à la demande)
 

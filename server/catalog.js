@@ -3,7 +3,8 @@
  */
 import { PRODUCTS } from '../src/data.js'
 // P22 (bug G) : table des transitions partagée avec le client.
-import { ORDER_TRANSITIONS } from '../src/orderLogic.js'
+// LOT 2.2 (F3 + F4) : algorithme du code de commande partagé lui aussi.
+import { ORDER_TRANSITIONS, nextOrderCode } from '../src/orderLogic.js'
 
 export const ORDER_STATUSES = ['new', 'preparing', 'ready', 'picked', 'cancelled']
 
@@ -167,18 +168,16 @@ function localDayOf(d) {
  * P9 (P7-4) : code PS-YYYYMMDD-NNNN daté à la « journée » de la commande
  * (date locale du client transmise par `placeOrder`, sinon date locale du
  * serveur). `dayStr` : 'YYYY-MM-DD' valide.
+ *
+ * LOT 2.2 (F3 + F4) : la séquence n'est plus `sameDay.length + 1` mais le
+ * **max** des séquences du jour + 1, via `nextOrderCode` — la fonction partagée
+ * avec le repli hors-ligne du client (`src/orderLogic.js`). Le comptage
+ * produisait un doublon dès qu'une commande du jour était supprimée :
+ * 0001/0002/0003 créées, 0002 supprimée → la suivante recomptait 2 + 1 = 0003,
+ * déjà attribué. Deux `PS-20260915-0003` ont été observés en base à l'audit.
  */
 export function makeOrderCode(db, dayStr) {
-  let prefix
-  if (/^\d{4}-\d{2}-\d{2}$/.test(String(dayStr || ''))) {
-    prefix = `PS-${String(dayStr).replace(/-/g, '')}-`
-  } else {
-    const d = new Date()
-    prefix = `PS-${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}-`
-  }
-  const sameDay = (db.orders || []).filter((o) => String(o.code || '').startsWith(prefix)).length
-  const seq = String(sameDay + 1).padStart(4, '0')
-  return `${prefix}${seq}`
+  return nextOrderCode((db.orders || []).map((o) => o?.code), dayStr)
 }
 
 /** Restore stock when cancelling a reserved order. */

@@ -1,5 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
-import { CATEGORIES, money } from './data.js'
+// LOT 2.5 (F9) : `PRODUCTS` est le catalogue de base COMPLET — non filtré par
+// stock ni par masquage. C'est la seule source qui contient les SKU des
+// références en rupture ou masquées.
+import { CATEGORIES, PRODUCTS, money } from './data.js'
 import { addPanel, addProduct, deleteCustomer, hideProduct, setProductPhotos, togglePanel } from './shopStore.js'
 import PartThumb from './PartThumb.jsx'
 import * as api from './api.js'
@@ -83,6 +86,21 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, ma
   const productsLoading = apiOnline && apiProducts.length === 0
   const productsShown = apiOnline ? apiProducts : (masterCatalog || products || [])
 
+  // LOT 2.5 (F9) : liste de référence pour le contrôle de SKU en mode local.
+  //
+  // `addProduct` recevait `products`, c'est-à-dire le catalogue PUBLIC filtré :
+  // `shopView.products` privé des références en rupture (`stock > 0`,
+  // src/App.jsx). Un SKU appartenant à une référence masquée OU en rupture
+  // n'était donc dans aucune des listes examinées, et la création passait —
+  // deux fiches portant la même référence d'étiquette, le même dossier photo et
+  // la même ligne d'export CSV. Côté API le serveur compare déjà à
+  // `[...PRODUCTS, ...extraProducts]` (server/masterApi.js) : le mode local
+  // s'aligne sur cette source de vérité.
+  const allKnownSkus = useMemo(
+    () => [...PRODUCTS, ...(masterCatalog || []), ...(products || []), ...(meta.extraProducts || [])],
+    [masterCatalog, products, meta]
+  )
+
   const customers = useMemo(
     () => (apiOnline ? apiCustomers : users.filter((u) => u.role !== 'master')),
     [apiOnline, apiCustomers, users]
@@ -159,7 +177,9 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, ma
       },
       // P22 (bug H) : le catalogue de base compte aussi — un SKU saisi ne doit
       // pas doubler une référence existante.
-      products
+      // LOT 2.5 (F9) : catalogue COMPLET (base non filtrée + master + extra),
+      // pas la liste publique amputée des ruptures et des masquées.
+      allKnownSkus
     )
     if (!res.ok) {
       if (res.error === 'sku_taken') {
@@ -275,7 +295,13 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, ma
         errToast(setToast, t, r, 'masterActionFail')
         return
       }
-      onMeta({ ...meta, hiddenPanelIds: [...current] })
+      // LOT 2.7 (F11 + B20) : la RÉPONSE DU SERVEUR est la source de vérité,
+      // pas le calcul local. Le serveur déduplique (`new Set(...)`) et tronque
+      // `extraPanels` à 12 : un état client reconstruit à partir de `meta`
+      // divergeait donc silencieusement de la base, jusqu'au prochain
+      // rechargement. La réponse ne porte que les deux champs de panneaux —
+      // d'où la fusion, qui préserve `extraProducts`, `productOverrides`, etc.
+      onMeta({ ...meta, ...(r.data?.meta || {}) })
       return
     }
     onMeta(togglePanel(meta, id, on))
@@ -291,7 +317,13 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, ma
         errToast(setToast, t, r, 'masterActionFail')
         return
       }
-      onMeta(res.meta)
+      // LOT 2.7 (F11 + B20) : `res.meta` est le meta calculé LOCALEMENT par
+      // `addPanel`, qui ne connaît pas la troncature serveur
+      // (`body.extraPanels.slice(0, 12)`, server/index.js). Reproduit à
+      // l'audit : au 13ᵉ panneau, le comptoir en affichait 13 alors que la base
+      // n'en gardait que 12 — le 13ᵉ disparaissait au rechargement suivant, sans
+      // aucun message. On prend la réponse du serveur.
+      onMeta({ ...meta, ...(r.data?.meta || {}) })
     } else {
       onMeta(res.meta)
     }

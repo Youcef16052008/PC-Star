@@ -467,13 +467,36 @@ export default function App() {
   // stock, donc on rafraîchit aussi l'état du catalogue.
   async function handleOrderDelete(code) {
     if (!(apiOnline && authMode === 'api' && isMaster)) return false
+    // LOT 2.3 (F5) : une commande `localOnly` n'existe PAS côté serveur — l'API
+    // répondrait 404 `not_found` et la suppression échouerait. Comme la fusion
+    // du polling la conserve désormais (au lieu de l'effacer en silence), il
+    // faut une voie de suppression locale : état + copie navigateur. Pas de
+    // rendu de stock côté serveur (il n'a jamais été décrémenté là-bas) ; le
+    // rafraîchissement du catalogue remet le stock local d'aplomb.
+    const target = (reservations || []).find((o) => o.code === code)
+    if (target?.localOnly) {
+      setReservations((prev) => {
+        const next = prev.filter((o) => o.code !== code)
+        saveOrders(storage, next)
+        return next
+      })
+      await refreshStock()
+      setToast(t('orderDeleted'))
+      return true
+    }
     try {
       const r = await api.deleteOrder(code)
       if (!r.ok) {
         setToast(t('deskDeleteFail'))
         return false
       }
-      setReservations((prev) => prev.filter((o) => o.code !== code))
+      // La copie navigateur doit partir elle aussi : conservée, elle serait
+      // réinjectée par la fusion suivante (et un `localOnly` ressusciterait).
+      setReservations((prev) => {
+        const next = prev.filter((o) => o.code !== code)
+        saveOrders(storage, next)
+        return next
+      })
       await refreshStock()
       setToast(t('orderDeleted'))
       return true
@@ -569,7 +592,15 @@ export default function App() {
     // P8 (P7-3) : sans compte → formulaire VIDE (plus les nom/tél du client
     // précédent) ; avec compte → reprise depuis le profil.
     setPickup((p) => pickupForUser(user, p, PICKUP_DEFAULTS))
-  }, [authId]) // eslint-disable-line react-hooks/exhaustive-deps
+    // LOT 2.4 (F6) : la confirmation de commande (`reserved`) porte le NOM, le
+    // créneau et le total d'un client précis. Elle survivait au changement de
+    // compte : sur un poste partagé (comptoir, cybercafé, téléphone familial),
+    // le client suivant qui ouvrait le panier voyait « Réservation confirmée ·
+    // Karim B. · 12:30 · 45 000 DA » — la confirmation d'un autre, avec ses
+    // données personnelles. Le panier et le formulaire étaient déjà
+    // réinitialisés ici ; l'écran de confirmation ne l'était pas.
+    setReserved(null)
+  }, [authId]) // eslint-disable-next-line react-hooks/exhaustive-deps
 
   // P19 : demande de permission de notification dès que le master est connecté.
   // Sans accord explicite, aucune notification navigateur n'est possible. Le
@@ -674,6 +705,12 @@ export default function App() {
     setApiUser(null)
     setAuthMode('local')
     persistSession(null)
+    // LOT 2.4 (F6) : même raison que dans l'effet `authId` — et `logout()`
+    // n'entraîne pas toujours un changement d'`authId` observable (déconnexion
+    // d'un guest, ou repli local qui conserve un `user`), donc l'effet seul ne
+    // suffit pas. La déconnexion doit fermer la confirmation du compte qui
+    // vient de partir.
+    setReserved(null)
     setToast(t('navLogout'))
     if (page === 'desk' || page === 'master' || page === 'profile' || page === 'help' || page === 'orders') {
       setPage('shop')
@@ -755,6 +792,18 @@ export default function App() {
   }
 
   function go(next) {
+    // LOT 2.1 (F1) : le panier est un OFFCANVAS, pas une page — il n'a donc pas
+    // sa place dans `KNOWN_PAGES`, et le garde-fou ci-dessous le réécrivait en
+    // `'shop'` AVANT que la branche `next === 'cart'` ne soit atteinte. Cette
+    // branche était morte : depuis le configurateur, « Ajouter la config »
+    // (`BuilderPage.jsx` → `onGoCart`) ajoutait bien les pièces au panier puis
+    // renvoyait l'utilisateur sur la boutique, panier fermé. Le test ci-dessous
+    // est donc placé EN TÊTE, et `KNOWN_PAGES` reste la liste des pages réelles.
+    if (next === 'cart') {
+      setCartOpen(true)
+      setNavOpen(false)
+      return
+    }
     if (!KNOWN_PAGES.includes(next)) next = 'shop'
     if ((next === 'desk' || next === 'master' || next === 'help') && !isMaster) {
       setToast(t(next === 'help' ? 'masterOnlyGuide' : next === 'desk' ? 'masterOnlyDesk' : 'masterForbidden'))
@@ -763,11 +812,6 @@ export default function App() {
     }
     if (next === 'profile' && !user) {
       setAuthOpen(true)
-      return
-    }
-    if (next === 'cart') {
-      setCartOpen(true)
-      setNavOpen(false)
       return
     }
     setPage(next)
@@ -882,7 +926,13 @@ export default function App() {
       code: nextLocalOrderCode(reservations.map((o) => o.code)),
       ...base,
       status: 'new',
-      at: new Date().toISOString()
+      at: new Date().toISOString(),
+      // LOT 2.3 (F5) : marqueur de commande JAMAIS envoyée au serveur. Sans
+      // lui, `mergeServerOrders` ne peut pas la distinguer d'une copie locale
+      // d'une commande supprimée côté serveur — et la réinjecter ferait
+      // ressusciter les suppressions. Posé uniquement ici (repli hors-ligne) :
+      // le chemin API ci-dessus ne le met pas.
+      localOnly: true
     }
     const next = [order, ...reservations]
     setReservations(next)
