@@ -273,6 +273,19 @@ export async function handler(req, res) {
         oauth: oauthConfig(),
         cors: FRONT_ORIGIN,
         payments: ['cash'],
+        // LOT 8.6 (A6) : état du canal d'alerte du maître — des COMPTEURS, pas
+        // les numéros : cette route est publique et `WHATSAPP_RECIPIENT` peut
+        // être un numéro privé (les numéros du magasin, eux, sont déjà affichés
+        // sur le site). `invalid > 0` signifie qu'une partie des alertes ne
+        // partira pas : c'est visible sans attendre la première commande.
+        whatsapp: (() => {
+          const wa = whatsappConfig()
+          return {
+            configured: wa.enabled,
+            recipients: wa.recipients.length,
+            invalid: wa.invalidRecipients.length
+          }
+        })(),
         db: {
           driver: process.env.DATABASE_URL ? 'neon' : 'file',
           configured: Boolean(dbInfo.configured),
@@ -1330,6 +1343,23 @@ function startLocalServer() {
         wa.enabled ? `configuré → ${wa.recipients.join(', ')}` : 'non configuré (WHATSAPP_TOKEN / WHATSAPP_PHONE_NUMBER_ID)',
         `| destinataires par défaut : ${whatsappConfig({}).recipients.join(', ')}`
       )
+      // LOT 8.6 (A6) : une entrée de WHATSAPP_RECIPIENT non normalisable est
+      // écartée — donc une alerte de commande qui ne partira jamais. Le dire AU
+      // DÉMARRAGE (et pas seulement dans le log de la première commande) :
+      // c'est une faute de configuration, pas un incident d'envoi.
+      if (wa.invalidRecipients.length) {
+        console.warn(
+          `[pcstar-notify] WHATSAPP_RECIPIENT : ${wa.invalidRecipients.length} entrée(s) écartée(s), ` +
+            `numéro non normalisable → ${wa.invalidRecipients.map((r) => r.raw).join(', ')}. ` +
+            'Format attendu : international sans « + » (213770650387) ; le format local (0770650387) est accepté et converti.'
+        )
+      }
+      if (wa.enabled && !wa.recipients.length) {
+        console.error(
+          '[pcstar-notify] WhatsApp CONFIGURÉ mais AUCUN destinataire valide : les alertes de commande ne partiront pas. ' +
+            'Renseignez WHATSAPP_RECIPIENT au format international (213XXXXXXXXX).'
+        )
+      }
     }
     console.log('OAuth:', oauthConfig())
     // P16 : mêmes chemins que le reste de l'API (dbPaths respecte

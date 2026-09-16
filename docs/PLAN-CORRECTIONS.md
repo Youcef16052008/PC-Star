@@ -331,7 +331,7 @@ Les deux rapports d'origine restent **non modifiés**.
 | 8.3 | **A3** 🟠 — Lire le drapeau `claimable` côté client : pas de bouton « Annuler » sur une commande non revendicable, mention explicite, et message d'échec distingué du 404 | `src/OrdersPage.jsx:130-140`, `src/App.jsx` (`cancelMyOrder`), `src/i18n.js` (nouvelle clé × 3) | S | Une commande `claimable: false` s'affiche **sans** bouton d'annulation ; un clic forcé (API directe) renvoie un message qui dit pourquoi |
 | 8.4 | **A4** 🟠 — Aligner la limite de corps sur la contrainte réelle de Vercel (4,5 Mo) : `MAX_BODY_BYTES` réduit en environnement serverless, configuration `bodyParser` supprimée ou commentée véridiquement, limite plateforme documentée | `api/index.js:24-31`, `server/index.js:129`, `docs/DEPLOY-VERCEL.md` §7 | S | Sur Vercel, un corps trop gros reçoit le **413 JSON de l'application** (ou un refus client expliqué), jamais la page d'erreur plateforme ; plus aucune valeur annoncée contredite par un commentaire |
 | 8.5 | **A5** 🟠 — Compression à **budget** : ré-encoder aussi quand `scale === 1` si le data URL dépasse un seuil en octets, boucle de réduction bornée, et garde de payload total avant l'envoi (constante partagée client/serveur) | `src/photoCompress.js:32-67`, `src/MasterPage.jsx:62,162,172`, module de constantes partagé | M | Un PNG 800×800 de 2 Mo part **compressé** sous le seuil ; 6 photos lourdes → refus client expliqué avant l'envoi, payload total sous la limite plateforme |
-| 8.6 | **A6** 🟠 — Normaliser les destinataires WhatsApp avec la règle partagée (`waNumber`/`phoneLogic`), rejeter un numéro non normalisable, signaler une configuration invalide **au démarrage** et dans `/api/health` ; exemple de la doc au format international | `server/notify.js:39-57`, `server/index.js` (démarrage + health), `docs/DEPLOY-VERCEL.md` §3 | S | `WHATSAPP_RECIPIENT=0770650387` → destinataire `213770650387` envoyé à Meta ; un numéro invalide est refusé au boot avec un message lisible, pas à la première commande |
+| 8.6 ✅ | **A6** 🟠 **LIVRÉ le 16/09/2026** — Normaliser les destinataires WhatsApp avec la règle partagée (`waNumber`/`phoneLogic`), rejeter un numéro non normalisable, signaler une configuration invalide **au démarrage** et dans `/api/health` ; exemple de la doc au format international | `server/notify.js:39-57`, `server/index.js` (démarrage + health), `docs/DEPLOY-VERCEL.md` §3 | S | `WHATSAPP_RECIPIENT=0770650387` → destinataire `213770650387` envoyé à Meta ; un numéro invalide est refusé au boot avec un message lisible, pas à la première commande |
 | 8.7 | **A7** 🟡 — Durabilité de l'écriture : `fsync` du fichier temporaire avant `rename` (+ fsync du répertoire, non bloquant) | `server/db.js:772-786` | S | Une coupure simulée entre écriture et rename ne laisse plus de `store.json` vide ; le test de non-régression vérifie la présence du fsync sur le chemin d'écriture |
 | 8.8 | **A8** 🟡 — Un seul module de formatage date/monnaie, locale dérivée de la langue (ou `fr-DZ` assumé **partout**) ; `OrdersPage` cesse d'ignorer la langue | nouveau `src/format.js`, `src/OrdersPage.jsx:119`, `src/DeskPage.jsx:76`, `src/data.js:66` | S | En mode arabe, la même commande affiche la même date au Desk et dans « Mes commandes » ; la décision (varier ou figer) est écrite dans le code |
 | 8.9 | **A9** 🟡 — Supprimer les 62 clés i18n mortes × 3 langues (186 chaînes), sauf décision contraire explicite par groupe ; verrouiller par un test dans `i18n.coverage.test.js` (toute clé doit être référencée, directement ou par préfixe dynamique **déclaré**) | `src/i18n.js`, `src/i18n.coverage.test.js` | M | Le balayage ne remonte plus aucune clé morte ; une clé ajoutée sans usage fait **échouer** la suite |
@@ -1421,14 +1421,98 @@ dans jsdom : toast nommé, panier purgé, repli hors-ligne muet). Suite complèt
 
 ---
 
-### ⏳ À faire — reste du lot 8 (A3 → A10)
+### ✅ Fait — lot 8.6, destinataires WhatsApp normalisés (16/09/2026)
 
-**A1 et A2 (les 2 bloquants) sont livrés** — voir ci-dessus. Restent 4 majeurs
-et 4 mineurs du **lot 8** (§7), trouvés hors des deux rapports d'origine :
-4 majeurs (**A3** drapeau `claimable` jamais lu, **A4** limite Vercel contredite
-par le code, **A5** photos non compressées en octets, **A6** WhatsApp jamais
-normalisé) et 4 mineurs (**A7** fsync, **A8** dates localisées à moitié, **A9**
-62 clés i18n mortes, **A10** `category`/`kind` libres à la création). Preuves et
+**A6** : `whatsappRecipients()` n'appelait jamais `waNumber()` (qui existe
+pourtant dans le dépôt depuis P14, pour les liens `wa.me`) — un
+`WHATSAPP_RECIPIENT` au format local algérien partait vers Meta tel quel
+(`0770650387`) et était **refusé** : aucune alerte de commande, en silence. La
+documentation de déploiement entretenait la faute (« sinon le numéro affiché sur
+le site est utilisé » — le site affiche le format local `0770 65 03 87`).
+
+**`server/notify.js`**
+
+- Nouveau `normalizeRecipient()` (interne) : `waNumber()` d'abord — il traite
+  toutes les écritures algériennes (`0XXXXXXXXX`, `XXXXXXXXX`, `213…`, `00213…`,
+  `+213 …`) ; sinon un numéro de 8 à 15 chiffres **ne commençant pas par 0** est
+  gardé tel quel (destinataire étranger déjà international — un fournisseur au
+  `+33…` reste joignable) ; sinon l'entrée est invalide.
+- `resolveRecipients()` remplace le corps de `whatsappRecipients()` et renvoie
+  `{ valid, invalid }` : la liste envoyable **et** les entrées écartées. La
+  déduplication se fait **après** normalisation — le même numéro écrit au format
+  local puis international ne part plus qu'une fois.
+- `whatsappRecipients()` garde sa signature et son contrat (tableau de chaînes),
+  donc aucun appelant n'est cassé ; nouveau `whatsappRecipientIssues()` exporté ;
+  `whatsappConfig()` expose `invalidRecipients`.
+- Une entrée **sans aucun chiffre** (mot résiduel, champ vide) est ignorée en
+  silence : ce n'est pas un numéro mal écrit, c'est du bruit de saisie.
+
+**`server/index.js`**
+
+- Démarrage : `console.warn` nommant les entrées écartées avec le format attendu,
+  et `console.error` si WhatsApp est **configuré mais sans aucun destinataire
+  valide** — le cas critique où les jetons sont là et où aucune alerte ne partira.
+- `GET /api/health` : bloc `whatsapp: { configured, recipients, invalid }` en
+  **compteurs** uniquement. La route est publique et `WHATSAPP_RECIPIENT` peut
+  être un numéro privé (les numéros du magasin, eux, sont déjà affichés sur le
+  site) : aucun numéro n'est divulgué, un test le vérifie.
+
+**`docs/DEPLOY-VERCEL.md` §3** — tableau des écritures acceptées et de leur
+résultat, exemple `whatsapp.invalid`, mention du cas critique
+(`configured: true` + `recipients: 0`), et suppression de la formulation ambiguë
+qui suggérait le format local.
+
+**Décisions**
+
+1. **L'étranger reste possible.** Se rabattre sur `waNumber()` seul aurait
+   interdit tout destinataire non algérien (la fonction renvoie `''` pour un
+   `+33…`). La règle à trois étages garde cette souplesse sans rouvrir le bug :
+   un numéro qui commence par 0 après retrait du préfixe `00` n'est pas
+   international, donc il est écarté (`0123456789` → invalide).
+2. **Écarter plutôt que deviner.** Une entrée douteuse n'est jamais envoyée à
+   Meta (échec garanti, quota consommé) : elle est retirée et **signalée**. Le
+   canal reste actif pour les autres numéros — un envoi partiel vaut mieux
+   qu'aucun (règle P20 déjà en place).
+3. **Visibilité au démarrage, pas à la première commande.** Une faute de
+   configuration n'est pas un incident d'envoi : elle se lit dans les logs de
+   boot et dans `/api/health`, donc avant la première commande perdue.
+
+**Vérification en direct** (serveur d'aperçu, code du correctif) :
+
+| `WHATSAPP_RECIPIENT` | Log de démarrage | `/api/health` |
+|---|---|---|
+| `0770650387, 12` | `configuré → 213770650387` + warn « 1 entrée(s) écartée(s) … → 12 » | `{configured:true, recipients:1, invalid:1}` |
+| `12` | `configuré →` (vide) + warn + **error** « AUCUN destinataire valide » | `{configured:true, recipients:0, invalid:1}` |
+| (absent) | `configuré → 213770650387, 213669174617` (défaut P20 inchangé) | `{configured:false, recipients:2, invalid:0}` |
+
+**Tests** — 17 nouveaux dans `src/lot8Notify.test.js` : reproduction exacte de
+l'audit, toutes les écritures algériennes, étranger conservé, déduplication,
+défaut P20 inchangé, entrées invalides écartées **et** signalées, bruit ignoré,
+**payload réellement envoyé** (`to` du corps JSON capturé via un faux `fetch`
+Meta — 1 envoi, 2 envois, défaut, échec non bloquant), health en compteurs sans
+fuite de numéro, et les deux alertes de démarrage. Suite complète :
+**653 tests, 653 passent** (636 avant), build propre.
+
+**Neutralisations vérifiées régressives (5)** :
+
+| # | Correctif retiré | Tests qui rougissent |
+|---|---|---|
+| N8 | normalisation (retour au `replace(/\D/g,'')` brut) | 10 |
+| N9 | signalement des entrées invalides | 3 |
+| N10 | bloc `whatsapp` de `/api/health` | 1 |
+| N11 | alertes de démarrage | 1 |
+| N12 | documentation du format attendu | 1 |
+
+---
+
+### ⏳ À faire — reste du lot 8 (A3 → A5, A7 → A10)
+
+**A1, A2 (les 2 bloquants) et A6 sont livrés** — voir ci-dessus. Restent 3
+majeurs et 4 mineurs du **lot 8** (§7), trouvés hors des deux rapports
+d'origine : **A3** drapeau `claimable` jamais lu, **A4** limite Vercel
+contredite par le code, **A5** photos non compressées en octets, puis les
+mineurs **A7** fsync, **A8** dates localisées à moitié, **A9** 62 clés i18n
+mortes, **A10** `category`/`kind` libres à la création. Preuves et
 reproductions **exécutées** (A1 sur l'API en direct, A2/A6/A9/A10 par appel direct
 du code du dépôt) dans `docs/VERIFICATION-RAPPORT-AUDIT-3.md`. Les deux rapports
 d'origine n'ont **pas** été modifiés.

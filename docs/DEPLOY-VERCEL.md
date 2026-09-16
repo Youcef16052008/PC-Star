@@ -28,7 +28,7 @@ Project → **Settings → Environment Variables** (Production + Preview) :
 | `OAUTH_DEMO` | `1` |
 | `WHATSAPP_TOKEN` | `EAAG…` (optionnel, P19) |
 | `WHATSAPP_PHONE_NUMBER_ID` | `109876543210` (optionnel, P19) |
-| `WHATSAPP_RECIPIENT` | `213770650387,213669174617` (optionnel, défaut = **les deux** numéros du site) |
+| `WHATSAPP_RECIPIENT` | `213770650387,213669174617` (optionnel, défaut = **les deux** numéros du site ; le format local `0770650387` est accepté et converti) |
 
 `FRONT_URL` / `OAUTH_REDIRECT_BASE` servent aussi de **liste blanche de
 redirection OAuth** (P13-S2) : un `returnUrl` d'une autre origine est ignoré.
@@ -44,7 +44,8 @@ total, articles, lien de rappel). Configuration :
 3. en production : numéro vérifié dans le **WhatsApp Business Manager**, puis
    un **System user token** permanent ;
 4. renseigner `WHATSAPP_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID` (et éventuellement
-   `WHATSAPP_RECIPIENT`, sinon le numéro affiché sur le site est utilisé).
+   `WHATSAPP_RECIPIENT`, sinon **les deux** numéros du magasin — `STORE_WHATSAPP`
+   dans `src/data.js` — sont utilisés).
 
 Sans ces variables, **rien ne casse** : l'envoi est ignoré silencieusement
 (`not_configured`) et la commande passe normalement. Le maître reste notifié
@@ -58,6 +59,35 @@ la page « À propos » et par l'envoi serveur — ajouter un troisième numéro
 demande qu'une ligne là. Les envois sont **indépendants** : si un numéro échoue
 (non inscrit sur WhatsApp, quota…), l'autre part quand même, et la réponse
 reste `201` pour le client.
+
+**LOT 8.6 (A6) — format des destinataires.** L'API Cloud de Meta exige le format
+international **sans « + »** (`213770650387`). Avant ce correctif, la variable
+était envoyée telle quelle après suppression des non-chiffres : un numéro saisi
+au format local (`0770650387` — celui que le site affiche partout, et que cette
+documentation donnait en exemple) était **refusé par Meta**, donc aucune alerte
+de commande, en silence. Désormais chaque destinataire est normalisé :
+
+| Saisie | Envoyé à Meta |
+|---|---|
+| `0770650387` (local) | `213770650387` |
+| `+213 770 65 03 87` | `213770650387` |
+| `00213770650387` | `213770650387` |
+| `770650387` (local sans le 0) | `213770650387` |
+| `+33612345678` (étranger) | `33612345678` (gardé tel quel) |
+| `0123456789`, `12` | **écarté** — numéro non normalisable |
+
+Un même numéro écrit sous deux formes ne part qu'une fois (déduplication après
+normalisation). Une entrée écartée est **signalée au démarrage**
+(`[pcstar-notify] WHATSAPP_RECIPIENT : 1 entrée(s) écartée(s)…`) et visible dans
+`GET /api/health` (`whatsapp.invalid`, en compteurs — la route est publique, les
+numéros n'y sont pas divulgués) :
+
+```json
+{ "whatsapp": { "configured": true, "recipients": 2, "invalid": 0 } }
+```
+
+`configured: true` avec `recipients: 0` est le cas critique : les jetons sont là,
+mais aucune alerte ne partira. Le démarrage le journalise en **erreur**.
 
 > ⚠️ **Les WebSockets ne fonctionnent pas sur Vercel** (serverless). Le socket
 > Desk `/api/desk-stream` n'est actif que sur un serveur Node longue durée.

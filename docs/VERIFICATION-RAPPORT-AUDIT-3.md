@@ -19,13 +19,14 @@ d'origine ne sont pas modifiés (même règle que pour les lots précédents).
 | Sévérité | Nombre | Items | Statut |
 |---|---|---|---|
 | 🔴 Bloquant (argent / intégrité des commandes) | **2** | A1, A2 | ✅ **corrigés** le 16/09/2026 (lot 8.1 + 8.2) |
-| 🟠 Majeur (échec silencieux, production Vercel) | **4** | A3, A4, A5, A6 | à corriger |
+| 🟠 Majeur (échec silencieux, production Vercel) | **4** | A3, A4, A5, A6 | ✅ A6 corrigé ; A3, A4, A5 à corriger |
 | 🟡 Mineur (durabilité, cohérence, hygiène) | **4** | A7, A8, A9, A10 | à corriger |
-| **Total** | **10** | | 2 corrigés, 8 à corriger |
+| **Total** | **10** | | 3 corrigés, 7 à corriger |
 
-> **Mise à jour du 16/09/2026.** A1 et A2 ont été corrigés et livrés sur cette
-> même branche (33 tests de non-régression, suite à 636/636, reproduction en
-> direct rejouée : 409 et 400 à la place de 201). Détail des correctifs,
+> **Mise à jour du 16/09/2026.** A1, A2 et A6 ont été corrigés et livrés sur
+> cette même branche (50 tests de non-régression, suite à 653/653, reproductions
+> en direct rejouées : 409 et 400 à la place de 201 pour A1/A2, destinataire
+> `213770650387` à la place de `0770650387` pour A6). Détail des correctifs,
 > décisions et neutralisations dans `docs/PLAN-CORRECTIONS.md` §9, section
 > « ✅ Fait — lot 8.1 + 8.2 ». Le corps de ce rapport reste **inchangé** : il
 > décrit l'état audité, les statuts sont ajoutés en tête de chaque item corrigé.
@@ -389,6 +390,14 @@ applicable. Le maître réessaie, obtient le même échec, et peut conclure que
 ---
 
 ### 🟠 A6 — Un `WHATSAPP_RECIPIENT` au format local casse **toutes** les notifications, en silence
+
+> ✅ **CORRIGÉ (16/09/2026, lot 8.6).** Chaque destinataire passe par
+> `waNumber()` (formats algériens) avec repli sur un numéro international non
+> algérien ; une entrée non normalisable est **écartée et signalée** au
+> démarrage et dans `GET /api/health` (`whatsapp.invalid`). La reproduction
+> ci-dessous renvoie désormais `["213770650387"]`, et le champ `to` du corps
+> envoyé à Meta est vérifié par test. `docs/DEPLOY-VERCEL.md` §3 documente les
+> écritures acceptées.
 
 **Affirmation.** `whatsappRecipients()` nettoie les séparateurs mais ne convertit
 pas un numéro local algérien (`0770650387`) en format international
