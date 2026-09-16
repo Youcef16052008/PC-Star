@@ -317,6 +317,37 @@ qui tient.**
 
 ---
 
+### 🔎 Lot 8 — Découverte hors rapports, audit A→Z du 16/09/2026 (A1→A10)
+
+Ajouté après l'exécution des lots 1 à 6 : analyse complète du dépôt à la
+recherche de défauts que les deux rapports d'origine ne listent pas. Détail,
+preuves et reproductions exécutées dans **`docs/VERIFICATION-RAPPORT-AUDIT-3.md`**.
+Les deux rapports d'origine restent **non modifiés**.
+
+| # | Correction | Fichiers | Taille | Critère d'acceptation |
+|---|---|---|---|---|
+| 8.1 | **A1** 🔴 — Refuser une commande sur un produit **masqué** (`hiddenProductIds`) dans `placeOrder`, dans la transaction et avant tout décrément ; `409 unavailable` côté route ; message dédié **et retrait de la ligne du panier** côté client | `server/catalog.js:72-168`, `server/index.js:826-925`, `src/orderLogic.js` (`orderApiFailure`), `src/App.jsx` (`reserve`, `pricedCart`) | M | Masquer un produit puis le commander en anonyme → **409**, stock inchangé, aucune commande créée, aucune notification |
+| 8.2 | **A2** 🔴 — Refuser une ligne dont le prix de référence est inconnu (`priceOf` → `null`) au lieu de la tarifer **0 DA** ; purger les entrées orphelines de `db.stock` et `productOverrides` dans `normalizeDb` (journalisées) | `server/catalog.js:58-90`, `server/db.js:271-340` | M | `placeOrder` sur un id inconnu présent dans `db.stock` → refus `unknown_product`, **aucune** commande à 0 DA ; après `writeDb`, la clé orpheline a disparu et les overrides valides sont conservés |
+| 8.3 | **A3** 🟠 — Lire le drapeau `claimable` côté client : pas de bouton « Annuler » sur une commande non revendicable, mention explicite, et message d'échec distingué du 404 | `src/OrdersPage.jsx:130-140`, `src/App.jsx` (`cancelMyOrder`), `src/i18n.js` (nouvelle clé × 3) | S | Une commande `claimable: false` s'affiche **sans** bouton d'annulation ; un clic forcé (API directe) renvoie un message qui dit pourquoi |
+| 8.4 | **A4** 🟠 — Aligner la limite de corps sur la contrainte réelle de Vercel (4,5 Mo) : `MAX_BODY_BYTES` réduit en environnement serverless, configuration `bodyParser` supprimée ou commentée véridiquement, limite plateforme documentée | `api/index.js:24-31`, `server/index.js:129`, `docs/DEPLOY-VERCEL.md` §7 | S | Sur Vercel, un corps trop gros reçoit le **413 JSON de l'application** (ou un refus client expliqué), jamais la page d'erreur plateforme ; plus aucune valeur annoncée contredite par un commentaire |
+| 8.5 | **A5** 🟠 — Compression à **budget** : ré-encoder aussi quand `scale === 1` si le data URL dépasse un seuil en octets, boucle de réduction bornée, et garde de payload total avant l'envoi (constante partagée client/serveur) | `src/photoCompress.js:32-67`, `src/MasterPage.jsx:62,162,172`, module de constantes partagé | M | Un PNG 800×800 de 2 Mo part **compressé** sous le seuil ; 6 photos lourdes → refus client expliqué avant l'envoi, payload total sous la limite plateforme |
+| 8.6 | **A6** 🟠 — Normaliser les destinataires WhatsApp avec la règle partagée (`waNumber`/`phoneLogic`), rejeter un numéro non normalisable, signaler une configuration invalide **au démarrage** et dans `/api/health` ; exemple de la doc au format international | `server/notify.js:39-57`, `server/index.js` (démarrage + health), `docs/DEPLOY-VERCEL.md` §3 | S | `WHATSAPP_RECIPIENT=0770650387` → destinataire `213770650387` envoyé à Meta ; un numéro invalide est refusé au boot avec un message lisible, pas à la première commande |
+| 8.7 | **A7** 🟡 — Durabilité de l'écriture : `fsync` du fichier temporaire avant `rename` (+ fsync du répertoire, non bloquant) | `server/db.js:772-786` | S | Une coupure simulée entre écriture et rename ne laisse plus de `store.json` vide ; le test de non-régression vérifie la présence du fsync sur le chemin d'écriture |
+| 8.8 | **A8** 🟡 — Un seul module de formatage date/monnaie, locale dérivée de la langue (ou `fr-DZ` assumé **partout**) ; `OrdersPage` cesse d'ignorer la langue | nouveau `src/format.js`, `src/OrdersPage.jsx:119`, `src/DeskPage.jsx:76`, `src/data.js:66` | S | En mode arabe, la même commande affiche la même date au Desk et dans « Mes commandes » ; la décision (varier ou figer) est écrite dans le code |
+| 8.9 | **A9** 🟡 — Supprimer les 62 clés i18n mortes × 3 langues (186 chaînes), sauf décision contraire explicite par groupe ; verrouiller par un test dans `i18n.coverage.test.js` (toute clé doit être référencée, directement ou par préfixe dynamique **déclaré**) | `src/i18n.js`, `src/i18n.coverage.test.js` | M | Le balayage ne remonte plus aucune clé morte ; une clé ajoutée sans usage fait **échouer** la suite |
+| 8.10 | **A10** 🟡 — Valider `category` (contre `CATEGORIES`, hors `all`) et `kind` (contre `KINDS`) à la création et au patch produit ; refus `400` explicite plutôt que correction muette | `server/masterApi.js:93-136,200-262` | S | Créer un produit avec `category: "SSD"` → **400** `category` ; un produit master créé via le formulaire apparaît bien dans le filtre de sa catégorie |
+
+**Ordre conseillé :** 8.1 et 8.2 d'abord (argent et intégrité des commandes, même
+chemin de code — à livrer ensemble), puis 8.6 (canal d'alerte du maître, échec
+silencieux), 8.3, ensuite 8.4 + 8.5 (même sujet : ce qui part vraiment sur
+Vercel), puis 8.7 à 8.10.
+
+**Règle inchangée :** chaque correctif est livré **avec son test de régression**,
+et la sensibilité du test est vérifiée par neutralisation (le correctif retiré
+doit faire rougir le test) — comme pour les lots 1 à 6.
+
+---
+
 ## 8. Ce qu'il ne faut PAS corriger
 
 | Item | Pourquoi |
@@ -1286,6 +1317,20 @@ saut d'amplitude ; et celle de Q9 passait parce que le nom « Karim B. » restai
 présent dans la constante `DEMO` — le test cherche désormais la construction
 d'attente **dans chaque bloc** `test(...)`, et après `page.reload()` pour le
 second. Les 18 cas échouent maintenant pour la bonne raison.
+
+### ⏳ À faire — lot 8 (audit A→Z du 16/09/2026)
+
+Le **lot 8** (§7) regroupe 10 défauts trouvés hors des deux rapports d'origine :
+2 bloquants (**A1** commande d'un produit masqué, **A2** commande tarifée 0 DA),
+4 majeurs (**A3** drapeau `claimable` jamais lu, **A4** limite Vercel contredite
+par le code, **A5** photos non compressées en octets, **A6** WhatsApp jamais
+normalisé) et 4 mineurs (**A7** fsync, **A8** dates localisées à moitié, **A9**
+62 clés i18n mortes, **A10** `category`/`kind` libres à la création). Preuves et
+reproductions **exécutées** (A1 sur l'API en direct, A2/A6/A9/A10 par appel direct
+du code du dépôt) dans `docs/VERIFICATION-RAPPORT-AUDIT-3.md`. Les deux rapports
+d'origine n'ont **pas** été modifiés.
+
+---
 
 ### ⚠️ Reste à faire par l'exploitant (lot 0 — reporté à la fin, à la demande)
 
