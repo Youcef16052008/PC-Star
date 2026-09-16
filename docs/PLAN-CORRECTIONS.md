@@ -332,7 +332,7 @@ Les deux rapports d'origine restent **non modifiés**.
 | 8.4 ✅ | **A4** 🟠 **LIVRÉ le 16/09/2026** — Limite de corps alignée sur la contrainte réelle : nouveau module `src/limits.js` (une seule source), `MAX_BODY_BYTES = IS_SERVERLESS ? 4 Mo : 15 Mo`, `config.api.*` inerte **supprimé** d'`api/index.js` et remplacé par la vérité (4,5 Mo requête **et** réponse, non relevable), 413 qui annonce `maxBytes` + `platformLimit`, limite documentée | `src/limits.js`, `api/index.js`, `server/index.js:142`, `server/blobStore.js:36-37`, `docs/DEPLOY-VERCEL.md` §7 | S | ✅ Vérifié en direct sur un banc `VERCEL=1` : `MAX_BODY_BYTES=4194304`, corps de 4,20 Mo → `413 {"maxBytes":4194304,"platformLimit":4718592}` — le JSON de l'application, jamais la page plateforme |
 | 8.5 ✅ | **A5** 🟠 **LIVRÉ le 16/09/2026** — Compression à **budget d'octets** : `dataUrlBytes()` mesure le poids décodé, ré-encodage aussi à `scale === 1`, boucle bornée (qualité 0,8→0,5 puis dimensions ×0,8, plancher 320 px, 12 itérations max), jamais plus lourd que l'entrée à dimensions constantes ; **garde de total** `payloadOverBudget()` avant création ET édition des photos, message `masterPhotosTooHeavy` × 3 langues | `src/limits.js`, `src/photoCompress.js`, `src/MasterPage.jsx:13,193,269`, `src/i18n.js` | M | ✅ 6 photos au plafond client (400 Ko décodés → corps 3,13 Mo) → `200`, 6 stockées ; 7 → écrémées à 6 ; photo de 3 Mo écartée ; corps > 4 Mo → **aucun appel réseau**, toast chiffré |
 | 8.6 ✅ | **A6** 🟠 **LIVRÉ le 16/09/2026** — Normaliser les destinataires WhatsApp avec la règle partagée (`waNumber`/`phoneLogic`), rejeter un numéro non normalisable, signaler une configuration invalide **au démarrage** et dans `/api/health` ; exemple de la doc au format international | `server/notify.js:39-57`, `server/index.js` (démarrage + health), `docs/DEPLOY-VERCEL.md` §3 | S | `WHATSAPP_RECIPIENT=0770650387` → destinataire `213770650387` envoyé à Meta ; un numéro invalide est refusé au boot avec un message lisible, pas à la première commande |
-| 8.7 | **A7** 🟡 — Durabilité de l'écriture : `fsync` du fichier temporaire avant `rename` (+ fsync du répertoire, non bloquant) | `server/db.js:772-786` | S | Une coupure simulée entre écriture et rename ne laisse plus de `store.json` vide ; le test de non-régression vérifie la présence du fsync sur le chemin d'écriture |
+| 8.7 ✅ | **A7** 🟡 **LIVRÉ le 16/09/2026** — Durabilité de l'écriture : nouveau module `server/durableWrite.js` (tmp → **fsync du fichier** → rename → **fsync du répertoire**, non bloquant), `fs` injectable pour tester l'**ordre** des appels ; `writeDb()` et `ensure()` câblés, plus aucun `writeFileSync`+`renameSync` à la main | `server/durableWrite.js`, `server/db.js:11,262,846` | S | ✅ Coupure simulée entre écriture et rename : la cible garde son contenu précédent (fs factice **et** fs réel) ; l'ordre open→write→**fsync**→close→rename→fsync(dir) est vérifié par test |
 | 8.8 | **A8** 🟡 — Un seul module de formatage date/monnaie, locale dérivée de la langue (ou `fr-DZ` assumé **partout**) ; `OrdersPage` cesse d'ignorer la langue | nouveau `src/format.js`, `src/OrdersPage.jsx:119`, `src/DeskPage.jsx:76`, `src/data.js:66` | S | En mode arabe, la même commande affiche la même date au Desk et dans « Mes commandes » ; la décision (varier ou figer) est écrite dans le code |
 | 8.9 | **A9** 🟡 — Supprimer les 62 clés i18n mortes × 3 langues (186 chaînes), sauf décision contraire explicite par groupe ; verrouiller par un test dans `i18n.coverage.test.js` (toute clé doit être référencée, directement ou par préfixe dynamique **déclaré**) | `src/i18n.js`, `src/i18n.coverage.test.js` | M | Le balayage ne remonte plus aucune clé morte ; une clé ajoutée sans usage fait **échouer** la suite |
 | 8.10 | **A10** 🟡 — Valider `category` (contre `CATEGORIES`, hors `all`) et `kind` (contre `KINDS`) à la création et au patch produit ; refus `400` explicite plutôt que correction muette | `server/masterApi.js:93-136,200-262` | S | Créer un produit avec `category: "SSD"` → **400** `category` ; un produit master créé via le formulaire apparaît bien dans le filtre de sa catégorie |
@@ -1792,13 +1792,104 @@ justifie d'écarter un ré-encodage que si rien d'autre n'a été amélioré.
 
 ---
 
-### ⏳ À faire — reste du lot 8 (A7 → A10)
+### ✅ Fait — lot 8.7, l'écriture de la base est durable (16/09/2026)
 
-**A1, A2 (les 2 bloquants), A6, A3, A4 et A5 sont livrés** — voir ci-dessus :
-les **6 défauts 🔴/🟠** de l'audit A→Z sont corrigés. Restent les 4 **mineurs**
-du **lot 8** (§7), trouvés hors des deux rapports d'origine : **A7** fsync,
-**A8** dates localisées à moitié, **A9** 62 clés i18n mortes, **A10**
-`category`/`kind` libres à la création. Preuves et
+**A7** : `writeDb()` faisait `fs.writeFileSync(DB_TMP_FILE, …)` puis
+`fs.renameSync(DB_TMP_FILE, DB_FILE)`. Le couple tmp + rename (lot 3.2 / B2)
+garantit l'**atomicité** — un crash ne laisse jamais un `store.json` à moitié
+écrit — mais pas la **durabilité** : sans `fsync`, une coupure d'alimentation
+peut publier un nom dont les blocs de données ne sont jamais arrivés au disque.
+Au remontage, `store.json` est vide ou tronqué → `quarantineCorrupt` l'isole
+(`store.json.corrupt-<horodatage>`) et la restauration repart du dernier backup :
+**tout ce qui a été écrit depuis est perdu** (commandes, stock, sessions). Le
+commentaire d'origine parlait d'atomicité sans jamais mentionner la durabilité.
+
+**`server/durableWrite.js` (nouveau)** — trois fonctions, `fs` **injectable** :
+
+| Fonction | Ce qu'elle fait | Ce qu'elle rend |
+|---|---|---|
+| `durableWriteFileSync(file, text)` | `open` → `write` → **`fsync`** → `close` (dans un `finally`) | `true` si le fsync a eu lieu |
+| `fsyncDirSync(dir)` | fsync de l'**entrée de répertoire** — jamais bloquant | `true`, ou `false` si le FS refuse |
+| `atomicDurableWriteFileSync(file, text, {tmp})` | tmp → fsync → `rename` → fsync du répertoire | `{ synced, dirSynced }` |
+
+**`server/db.js`** — `writeDb()` passe par `atomicDurableWriteFileSync(DB_FILE,
+json, { tmp: DB_TMP_FILE })`, et la création initiale de la base (`ensure()`) par
+`durableWriteFileSync` : un fichier de base vide/tronqué au remontage serait mis
+en quarantaine **avant** qu'aucun backup n'existe. Le commentaire de `writeDb`
+dit désormais les deux garanties (atomicité **et** durabilité).
+
+**Décisions**
+
+1. **Tester l'ordre, pas l'effet.** La durabilité ne se vérifie pas en débranchant
+   la machine : un `fsync` placé **après** le `rename` compile, passe tous les
+   tests fonctionnels et ne garantit **rien**. D'où le `fs` injectable et un test
+   qui journalise la séquence exacte — la neutralisation N28 (fsync après rename)
+   fait rougir **22 tests**, preuve que la propriété est bien celle qui est
+   testée.
+2. **fsync du répertoire non bloquant.** Windows ne laisse pas ouvrir un
+   répertoire en lecture, certains FS réseau renvoient `EINVAL` : un échec là ne
+   doit **jamais** faire échouer une écriture de base — l'essentiel (les données)
+   est déjà acquis. La fonction rend `false` au lieu de lever, et c'est testé dans
+   les deux cas (`EISDIR` à l'ouverture, `EINVAL` au fsync).
+3. **`close` dans un `finally`.** Si le `fsync` lève (`EIO` sur un disque
+   mourant), le descripteur ne doit pas fuir — l'exception remonte (l'écriture a
+   échoué, l'appelant doit le savoir) mais la ressource est libérée. Testé.
+4. **Un FS sans `fsyncSync` reste fonctionnel.** Repli dégradé explicite
+   (`synced: false`) plutôt que crash : le chemin d'écriture ne doit jamais
+   dépendre d'une capacité optionnelle du système.
+5. **Contrepartie écrite, pas passée sous silence.** Un appel système de plus par
+   écriture (quelques ms), sur un chemin déjà sérialisé par le verrou
+   `store.json.lock`. Le module la documente — l'audit reprochait précisément au
+   commentaire antérieur de parler d'atomicité sans dire ce qui manquait.
+
+**Portée volontairement limitée à la base.** `server/blobStore.js:134` écrit les
+photos uploadées avec un `writeFileSync` simple : ce chemin reste tel quel. Une
+photo partiellement écrite est un défaut **cosmétique** et visible (image
+cassée), pas une perte d'état silencieux ; sous Vercel ce répertoire est de toute
+façon `/tmp` (éphémère) sauf avec `BLOB_READ_WRITE_TOKEN`, où c'est Vercel Blob
+qui garantit la durabilité. Payer un fsync par upload n'aurait pas de
+contrepartie mesurable.
+
+**Vérification en direct** (serveur d'aperçu, base `.preview-data/`) :
+
+| Étape | Résultat |
+|---|---|
+| `store.json` avant | 3 859 o, JSON valide, 1 commande |
+| `POST /api/orders` (guest, `cpu-7800x3d`, slot `10:30`) | `201`, code `PS-20260916-0002` |
+| `store.json` après | 4 380 o (**+521**), JSON valide, commande **au disque**, stock 6 → 5 |
+| résidus | **aucun** `store.json.tmp`, **aucun** `store.json.lock` |
+| annulation par le maître | `200`, statut `cancelled` au disque, stock **rendu à 6** |
+| résidus après annulation | toujours aucun tmp/verrou, JSON valide, 4 backups présents |
+
+**Neutralisations** (chaque correctif retiré → les tests rougissent) :
+
+| # | Correctif retiré | Tests qui rougissent |
+|---|---|---|
+| N27 | fsync du fichier retiré (écrit sans durabilité) | **4** |
+| N28 | fsync **après** le rename (ordre qui ne garantit rien) | **22** |
+| N29 | `db.js` revenu à `writeFileSync` + `renameSync` à la main | **1** |
+| N30 | fsync de répertoire bloquant (l'exception remonte) | **2** |
+| N31 | descripteur non fermé si le fsync échoue (`finally` retiré) | **1** |
+| N32 | création initiale de la base revenue à `writeFileSync` | **1** |
+
+**Tests** : 14 nouveaux (`src/lot8Durable.test.js`) — ordre exact des appels,
+écriture réelle sur FS, repli sans `fsyncSync`, fermeture du descripteur sur
+`EIO`, fsync de répertoire réussi / `EISDIR` / `EINVAL`, ordre fsync-avant-rename
+de la fonction atomique, tmp implicite, **coupure simulée** entre écriture et
+rename sur fs factice **et** sur fs réel (la cible garde son contenu précédent),
+intégration `writeDb()` (store.json valide, aucun `.tmp` résiduel, mémoire et
+disque concordent), contrôle à la source de `server/db.js`, et vérification que
+le module documente la contrepartie. Suite : **697/697** (683 avant), build
+propre.
+
+---
+
+### ⏳ À faire — reste du lot 8 (A8 → A10)
+
+**A1, A2 (les 2 bloquants), A6, A3, A4, A5 et A7 sont livrés** — voir
+ci-dessus : les **6 défauts 🔴/🟠** de l'audit A→Z sont corrigés, et le premier
+des 4 **mineurs** aussi. Restent **A8** dates localisées à moitié, **A9** 62 clés
+i18n mortes, **A10** `category`/`kind` libres à la création. Preuves et
 reproductions **exécutées** (A1 sur l'API en direct, A2/A6/A9/A10 par appel direct
 du code du dépôt) dans `docs/VERIFICATION-RAPPORT-AUDIT-3.md`. Les deux rapports
 d'origine n'ont **pas** été modifiés.

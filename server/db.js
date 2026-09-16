@@ -5,6 +5,10 @@ import crypto from 'node:crypto'
 // LOT 8.2 (A2) : liste des ids connus du catalogue de base — sert à repérer les
 // entrées orphelines de `db.stock` / `productOverrides` (voir `purgeOrphanCatalogRefs`).
 import { PRODUCTS } from '../src/data.js'
+// LOT 8.7 (A7) : écriture atomique **et durable** (fsync avant rename, puis
+// fsync du répertoire). Le couple tmp+rename seul ne garantissait que
+// l'atomicité : après coupure, `store.json` pouvait être vide ou tronqué.
+import { atomicDurableWriteFileSync, durableWriteFileSync } from './durableWrite.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 /** On Vercel serverless the bundle FS is read-only — persist under /tmp (ephemeral per instance). */
@@ -252,7 +256,10 @@ export function emptyDb() {
 function ensure() {
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true })
   if (!fs.existsSync(DB_FILE)) {
-    fs.writeFileSync(DB_FILE, JSON.stringify(emptyDb(), null, 2))
+    // LOT 8.7 (A7) : même garantie pour la création initiale — un fichier de
+    // base vide/tronqué au remontage serait mis en quarantaine au premier
+    // démarrage, avant qu'aucun backup n'existe.
+    durableWriteFileSync(DB_FILE, JSON.stringify(emptyDb(), null, 2))
   }
 }
 
@@ -814,8 +821,10 @@ function withDbLock(fn) {
 }
 
 /**
- * Écriture atomique : tmp puis rename (même FS) — un crash ne peut pas laisser
- * un store.json tronqué.
+ * Écriture atomique **et durable** : tmp → `fsync` → rename (même FS) → `fsync`
+ * du répertoire — un crash ne peut pas laisser un store.json tronqué (lot 3.2),
+ * et une coupure d'alimentation ne peut plus publier un nom dont les blocs ne
+ * sont pas écrits (LOT 8.7 / A7).
  *
  * LOT 3.2 (B2) : l'état persisté est normalisé (structure, purge des entrées
  * expirées, clés internes de transit retirées). C'est le pendant de la
@@ -831,8 +840,10 @@ export function writeDb(db) {
   delete clean._lastAuth
   delete clean._err
   normalizeDb(clean)
-  fs.writeFileSync(DB_TMP_FILE, JSON.stringify(clean, null, 2))
-  fs.renameSync(DB_TMP_FILE, DB_FILE)
+  // LOT 8.7 (A7) : durableWriteFileSync(DB_TMP_FILE) → fsync → rename(DB_FILE)
+  // → fsync(DATA_DIR). Le fichier publié a ses octets au disque, et l'entrée de
+  // répertoire qui le nomme aussi.
+  atomicDurableWriteFileSync(DB_FILE, JSON.stringify(clean, null, 2), { tmp: DB_TMP_FILE })
   initialized = true
   cache.writes += 1
   cache.stat = statOf()

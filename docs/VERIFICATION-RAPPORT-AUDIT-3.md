@@ -20,21 +20,22 @@ d'origine ne sont pas modifiés (même règle que pour les lots précédents).
 |---|---|---|---|
 | 🔴 Bloquant (argent / intégrité des commandes) | **2** | A1, A2 | ✅ **corrigés** le 16/09/2026 (lot 8.1 + 8.2) |
 | 🟠 Majeur (échec silencieux, production Vercel) | **4** | A3, A4, A5, A6 | ✅ **les quatre corrigés** (lots 8.3, 8.4, 8.5, 8.6) |
-| 🟡 Mineur (durabilité, cohérence, hygiène) | **4** | A7, A8, A9, A10 | à corriger |
-| **Total** | **10** | | **6 corrigés** (A1, A2, A3, A4, A5, A6), 4 à corriger (A7 → A10) |
+| 🟡 Mineur (durabilité, cohérence, hygiène) | **4** | A7, A8, A9, A10 | ✅ A7 corrigé (lot 8.7) ; A8, A9, A10 à corriger |
+| **Total** | **10** | | **7 corrigés** (A1 → A7), 3 à corriger (A8, A9, A10) |
 
-> **Mise à jour du 16/09/2026.** A1, A2, A6, A3, puis **A4 et A5** ont été
-> corrigés et livrés sur cette même branche (80 tests de non-régression au
-> total, suite à **683/683**, reproductions en direct rejouées : 409 et 400 à la
+> **Mise à jour du 16/09/2026.** A1, A2, A6, A3, A4, A5, puis **A7** ont été
+> corrigés et livrés sur cette même branche (94 tests de non-régression au
+> total, suite à **697/697**, reproductions en direct rejouées : 409 et 400 à la
 > place de 201 pour A1/A2, destinataire `213770650387` à la place de
 > `0770650387` pour A6, 404 et bouton retiré pour A3, `413
 > {"maxBytes":4194304,"platformLimit":4718592}` sur un banc `VERCEL=1` pour A4,
-> 6 photos au plafond acceptées et corps trop lourd refusé avant envoi pour A5).
-> Détail des correctifs, décisions et neutralisations dans
+> 6 photos au plafond acceptées et corps trop lourd refusé avant envoi pour A5,
+> commande écrite puis annulée sur disque valide sans `store.json.tmp` résiduel
+> pour A7). Détail des correctifs, décisions et neutralisations dans
 > `docs/PLAN-CORRECTIONS.md` §9, sections « ✅ Fait — lot 8.1 + 8.2 »,
-> « lot 8.6 », « lot 8.3 » et « lot 8.4 + 8.5 ». Le corps de ce rapport reste
-> **inchangé** : il décrit l'état audité, les statuts sont ajoutés en tête de
-> chaque item corrigé.
+> « lot 8.6 », « lot 8.3 », « lots 8.4 + 8.5 » et « lot 8.7 ». Le corps de ce
+> rapport reste **inchangé** : il décrit l'état audité, les statuts sont ajoutés
+> en tête de chaque item corrigé.
 
 Les deux items bloquants concernent **le même point d'entrée** —
 `placeOrder()` (`server/catalog.js`) et la route `POST /api/orders`
@@ -513,6 +514,23 @@ configuration **conforme à la documentation**.
 ## 4. Items mineurs
 
 ### 🟡 A7 — `writeDb()` renomme sans `fsync` : fenêtre de corruption en cas de coupure
+
+> ✅ **CORRIGÉ (16/09/2026, lot 8.7).** Nouveau module `server/durableWrite.js` :
+> tmp → **`fsync` du fichier** → `rename` → **`fsync` du répertoire** (non
+> bloquant : `false` si le FS ne le permet pas, jamais d'exception). `writeDb()`
+> et la création initiale de la base (`ensure()`) passent par ce chemin — plus
+> aucun `writeFileSync` + `renameSync` à la main dans `server/db.js`. Le `fs` est
+> **injectable**, donc l'ordre des appels se teste : un `fsync` après le `rename`
+> ne garantirait rien, et c'est exactement ce que la neutralisation N28 vérifie
+> (22 tests rougissent). Le descripteur est fermé dans un `finally` (pas de fuite
+> si le `fsync` lève), et un FS sans `fsyncSync` reste fonctionnel en mode
+> dégradé (`synced: false`, dit explicitement).
+>
+> Vérifié en direct sur le serveur d'aperçu : commande créée (`201`,
+> `PS-20260916-0002`) → `store.json` +521 o, JSON valide, commande présente,
+> stock 6 → 5, **aucun** `store.json.tmp` ni `store.json.lock` résiduel ;
+> annulation par le maître (`200`) → statut `cancelled` au disque, stock rendu à
+> 6, toujours aucun résidu.
 
 **Preuve.** `server/db.js:772-786` :
 
