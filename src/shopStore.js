@@ -66,6 +66,14 @@ export function isEmail(value) {
 import { normalizePhone, isDzPhone, phoneCarrier } from './phoneLogic.js'
 export { normalizePhone, isDzPhone, phoneCarrier }
 
+// LOT 8.10 (A10) : les valeurs autorisées pour `category` / `kind` et la règle
+// de dérivation du `kind` viennent de `data.js` — les mêmes que le serveur
+// (`server/masterApi.js`). Le mode local appliquait déjà la règle de dérivation
+// (une ternaire inline) mais ne validait PAS la catégorie : hors ligne, un
+// produit `category: "SSD"` était enregistré et disparaissait de tous les
+// filtres, exactement comme avant le correctif côté API.
+import { isKnownCategory, kindForCategory } from './data.js'
+
 export function createMemoryStorage(seed = {}) {
   const map = { ...seed }
   return {
@@ -335,7 +343,13 @@ export function addProduct(meta, { name, price, category, brand, stock, short, p
   const title = String(name || '').trim()
   const n = Number(price)
   if (!title || !Number.isFinite(n) || n < 0) return { ok: false, error: 'product' }
-  const cat = String(category || 'accessories')
+  // Absent → repli `accessories` ; présent mais hors liste (chaîne vide
+  // comprise) → refus, comme à l'API : la même règle des deux côtés.
+  const cat = category == null ? 'accessories' : String(category)
+  // LOT 8.10 (A10) : même refus qu'à l'API — `category` doit être un id de
+  // `CATEGORIES` (hors `all`). Sans cela, le mode local enregistrait un produit
+  // invisible dans tous les filtres de la vitrine et dans le Builder.
+  if (!isKnownCategory(cat)) return { ok: false, error: 'category' }
   // P22 (bug H) : un SKU saisi doit être libre — dans les produits du master
   // comme dans le catalogue de base.
   const manualSku = String(sku || '').trim()
@@ -359,7 +373,11 @@ export function addProduct(meta, { name, price, category, brand, stock, short, p
     short: String(short || title),
     brand: String(brand || 'PC Star'),
     category: cat,
-    kind: cat === 'repair' ? 'service' : cat === 'laptop' || cat === 'ready' ? 'machine' : cat === 'accessories' ? 'accessory' : 'part',
+    // LOT 8.10 (A10) : la règle inline (repair→service, laptop/ready→machine,
+    // accessories→accessory, sinon part) est maintenant partagée avec le
+    // serveur via `kindForCategory` — un produit créé via l'API et le même créé
+    // hors ligne ne divergent plus.
+    kind: kindForCategory(cat),
     price: Math.round(n),
     stock: Math.max(0, Math.round(Number(stock) || 0)),
     rating: 0,

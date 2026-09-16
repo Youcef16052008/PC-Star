@@ -7,7 +7,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { newId } from './db.js'
 import { ensureStock, setStock, liveStockOf } from './catalog.js'
-import { PRODUCTS } from '../src/data.js'
+import { PRODUCTS, isKnownCategory, isKnownKind, kindForCategory } from '../src/data.js'
 import { uploadBlob, deleteBlob, MAX_BYTES, MAX_PHOTOS } from './blobStore.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -100,6 +100,34 @@ export function createProduct(db, body, id) {
   if (!name || price <= 0) return { ok: false, error: 'invalid' }
   if (id && db.meta.extraProducts.some((p) => p.id === id)) return { ok: false, error: 'invalid' }
 
+  // LOT 8.10 (A10) : `category` et `kind` étaient acceptés **libres**. Le nom,
+  // le prix, le SKU, `needs`, le nombre de photos et la longueur des champs
+  // texte étaient validés (lots 1.9 et 2.6) — pas ces deux champs, qui décident
+  // pourtant où le produit est joignable. Une catégorie inconnue enregistrait
+  // un produit invisible dans tous les filtres de la vitrine, dans toutes les
+  // lignes `PART_LINES` et dans le Builder. On refuse (400) plutôt que de
+  // corriger en silence : le refus dit au maître quoi saisir.
+  //
+  // Valeurs autorisées : `CATEGORY_IDS` = `CATEGORIES` hors `all`, `KIND_IDS` =
+  // `KINDS` hors `all` (`src/data.js`) — exactement les listes que le
+  // formulaire master propose dans ses `select`.
+  // Champ absent (`null`/`undefined`) → repli documenté `accessories`, comme
+  // avant le correctif. Champ PRÉSENT mais hors liste — y compris une chaîne
+  // vide — → refus : une valeur vide envoyée par un client n'est pas une
+  // absence, et la ranger en silence dans « Accessories » serait exactement la
+  // correction muette que ce lot supprime.
+  const category = body.category == null ? 'accessories' : String(body.category)
+  if (!isKnownCategory(category)) return { ok: false, error: 'category' }
+  // `kind` absent → déduit de la catégorie par la même règle que le mode local
+  // (`shopStore.addProduct`) ; auparavant le serveur posait `'part'` pour tout,
+  // y compris une réparation (`service` hors ligne et dans le catalogue de
+  // base). `kind` présent mais inconnu → refus, pas de repli.
+  // Même règle que `category` : absent → déduit ; présent mais hors liste
+  // (chaîne vide comprise) → refus.
+  const kindProvided = body.kind == null ? null : String(body.kind)
+  if (kindProvided != null && !isKnownKind(kindProvided)) return { ok: false, error: 'kind' }
+  const kind = kindProvided || kindForCategory(category)
+
   const finalId = id || newId('sku')
   const sku = String(body.sku || finalId).trim()
   // P22 (bug H) : le SKU saisi n'était confronté à rien. Un master pouvait
@@ -117,8 +145,8 @@ export function createProduct(db, body, id) {
     sku,
     name,
     brand: String(body.brand || 'PC Star').trim(),
-    kind: body.kind || 'part',
-    category: String(body.category || 'accessories'),
+    kind,
+    category,
     price,
     stock: Math.max(0, Math.floor(Number(body.stock) || 0)),
     rating: 0,
@@ -142,8 +170,6 @@ export function createProduct(db, body, id) {
 // PUBLIC : `price: "abc"` donnait « NaN DA » en vitrine et `priceOf` → 0, un
 // `name` de 500 caractères cassait les cartes, `photos: "x"` cassait PartThumb.
 // Tout passe maintenant par ici.
-const CATEGORY_SET = new Set(PRODUCTS.map((p) => p.category).filter(Boolean))
-
 export function sanitizeProductPatch(patch = {}) {
   const out = {}
   if (patch.name != null) {
@@ -165,9 +191,26 @@ export function sanitizeProductPatch(patch = {}) {
   }
   if (patch.brand != null) out.brand = String(patch.brand).trim().slice(0, 60)
   if (patch.category != null) {
+    // LOT 8.10 (A10) : l'ensemble autorisé venait de `PRODUCTS`
+    // (`new Set(PRODUCTS.map((p) => p.category))`) — un dérivé du catalogue de
+    // base, pas la liste que le formulaire master propose. On valide désormais
+    // contre `CATEGORIES` hors `all`, la même source que la création : si une
+    // catégorie était ajoutée à `CATEGORIES` sans produit de base, le
+    // formulaire la proposerait et le patch la refuserait. Les deux ensembles
+    // sont identiques aujourd'hui — un test le verrouille.
     const category = String(patch.category)
-    if (!CATEGORY_SET.has(category)) return { ok: false, error: 'category' }
+    if (!isKnownCategory(category)) return { ok: false, error: 'category' }
     out.category = category
+  }
+  if (patch.kind != null) {
+    // LOT 8.10 (A10), second volet : `kind` n'était **ni validé ni appliqué** —
+    // il ne figurait pas dans la liste des champs recopiés par `updateProduct`.
+    // Un patch `{ kind: 'machine' }` répondait donc **200** sans rien changer :
+    // le maître croyait avoir reclassé la fiche. Même règle qu'à la création
+    // (`KINDS` hors `all`), et le champ est désormais appliqué.
+    const kind = String(patch.kind)
+    if (!isKnownKind(kind)) return { ok: false, error: 'kind' }
+    out.kind = kind
   }
   if (patch.short != null) out.short = String(patch.short).slice(0, 200)
   if (patch.sku != null) {
@@ -215,6 +258,9 @@ export function updateProduct(db, id, rawPatch) {
     if (patch.price != null) cur.price = Math.max(0, Number(patch.price) || 0)
     if (patch.brand != null) cur.brand = String(patch.brand).trim()
     if (patch.category != null) cur.category = String(patch.category)
+    // LOT 8.10 (A10) : `kind` validé par `sanitizeProductPatch` était jeté ici —
+    // la route répondait 200 avec une fiche inchangée.
+    if (patch.kind != null) cur.kind = String(patch.kind)
     if (patch.short != null) cur.short = String(patch.short)
     if (patch.sku != null) cur.sku = String(patch.sku)
     if (patch.photos != null && Array.isArray(patch.photos)) cur.photos = patch.photos.slice(0, MAX_PHOTOS)
@@ -246,7 +292,9 @@ export function updateProduct(db, id, rawPatch) {
   if (!base) return { ok: false, error: 'not_found' }
   const prev = db.meta.productOverrides[id] || {}
   const next = { ...prev }
-  for (const k of ['name', 'price', 'brand', 'category', 'short', 'sku', 'photos', 'needs']) {
+  // LOT 8.10 (A10) : `kind` ajouté à la liste — sans quoi un patch validé
+  // n'était pas appliqué au produit du catalogue de base non plus.
+  for (const k of ['name', 'price', 'brand', 'category', 'short', 'sku', 'photos', 'needs', 'kind']) {
     if (patch[k] != null) next[k] = patch[k]
   }
   if (patch.stock != null) {

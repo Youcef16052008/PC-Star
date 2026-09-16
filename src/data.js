@@ -139,6 +139,65 @@ export const KINDS = [
   { id: 'service', label: 'Repairs' }
 ]
 
+/**
+ * LOT 8.10 (A10) — les valeurs autorisées pour `category` et `kind`, et une
+ * seule fois.
+ *
+ * Avant ce correctif, `createProduct` (`server/masterApi.js`) acceptait
+ * n'importe quelle chaîne : `category: "SSD"` (un libellé, pas un id) ou
+ * `category: "ssd"` (cet id n'existe pas — le catalogue utilise `memory`)
+ * étaient enregistrés tels quels. Le produit apparaissait dans le panneau
+ * master mais dans **aucun** filtre de la vitrine (`App.jsx` compare
+ * `p.category === category`), dans aucune ligne de `PART_LINES` (toutes les
+ * fonctions `match` testent des ids précis) et jamais dans le Builder
+ * (`slot.pick` filtre par catégorie) : invendable par navigation, trouvable
+ * seulement par recherche texte, avec un libellé retombant sur l'id brut.
+ *
+ * `sanitizeProductPatch` validait déjà `category` — mais contre un ensemble
+ * dérivé de `PRODUCTS` (`new Set(PRODUCTS.map(p => p.category))`), pas contre
+ * `CATEGORIES`. Les deux ensembles sont identiques aujourd'hui (vérifié par
+ * test), mais la liste du formulaire master est `CATEGORIES` : c'est elle, la
+ * source de vérité. Une catégorie sans produit de base serait sinon
+ * impossible à utiliser alors que le formulaire la propose.
+ *
+ * `all` est exclu des deux listes : c'est une valeur de **filtre**
+ * (« Everything »), pas une classification de produit.
+ */
+export const CATEGORY_IDS = CATEGORIES.filter((c) => c.id !== 'all').map((c) => c.id)
+export const KIND_IDS = KINDS.filter((k) => k.id !== 'all').map((k) => k.id)
+
+const CATEGORY_ID_SET = new Set(CATEGORY_IDS)
+const KIND_ID_SET = new Set(KIND_IDS)
+
+/**
+ * Comparaison **exacte** : aucune normalisation silencieuse (ni casse, ni
+ * espaces). Le principe du lot est de dire au maître quoi saisir plutôt que de
+ * deviner — un `400 { error: 'category' }` explicite, pas une correction muette
+ * qui range le produit là où personne ne le cherchera.
+ */
+export function isKnownCategory(value) {
+  return CATEGORY_ID_SET.has(typeof value === 'string' ? value : '')
+}
+
+export function isKnownKind(value) {
+  return KIND_ID_SET.has(typeof value === 'string' ? value : '')
+}
+
+/**
+ * `kind` par défaut d'après la catégorie — la règle que le mode local
+ * (`shopStore.addProduct`) appliquait déjà de son côté, et que le serveur
+ * ignorait (il posait `'part'` systématiquement). Un produit `repair` créé via
+ * l'API était donc `kind: 'part'` alors que le même produit créé hors ligne
+ * était `kind: 'service'`, et que le catalogue de base classe ses réparations
+ * en `service`. Même règle des deux côtés, désormais.
+ */
+export function kindForCategory(category) {
+  if (category === 'repair') return 'service'
+  if (category === 'laptop' || category === 'ready') return 'machine'
+  if (category === 'accessories') return 'accessory'
+  return 'part'
+}
+
 export const BRANDS = [
   'AMD', 'Intel', 'NVIDIA', 'ASUS', 'MSI', 'Gigabyte', 'ASRock',
   'Corsair', 'G.Skill', 'Kingston', 'Samsung', 'WD', 'Crucial',

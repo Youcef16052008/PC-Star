@@ -33,6 +33,18 @@ export function errToast(setToast, t, r, fallbackKey) {
     setToast(t('masterPhotoNoStorage'))
     return
   }
+  // LOT 8.10 (A10) : le serveur refuse désormais une `category` ou un `kind`
+  // hors liste (`CATEGORIES` / `KINDS`, hors `all`). Un refus qui dit quoi
+  // saisir vaut mieux que « échec de la création » : sans message dédié, le
+  // maître ne sait pas quel champ reprendre.
+  if (r?.data?.error === 'category') {
+    setToast(t('masterCategoryInvalid'))
+    return
+  }
+  if (r?.data?.error === 'kind') {
+    setToast(t('masterKindInvalid'))
+    return
+  }
   setToast(t(fallbackKey))
 }
 
@@ -239,6 +251,13 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, ma
     if (!res.ok) {
       if (res.error === 'sku_taken') {
         setToast(t('masterSkuTaken'))
+        return
+      }
+      // LOT 8.10 (A10) : le mode local valide la catégorie avec la même liste
+      // que l'API — même message dédié, pour que les deux chemins disent la
+      // même chose.
+      if (res.error === 'category') {
+        setToast(t('masterCategoryInvalid'))
         return
       }
       // P17 (rapport #1) : copier-coller de la page de connexion — un master en

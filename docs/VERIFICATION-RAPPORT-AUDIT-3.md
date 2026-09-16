@@ -20,12 +20,13 @@ d'origine ne sont pas modifiés (même règle que pour les lots précédents).
 |---|---|---|---|
 | 🔴 Bloquant (argent / intégrité des commandes) | **2** | A1, A2 | ✅ **corrigés** le 16/09/2026 (lot 8.1 + 8.2) |
 | 🟠 Majeur (échec silencieux, production Vercel) | **4** | A3, A4, A5, A6 | ✅ **les quatre corrigés** (lots 8.3, 8.4, 8.5, 8.6) |
-| 🟡 Mineur (durabilité, cohérence, hygiène) | **4** | A7, A8, A9, A10 | ✅ A7, A8 et A9 corrigés (lots 8.7, 8.8, 8.9) ; A10 à corriger |
-| **Total** | **10** | | **9 corrigés** (A1 → A9), 1 à corriger (A10) |
+| 🟡 Mineur (durabilité, cohérence, hygiène) | **4** | A7, A8, A9, A10 | ✅ **les quatre corrigés** (lots 8.7, 8.8, 8.9, 8.10) |
+| **Total** | **10** | | ✅ **10 corrigés sur 10** (A1 → A10) — lot 8 clos |
 
-> **Mise à jour du 16/09/2026.** A1, A2, A6, A3, A4, A5, A7, A8 puis **A9**
-> ont été corrigés et livrés sur cette même branche (121 tests de non-régression
-> au total, suite à **724/724**, reproductions en direct rejouées : 409 et 400 à la
+> **Mise à jour du 16/09/2026.** A1, A2, A6, A3, A4, A5, A7, A8, A9 puis
+> **A10** ont été corrigés et livrés sur cette même branche (**158 tests de
+> non-régression** au total, suite à **761/761**, reproductions en direct
+> rejouées : 409 et 400 à la
 > place de 201 pour A1/A2, destinataire `213770650387` à la place de
 > `0770650387` pour A6, 404 et bouton retiré pour A3, `413
 > {"maxBytes":4194304,"platformLimit":4718592}` sur un banc `VERCEL=1` pour A4,
@@ -34,9 +35,14 @@ d'origine ne sont pas modifiés (même règle que pour les lots précédents).
 > pour A7, pour A8 la même commande rendue `16‏/9‏/2026، 10:30:00 ص` /
 > `97.000 دج` au Desk **et** dans « Mes commandes », et pour A9 le dictionnaire
 > ramené de 538 à **476 clés** par langue avec le bundle passé de 451,02 Ko à
-> 442,75 Ko). Détail des correctifs, décisions et neutralisations dans
-> `docs/PLAN-CORRECTIONS.md` §9, sections « ✅ Fait — lot 8.1 + 8.2 »,
-> « lot 8.6 », « lot 8.3 », « lots 8.4 + 8.5 » et « lot 8.7 ». Le corps de ce
+> 442,75 Ko, et pour A10 `POST /api/master/products {category:"SSD"}` → **400
+> `{"error":"category"}`** au lieu d'un 201 qui rangeait le produit là où aucun
+> filtre ne le montre, `{category:"memory"}` → 201 retrouvé dans le filtre de sa
+> catégorie, et `PUT {kind:"machine"}` → **200 réellement appliqué** au lieu
+> d'un 200 qui ne changeait rien). Détail des correctifs, décisions et
+> neutralisations dans `docs/PLAN-CORRECTIONS.md` §9, sections « ✅ Fait — lot
+> 8.1 + 8.2 », « lot 8.6 », « lot 8.3 », « lots 8.4 + 8.5 », « lot 8.7 »,
+> « lot 8.8 », « lot 8.9 », « lot 8.10 » et « ✅ Lot 8 clos ». Le corps de ce
 > rapport reste **inchangé** : il décrit l'état audité, les statuts sont ajoutés
 > en tête de chaque item corrigé.
 
@@ -696,6 +702,46 @@ dynamique déclaré). Sans ce test, le dictionnaire se re-remplit à chaque
 fonctionnalité abandonnée.
 
 ### 🟡 A10 — `createProduct` accepte une catégorie et un `kind` libres
+
+> ✅ **CORRIGÉ (16/09/2026, lot 8.10).** `category` est validée contre
+> `CATEGORY_IDS` ( = `CATEGORIES` hors `all`) et `kind` contre `KIND_IDS`
+> ( = `KINDS` hors `all`), listes posées **une seule fois** dans `src/data.js`
+> avec `isKnownCategory()`, `isKnownKind()` et `kindForCategory()`. Refus
+> **explicite** comme le demandait la correction proposée : reproduction rejouée
+> en direct, `POST /api/master/products {"category":"SSD"}` → **400
+> `{"ok":false,"error":"category"}`** et **rien en base** (nombre de produits
+> `source: 'extra'` inchangé) ; `{"category":"ssd"}` et `{"category":"all"}`
+> → 400 également ; `{"category":"memory"}` → **201**, produit retrouvé dans
+> `GET /api/catalog` **et** dans le filtre « memory » (26 produits) **et** dans
+> la ligne `ram` de `PART_LINES`.
+>
+> Deux défauts voisins sont apparus en ouvrant le chantier et sont corrigés du
+> même mouvement. (1) `sanitizeProductPatch` validait déjà `category`, mais
+> contre `new Set(PRODUCTS.map((p) => p.category))` — un dérivé du catalogue de
+> base, pas la liste que le `select` du formulaire propose ; les deux ensembles
+> sont identiques aujourd'hui (verrouillé par test) et le patch lit désormais
+> `CATEGORIES`. (2) `kind` n'était au patch **ni validé ni appliqué** : absent de
+> la liste des champs recopiés par `updateProduct`, donc
+> `PUT {"kind":"machine"}` répondait **200 sans rien changer** — même famille que
+> le `needs` validé puis jeté du lot 2.6. Il est maintenant validé (`400 kind`
+> sur `"bidule"`) **et** appliqué, pour un produit master comme pour un override
+> du catalogue, et persisté.
+>
+> Le serveur posait aussi `kind: 'part'` systématiquement alors que le mode
+> local le dérivait de la catégorie et que le catalogue de base classe ses
+> réparations en `service` : la règle est partagée (`kindForCategory`), un test
+> vérifie la **parité serveur/local sur les 12 catégories** et qu'elle reproduit
+> le classement réel du catalogue pour `repair`/`laptop`/`ready`/`accessories`.
+> Côté interface, `errToast` mappe les deux refus sur des messages dédiés
+> (`masterCategoryInvalid`, `masterKindInvalid`, × 3 langues) — « échec de la
+> création » ne disait pas quel champ reprendre.
+>
+> Tests : `src/lot8Product.test.js` (**37**), suite **761/761** ; dix
+> neutralisations N48-N57 vérifiées. **Sept tests existants**
+> (`src/p22Audit.test.js`, « P22 bug H ») utilisaient `category: 'ssd'` — l'id
+> inexistant que cet item cite nommément — et ont été passés sur un id réel :
+> ils portent sur le SKU, pas sur la catégorie. Détail dans
+> `docs/PLAN-CORRECTIONS.md` §9, « ✅ Fait — lot 8.10 ».
 
 **Preuve.** `server/masterApi.js:93-136` :
 

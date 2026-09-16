@@ -152,7 +152,7 @@ la suite est aujourd'hui aveugle à ces chemins (voir §10).
 >
 > | Lot | État | Détail |
 > |---|---|---|
-> | **Lot 0** (rotation des secrets) | ⚠️ **À faire par l'exploitant — reporté à la fin** | À la demande du commanditaire (15/09), ce lot passe **en dernier** : c'est une action sur le déploiement réel, pas du code. Le code ne contient plus les identifiants, mais la production doit poser `MASTER_EMAIL` / `MASTER_PASSWORD` avec un mot de passe **neuf**. Procédure en §9. |
+> | **Lot 0** (rotation des secrets) | ⚠️ **À faire par l'exploitant — reporté à la fin** | À la demande du commanditaire (15/09), ce lot passe **en dernier** : c'est une action sur le déploiement réel, pas du code. Le code ne contient plus les identifiants, mais la production doit poser `MASTER_EMAIL` / `MASTER_PASSWORD` avec un mot de passe **neuf**. Procédure en §9. Une tentative livrée le 16/09 sur la branche `arena/01a090f7-pc-star` (commit `2880c2a`) **ne le réalise pas** et publie quatre nouveaux mots de passe en clair : vérification complète dans `docs/VERIFICATION-RAPPORT-LOT0.md`. |
 > | **Lot 7.1** (isolation des tests) | ✅ **Fait** | `scripts/test-env.mjs` + `--import` dans le script `test`. Vérifié : la suite passe **avec un `.env` hostile** (Neon morte + `MASTER_*` + `WHATSAPP_TOKEN`), alors qu'elle échouait sur 17 tests avant. |
 > | **Lot 1.1** (secrets hors du code) | ✅ **Fait** | `masterAccount()` lit l'environnement et **lève** s'il manque (aucune valeur par défaut) ; plus de `MASTER` côté client ; `/api/health` ne divulgue plus l'e-mail maître ; synchronisation du maître sur les **bases existantes**. |
 > | **Lot 1.2** (secrets hors de la doc) | ✅ **Fait** | README, 3 guides de démo, DEPLOY-VERCEL, spec superpowers, 4 scripts de recette. |
@@ -357,7 +357,7 @@ Les deux rapports d'origine restent **non modifiés**.
 | 8.7 ✅ | **A7** 🟡 **LIVRÉ le 16/09/2026** — Durabilité de l'écriture : nouveau module `server/durableWrite.js` (tmp → **fsync du fichier** → rename → **fsync du répertoire**, non bloquant), `fs` injectable pour tester l'**ordre** des appels ; `writeDb()` et `ensure()` câblés, plus aucun `writeFileSync`+`renameSync` à la main | `server/durableWrite.js`, `server/db.js:11,262,846` | S | ✅ Coupure simulée entre écriture et rename : la cible garde son contenu précédent (fs factice **et** fs réel) ; l'ordre open→write→**fsync**→close→rename→fsync(dir) est vérifié par test |
 | 8.8 ✅ | **A8** 🟡 **LIVRÉ le 16/09/2026** — Un seul module de formatage (`src/format.js`) : `localeFor`/`normalizeLang`/`money(n, lang)`/`third`/`formatDateTime(value, lang)`, **décision écrite** : la locale suit la langue (dates **et** prix, suffixe `DA`/`دج` compris), français par défaut pour les chemins sans interface. `data.js` ré-exporte (plus de seconde définition), `OrdersPage`/`ProductPage`/`BuilderPage` reçoivent `lang`, `DeskPage` perd son `formatAt` maison, `notify.js` et `buildWaMessage` suivent la langue | `src/format.js`, `src/data.js:66`, `src/OrdersPage.jsx`, `src/DeskPage.jsx:74`, `src/App.jsx`, `src/orderLogic.js`, `src/notify.js` | S | ✅ En mode arabe, la même commande affiche `16‏/9‏/2026، 10:30:00 ص` et `97.000 دج` **au Desk et dans « Mes commandes »** (rendu réel jsdom) ; la chaîne de la locale du navigateur (`9/16/2026, 10:30:00 AM`) n'apparaît plus |
 | 8.9 ✅ | **A9** 🟡 **LIVRÉ le 16/09/2026** — Les **62 clés mortes × 3 langues** supprimées (188 lignes, dictionnaire **538 → 476** clés/langue, blocs rééquilibrés), aucun groupe conservé (`ROADMAP-10.md` classe paiement CCP/BaridiMob et comparateur en **hors-scope volontaire**, `GUIDE-DEMO.md` liste avatars/comparateur/SMS sous « retiré volontairement ») ; `third()` supprimé avec les clés du paiement 3× ; **verrou** : balayage **inverse** dans `i18n.coverage.test.js` (4 tests — clé référencée ou famille dynamique déclarée **et réellement construite** et alignée sur ses données) | `src/i18n.js`, `src/i18n.coverage.test.js`, `src/format.js`, `src/data.js` | M | ✅ Le balayage ne remonte plus aucune clé morte (bundle `451,02 → 442,75 Ko`, gzip `136,42 → 134,17`) ; réinsérer `pay3xBadge` × 3 langues fait **échouer** la suite, comme une clé `cat_invented`, une famille déclarée vivante alors que rien ne la construit, ou un corpus réduit à `src/` |
-| 8.10 | **A10** 🟡 — Valider `category` (contre `CATEGORIES`, hors `all`) et `kind` (contre `KINDS`) à la création et au patch produit ; refus `400` explicite plutôt que correction muette | `server/masterApi.js:93-136,200-262` | S | Créer un produit avec `category: "SSD"` → **400** `category` ; un produit master créé via le formulaire apparaît bien dans le filtre de sa catégorie |
+| 8.10 ✅ | **A10** 🟡 **LIVRÉ le 16/09/2026** — `category` validée contre `CATEGORIES` (hors `all`) et `kind` contre `KINDS` (hors `all`), à la **création** et au **patch**, avec refus `400` explicite ; source de vérité unique dans `src/data.js` (`CATEGORY_IDS`, `KIND_IDS`, `isKnownCategory`, `isKnownKind`, `kindForCategory`) partagée serveur **et** mode local ; `kind` au patch n'était **ni validé ni appliqué** (200 qui ne changeait rien) — il l'est désormais ; le patch valide contre `CATEGORIES` et plus contre un ensemble dérivé de `PRODUCTS` | `src/data.js`, `server/masterApi.js`, `src/shopStore.js`, `src/MasterPage.jsx`, `src/i18n.js` (2 clés × 3 langues) | S | ✅ Vérifié en direct : `POST /api/master/products {category:"SSD"}` → **400 `{"error":"category"}`**, rien en base ; `{category:"memory"}` → **201**, présent dans `GET /api/catalog` et dans le filtre « memory » ; `{category:"repair"}` → `kind:"service"` déduit ; `PUT {kind:"machine"}` → **200** appliqué et persisté ; `PUT {kind:"bidule"}` → **400 `kind`** |
 
 **Ordre conseillé :** 8.1 et 8.2 d'abord (argent et intégrité des commandes, même
 chemin de code — à livrer ensemble), puis 8.6 (canal d'alerte du maître, échec
@@ -2146,14 +2146,185 @@ comme une fonction vivante). Suite : **724/724** (720 avant), build propre.
 
 ---
 
-### ⏳ À faire — reste du lot 8 (A10)
+### ✅ Fait — lot 8.10, une catégorie et une nature validées au lieu d'être devinées (16/09/2026)
 
-**A1, A2 (les 2 bloquants), A6, A3, A4, A5, A7, A8 et A9 sont livrés** — voir
-ci-dessus : les **6 défauts 🔴/🟠** de l'audit A→Z sont corrigés, et **trois des
-quatre mineurs** aussi. Reste **A10** `category`/`kind` libres à la création. Preuves et
-reproductions **exécutées** (A1 sur l'API en direct, A2/A6/A9/A10 par appel direct
-du code du dépôt) dans `docs/VERIFICATION-RAPPORT-AUDIT-3.md`. Les deux rapports
-d'origine n'ont **pas** été modifiés.
+**Le défaut (A10, 🟡).** `createProduct` acceptait n'importe quelle chaîne pour
+les deux champs qui décident **où le produit est joignable** :
+
+```js
+kind: body.kind || 'part',
+category: String(body.category || 'accessories'),
+```
+
+Le nom, le prix, le SKU, `needs`, le nombre de photos et la longueur des champs
+texte étaient validés (lots 1.9 et 2.6) — pas ceux-là. Un produit
+`category: "SSD"` (un libellé, pas un id) ou `category: "ssd"` (cet id n'existe
+pas : le catalogue classe les SSD en `memory`) était enregistré, visible dans le
+panneau master, et n'apparaissait dans **aucun** filtre de la vitrine
+(`App.jsx:1027` compare `p.category === category`), dans **aucune** ligne de
+`PART_LINES` (toutes les fonctions `match` testent des ids précis), jamais dans
+le Builder (`slot.pick` filtre par catégorie). Invendable par navigation,
+trouvable seulement par recherche texte, avec un libellé retombant sur l'id brut.
+
+**Trois défauts, pas un.** En ouvrant le chantier, deux autres sont apparus sur
+le même champ :
+
+1. `sanitizeProductPatch` validait déjà `category` au patch — mais contre
+   `new Set(PRODUCTS.map((p) => p.category))`, un **dérivé du catalogue de
+   base**, pas contre `CATEGORIES`, la liste que le `select` du formulaire
+   master propose réellement. Les deux ensembles sont identiques aujourd'hui
+   (vérifié par test) ; une catégorie ajoutée à `CATEGORIES` sans produit de
+   base aurait été proposée par le formulaire, acceptée à la création et
+   **refusée** au patch.
+2. `kind` n'était au patch **ni validé ni appliqué** : il ne figurait pas dans
+   la liste des champs recopiés par `updateProduct` (ni pour un produit master,
+   ni pour un override du catalogue). `PUT /api/master/products/:id
+   {"kind":"machine"}` répondait donc **200** avec une fiche inchangée — le
+   maître croyait avoir reclassé la fiche. C'est exactement la famille de bug du
+   lot 2.6 (`needs` validé puis jeté).
+3. Le serveur posait `kind: 'part'` systématiquement, alors que le mode local
+   (`shopStore.addProduct`) le **dérivait** de la catégorie (une ternaire
+   inline) et que le catalogue de base classe ses réparations en `service`, ses
+   laptops et PC prêts en `machine`, ses accessoires en `accessory`. Un produit
+   `repair` créé via l'API était `part`, le même créé hors ligne était
+   `service`.
+
+**Ce qui a été fait.** Une seule source de vérité, dans `src/data.js` :
+`CATEGORY_IDS` ( = `CATEGORIES` hors `all`), `KIND_IDS` ( = `KINDS` hors `all`),
+`isKnownCategory()`, `isKnownKind()`, `kindForCategory()`. Consommée par les
+**trois** chemins d'écriture :
+
+| Chemin | Avant | Après |
+|---|---|---|
+| `createProduct` (API) | aucune validation, `kind: 'part'` forcé | `400 category` / `400 kind` ; `kind` déduit de la catégorie, ou celui fourni s'il est valide |
+| `sanitizeProductPatch` + `updateProduct` | `category` validée contre `PRODUCTS` ; `kind` ignoré | `category` validée contre `CATEGORIES` ; `kind` validé **et appliqué** (produit master *et* override catalogue) |
+| `addProduct` (mode local) | aucune validation de catégorie ; ternaire inline | même refus `category` ; même `kindForCategory` |
+
+Côté interface, `errToast` (`MasterPage.jsx`) mappe `category` et `kind` sur deux
+messages dédiés (`masterCategoryInvalid`, `masterKindInvalid`, × 3 langues) —
+« échec de la création » ne dit pas quel champ reprendre. Le chemin hors ligne a
+le même message.
+
+**Décisions.**
+
+1. **Refuser, pas corriger.** Le plan le demandait explicitement : un `400` dit
+   au maître quoi saisir, une correction muette produit un produit mal classé
+   qu'il faudra retrouver. Aucune normalisation silencieuse non plus : la
+   comparaison est **exacte** (ni casse, ni espaces) — `'cpu '` est refusé.
+2. **`all` exclu des deux listes.** C'est une valeur de **filtre**
+   (« Everything », « All »), pas une classification de produit. Un produit
+   `category: 'all'` apparaîtrait dans le filtre « tout » sans appartenir à
+   aucune catégorie réelle.
+3. **Champ absent ≠ champ vide.** `category` absent (`null`/`undefined`) → repli
+   documenté `accessories`, comme avant le correctif (compatibilité). `category`
+   **présent mais vide** → refus : une valeur vide envoyée par un client n'est
+   pas une absence, et la ranger en silence dans « Accessories » serait la
+   correction muette que ce lot supprime. Même règle pour `kind` (absent →
+   déduit ; présent mais hors liste, chaîne vide comprise → refus). Création et
+   patch se comportent **identiquement** — un test le verrouille dans les deux
+   sens.
+4. **`kindForCategory` reprend la règle du mode local, sans l'étendre.** Elle
+   n'invente rien : un test vérifie qu'elle reproduit le classement réel du
+   catalogue de base pour `repair`/`laptop`/`ready`/`accessories`. Les
+   catégories où le catalogue de base est hétérogène (`usb` et `console` ont des
+   produits en `accessory`) restent à `part` par défaut — trancher à la place du
+   maître serait exactement ce que le point 1 interdit. Le `kind` fourni
+   explicitement l'emporte toujours.
+5. **Le patch applique `kind` aux deux familles de produits** (extraits master
+   *et* overrides du catalogue de base), sinon la validation aurait reproduit le
+   bug qu'elle dénonce : un champ accepté puis jeté.
+
+**Piège rencontré (documenté dans le fichier de test).** `server/masterApi.js`
+importe `server/db.js`, qui **résout `DATA_DIR` au chargement du module**. Un
+`import` statique en tête de fichier de test est évalué **avant** le corps du
+module, donc avant `process.env.PCSTAR_DATA_DIR = dir` : les routes testées
+écrivaient dans `server/data/` (base partagée, ignorée de git) au lieu du
+répertoire temporaire. Symptôme observé : 46 produits de test retrouvés dans
+`server/data/store.json`, dont un `category: "SSD"` créé par une neutralisation,
+et une assertion « rien n'est enregistré » qui tombait à tort. Corrigé par
+import **dynamique** (comme `src/masterSecrets.test.js`) + assertion sur le
+**nombre de produits `source: 'extra'`** plutôt que sur un nom. La base polluée
+a été supprimée ; la suite complète ne recrée plus `server/data/`.
+
+**Vérification en direct** (API réelle, base isolée, compte maître d'aperçu) :
+
+```console
+connexion maître                                   → 200 | rôle master
+POST category:"SSD"   (libellé, pas un id)         → 400 {"ok":false,"error":"category"}
+POST category:"ssd"   (id inexistant)              → 400 {"ok":false,"error":"category"}
+POST category:"all"   (valeur de filtre)           → 400 {"ok":false,"error":"category"}
+POST kind:"gadget"                                 → 400 {"ok":false,"error":"kind"}
+POST category:"memory" (valide)                    → 201 | kind déduit "part"
+POST category:"repair"                             → 201 | kind déduit "service"
+GET  /api/catalog                                  → 200 | produit créé présent, category "memory"
+     ↳ filtre vitrine « memory »                   → 26 produits, dont le nouveau : oui
+PUT  kind:"machine" sur le produit créé            → 200 | kind "machine"
+PUT  kind:"bidule"                                 → 400 {"ok":false,"error":"kind"}
+PUT  category:"SSD" sur un produit du catalogue    → 400 {"ok":false,"error":"category"}
+store.json : extraProducts → 2 | catégories ["repair","memory"] | kinds ["service","machine"]
+aucune catégorie libre persistée → vrai
+```
+
+**Tests.** Nouveau fichier `src/lot8Product.test.js` — **37 tests** en 7
+familles : création (catégorie refusée/acceptée, repli, toutes les catégories du
+formulaire, source de vérité, refus qui n'enregistre rien), création (`kind`
+refusé/déduit/explicite, cohérence avec le catalogue de base), patch
+(`category`/`kind` validés, `kind` **appliqué** aux deux familles, patch refusé
+sans override résiduel, parité création/patch dans les deux sens), conséquence
+métier (le produit accepté tombe dans le filtre vitrine **et** dans la ligne
+`ram` de `PART_LINES` ; contre-épreuve : une catégorie libre ne tombe nulle
+part), mode local (mêmes refus, même dérivation, **parité serveur/local sur les
+12 catégories**), routes réelles (400/201/200 ci-dessus), interface (messages
+dédiés × 3 langues, priorités `backendOffline` et `masterPhotoNoStorage`
+conservées).
+
+Suite : **761/761** (724 avant). Build propre : `index-*.js` **443,97 Ko**
+(442,75 après le lot 8.9), gzip **134,47 Ko** — les 2 clés × 3 langues et les
+helpers pèsent 1,2 Ko ; aucun secret dans le bundle (les seules occurrences de
+`star31` sont le handle public `@pcstar31`).
+
+**Sept tests existants ont dû être mis à jour** (`src/p22Audit.test.js`,
+« P22 bug H ») : ils créaient des produits avec `category: 'ssd'` — **l'id
+inexistant que l'audit cite nommément pour A10**. Sans effet tant que la
+catégorie était acceptée librement ; ces tests portent sur le **SKU**, pas sur
+la catégorie, la valeur est donc remplacée par un id réel (`memory`) et un
+commentaire renvoie le refus de `'ssd'` à `src/lot8Product.test.js`. C'est une
+confirmation du défaut, pas un affaiblissement : un test du dépôt utilisait
+depuis P22 une catégorie qui rendait le produit invisible partout.
+
+**Neutralisations** (correctif retiré → les tests doivent rougir) :
+
+| # | Correctif retiré | Tests qui rougissent |
+|---|---|---|
+| N48 | `createProduct` : validation de `category` | **6** |
+| N49 | `createProduct` : validation de `kind` | **4** |
+| N50 | `createProduct` : `kind` non déduit (`'part'` forcé) | **3** |
+| N51 | `sanitizeProductPatch` : bloc `kind` retiré | **6** |
+| N52 | `updateProduct` : `kind` validé mais jeté | **2** |
+| N53 | patch : catégories re-dérivées de `PRODUCTS` (+ une catégorie sans produit de base) | **2** |
+| N54 | `addProduct` (mode local) : validation retirée | **2** |
+| N55 | `kindForCategory` renvoie toujours `'part'` | **3** |
+| N56 | `errToast` : messages dédiés retirés | **1** |
+| N57 | i18n : les 2 clés retirées × 3 langues | **2** |
+
+---
+
+### ✅ Lot 8 clos — les dix items de l'audit A→Z sont corrigés
+
+**A1, A2 (les 2 bloquants), A6, A3, A4, A5, A7, A8, A9 et A10 sont livrés** —
+voir ci-dessus : les **6 défauts 🔴/🟠** et les **4 mineurs 🟡** de l'audit A→Z
+sont corrigés, **154 tests** dans les neuf fichiers `lot8*`
+(`lot8Logic` 22, `lot8Server` 7, `lot8UI` 4, `lot8Notify` 17, `lot8Claimable` 11,
+`lot8Payload` 19, `lot8Durable` 14, `lot8Format` 23, `lot8Product` 37) auxquels
+s'ajoutent les **4 verrous** du balayage inverse posés dans
+`i18n.coverage.test.js` pour A9 — **158 tests** sur ce lot, suite à **761/761**. Preuves et reproductions **exécutées** (A1 sur l'API en direct,
+A2/A6/A9/A10 par appel direct du code du dépôt) dans
+`docs/VERIFICATION-RAPPORT-AUDIT-3.md`. Les deux rapports d'origine n'ont **pas**
+été modifiés.
+
+Reste, hors code : le **lot 0** (rotation réelle des secrets) — voir la section
+suivante et `docs/VERIFICATION-RAPPORT-LOT0.md` pour la vérification de la
+tentative livrée sur `arena/01a090f7-pc-star`.
 
 ---
 

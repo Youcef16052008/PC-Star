@@ -130,6 +130,8 @@ export const dict = {
     masterPhotoNoStorage: 'لم تُحفظ الصورة: لا يوجد تخزين دائم على الخادم (BLOB_READ_WRITE_TOKEN ناقص في Vercel)',
     masterCreateFail: 'تعذّر إضافة المنتج',
     masterSkuTaken: 'رقم المنتج (SKU) موجود مسبقًا. اختر رقمًا آخر.',
+    masterCategoryInvalid: 'الفئة غير معروفة. اختر فئة من القائمة المعروضة.',
+    masterKindInvalid: 'نوع المنتج غير معروف. اختر نوعًا من القائمة المعروضة.',
     masterActionFail: 'فشلت العملية، أعد المحاولة',
     masterCannotDelete: 'لا يمكن حذف الحساب الرئيسي',
     masterForbidden: 'للحساب الرئيسي فقط',
@@ -618,6 +620,8 @@ export const dict = {
     masterPhotoNoStorage:
       'Photo non enregistrée : aucun stockage durable côté serveur (BLOB_READ_WRITE_TOKEN manquant sous Vercel)',
     masterSkuTaken: 'Ce numéro de produit (SKU) existe déjà. Choisissez-en un autre.',
+    masterCategoryInvalid: 'Catégorie inconnue. Choisissez une catégorie de la liste.',
+    masterKindInvalid: 'Type de produit inconnu. Choisissez un type de la liste.',
     masterCreateFail: 'Échec de la création du produit',
     masterActionFail: 'Action échouée, réessayez',
     masterCannotDelete: 'Impossible de supprimer le master',
@@ -1098,6 +1102,8 @@ export const dict = {
     masterSku: 'Product number / SKU',
     masterSkuPh: 'optional — e.g. HDMI-15M',
     masterSkuTaken: 'This product number (SKU) already exists. Pick another one.',
+    masterCategoryInvalid: 'Unknown category. Pick one from the list shown.',
+    masterKindInvalid: 'Unknown product type. Pick one from the list shown.',
     masterCustomerGone: 'Customer deleted',
     // LOT 4.3 (F16) : deleting an account reports what it entailed.
     masterCustomerGoneOrders: 'Customer deleted — {n} order(s) cancelled, stock returned: {codes}',
