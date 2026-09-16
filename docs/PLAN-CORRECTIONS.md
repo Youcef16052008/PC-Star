@@ -1055,6 +1055,238 @@ numéro libre → commande retrouvée après inscription ; ligne legacy `pending
 servie `new`, persistée à l'écriture suivante, transition possible ; sessions
 toujours indexées par empreinte sha256.
 
+### ✅ Fait — lots 5 et 6, honnêteté de l'UI et qualité du code (16/09/2026)
+
+Commit `eea1853`. Les deux lots sont livrés ensemble : ils se touchent dans les
+mêmes fichiers (`App.jsx`, `MasterPage.jsx`, `SearchPage.jsx`, `shopStore.js`,
+`prefs.js`), et un correctif de qualité y conditionne souvent un correctif
+d'honnêteté — Q1 (une seule `stockLabel`) est ce qui rend U1 possible sans
+quatre ternaires, Q6 (un seul prédicat de socket) est ce qui fait que le Builder
+n'affiche pas « compatible » tout en masquant les pièces correspondantes.
+
+**Lot 5 — ce que l'écran affirme doit être vrai**
+
+`src/App.jsx` (U1) — l'indicateur d'état de la topbar était **codé en dur** :
+point vert + `SYS.ONLINE` en permanence, API morte ou base en repli comprise. La
+seule information d'état du site disait donc toujours la même chose, et le
+bandeau dégradé (B19) était l'unique indice — une fois descendu dans la page.
+`sysState` est maintenant dérivé (`!apiOnline → offline`, `catalogDegraded →
+degraded`, sinon `online`), avec trois couleurs (`text-success` / `text-warning`
+/ `text-danger`), le curseur clignotant réservé à l'état sain, et une
+explication dans la langue de l'utilisateur (`title` + `aria-label`, clés
+`sysState_*` × 3 langues). Le libellé terminal reste en anglais : c'est la
+charte graphique, et ce qui mentait c'était sa valeur, pas sa langue.
+
+`src/orderLogic.js` (U2) — `shortageMessage()` : un refus pour stock
+insuffisant ne nommait qu'un produit, sans quantité demandée ni restante, et
+taisait les autres lignes. Le message détaille maintenant jusqu'à 3 lignes
+(`{name} — {need} demandés, {left} disponibles`) et annonce `et N autres
+lignes`. Les deux sites d'`App.jsx` (réponse serveur et repli local) l'appellent
+: avant, le repli hors-ligne disait autre chose que le serveur.
+
+`src/MasterPage.jsx` (U3) — le bouton qui **déclenche** l'enregistrement des
+photos disait « Photos enregistrées ». Un libellé d'action se lit comme une
+action : `masterSavePhotos` sur le bouton, `masterPhotosSaved` reste le toast de
+confirmation.
+
+`src/App.jsx` (U4) — les prix du panier étaient figés à l'ajout (`{...product}`
+dans `add()`). Le maître change un prix pendant la visite, le catalogue se
+rafraîchit, la vitrine suit — le panier, son total, le récapitulatif de commande
+et le message WhatsApp non. Et comme `placeOrder` recalcule les prix côté
+serveur, la commande confirmée ne correspondait à rien de ce que l'écran venait
+de montrer. `pricedCart` (mémo sur `catalog`) alimente désormais **les quatre**
+: affichage, `total`, `items` du payload, `buildWaMessage`. Les écarts sont
+recalés dans l'état ET dans le panier persisté, et annoncés
+(`cartPriceUpdated`, 2 noms au plus puis `…`) : un prix qui change en silence
+sous un total est exactement ce qu'il faut dire. Un produit sorti du catalogue
+garde son snapshot (on ne peut pas le repriser).
+
+`src/i18n.js` (U5) — `t()` substituait `String(v)` sans filtre : une variable
+`null` ou `undefined` écrivait « null » / « undefined » dans le texte rendu — un
+trou de données devenait un mot anglais à l'écran. Les valeurs absentes laissent
+le placeholder `{var}` visible (laid, mais vrai : il manque une valeur), tandis
+que `0`, `''` et `false` restent des valeurs et sont substituées.
+
+`src/i18n.js` (U6) — `labelOr(t, key, fallback)` : `t(key)` renvoie la clé quand
+la traduction manque, et `App.jsx` (vitrine) comme `MasterPage.jsx` (3 sites)
+l'affichaient telle quelle — `cat_ssd` à l'écran. Le motif `t(k) !== k ? t(k) :
+repli` était déjà recopié à la main dans `BuilderPage`/`SearchPage` ; il est
+centralisé et appliqué partout. Aucune des 13 catégories n'a de trou aujourd'hui
+(vérifié × 3 langues), mais les catégories maître (`extraProducts`) n'ont aucune
+garantie : le repli passe par le libellé brut du catalogue.
+
+`src/orderLogic.js` (U7) — `buildWaMessage()` + `WA_TEXT_LIMIT = 3800` : le
+message WhatsApp d'un panier de 40 lignes dépassait la limite pratique de
+`wa.me`, qui tronquait **où elle voulait** — généralement au milieu du
+récapitulatif, parfois en emportant le total — sans aucun avertissement. Seules
+les lignes de panier sont bornées : l'en-tête, l'adresse, les coordonnées et le
+total restent intacts, et `waTruncated` dit combien de lignes ont été retirées.
+La mention elle-même ne doit jamais pousser le message hors limite (elle ferait
+de la place en retirant une ligne de plus, et en dernier recours s'efface) — une
+troncature brute mangerait le total, dernière ligne du modèle. `App.jsx`
+mémorise le lien (`useMemo` sur `[pricedCart, total, pickup, lang]`) au lieu de
+le recomposer à chaque rendu.
+
+`src/PartThumb.jsx` (U8) — l'attribut `sizes="(max-width: 576px) 50vw, 25vw"`
+n'est lu par personne sans `srcSet` multi-largeurs, et chaque produit n'a qu'un
+fichier par format (uploadé par le maître, ≤ 2,5 Mo, aucune variante générée).
+Il annonçait donc une image responsive inexistante et laissait croire à une
+optimisation. Retiré ; `width`/`height` restent (ratio réservé, pas de décalage
+de mise en page) et le `<picture>` garde son vrai choix — de **format**, webp
+puis jpg.
+
+`src/App.jsx` (U9) — `deskBeep()` posait `g.gain.value = 0.04` puis
+démarrant/arrêtait l'oscillateur à pleine amplitude : une discontinuité = un
+**clic** audible à chaque commande annoncée au comptoir. Le bip censé aider
+était le bruit le plus désagréable des deux. Enveloppe désormais : départ à
+`0.0001`, attaque exponentielle de 10 ms vers `BEEP_PEAK_GAIN`, retombée
+exponentielle vers le silence **avant** l'arrêt, `start`/`stop` calés sur
+`currentTime` (pas `Date.now`). L'`AudioContext` unique et partagé (P9) et le
+réveil d'un contexte `suspended` sont conservés.
+
+**U10 — décision tranchée, et elle change ce que le code raconte.** La boutique
+n'est **pas** conçue pour être encadrée par un tiers : `X-Frame-Options:
+SAMEORIGIN` et `frame-ancestors 'self'` (`vercel.json`, `send()`, redirections
+OAuth, aperçus d'upload) l'interdisent en production, et c'est voulu — un
+magasin encadrable est un magasin clickjackable (une commande validée sous un
+calque transparent). Les commentaires de `safeStorage.js`, `api.js`, `prefs.js`,
+`shopStore.js`, `App.jsx` et `ContactPicker.jsx` présentaient un « aperçu iframe
+tiers » comme un scénario d'usage : cette conception n'existe pas, elle est
+retirée des commentaires. **Les en-têtes restent**, et le repli mémoire de
+`safeStorage` aussi — le stockage peut être indisponible sans iframe du tout
+(Safari ITP, navigation privée, cookies tiers refusés, quota plein, aperçu de
+développement), et dans ces cas-là le site doit tourner au lieu de tomber dans
+l'ErrorBoundary. La politique, la raison de sécurité et la marche à suivre pour
+un assouplissement **délibéré** (une origine explicite en CSP, jamais `*`, plus
+une confirmation visible sur les actions sensibles) sont écrites dans
+`docs/DEPLOY-VERCEL.md` §« Encadrement (iframe) ».
+
+`src/api.js` (U12) — `URL.revokeObjectURL(url)` appelé dans la foulée de
+`a.click()` : le clic ne fait que **demander** le téléchargement, dont la lecture
+du blob démarre après. Révoquer immédiatement coupait donc parfois l'export CSV
+en plein vol (fichier vide ou téléchargement annulé, de façon intermittente —
+plus visible sur les gros exports et les machines lentes). Révocation différée
+de `REVOKE_DELAY_MS` (4 s), dans un `try` (une URL déjà libérée ne doit pas faire
+échouer l'export).
+
+**Lot 6 — une seule source de vérité par règle**
+
+`src/stockLabel.js` (Q1) — `stockLabel` était dupliqué **quatre fois** avec
+**deux conventions** : `App.jsx`/`ProductPage.jsx` renvoyaient `stock-out` /
+`stock-low` / `stock-ok` (classes qui n'existent dans aucune feuille de style)
+puis les retraduisaient en `text-bg-danger|warning|success` par un ternaire
+recopié ; `BuilderPage.jsx`/`SearchPage.jsx` renvoyaient directement
+`danger|warning|success`, interpolés en `text-bg-${cls}`. Même rendu final,
+quatre sources de vérité : un seuil modifié quelque part (les « 3 dernières
+pièces ») ne se voyait pas ailleurs, et une classe inventée passait inaperçue
+puisqu'un ternaire la rattrapait. Le module renvoie la classe Bootstrap
+**complète** (`STOCK_LOW_THRESHOLD` exporté) : plus aucun appelant n'a rien à
+traduire. 5 sites repris — dont un badge `text-bg-${st.cls}` à `SearchPage.jsx`
+que le décompte initial (4) avait manqué.
+
+`src/phoneLogic.js` (Q2) — la règle de téléphone (normalisation, opérateur,
+validité DZ) était recodée côté client et côté serveur : deux implémentations
+d'une même règle métier, avec le risque évident qu'un numéro accepté par l'un
+soit refusé par l'autre. `phoneLogic.js` est canonique ; `shopStore.js` et
+`server/phone.js` ré-exportent. Piège corrigé au passage : `export { x } from
+'./y'` ne crée **aucune liaison locale** — `registerEmail()` appelait
+`normalizePhone` et levait `ReferenceError`, donc la création d'un compte e-mail
+était cassée par la première version du correctif. D'où `import` **puis**
+`export`, et un test qui passe par `registerEmail`/`updateUser` plutôt que par
+la seule comparaison des exports.
+
+`src/prefs.js` (Q3 + Q4) — `loadTheme`, `saveTheme`, `resolveTheme` et
+`KEY_THEME` supprimés : le thème sombre a été retiré sur demande client
+(`App.jsx` : `const theme = 'light'` ; `public/theme-boot.js` : « le site est
+définitivement en thème clair »), et rien n'importait ces fonctions hors du
+fichier — elles n'étaient ni appelées ni testées, seulement lues par qui
+cherchait où se règle le thème. `applyDocumentChrome`, lui, **est** utilisé
+(`App.jsx`) et reste. Q4 : il posait `theme-color` à `#f2f5f8` alors
+qu'`index.html` et `theme-boot.js` annoncent `#f4f6fb` — la barre du navigateur
+changeait de teinte au montage de React. Une constante partagée
+(`THEME_COLOR_LIGHT`), et un test qui compare les **trois** sources.
+
+`src/App.jsx` (Q5) — `count` passé au toast « ajouté au panier » sans jamais
+être lu (le toast affiche le nom du produit). Retiré ; le badge panier, lui,
+affiche toujours le compteur.
+
+`src/BuilderPage.jsx` (Q6) — P17 (comparaison tolérante aux sockets multiples
+via `socketsMatch`) n'était appliqué qu'à l'**indicateur** de compatibilité. Les
+listes d'options filtraient autrement : `===` pour les CPU, `.includes()` pour
+les ventirads (qui rejetait au passage tout ventirad dont `socket` est une
+chaîne). Une carte mère multi-socket aurait donc affiché un badge « compatible »
+tout en masquant les CPU correspondants dans le sélecteur. Un seul prédicat
+désormais, avec la même tolérance que `socketOk` : une donnée de socket absente
+ne disqualifie pas (on ne peut pas prouver l'incompatibilité) — le sélecteur
+n'est pas plus strict que le contrôle.
+
+`src/SearchPage.jsx` (Q7) — deux défauts qui se déclenchent **ensemble**, sur un
+double-clic : `s-${Date.now()}` donnait deux recherches au même `id` (key React
+dupliqué → liste mal réconciliée, suppression par id aléatoire), et `...saved`
+lisait l'état du rendu en cours → les deux appels partaient de la même liste et
+la seconde recherche écrasait la première. Suffixe aléatoire (anti-collision
+local, pas un identifiant cryptographique), updateur fonctionnel, et
+persistance par effet (`useEffect` sur `saved`) au lieu d'un appel à la main
+dans le handler. La borne à 10 (P10) et le stockage par défaut (P15 : `undefined`
+et non `null` en premier argument) sont conservés — et testés.
+
+`server/index.js` (Q8) — **trois** écritures des en-têtes CORS :
+`Allow-Origin` + `Vary` dans `corsHeaders()`, `Allow-Headers` + `Allow-Methods`
+ajoutés **seulement** dans `send()` (donc absents des redirections OAuth et des
+aperçus d'upload, qu'un navigateur cross-origin pouvait refuser alors que le
+reste de l'API les autorisait), et l'export CSV posant
+`'Access-Control-Allow-Origin': FRONT_ORIGIN` à la main — un en-tête **vide**
+(invalide) quand aucune origine n'est déclarée. Un seul jeu désormais, dans
+`corsHeaders()` (exporté pour être testé), propagé par toutes les routes y
+compris la redirection Blob. Le tout reste conditionné à `FRONT_ORIGIN` : sans
+origine déclarée, l'API est same-origin et ne pose **zéro** en-tête CORS
+(P16 conservé).
+
+`e2e/smoke.spec.js` (Q9) — le test de connexion s'arrêtait à « le corps ne
+contient pas de texte d'erreur d'auth » : une assertion **négative**, qui passe
+aussi quand la connexion échoue en silence (formulaire refermé, jeton perdu,
+session non rechargée). Il vérifie maintenant l'état connecté — bouton profil au
+nom du compte démo seedé (`demo-karim`, « Karim B. », `role: 'customer'`),
+déconnexion visible, bouton « Connexion » disparu — plus un second test de
+survie de la session au rechargement (le chemin cassé par F7/F8 et R20).
+`masterSecrets.test.js` autorise explicitement ce fichier : ce sont des
+identifiants de **démonstration**, non privilégiés, de même nature que
+`scripts/smoke-e2e.mjs` déjà listé — aucun secret maître.
+
+**Tests** — trois fichiers, 75 tests, ajoutés à la liste **explicite** de
+`npm test` (le script n'utilise pas de glob : un fichier non listé ne tourne
+jamais) : `src/lot5Logic.test.js` (23 — `shortageMessage`, `t()`, `labelOr`,
+`buildWaMessage`), `src/lot5UI.test.js` (24 — composants réels rendus dans
+jsdom : les 3 états de la topbar avec API stubbée, l'éditeur de photos du
+master, le panier recalé + total + toast, `PartThumb`, l'enveloppe du bip sur un
+`AudioContext` fictif qui enregistre l'automation de gain, les en-têtes
+d'encadrement, la révocation différée avec `setTimeout` capturé),
+`src/lot6Quality.test.js` (28 — une seule `stockLabel`, règle de téléphone
+identique client/serveur **et** utilisable localement, code mort du thème,
+teinte sur 3 sources, toast sans donnée morte, Builder multi-socket rendu,
+recherches sauvées à `Date.now` figé, sondes `corsHeaders` en processus enfant
+avec et sans origine, smoke e2e). Suite complète : **603/603** (528 avant les
+deux lots), build propre.
+
+Vérification **régressive** par neutralisation (chaque correctif est remis en
+état cassé, le test doit échouer, puis restauré) : indicateur codé en dur (U1) →
+2 ; total sur le panier figé (U4) → 1 ; enveloppe du bip remplacée par
+`gain.value` (U9) → 1 ; `sizes` remis (U8) → 1 ; libellé au passé (U3) → 1 ;
+révocation synchrone (U12) → 1 ; détail de stock retiré (U2) → 5 ; `null`
+réinjecté dans `t()` (U5) → 1 ; garde de longueur retirée (U7) → 2 ; repli
+`labelOr` retiré (U6) → 1 ; `stockLabel` redéfini localement (Q1) → 1 ;
+ré-export sans liaison locale (Q2) → 1 ; teinte divergente (Q4) → 1 ; code mort
+du thème réintroduit (Q3) → 2 ; filtre CPU en `===` (Q6) → 2 ; `id` sans
+suffixe (Q7) → 1 ; `Allow-Methods` retiré (Q8) → 1 ; assertions d'état connecté
+retirées du smoke (Q9) → 1, et test de rechargement retiré (Q9) → 1. Deux
+premiers essais n'étaient **pas** régressifs et ont été durcis : la
+neutralisation de U9 (ajouter `gain.value` *avant* l'enveloppe) ne changeait
+rien aux évènements enregistrés — le test ne prouvait donc pas l'absence de
+saut d'amplitude ; et celle de Q9 passait parce que le nom « Karim B. » restait
+présent dans la constante `DEMO` — le test cherche désormais la construction
+d'attente **dans chaque bloc** `test(...)`, et après `page.reload()` pour le
+second. Les 18 cas échouent maintenant pour la bonne raison.
+
 ### ⚠️ Reste à faire par l'exploitant (lot 0 — reporté à la fin, à la demande)
 
 **Rappel du risque tant que ce lot n'est pas fait :** le code est propre, mais

@@ -539,29 +539,49 @@ describe('6.8 (Q8) — un seul jeu d’en-têtes CORS', () => {
 describe('6.9 (Q9) — le smoke e2e vérifie l’état connecté', () => {
   const code = src('e2e/smoke.spec.js')
 
+  /** Découpe le fichier en blocs `test('…', async …)` nommés. */
+  const blocs = () => {
+    const out = {}
+    const re = /test\(\s*'([^']+)'[\s\S]*?(?=\ntest\(|\n\/\/|\nconst DEMO|$)/g
+    let m
+    while ((m = re.exec(code))) out[m[1]] = m[0]
+    return out
+  }
+
   it('il ne se contente plus d’une assertion négative', () => {
-    assert.match(code, /not\.toContainText\(\/auth\.\*error\/i\)/, 'la garde d’origine reste')
-    // L'état connecté doit être asserté positivement.
-    assert.match(code, /Karim B\./, 'le nom du compte démo doit être attendu à l’écran')
-    assert.match(code, /toBeVisible\(\)/, 'un élément de l’état connecté doit être visible')
-    assert.match(code, /déconnexion|logout|خروج/i, 'la déconnexion doit apparaître une fois connecté')
-    assert.match(code, /toHaveCount\(0\)/, 'le bouton « Connexion » doit disparaître')
+    const b = blocs()
+    const login = b['demo customer can open login and authenticate']
+    assert.ok(login, 'le test de connexion doit exister')
+    assert.match(login, /not\.toContainText\(\/auth\.\*error\/i\)/, 'la garde d’origine reste')
+    // L'état connecté doit être ASSERTÉ dans CE bloc : attendre le bouton profil
+    // au nom du compte démo, la déconnexion visible, et la disparition du
+    // bouton « Connexion ».
+    assert.match(login, /expect\(page\.getByRole\('button', \{ name: new RegExp\(DEMO\.name/, 'le nom du compte connecté doit être attendu après le clic')
+    assert.match(login, /déconnexion|logout|خروج/i, 'la déconnexion doit apparaître une fois connecté')
+    assert.match(login, /toHaveCount\(0\)/, 'le bouton « Connexion » doit disparaître')
+    assert.match(code, /name: 'Karim B\.'/, 'les identifiants attendus sont ceux du compte démo seedé')
   })
 
   it('la session est vérifiée après rechargement (le jeton doit survivre)', () => {
-    assert.match(code, /page\.reload\(\)/, 'le test doit recharger la page')
-    const apresReload = code.split('page.reload()')[1] || ''
-    assert.ok(
-      /DEMO\.name|Karim/.test(apresReload),
-      'après rechargement, le compte doit toujours être connecté (assertion sur le nom attendue)'
+    const b = blocs()
+    const reload = b['demo session survives a page reload']
+    assert.ok(reload, 'un test de survie de session au rechargement doit exister')
+    assert.match(reload, /page\.reload\(\)/, 'le test doit recharger la page')
+    const apres = reload.split('page.reload()')[1] || ''
+    assert.match(
+      apres,
+      /expect\(page\.getByRole\('button', \{ name: new RegExp\(DEMO\.name/,
+      'après rechargement, l’état connecté doit être revérifié (et pas seulement avant)'
     )
-    assert.match(apresReload, /toBeVisible\(\)/, 'l’état connecté doit être revérifié visuellement')
+    assert.match(apres, /toBeVisible\(\)/)
   })
 
   it('les identifiants utilisés sont ceux du compte de DÉMONSTRATION (non privilégié)', () => {
     assert.match(code, /karim\.oran@demo\.dz/)
     const db = src('server/db.js')
-    const bloc = db.slice(db.indexOf("id: 'demo-karim'"), db.indexOf("id: 'demo-karim'") + 400)
+    const i = db.indexOf("id: 'demo-karim'")
+    assert.ok(i > 0, 'le compte démo doit exister dans la seed')
+    const bloc = db.slice(i, i + 400)
     assert.match(bloc, /role: 'customer'/, 'le smoke ne doit jamais se connecter avec un compte maître')
     assert.doesNotMatch(code, /master/i, 'aucun compte maître dans le smoke e2e')
   })
