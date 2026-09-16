@@ -301,20 +301,47 @@ règle sur la valeur `PCSTAR_FORBIDDEN_SECRET` déjà prévue mais non alimenté
    leur valeur n'est pas un secret à protéger, c'est un compte à ne pas rendre
    sensible.
 
-### B. Code — sur PR #6, si vous le souhaitez (lot 1.3 + verrou)
+### B. Code — sur PR #6 (lot 1.19) — ✅ **fait le 16/09/2026**
 
-- sortir les trois comptes démo du seed codé en dur (`env` ou génération au
-  premier démarrage) et retirer `karim31` / `amina31` / `yacine31` des **7
-  fichiers racine** qui les contiennent encore : `server/db.js`,
+> Les quatre points sont livrés sur la branche de PR #6 ; le détail mesuré
+> (correctifs, régressions trouvées en les écrivant, neutralisations N58→N67)
+> est au §9 « lot 1.19 » de `docs/PLAN-CORRECTIONS.md`.
+
+- ✅ **sortir les trois comptes démo du seed codé en dur** — `DEMO_PASSWORD`
+  (environnement), comme le maître au lot 1.1. Les trois valeurs (forme
+  « prénom + 31 », volontairement **non répétées** ici désormais) ont été
+  retirées des **7 fichiers racine** cités : `server/db.js`,
   `scripts/smoke-e2e.mjs`, `e2e/smoke.spec.js`, `src/hardening.test.js`,
-  `src/lot2UI.test.js`, `src/p22Audit.test.js`, `src/serverFixes.test.js` ;
-- élargir le scanner lot 1.2 : parcours **récursif**, documentation découverte
-  par glob (toute `docs/*.md` + `README.md`), et une règle « valeur publiée »
-  alimentée par `PCSTAR_FORBIDDEN_SECRET` ;
-- ajouter un test sur la garde S2 (`demo_email`) **avant** toute suppression de
-  `demo: true` ;
-- afficher dans l'UI l'avertissement « mode démonstration, aucune donnée
-  sensible » (critère d'acceptation du lot 1.3).
+  `src/lot2UI.test.js`, `src/p22Audit.test.js`, `src/serverFixes.test.js` —
+  ainsi que de `src/shopStore.js` (le bundle client les livrait au navigateur),
+  de `README.md`, des trois guides de démonstration, de `.env.example` et de
+  `docs/DEPLOY-VERCEL.md`. Variable absente → comptes seedés **verrouillés**
+  (`passwordHash: null`) et `401 demo_locked` ; base déjà constituée →
+  alignement par `normalizeDb`. Contrôle du bundle : `npm run build` puis
+  `grep` → **0 occurrence**.
+- ✅ **élargir le scanner lot 1.2** — parcours **récursif** depuis la racine
+  (146 fichiers suivis : les 19 fichiers du dossier imbriqué `PC-Star-main/`
+  seraient vus), toute documentation `.md` du dépôt incluse (`docs/*.md`,
+  `README.md`, quel que soit son nom — plus de liste fixe), 4ᵉ règle
+  « mot de passe publié dans un tableau Markdown », crochet
+  `PCSTAR_FORBIDDEN_SECRET` (et `PCSTAR_FORBIDDEN_SECRETS`) désormais **testé**,
+  exemptions d'historique bornées et vérifiées (4 à 8 entrées, `docs/` seulement,
+  noms imposés).
+- ✅ **un test sur la garde S2 (`demo_email`) avant toute suppression de
+  `demo: true`** — les gardes S1/S2 n'étaient couvertes **nulle part** :
+  4 tests les couvrent maintenant (`src/lot1DemoSecrets.test.js`), dont la
+  chaîne complète « le titulaire choisit son mot de passe → le marqueur tombe →
+  l'appropriation par e-mail non vérifié est refusée ». Le marqueur `demo` est
+  retiré dans les deux mutateurs de mot de passe, parce que **sans** ce retrait
+  l'alignement annulait silencieusement le changement annoncé 200 (P16 #13 et
+  #14 devenus rouges, ce qui a révélé le défaut).
+- ✅ **avertissement « mode démonstration »** — déjà livré au lot 1.3
+  (`src/AuthPanel.jsx` + `demoModeTitle`/`demoModeNote` × 3 langues) : il porte
+  sur le mode **local** (comptes dans le navigateur, hachage faible, « n'y
+  saisissez jamais un vrai mot de passe »), qui est le seul mode où le visiteur
+  crée un compte sans serveur. Côté serveur, les comptes de démonstration ne
+  sont plus ouvrables avec une valeur lue dans le dépôt : il n'y a plus de
+  « donnée sensible » à annoncer.
 
 ### C. À ne pas faire
 

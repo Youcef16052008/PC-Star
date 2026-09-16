@@ -253,11 +253,34 @@ Le code est déjà découpé (`server/db.js`) pour brancher ça sans tout casser
 3. `npm run photos:check` puis commit + push → Vercel rebuild  
 4. Pas besoin de VPS — les images partent dans le build static
 
+## 8 bis. Comptes de démonstration (`DEMO_PASSWORD`, lot 1.19)
+
+Les trois comptes clients de démonstration ne portent plus de mot de passe codé
+en dur : ils suivent la variable `DEMO_PASSWORD` (une seule valeur pour les
+trois — ce sont des fixtures).
+
+| État | Comportement |
+|---|---|
+| `DEMO_PASSWORD` posé | les trois comptes s'ouvrent avec cette valeur ; une base existante est **alignée au démarrage** (`normalizeDb`), donc les anciennes empreintes publiées cessent de fonctionner |
+| variable absente | comptes seedés **verrouillés** (`passwordHash: null`) : visibles comme données de démonstration, `POST /api/auth/login` → `401 demo_locked`. Le serveur démarre normalement |
+
+Un compte de démonstration qui n'est plus marqué `demo: true` (revendiqué par
+OAuth, devenu un vrai client) n'est jamais réaligné.
+
+> Les trois mots de passe publiés auparavant dans le README, les guides et le
+> bundle client sont **compromis** : ne jamais les reposer comme
+> `DEMO_PASSWORD`, ni les réutiliser ailleurs. Ne pas choisir `demo-local` non
+> plus (valeur du mode local, présente dans le bundle).
+
 ## 9. Checklist post-deploy
 
 - [ ] `https://TON.app` charge le shop  
 - [ ] `https://TON.app/api/health` → `{ ok: true }`  
 - [ ] Login master avec les valeurs posées dans `MASTER_EMAIL` / `MASTER_PASSWORD`  
+- [ ] Comptes de démonstration : soit `DEMO_PASSWORD` posé (et le login client
+      fonctionne avec cette valeur), soit **absent** et le login répond
+      `401 demo_locked` — les deux états sont voulus (lot 1.19), mais il faut
+      savoir lequel on a  
 - [ ] Ajout panier + réserve (tél DZ)  
 - [ ] Footer garantie / privacy  
 - [ ] HTTPS cadenas navigateur  

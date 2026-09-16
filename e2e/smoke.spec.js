@@ -11,12 +11,25 @@ test('shop loads and exposes the API-backed catalog', async ({ page }) => {
 // assertion négative, qui passe aussi quand la connexion échoue silencieusement
 // (formulaire refermé, jeton perdu, session non rechargée). Un smoke test de
 // connexion doit vérifier l'ÉTAT CONNECTÉ : le compte démo existe dans la seed
-// (`server/db.js` : demo-karim / karim.oran@demo.dz / karim31, nom « Karim B. »),
-// donc on attend le bouton profil portant ce nom, le bouton de déconnexion, et
-// la disparition du bouton « Connexion ».
-const DEMO = { email: 'karim.oran@demo.dz', password: 'karim31', name: 'Karim B.' }
+// (`server/db.js` : demo-karim / karim.oran@demo.dz, nom « Karim B. »), donc on
+// attend le bouton profil portant ce nom, le bouton de déconnexion, et la
+// disparition du bouton « Connexion ».
+//
+// LOT 1.19 : le mot de passe de ce compte n'est plus publié. Il vient de
+// `DEMO_PASSWORD` — la variable de l'instance testée. Absente, le serveur seed le
+// compte **verrouillé** (`passwordHash: null`, 401 `demo_locked`) : le test se
+// saute en le disant, au lieu d'échouer sur un état voulu.
+const DEMO = {
+  email: 'karim.oran@demo.dz',
+  password: process.env.DEMO_PASSWORD || '',
+  name: 'Karim B.'
+}
 
 test('demo customer can open login and authenticate', async ({ page }) => {
+  test.skip(
+    !DEMO.password,
+    'DEMO_PASSWORD absent : comptes de démonstration verrouillés (lot 1.19) — état voulu'
+  )
   await page.goto('/')
   const login = page.getByRole('button', { name: /connexion|login|تسجيل/i }).first()
   await expect(login).toBeVisible()

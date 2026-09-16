@@ -103,12 +103,32 @@ function emptyMeta() {
   }
 }
 
+/**
+ * LOT 1.19 — le mot de passe des comptes de démonstration **en mode local**.
+ *
+ * Les trois comptes ci-dessous portaient chacun un mot de passe en clair — ce
+ * commentaire ne répète volontairement aucune des trois valeurs, comme en tête
+ * de fichier pour le compte maître : elles sont embarquées dans le bundle public
+ * par Vite, et surtout elles étaient **identiques aux empreintes seedées côté
+ * serveur**, donc valables sur l'API déployée. Depuis ce lot, le serveur ne seed plus aucune
+ * valeur publiée : il suit `DEMO_PASSWORD` et verrouille les comptes si la
+ * variable est absente (`server/db.js`, `demoAccounts()`).
+ *
+ * Ce qui reste ici ne concerne **que le mode local** : un bac à sable dans ce
+ * navigateur, sans serveur, sans sauvegarde, avec un hachage FNV-1a assumé comme
+ * faible (encart `demoModeNote` de `AuthPanel`). Une valeur unique, explicite,
+ * documentée — et qui n'ouvre rien d'autre que ce bac à sable.
+ *
+ * ⚠️ À ne jamais choisir comme `DEMO_PASSWORD` côté serveur : cette chaîne est
+ * dans le bundle public.
+ */
+export const DEMO_LOCAL_PASSWORD = 'demo-local'
+
 export const DEMO_CUSTOMERS = [
   {
     id: 'demo-karim',
     role: 'customer',
     email: 'karim.oran@demo.dz',
-    passwordPlain: 'karim31',
     name: 'Karim B.',
     phone: '0550123456',
     avatar: 'chip',
@@ -120,7 +140,6 @@ export const DEMO_CUSTOMERS = [
     id: 'demo-amina',
     role: 'customer',
     email: 'amina.castors@demo.dz',
-    passwordPlain: 'amina31',
     name: 'Amina K.',
     phone: '0669174617',
     avatar: 'card',
@@ -132,7 +151,6 @@ export const DEMO_CUSTOMERS = [
     id: 'demo-yacine',
     role: 'customer',
     email: 'yacine.pc@demo.dz',
-    passwordPlain: 'yacine31',
     name: 'Yacine M.',
     phone: '0770650388',
     avatar: 'pad',
@@ -143,8 +161,9 @@ export const DEMO_CUSTOMERS = [
 ]
 
 function demoUser(seed) {
-  const { passwordPlain, ...rest } = seed
-  return { ...rest, password: hashPass(passwordPlain) }
+  // LOT 1.19 : plus de mot de passe par compte — une seule valeur locale,
+  // partagée par les trois fixtures (voir `DEMO_LOCAL_PASSWORD`).
+  return { ...seed, password: hashPass(DEMO_LOCAL_PASSWORD) }
 }
 
 export function loadUsers(storage = safeStorage) {

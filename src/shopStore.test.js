@@ -23,7 +23,10 @@ import {
   setProductPhotos,
   togglePanel,
   updateUser,
-  DEMO_CUSTOMERS
+  DEMO_CUSTOMERS,
+  // LOT 1.19 : mot de passe local partagé des comptes de démonstration, en
+  // remplacement des `passwordPlain` publiés dans le README.
+  DEMO_LOCAL_PASSWORD
 } from './shopStore.js'
 
 describe('phones and emails', () => {
@@ -53,15 +56,15 @@ describe('email accounts', () => {
     let users = []
     const reg = registerEmail(users, {
       email: 'karim@test.dz',
-      password: 'azerty12',
+      password: 'azerty-fixture',
       name: 'Karim',
       phone: '0550123456'
     })
     assert.equal(reg.ok, true)
     assert.equal(reg.user.role, 'customer')
-    assert.equal(reg.user.password, hashPass('azerty12'))
+    assert.equal(reg.user.password, hashPass('azerty-fixture'))
     users = reg.users
-    const login = loginEmail(users, { email: 'karim@test.dz', password: 'azerty12' })
+    const login = loginEmail(users, { email: 'karim@test.dz', password: 'azerty-fixture' })
     assert.equal(login.ok, true)
     assert.equal(login.user.name, 'Karim')
   })
@@ -69,11 +72,11 @@ describe('email accounts', () => {
   it('rejects a wrong password and duplicate email', () => {
     const { users } = registerEmail([], {
       email: 'karim@test.dz',
-      password: 'azerty12',
+      password: 'azerty-fixture',
       name: 'Karim'
     })
     assert.equal(loginEmail(users, { email: 'karim@test.dz', password: 'nope' }).ok, false)
-    assert.equal(registerEmail(users, { email: 'karim@test.dz', password: 'azerty12', name: 'X' }).ok, false)
+    assert.equal(registerEmail(users, { email: 'karim@test.dz', password: 'azerty-fixture', name: 'X' }).ok, false)
   })
 
   // LOT 1.1 : le compte maître n'est plus seedé côté client. Il était défini
@@ -97,9 +100,12 @@ describe('email accounts', () => {
   })
 
   it('seeds demo customers', () => {
+    // LOT 1.19 : `DEMO_CUSTOMERS` ne porte plus de `passwordPlain` (le mot de
+    // passe publié dans le README a disparu du module client) ; les trois comptes
+    // de démonstration partagent `DEMO_LOCAL_PASSWORD`.
     const users = loadUsers(createMemoryStorage())
     DEMO_CUSTOMERS.forEach((d) => {
-      const login = loginEmail(users, { email: d.email, password: d.passwordPlain })
+      const login = loginEmail(users, { email: d.email, password: DEMO_LOCAL_PASSWORD })
       assert.equal(login.ok, true)
       assert.equal(login.user.role, 'customer')
     })
@@ -119,7 +125,7 @@ describe('master vs customer', () => {
     const seeded = loadUsers(createMemoryStorage())
     const { users, user } = registerEmail(seeded, {
       email: 'a@b.dz',
-      password: 'secret99',
+      password: 'secret-fixture',
       name: 'Amina'
     })
     const master = localMaster()
@@ -134,7 +140,7 @@ describe('master vs customer', () => {
     const seeded = loadUsers(createMemoryStorage())
     const { users, user } = registerEmail(seeded, {
       email: 'c@d.dz',
-      password: 'secret99',
+      password: 'secret-fixture',
       name: 'Karim'
     })
     assert.equal(deleteCustomer(users, localMaster(), user.id).ok, true)
@@ -142,7 +148,7 @@ describe('master vs customer', () => {
   })
 
   it('saves profile name and wilaya', () => {
-    const { users, user } = registerEmail([], { email: 'a@b.dz', password: 'secret99', name: 'Amina' })
+    const { users, user } = registerEmail([], { email: 'a@b.dz', password: 'secret-fixture', name: 'Amina' })
     const next = updateUser(users, user.id, { name: 'Amina B', wilaya: 'Mascara' })
     assert.equal(next.ok, true)
     assert.equal(next.user.name, 'Amina B')

@@ -148,7 +148,7 @@ la suite est aujourd'hui aveugle à ces chemins (voir §10).
 
 ## 7. Plan de correction
 
-> **ÉTAT D'AVANCEMENT — 15/09/2026**
+> **ÉTAT D'AVANCEMENT — 16/09/2026**
 >
 > | Lot | État | Détail |
 > |---|---|---|
@@ -156,12 +156,14 @@ la suite est aujourd'hui aveugle à ces chemins (voir §10).
 > | **Lot 7.1** (isolation des tests) | ✅ **Fait** | `scripts/test-env.mjs` + `--import` dans le script `test`. Vérifié : la suite passe **avec un `.env` hostile** (Neon morte + `MASTER_*` + `WHATSAPP_TOKEN`), alors qu'elle échouait sur 17 tests avant. |
 > | **Lot 1.1** (secrets hors du code) | ✅ **Fait** | `masterAccount()` lit l'environnement et **lève** s'il manque (aucune valeur par défaut) ; plus de `MASTER` côté client ; `/api/health` ne divulgue plus l'e-mail maître ; synchronisation du maître sur les **bases existantes**. |
 > | **Lot 1.2** (secrets hors de la doc) | ✅ **Fait** | README, 3 guides de démo, DEPLOY-VERCEL, spec superpowers, 4 scripts de recette. |
+> | **Lot 1.19** (comptes de démonstration hors du dépôt) | ✅ **Fait** | Les trois mots de passe des comptes de démo — publiés dans le README, les trois guides, `.env.example` **et** le bundle client — viennent désormais de `DEMO_PASSWORD` ; variable absente → comptes seedés **verrouillés** et `401 demo_locked`. Retirés de 7 fichiers racine + 5 documents publiés. Scanner du lot 1.2 élargi (parcours **récursif**, règle « valeur publiée dans un tableau », crochet `PCSTAR_FORBIDDEN_SECRET(S)` **testé**). Détail §9. |
 > | **Lot 1.10** (R8, `/api/health`) | ✅ **Fait** | Retiré du même mouvement : l'import `MASTER` disparaissait de `server/index.js`, le champ ne pouvait pas rester. |
 > | **Lot 1.3→1.9, 1.11→1.15** (reste du lot 1) | ✅ **Fait** | Voir §9 « Reste du lot 1 ». 59 nouveaux tests, vérifiés **régressifs** (les corrections retirées, les tests échouent). |
-> | **Lot 7.2/7.3** (tests de non-régression) | 🟡 **Partiel** | `src/masterSecrets.test.js` (8 tests) couvre les lots 1.1/1.2 + la migration de base existante ; `src/serverFixes.test.js` (48) et `src/clientFixes.test.js` (11) couvrent le reste du lot 1. Le contrôle du **bundle** a été mené à la main (`npm run build` puis `grep` : aucun secret, aucune URL `vercel-storage`) mais reste à automatiser. |
-> | Lots 2, 3, 4, 5, 6 | ⬜ **À faire** | |
+> | **Lot 7.2/7.3** (tests de non-régression) | ✅ **Fait** | 7.2 : chaque correctif des lots 1 à 8 a son test, vérifié **régressif** par neutralisation (N1→N71, tableaux au §9) — `src/masterSecrets.test.js` (13), `src/serverFixes.test.js` (49), `src/clientFixes.test.js` (11), `src/lot1DemoSecrets.test.js` (25) et les fichiers dédiés de chaque lot. 7.3 : le contrôle du **bundle** n'est plus manuel — `scripts/check-bundle.mjs` (16 tests) est enchaîné par `npm run build` et fait **échouer** le build si un secret apparaît dans `dist/`. Détail §9 « lot 7.3 ». |
+> | Lots 2, 3, 4, 5, 6 | ✅ **Fait** | Voir §9 : lot 2 (bloquants fonctionnels), lot 3 (robustesse & concurrence), lot 4 (multi-appareil & données), lots 5+6 (honnêteté de l'UI, qualité du code). |
+> | **Lot 8** (audit A→Z, items A1→A10) | ✅ **Fait** | Voir §9 « Lot 8 clos » : les 6 défauts 🔴/🟠 et les 4 mineurs 🟡 sont corrigés, 761 tests. |
 >
-> **Suite de tests : 315 → 325 → 384**, tous verts (112 suites).
+> **Suite de tests : 315 → 325 → 384 → 761 → 791**, tous verts (**218** suites).
 
 Sept lots, ordonnés par risque décroissant. Les lots 1 et 2 sont les seuls
 **bloquants** ; les lots 3 à 7 peuvent être menés en parallèle ensuite.
@@ -196,10 +198,12 @@ Estimations en « unités de changement » (U) : S = < 30 lignes, M = 30–120, 
 > **`docs/VERIFICATION-RAPPORT-LOT0.md`**.
 > Les quatre mots de passe publiés sur cette branche sont à considérer comme
 > **compromis** — ne jamais les poser en production.
-> Reste à faire : les étapes exploitant (variables d'env Vercel, purge des
-> sessions, contrôle du journal) et, côté code, le lot 1.3 (comptes de
-> démonstration hors du seed codé en dur) + l'élargissement du scanner 1.2,
-> aujourd'hui aveugle aux dossiers imbriqués et aux tableaux Markdown.
+> Reste à faire : **uniquement les étapes exploitant** (variables d'env Vercel,
+> purge des sessions, contrôle du journal). La partie code citée ici le 16/09 —
+> comptes de démonstration hors du seed codé en dur, élargissement du scanner 1.2
+> aux dossiers imbriqués et aux tableaux Markdown — est **livrée le jour même** :
+> lot **1.19** et lot **7.3**, voir §9. Le scanner parcourt désormais 146 fichiers
+> suivis de façon récursive et signale un mot de passe publié dans un tableau.
 
 ---
 
@@ -415,7 +419,7 @@ serveur) — cohérent avec leur conception, elles étaient déjà vides sans AP
 `/api/health` ; garde de démarrage `assertMasterConfigured()` avec message
 lisible et code de sortie 1.
 
-**`src/masterSecrets.test.js`** (lot 7.2) — 8 tests : absence d'export `MASTER`
+**`src/masterSecrets.test.js`** (lot 7.2 — **13** tests depuis le lot 1.19, voir §9) : absence d'export `MASTER`
 côté client, `masterAccount()` lit l'environnement et lève s'il manque, le
 serveur refuse de démarrer sans compte maître (processus enfant réel),
 scan du dépôt à la recherche d'identifiants codés en dur, `/api/health` ne
@@ -2325,6 +2329,248 @@ A2/A6/A9/A10 par appel direct du code du dépôt) dans
 Reste, hors code : le **lot 0** (rotation réelle des secrets) — voir la section
 suivante et `docs/VERIFICATION-RAPPORT-LOT0.md` pour la vérification de la
 tentative livrée sur `arena/01a090f7-pc-star`.
+
+---
+
+### ✅ Fait — lot 1.19, les comptes de démonstration ne sont plus des identifiants publiés (16/09/2026)
+
+**Déclencheur.** Le lot 1.2 avait sorti les identifiants du **maître** du code et
+de la documentation, et laissé les trois comptes de démonstration de côté
+(« leur retrait relève du lot 1.3 / d'une décision produit »). La vérification du
+« lot 0 » livré le 16/09 sur la branche `arena/01a090f7-pc-star`
+(`docs/VERIFICATION-RAPPORT-LOT0.md`) a chiffré ce que coûte ce statut
+intermédiaire : la rotation proposée **republiait** quatre mots de passe en clair
+— un secret publié remplacé par un autre secret publié, dans un dossier imbriqué
+que le scanner de l'époque ne parcourait pas. Le §5.B de ce rapport demandait
+exactement ce lot.
+
+**Numérotation.** Le §5.B du rapport de vérification du lot 0 désignait ce
+travail sous le nom « lot 1.3 » ; le lot 1.3 du présent plan (l'avertissement
+« mode démonstration » dans l'UI) était déjà livré — d'où le numéro **1.19**, qui
+prolonge la série 1.1 (maître hors du code) et 1.2 (secrets hors de la doc).
+
+**Ce qui était publié (mesuré, 16/09).** Trois mots de passe de comptes
+`role: 'customer'` — forme « prénom + 31 » — étaient codés en dur dans
+`server/db.js` et repris tels quels dans **12 endroits** :
+
+| Surface | Fichiers | Effet |
+|---|---|---|
+| seed serveur | `server/db.js` | empreintes `hashPassLegacy` des trois valeurs |
+| bundle client public | `src/shopStore.js` (`DEMO_CUSTOMERS[].passwordPlain`) | les trois valeurs **livrées au navigateur** |
+| documentation publiée | `README.md`, `docs/GUIDE-DEMO.md`, `-FR.md`, `-AR.md`, `.env.example` | tableau « Rôle / E-mail / Mot de passe » |
+| recette et e2e | `scripts/smoke-e2e.mjs`, `e2e/smoke.spec.js` | connexion codée en dur |
+| tests | `src/hardening.test.js`, `src/lot2UI.test.js`, `src/p22Audit.test.js`, `src/serverFixes.test.js` | la valeur publiée était **présupposée** par 11 assertions |
+
+Ce ne sont pas des comptes privilégiés, mais ce sont de **vraies sessions** sur
+l'API déployée : commandes, profil, historique.
+
+**Correctif — la même règle que pour le maître (lot 1.1).**
+
+1. `server/db.js` : `demoPassword()` / `demoPasswordHash()` / `demoAccounts()`
+   remplacent le `const DEMOS` codé en dur. Une seule valeur pour les trois
+   comptes (`DEMO_PASSWORD`) — ce sont des fixtures, pas des personnes. Lue **à
+   chaque appel**, pas figée au chargement : `normalizeDb` doit pouvoir aligner
+   une base existante, et les tests basculer l'état sans sous-processus.
+2. `normalizeDb` : bloc d'**alignement** pour les bases déjà constituées (le cas
+   réel en production, et n'importe quelle sauvegarde restaurée) — retirer les
+   littéraux du code n'aurait rien changé pour elles. Règle : compte toujours
+   marqué `demo: true` et reconnu par `id` **ou** `email` → variable posée,
+   l'empreinte suit la valeur *sauf si elle la vérifie déjà* (aucune réécriture,
+   donc pas d'écriture disque en boucle, et une empreinte déjà migrée en scrypt
+   par P22 n'est pas dégradée) ; variable absente → `passwordHash: null`,
+   idempotent. Un compte qui n'est plus marqué `demo` (revendiqué par OAuth,
+   devenu un vrai client) n'est **jamais** touché.
+3. Variable absente → les comptes restent seedés (le comptoir a des clients à
+   afficher) mais **verrouillés**, et `POST /api/auth/login` répond
+   `401 { error: 'demo_locked' }` au lieu d'un échec opaque : l'exploitant qui
+   suit le README comprend que l'état est voulu. Le serveur démarre normalement
+   (ces comptes sont facultatifs, contrairement au maître qui **lève**).
+4. `src/shopStore.js` : plus aucun `passwordPlain` ; les trois comptes de la
+   démo **locale** (navigateur seul, hachage FNV-1a) partagent
+   `DEMO_LOCAL_PASSWORD`. Ce n'est pas un secret : il n'ouvre rien sur un
+   déploiement, et l'UI dit déjà de ne jamais y saisir un vrai mot de passe
+   (lot 1.3, `AuthPanel.jsx`).
+5. Consommateurs : `scripts/test-env.mjs` épingle `TEST_DEMO_PASSWORD` pour la
+   suite ; les 4 fichiers de tests, `scripts/smoke-e2e.mjs` (avec repli sur
+   `/api/auth/register` quand les comptes sont verrouillés) et `e2e/smoke.spec.js`
+   (`test.skip()` si la variable manque) ne contiennent plus aucune valeur.
+   `scripts/masterEnv.mjs` gagne `demoCredentials()`, qui renvoie `null` — et non
+   `process.exit(1)` comme `masterCredentials()` — parce que ces comptes sont
+   facultatifs.
+6. Documentation publiée : `README.md` et les trois guides renvoient à la
+   variable (aucune valeur imprimée, EN/FR/AR), `.env.example` documente
+   `DEMO_PASSWORD` (commentée, avec les deux états), `docs/DEPLOY-VERCEL.md`
+   ajoute un §8 bis et une ligne de checklist.
+
+**Deux régressions trouvées en écrivant ce lot** (pas avant) :
+
+- **Le marqueur `demo` annulait silencieusement un changement de mot de passe.**
+  L'alignement (2) réécrit l'empreinte de toute fixture encore marquée
+  `demo: true` : `POST /api/me/password` répondait **200**, puis le nouveau mot
+  de passe cessait de fonctionner à la lecture suivante. Même chose pour
+  `POST /api/master/customers/:id/reset-password`. Ce sont deux portes d'entrée
+  légitimes — P16 #13 et #14 sont devenus rouges, ce qui a révélé le défaut.
+  Correctif : dans les deux mutateurs, `if (u.demo === true) u.demo = false`.
+  Effet de bord assumé et **souhaitable** : la garde S2 (`server/oauth.js`)
+  refuse dès lors qu'un fournisseur non vérifié s'approprie ce compte par simple
+  coïncidence d'e-mail. Couvert par 4 tests (`src/lot1DemoSecrets.test.js`).
+- **Le verrou du lot 1.6 reposait sur un nombre magique.** Il vérifiait que
+  `hashPassAsync` n'est pas appelé dans le mutateur en regardant une **fenêtre de
+  1 500 caractères** après l'appel ; les deux blocs de commentaire ajoutés ici
+  ont sorti le mutateur de la fenêtre et le test a rougi **à tort**. La fenêtre
+  est supprimée : le verrou porte désormais sur l'ordre réel (entre le hash et la
+  fin du fichier, le premier `updateDbAsync` doit précéder le premier
+  `return db`), et il a été re-vérifié régressif (N67).
+
+**Scanner du lot 1.2 élargi** (`src/masterSecrets.test.js`, 8 → 13 tests). Les
+deux angles morts mesurés sur le « lot 0 » :
+
+| Angle mort | Avant | Après |
+|---|---|---|
+| dossiers imbriqués | 5 dossiers à **un seul niveau** (`src server scripts api e2e`) : les 19 fichiers posés sous `PC-Star-main/` — dont un `src/shopStore.js` réexportant le mot de passe maître — laissaient le scanner **vert (8/8)** | parcours **récursif** depuis la racine : 146 fichiers suivis (`.js/.jsx/.mjs/.cjs/.json/.md` + `.env.example`, hors `node_modules`, `dist`, `data`, `backups`, `package-lock.json`) |
+| valeur publiée en prose | 3 règles ciblant des formes de **code** uniquement ; un tableau `\| Rôle \| E-mail \| Mot de passe \|` dans un `README.md` ou un `GUIDE-COMPTES.md` posé à la racine passait | 4ᵉ règle : un mot de passe littéral dans la colonne « mot de passe » d'un tableau Markdown est signalé (emplacement réservé en italique et cellule nommant la variable admis) |
+| exemptions | `src/shopStore.js` et `*.test.js` exemptés de la règle « mot + 2 chiffres » ; documentation limitée à une **liste fixe** de 7 fichiers | **aucune** exemption ; la clé reconnue est `pass\w*` (donc `passwordPlain` aussi) ; 4ᵉ règle ci-dessus ; liste d'historique bornée (4 à 8 entrées, uniquement `docs/`, noms imposés, existence vérifiée) + réciproque sur les rapports |
+| crochet `PCSTAR_FORBIDDEN_SECRET` | lu, jamais testé | testé (un verrou non testé est un verrou supposé), et complété par `PCSTAR_FORBIDDEN_SECRETS` (liste) |
+
+Les documents qui **citent l'historique** (rapports d'audit, plan, journal des
+bugs) restent exemptés : leur objet est de reproduire les valeurs compromises et
+le code fautif. Un test interdit d'y glisser un document publié.
+
+**Piège mesuré en écrivant la 4ᵉ règle** : reconnaître un en-tête de tableau sur
+le seul mot « password » signalait des cellules de prose sans rapport
+(`docs/ARCHITECTURE.md`, `docs/SECURITY-AUDIT.md`, `docs/BUGS-AND-FIXES.md` —
+6 faux positifs). Un en-tête n'est reconnu **que** si la ligne suivante est un
+séparateur `|---|`. De même, la règle « empreinte littérale » signalait la
+**définition** `function hashPassLegacy(password)` : elle ne porte plus que sur
+un appel à argument littéral.
+
+**Vérification exécutée**
+
+- `npm test` → **791/791** (761 avant le lot), **218** suites, 0 échec.
+  Nouveaux : `src/lot1DemoSecrets.test.js` (**25** tests — seed selon
+  l'environnement, comptes verrouillés, alignement d'une base héritée,
+  non-dégradation d'une empreinte scrypt, compte revendiqué jamais touché,
+  `401 demo_locked`, connexion réelle, maître indépendant, module client,
+  `demoCredentials()`, garde S1/S2) ; `src/masterSecrets.test.js` 8 → **13**
+  (parcours récursif, contre-épreuves posées/supprimées dans un `finally`,
+  règle tableau, crochet interdit, garde d'exemption, documents publiés).
+- `npm run build` → **443,88 Ko** JS (gzip **134,45 Ko**) ; `grep` sur le bundle :
+  les trois valeurs de démonstration (forme « prénom + 31 », volontairement
+  **non répétées** dans ce plan), `passwordPlain` et le mot de passe maître
+  publié → **0 occurrence** ; les 3 occurrences de `star31` sont le handle
+  public `@pcstar31` (Instagram/Facebook/WhatsApp). Ce contrôle était manuel
+  depuis le lot 1.2 : il est **automatisé** dans le même passage — voir §9
+  « lot 7.3 », `npm run build` enchaîne désormais `scripts/check-bundle.mjs` et
+  **échoue** si un secret apparaît dans `dist/`.
+- Scanner sur les 146 fichiers suivis : **0 coup** (les seuls fichiers contenant
+  encore les valeurs sont les 6 documents d'historique exemptés, qui les citent
+  volontairement).
+- Neutralisations N58→N67 ci-dessous : chaque correctif retiré fait rougir au
+  moins un test.
+
+**Neutralisations** (correctif retiré → les tests doivent rougir) :
+
+| # | Correctif retiré | Tests qui rougissent |
+|---|---|---|
+| N58 | `demoPassword()` : repli sur une valeur codée en dur (`\|\| '…'`) | **7** (4 comportement + 3 scanner) |
+| N59 | `normalizeDb` : bloc d'alignement des comptes de démonstration | **5** |
+| N60 | `server/index.js` : code `demo_locked` | **1** |
+| N61 | les deux mutateurs : `u.demo = false` après changement de mot de passe | **4** (dont P16 #13 et #14) |
+| N62 | `src/shopStore.js` : `passwordPlain` réintroduit | **5** (1 client + 4 scanner) |
+| N63 | scanner : parcours récursif retiré (retour aux 5 dossiers à plat) | **3** |
+| N64 | scanner : règle « mot de passe publié dans un tableau » retirée | **1** |
+| N65 | scanner : `README.md` glissé dans l'exemption « historique » | **1** |
+| N66 | scanner : crochet `PCSTAR_FORBIDDEN_SECRET(S)` ignoré | **1** |
+| N67 | lot 1.6 : `hashPassAsync` remis **dans** le mutateur | **1** |
+
+**Limite assumée.** `DEMO_LOCAL_PASSWORD` reste dans le bundle : c'est la valeur
+des comptes de la démo **locale** (navigateur seul, aucun serveur, hachage
+FNV-1a annoncé par l'UI). Elle n'ouvre rien sur un déploiement — la rendre
+« secrète » donnerait l'illusion inverse. Les trois valeurs publiées côté
+serveur, elles, ont disparu du dépôt ; comme pour le lot 0, **supprimer du code
+ne purge pas l'historique public** : toute base déjà constituée doit être
+alignée (2) ou ses comptes verrouillés (3), et les sessions purgées.
+
+---
+
+### ✅ Fait — lot 7.3, le contrôle du bundle est automatisé (16/09/2026)
+
+**Pourquoi maintenant.** Le plan notait ce contrôle 🟡 partiel depuis le lot 1.2 :
+il était mené à la main (`npm run build` puis `grep`) et **rien** n'empêchait une
+régression de passer inaperçue. Le lot 1.19 en a donné l'exemple concret — les
+trois mots de passe des comptes de démonstration étaient livrés au navigateur via
+`DEMO_CUSTOMERS[].passwordPlain`, donc lisibles par tout visiteur, pendant que le
+scanner du dépôt passait au vert sur la forme publiée.
+
+**Ce que le scanner du dépôt ne peut pas voir**, et que `scripts/check-bundle.mjs`
+couvre (il porte sur ce qui est réellement **publié**, pas sur les fichiers
+suivis) :
+
+| Règle | Coup mesuré |
+|---|---|
+| une valeur d'**environnement** sensible inlinée au build (`*PASSWORD*`, `*SECRET*`, `*TOKEN*`, `*API_KEY*`, `*PRIVATE_KEY*`, `DATABASE_URL`) | Vite n'inline que `VITE_*`, mais un `define`, un plugin ou une config future peut le faire |
+| une valeur interdite par `PCSTAR_FORBIDDEN_SECRET` / `PCSTAR_FORBIDDEN_SECRETS` | même crochet que le scanner du dépôt, utile en CI pour bloquer une valeur précise sans l'écrire ici |
+| une forme « mot de passe littéral » (`pass\w*[:=]"motNN"`) produite par le minifieur | la forme exacte des secrets publiés |
+| une URL de stockage privée écrite en dur (Vercel Blob, Azure Blob, GCS, S3) | citée par le plan depuis le lot 1.2 |
+| une lecture de `process.env.X` laissée dans le code client | côté navigateur `process` n'existe pas : un secret potentiel devenu bug silencieux |
+
+**Hors périmètre, volontairement** (sinon le contrôle ment) :
+
+- les **e-mails**. `src/data.js` publie l'adresse de contact du magasin,
+  affichée par l'UI ; interdire `MASTER_EMAIL` ferait échouer le build dès que
+  l'exploitant utilise cette adresse comme identifiant — le cas documenté. Un
+  identifiant n'est pas un secret.
+- les valeurs de moins de 8 caractères (`OAUTH_DEMO=1`, `SOME_TOKEN=true`) :
+  sans ce seuil, `text.includes('')` est vrai partout — mesuré en
+  neutralisation N71, où le seuil retiré faisait rougir **2** tests, dont le
+  scan du vrai `dist/`.
+- `DEMO_LOCAL_PASSWORD` : valeur de la démo **locale** (comptes du navigateur
+  seul, hachage FNV-1a annoncé par l'UI). Elle n'ouvre rien sur un déploiement.
+
+**Branchement** (critère d'acceptation du plan : « le build **échoue** si un mot
+de passe apparaît dans `dist/` ») :
+
+```json
+"build": "vite build && node scripts/check-bundle.mjs",
+"check:bundle": "node scripts/check-bundle.mjs"
+```
+
+Codes de sortie : `0` propre, `1` un secret publié (le build Vercel échoue donc,
+avec le fichier et le motif nommés), `2` `dist/` absent (message disant de lancer
+`npm run build`).
+
+**Vérification exécutée**
+
+- `npm run build` → `vite build` puis `[check-bundle] 9 fichier(s) publié(s)
+  balayé(s) : aucun secret.` ; sonde : une ligne `password:"…"` ajoutée au
+  bundle construit → **code 1** et le fichier nommé, puis restauration → 0.
+- `src/bundleSecrets.test.js` : **16** tests (bundle propre, e-mail admis, valeur
+  locale admise, 7 formes détectées, seuil de longueur, sous-dossiers parcourus,
+  `dist/` absent → code 2, secret → code 1, branchement dans `package.json`, et
+  le **vrai** `dist/` scanné quand il existe — sauté sinon).
+- Suite : **791 → 807**, tous verts.
+
+**Neutralisations** (correctif retiré → les tests doivent rougir) :
+
+| # | Correctif retiré | Tests qui rougissent |
+|---|---|---|
+| N68 | `scanBundle` : les valeurs d'environnement ne sont plus cherchées | **5** |
+| N69 | `scanBundle` : les trois règles structurelles retirées | **4** |
+| N70 | `package.json` : `build` n'enchaîne plus le contrôle | **1** |
+| N71 | `scanBundle` : seuil de longueur retiré (toute valeur d'env signalée) | **2** |
+
+**Piège mesuré en écrivant les tests.** Les sondes de `src/bundleSecrets.test.js`
+doivent contenir un mot de passe littéral de la forme compromise pour prouver la
+détection — écrites telles quelles, elles font rougir le **scanner du dépôt**
+(lot 1.19, règle « mot + 2 chiffres », aucune exemption de fichier). Les deux
+sondes sont donc **assemblées à l'exécution** (`['pass','word'].join('')`), la
+technique déjà employée dans le scanner lui-même, avec un commentaire qui interdit
+de les « simplifier » en littéraux. C'est le signe que les deux verrous mordent.
+
+**Limite assumée.** Le contrôle porte sur `dist/` produit par `npm run build`.
+`npm run build:crawl` (variante `vite.crawl.config.js` → `dist-crawl/`) ne
+l'enchaîne pas : son output n'est pas servi comme bundle applicatif mais
+pré-rendu pour l'exploration ; le scanner du dépôt couvre ses sources.
 
 ---
 

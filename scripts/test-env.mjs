@@ -23,6 +23,21 @@ export const TEST_MASTER_EMAIL = 'master@test.pcstar.local'
 export const TEST_MASTER_PASSWORD = 'test-master-pw'
 
 /**
+ * LOT 1.19 — mot de passe des comptes de démonstration **pour la suite**.
+ *
+ * Depuis ce lot le serveur ne code plus aucune valeur en dur : il suit
+ * `DEMO_PASSWORD` et verrouille les trois comptes (`passwordHash: null`, login
+ * → 401 `demo_locked`) si la variable est absente. Les tests qui ouvrent une
+ * session client lisent donc cette constante au lieu d'un littéral — c'est ce
+ * qui a permis de retirer les mots de passe publiés des sept fichiers de tests
+ * et de recettes qui les répétaient.
+ *
+ * Les tests qui vérifient l'état **verrouillé** suppriment la variable
+ * (`delete process.env.DEMO_PASSWORD`) : `demoAccounts()` la lit à chaque appel.
+ */
+export const TEST_DEMO_PASSWORD = 'test-demo-pw'
+
+/**
  * Pose une valeur — même vide. `server/env.js:loadEnv` n'applique le `.env`
  * que si `process.env[key] === undefined` : une simple **suppression** laisserait
  * donc le `.env` du développeur repasser par-dessus au chargement du serveur.
@@ -60,6 +75,11 @@ export function setupTestEnv() {
   //    démarrer sans lui (plus de valeur par défaut codée en dur).
   pin('MASTER_EMAIL', TEST_MASTER_EMAIL)
   pin('MASTER_PASSWORD', TEST_MASTER_PASSWORD)
+
+  // 4 bis. Comptes de démonstration : facultatifs (le serveur démarre sans),
+  //    mais la suite les utilise comme fixtures de connexion client — elle pose
+  //    donc sa propre valeur (LOT 1.19).
+  pin('DEMO_PASSWORD', TEST_DEMO_PASSWORD)
 
   // 5. Reverse proxy / plateforme : jamais supposés en test (sinon
   //    `X-Forwarded-For` devient forgeable et le rate-limit contournable, et

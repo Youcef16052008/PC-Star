@@ -21,11 +21,23 @@ Sans API, le site marche en mode local (`○ local`). Avec API (`● API`), le m
 | Rôle | E-mail | Mot de passe | Peut faire |
 |------|--------|--------------|------------|
 | **Master** (magasin) | _`MASTER_EMAIL`_ | _`MASTER_PASSWORD`_ | Desk list, Admin (ajouter / masquer produits, clients) |
-| Client Karim | `karim.oran@demo.dz` | `karim31` | Panier, réserve, profil simple |
-| Client Amina | `amina.castors@demo.dz` | `amina31` | idem |
-| Client Yacine | `yacine.pc@demo.dz` | `yacine31` | idem |
+| Client Karim | `karim.oran@demo.dz` | _variable `DEMO_PASSWORD`_ | Panier, réserve, profil simple |
+| Client Amina | `amina.castors@demo.dz` | _variable `DEMO_PASSWORD`_ | idem |
+| Client Yacine | `yacine.pc@demo.dz` | _variable `DEMO_PASSWORD`_ | idem |
 
 Tu peux aussi taper e-mail + mot de passe à la main, ou **Créer un compte**.
+
+> **Comptes de démonstration (clients) :** leur mot de passe n'est plus publié
+> ici non plus (lot 1.19). Côté serveur il vient de la variable d'environnement
+> `DEMO_PASSWORD` — une seule valeur pour les trois comptes, qui sont des
+> fixtures et non des personnes. **Variable absente ⇒ comptes verrouillés** :
+> ils restent visibles comme données de démonstration, mais `POST /api/auth/login`
+> répond `401 demo_locked`. Les trois valeurs qui figuraient dans cette page,
+> dans le README et dans le bundle client sont considérées comme **compromises**
+> (elles ouvraient de vraies sessions sur l'API) : ne les réutilisez nulle part.
+> En **mode local** (sans API), les comptes du navigateur s'ouvrent avec la
+> valeur `DEMO_LOCAL_PASSWORD` de `src/shopStore.js` — elle ne donne accès qu'à
+> ce bac à sable, jamais à une instance déployée.
 
 > **Compte maître (magasin) :** il n'est plus publié ici. Il est défini par les
 > variables d'environnement `MASTER_EMAIL` et `MASTER_PASSWORD` (voir

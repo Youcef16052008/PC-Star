@@ -439,6 +439,14 @@ export async function handler(req, res) {
       const db = await readDbAsync()
       const user = db.users.find((u) => u.email === email)
       if (!user || !verifyPass(password, user.passwordHash)) {
+        // LOT 1.19 : un compte de démonstration **verrouillé** (aucun
+        // `DEMO_PASSWORD` posé) répond un code dédié. Sans lui, l'exploitant
+        // voit un 401 « identifiants incorrects » et cherche un mot de passe qui
+        // n'existe nulle part — alors que l'état est voulu. Ces adresses sont
+        // déjà publiées dans les guides : le code ne révèle rien de nouveau.
+        if (user && user.demo === true && !user.passwordHash) {
+          return send(res, 401, { ok: false, error: 'demo_locked' })
+        }
         return send(res, 401, { ok: false, error: 'auth' })
       }
       const token = newToken()
@@ -608,10 +616,21 @@ export async function handler(req, res) {
       // Les clés sont des empreintes : la comparaison porte sur l'empreinte du
       // jeton courant, jamais sur le jeton lui-même.
       const currentKey = hashToken(currentToken || '')
+      // LOT 1.19 : un compte de démonstration dont le titulaire choisit son
+      // propre mot de passe cesse d'être une fixture — le mutateur ci-dessous
+      // retire le marqueur `demo`. Sans ce retrait, `normalizeDb` réalignait
+      // l'empreinte sur `DEMO_PASSWORD` à la lecture suivante : la réponse
+      // annonçait 200 et le nouveau mot de passe cessait de fonctionner
+      // (régression mesurée par P16 #13). Effet de bord assumé et souhaitable :
+      // la garde S2 (`server/oauth.js`) refuse dès lors qu'un fournisseur non
+      // vérifié s'approprie ce compte par simple coïncidence d'e-mail.
       let revoked = 0
       await updateDbAsync((db) => {
         const u = db.users.find((x) => x.id === auth.user.id)
-        if (u) u.passwordHash = nextHash
+        if (u) {
+          u.passwordHash = nextHash
+          if (u.demo === true) u.demo = false
+        }
         for (const [key, sess] of Object.entries(db.sessions || {})) {
           if (sess && sess.userId === auth.user.id && key !== currentKey) {
             delete db.sessions[key]
@@ -640,12 +659,18 @@ export async function handler(req, res) {
       if (next.length < 6) return send(res, 400, { ok: false, error: 'password' })
       // LOT 1.6 : hash asynchrone, hors du mutateur.
       const nextHash = await hashPassAsync(next)
+      // LOT 1.19 : même règle que /api/me/password — un mot de passe posé
+      // explicitement (par le titulaire ou par le maître) n'est plus la valeur
+      // d'environnement des fixtures, donc l'alignement de `normalizeDb` ne doit
+      // plus s'y appliquer. Sans le retrait du marqueur `demo` dans le mutateur,
+      // le reset annoncé 200 était annulé à la lecture suivante (P16 #14).
       let ok = false
       let revoked = 0
       await updateDbAsync((db) => {
         const u = db.users.find((x) => x.id === id && x.role !== 'master')
         if (u) {
           u.passwordHash = nextHash
+          if (u.demo === true) u.demo = false
           ok = true
           // LOT 1.5 : même raison que /api/me/password — un reset maître sert
           // typiquement à reprendre la main sur un compte compromis ; laisser

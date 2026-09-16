@@ -4,7 +4,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import http from 'node:http'
-import { TEST_MASTER_EMAIL, TEST_MASTER_PASSWORD } from '../scripts/test-env.mjs'
+import { TEST_MASTER_EMAIL, TEST_MASTER_PASSWORD, TEST_DEMO_PASSWORD } from '../scripts/test-env.mjs'
 
 // ---------------------------------------------------------------------------
 // P22 — Audit « toutes les pages, tous les boutons » (13 pages, 1 155 boutons
@@ -346,7 +346,7 @@ describe('P22 item 1 — le hash non salé des comptes seedés migre à la conne
   })
 
   it('après une connexion réussie, le hash est re-salé en scrypt', async () => {
-    const r = await call('POST', '/api/auth/login', { body: { email: AMINA, password: 'amina31' } })
+    const r = await call('POST', '/api/auth/login', { body: { email: AMINA, password: TEST_DEMO_PASSWORD } })
     assert.equal(r.status, 200, 'connexion nominale')
     const h = readHash(AMINA)
     assert.ok(h.startsWith('scrypt$'), `hash migré, reçu ${h.slice(0, 24)}…`)
@@ -357,7 +357,7 @@ describe('P22 item 1 — le hash non salé des comptes seedés migre à la conne
   })
 
   it('la connexion reste possible après migration, et le mauvais mot de passe est refusé', async () => {
-    const ok = await call('POST', '/api/auth/login', { body: { email: AMINA, password: 'amina31' } })
+    const ok = await call('POST', '/api/auth/login', { body: { email: AMINA, password: TEST_DEMO_PASSWORD } })
     assert.equal(ok.status, 200, 're-connexion après migration')
     const ko = await call('POST', '/api/auth/login', { body: { email: AMINA, password: 'mauvais' } })
     assert.equal(ko.status, 401)
@@ -366,12 +366,12 @@ describe('P22 item 1 — le hash non salé des comptes seedés migre à la conne
 
   it('un hash déjà salé n’est pas réécrit à chaque connexion', async () => {
     const before = readHash(AMINA)
-    await call('POST', '/api/auth/login', { body: { email: AMINA, password: 'amina31' } })
+    await call('POST', '/api/auth/login', { body: { email: AMINA, password: TEST_DEMO_PASSWORD } })
     assert.equal(readHash(AMINA), before, 'hash stable d’une connexion à l’autre')
   })
 
   it('deux comptes ne partagent jamais le même hash (sel aléatoire)', async () => {
-    await call('POST', '/api/auth/login', { body: { email: YACINE, password: 'yacine31' } })
+    await call('POST', '/api/auth/login', { body: { email: YACINE, password: TEST_DEMO_PASSWORD } })
     const a = readHash(AMINA)
     const y = readHash(YACINE)
     assert.ok(y.startsWith('scrypt$'), 'second compte migré')

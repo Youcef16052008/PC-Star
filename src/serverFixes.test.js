@@ -6,7 +6,7 @@ import path from 'node:path'
 import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 
-import { TEST_MASTER_EMAIL, TEST_MASTER_PASSWORD } from '../scripts/test-env.mjs'
+import { TEST_MASTER_EMAIL, TEST_MASTER_PASSWORD, TEST_DEMO_PASSWORD } from '../scripts/test-env.mjs'
 import { ordersToCsv, sanitizeProductPatch, updateProduct } from '../server/masterApi.js'
 import { demoConsentHtml, safeReturnUrl } from '../server/oauth.js'
 import crypto from 'node:crypto'
@@ -282,13 +282,11 @@ describe('LOT 1.6 — hachage asynchrone hors du thread principal', () => {
     }
     const masterToken = await seed(TEST_MASTER_EMAIL, TEST_MASTER_PASSWORD)
     assert.equal((await call(A.base, 'GET', '/api/me', { token: masterToken })).data.user.role, 'master')
-    // Les trois comptes de démonstration (conservés volontairement, lot 1.3).
-    for (const [email, password] of [
-      ['karim.oran@demo.dz', 'karim31'],
-      ['amina.castors@demo.dz', 'amina31'],
-      ['yacine.pc@demo.dz', 'yacine31']
-    ]) {
-      const token = await seed(email, password)
+    // Les trois comptes de démonstration (conservés comme fixtures, lot 1.3).
+    // LOT 1.19 : leur mot de passe n'est plus un littéral du dépôt — il vient de
+    // `DEMO_PASSWORD`, épinglé par `scripts/test-env.mjs`.
+    for (const email of ['karim.oran@demo.dz', 'amina.castors@demo.dz', 'yacine.pc@demo.dz']) {
+      const token = await seed(email, TEST_DEMO_PASSWORD)
       const me = await call(A.base, 'GET', '/api/me', { token })
       assert.equal(me.data.user.role, 'customer', `${email} ne doit pas être privilégié`)
     }
@@ -318,9 +316,18 @@ describe('LOT 1.6 — hachage asynchrone hors du thread principal', () => {
     let at = src.indexOf(anchor)
     let checked = 0
     while (at > 0) {
-      // Fenêtre large : la route /api/me/password porte un commentaire de dix
-      // lignes entre le hash et son mutateur.
-      const after = src.slice(at, at + 1500)
+      // LOT 1.19 : la fenêtre de 1 500 caractères était un **nombre magique**
+      // qui a fini par casser tout seul — la route /api/me/password porte
+      // désormais deux blocs de commentaire entre le calcul du hash et son
+      // mutateur (révocation des sessions, lot 1.5 ; retrait du marqueur
+      // `demo`, lot 1.19) et le mutateur sortait de la fenêtre. Le verrou est
+      // exprimé sans fenêtre : entre le hash et la fin du fichier, le premier
+      // `updateDbAsync` doit précéder le premier `return db`. Si le hash était
+      // DANS le mutateur, le premier `return db` rencontré serait celui de ce
+      // mutateur et le premier `updateDbAsync` suivant serait celui de la route
+      // d'après — l'ordre s'inverse et le test rougit (vérifié en neutralisation
+      // N67).
+      const after = src.slice(at)
       const mutator = after.indexOf('updateDbAsync')
       assert.ok(mutator > 0, 'le mutateur suit le calcul du hash')
       assert.ok(
@@ -676,20 +683,28 @@ describe('LOT 1.14 — verifyPass : plus aucune comparaison de hash en `===`', (
   // test reste un secret codé en dur. Formule identique à celle du serveur :
   // sha256 de `pcstar:` + mot de passe. (Ce commentaire évite lui aussi la forme
   // qui déclencherait le motif.)
-  const legacy = crypto.createHash('sha256').update('pcstar:karim31').digest('hex')
+  //
+  // LOT 1.19 : la valeur hachée ici est une **fixture**, sans rapport avec un
+  // compte du seed. Ces tests reprenaient le mot de passe d'un compte de
+  // démonstration publié — le hachage d'une valeur qui n'est plus un identifiant
+  // n'en reste pas moins une valeur publiée, et elle brouillait la lecture : on
+  // aurait pu croire que le compte existait encore avec ce mot de passe.
+  const MOT_FIXTURE = 'mot-de-fixture'
+  const AUTRE_FIXTURE = 'autre-fixture'
+  const legacy = crypto.createHash('sha256').update(`pcstar:${MOT_FIXTURE}`).digest('hex')
   const prefixed = `sha256$pcstar:${legacy}`
 
   it('la branche legacy (sha256 non salé) reste fonctionnelle', async () => {
     // Format réellement stocké pour les comptes seedés : `hashPassLegacy`
-    // renvoie l'hex NU (server/db.js, `DEMOS` et `masterAccount`). C'est donc la
+    // renvoie l'hex NU (server/db.js, `demoAccounts()` et `masterAccount`). C'est donc la
     // DERNIÈRE branche de `verifyPass` qui les traite — exactement celle que
     // 1.14 corrige (elle comparait avec `===`).
-    assert.equal(verifyPass('karim31', legacy), true)
-    assert.equal(verifyPass('karim32', legacy), false)
+    assert.equal(verifyPass(MOT_FIXTURE, legacy), true)
+    assert.equal(verifyPass(AUTRE_FIXTURE, legacy), false)
     assert.equal(verifyPass('', legacy), false)
-    assert.equal(verifyPass('karim31', ''), false)
-    assert.equal(verifyPass('karim31', null), false)
-    assert.equal(verifyPass('karim31', undefined), false)
+    assert.equal(verifyPass(MOT_FIXTURE, ''), false)
+    assert.equal(verifyPass(MOT_FIXTURE, null), false)
+    assert.equal(verifyPass(MOT_FIXTURE, undefined), false)
     // Un hash scrypt reste vérifié par sa propre branche.
     const scrypt = await hashPassAsync('mot-de-passe')
     assert.equal(verifyPass('mot-de-passe', scrypt), true)
@@ -704,21 +719,21 @@ describe('LOT 1.14 — verifyPass : plus aucune comparaison de hash en `===`', (
     // mot de passe — en revanche elle acceptait `password === <hex>`, soit
     // l'empreinte elle-même : un pass-the-hash depuis n'importe quel dump de
     // store.json ou backup.
-    assert.equal(verifyPass('karim31', prefixed), true, 'le bon mot de passe doit passer')
-    assert.equal(verifyPass('karim32', prefixed), false)
+    assert.equal(verifyPass(MOT_FIXTURE, prefixed), true, 'le bon mot de passe doit passer')
+    assert.equal(verifyPass(AUTRE_FIXTURE, prefixed), false)
     assert.equal(verifyPass('', prefixed), false)
     assert.equal(verifyPass(legacy, prefixed), false, 'PASS-THE-HASH : l’empreinte ne doit plus être un mot de passe')
     assert.equal(verifyPass(legacy.slice(0, 32), prefixed), false, 'ni une moitié d’empreinte')
     // Même refus sur la branche hex nu.
     assert.equal(verifyPass(legacy, legacy), false)
     // Les deux écritures d'une même empreinte acceptent le même mot de passe.
-    assert.equal(verifyPass('karim31', legacy), true)
+    assert.equal(verifyPass(MOT_FIXTURE, legacy), true)
   })
 
   it('le code source ne compare plus de hash avec ===', () => {
     const src = fs.readFileSync(path.join(ROOT, 'server', 'db.js'), 'utf8')
     const start = src.indexOf('export function verifyPass')
-    const end = src.indexOf('const DEMOS')
+    const end = src.indexOf('export function demoAccounts')
     assert.ok(start > 0 && end > start, 'bornes de verifyPass trouvées')
     const body = src.slice(start, end)
     // Les seules comparaisons `===` admises sont celles sur les LONGUEURS

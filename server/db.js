@@ -184,62 +184,105 @@ export function verifyPass(password, stored) {
   // `===` (longueur et préfixe commun observables par le temps). L'empreinte
   // est un sha256 non salé, donc le gain est marginal — mais l'incohérence
   // entre branches d'une même fonction de vérification n'a pas lieu d'être.
-  // C'est CETTE branche qui traite les comptes seedés (`DEMOS`, `masterAccount`
-  // stockent l'hex nu renvoyé par `hashPassLegacy`).
+  // C'est CETTE branche qui traite les comptes seedés (`demoAccounts()` et
+  // `masterAccount` stockent l'hex nu renvoyé par `hashPassLegacy`).
   const legacyActual = Buffer.from(s)
   const legacyExpected = Buffer.from(hashPassLegacy(password))
   if (legacyActual.length !== legacyExpected.length) return false
   return crypto.timingSafeEqual(legacyActual, legacyExpected)
 }
 
-const DEMOS = [
-  {
-    id: 'demo-karim',
-    role: 'customer',
-    email: 'karim.oran@demo.dz',
-    passwordHash: hashPassLegacy('karim31'),
-    name: 'Karim B.',
-    phone: '0550123456',
-    avatar: 'chip',
-    accent: 'blue',
-    provider: 'email',
-    wilaya: 'Oran',
-    links: { google: null, meta: null },
-    demo: true
-  },
-  {
-    id: 'demo-amina',
-    role: 'customer',
-    email: 'amina.castors@demo.dz',
-    passwordHash: hashPassLegacy('amina31'),
-    name: 'Amina K.',
-    phone: '0669174617',
-    avatar: 'card',
-    accent: 'gold',
-    provider: 'email',
-    wilaya: 'Oran',
-    links: { google: null, meta: null },
-    demo: true
-  },
-  {
-    id: 'demo-yacine',
-    role: 'customer',
-    email: 'yacine.pc@demo.dz',
-    passwordHash: hashPassLegacy('yacine31'),
-    name: 'Yacine M.',
-    phone: '0770650388',
-    avatar: 'pad',
-    accent: 'red',
-    provider: 'email',
-    wilaya: 'Mostaganem',
-    links: { google: null, meta: null },
-    demo: true
-  }
-]
+/**
+ * LOT 1.19 — les comptes de démonstration ne sont plus des identifiants publiés.
+ *
+ * Avant ce correctif, le seed codait en dur trois mots de passe — l'empreinte
+ * `hashPassLegacy` d'une valeur littérale, forme que ce commentaire évite
+ * volontairement de reproduire (le scanner du lot 1.2 la signale à juste titre)
+ * — qui étaient **aussi** imprimés dans le README, les
+ * trois guides de démonstration et le bundle client (`DEMO_CUSTOMERS` dans
+ * `src/shopStore.js`). Ce ne sont pas des comptes privilégiés (`role:
+ * 'customer'`), mais ce sont de **vraies sessions** sur l'API déployée :
+ * commandes, profil, historique. Le lot 1.2 les avait laissés de côté
+ * explicitement (« leur retrait relève du lot 1.3 / d'une décision produit ») ;
+ * la vérification du « lot 0 » livré le 16/09 (`docs/VERIFICATION-RAPPORT-LOT0.md`)
+ * a montré ce que coûte ce statut intermédiaire : une rotation qui remplace un
+ * secret publié par un autre secret publié.
+ *
+ * Règle retenue, la même que pour le compte maître (lot 1.1) :
+ *  · le mot de passe vient de l'**environnement** (`DEMO_PASSWORD`), une seule
+ *    valeur pour les trois comptes — ce sont des fixtures, pas des personnes ;
+ *  · variable **absente** → les comptes sont seedés **verrouillés**
+ *    (`passwordHash: null`) : ils restent visibles comme données de
+ *    démonstration (le comptoir a des clients à afficher), mais personne ne peut
+ *    s'y connecter avec une valeur lue dans le dépôt. Le serveur démarre
+ *    normalement : ces comptes sont facultatifs, contrairement au maître.
+ *
+ * Lue à chaque appel (et non figée au chargement du module) pour deux raisons :
+ * `normalizeDb` doit pouvoir aligner une base existante sur l'environnement du
+ * processus, et les tests doivent pouvoir basculer l'état verrouillé sans
+ * lancer de sous-processus.
+ */
+export function demoPassword() {
+  return String(process.env.DEMO_PASSWORD || '')
+}
+
+/** Empreinte des comptes de démonstration, ou `null` quand ils sont verrouillés. */
+export function demoPasswordHash() {
+  const pw = demoPassword()
+  return pw ? hashPassLegacy(pw) : null
+}
+
+export function demoAccounts() {
+  const passwordHash = demoPasswordHash()
+  return [
+    {
+      id: 'demo-karim',
+      role: 'customer',
+      email: 'karim.oran@demo.dz',
+      passwordHash,
+      name: 'Karim B.',
+      phone: '0550123456',
+      avatar: 'chip',
+      accent: 'blue',
+      provider: 'email',
+      wilaya: 'Oran',
+      links: { google: null, meta: null },
+      demo: true
+    },
+    {
+      id: 'demo-amina',
+      role: 'customer',
+      email: 'amina.castors@demo.dz',
+      passwordHash,
+      name: 'Amina K.',
+      phone: '0669174617',
+      avatar: 'card',
+      accent: 'gold',
+      provider: 'email',
+      wilaya: 'Oran',
+      links: { google: null, meta: null },
+      demo: true
+    },
+    {
+      id: 'demo-yacine',
+      role: 'customer',
+      email: 'yacine.pc@demo.dz',
+      passwordHash,
+      name: 'Yacine M.',
+      phone: '0770650388',
+      avatar: 'pad',
+      accent: 'red',
+      provider: 'email',
+      wilaya: 'Mostaganem',
+      links: { google: null, meta: null },
+      demo: true
+    }
+  ]
+}
 
 export function emptyDb() {
   return {
-    users: [MASTER, ...DEMOS],
+    users: [MASTER, ...demoAccounts()],
     orders: [],
     stock: {},
     meta: {
@@ -281,7 +324,7 @@ function ensure() {
 export function normalizeDb(db) {
   let changed = false
   if (!Array.isArray(db.users)) {
-    db.users = [MASTER, ...DEMOS]
+    db.users = [MASTER, ...demoAccounts()]
     changed = true
   }
   // LOT 1.1 — le maître suit l'environnement.
@@ -334,12 +377,48 @@ export function normalizeDb(db) {
   // `DELETE /api/customers/demo-karim` renvoyait 200 et le compte revenait à la
   // requête suivante (le client croyait la suppression faite). Le maître, lui,
   // reste réinjecté : sans lui, plus personne ne peut se connecter au comptoir.
+  const demos = demoAccounts()
   if (db.meta.demoSeeded !== true) {
-    DEMOS.forEach((d) => {
+    demos.forEach((d) => {
       if (!db.users.some((u) => u.id === d.id || u.email === d.email)) db.users.push({ ...d })
     })
     db.meta.demoSeeded = true
     changed = true
+  }
+  // LOT 1.19 — les comptes de démonstration suivent l'environnement, eux aussi.
+  //
+  // Le seed ne suffit pas : sur une base **déjà constituée** — le cas réel en
+  // production, et le cas de n'importe quelle sauvegarde restaurée — les trois
+  // comptes existent avec l'empreinte des mots de passe publiés pendant des mois
+  // dans le README, les guides et le bundle client. Retirer les littéraux du
+  // code ne changerait alors rien pour eux : c'est exactement le constat du lot
+  // 1.1 pour le compte maître (« poser MASTER_EMAIL / MASTER_PASSWORD n'aurait
+  // rien changé »), et la raison pour laquelle la vérification du lot 0 rappelle
+  // qu'un seed n'est écrit que si la base est absente (`ensure()`).
+  //
+  // Règle, pour un compte TOUJOURS marqué `demo: true` et reconnu par son id ou
+  // son e-mail :
+  //  · `DEMO_PASSWORD` posé → l'empreinte suit cette valeur, **sauf si elle la
+  //    vérifie déjà** : aucune réécriture, donc pas d'écriture disque en boucle,
+  //    et une empreinte déjà migrée en scrypt (P22) n'est pas dégradée ;
+  //  · `DEMO_PASSWORD` absent → verrouillage (`passwordHash: null`), idempotent.
+  // Un compte qui n'est plus marqué `demo` (revendiqué par OAuth, devenu un vrai
+  // client) n'est jamais touché.
+  const demoPw = demoPassword()
+  for (const d of demos) {
+    const u = (db.users || []).find(
+      (x) => x && x.demo === true && (x.id === d.id || (d.email && x.email === d.email))
+    )
+    if (!u) continue
+    if (d.passwordHash) {
+      if (!verifyPass(demoPw, u.passwordHash)) {
+        u.passwordHash = d.passwordHash
+        changed = true
+      }
+    } else if (u.passwordHash !== null) {
+      u.passwordHash = null
+      changed = true
+    }
   }
   if (!db.sessions) {
     db.sessions = {}

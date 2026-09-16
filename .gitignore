@@ -194,3 +194,9 @@ dist-crawl/
 
 # Aperçu local (base + uploads du serveur lancé en prévisualisation)
 .preview-data/
+
+# LOT 1.19 : sondes positives du scanner de secrets (src/masterSecrets.test.js) —
+# créées puis supprimées dans un `finally`, ignorées ici par sécurité.
+tmp-scanner-probe/
+docs/ZZ-sonde-scanner.md
+docs/ZZ-sonde-interdit.md

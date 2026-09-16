@@ -4,7 +4,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import http from 'node:http'
-import { TEST_MASTER_EMAIL, TEST_MASTER_PASSWORD } from '../scripts/test-env.mjs'
+import { TEST_MASTER_EMAIL, TEST_MASTER_PASSWORD, TEST_DEMO_PASSWORD } from '../scripts/test-env.mjs'
 
 // P16 — lot 4 : durcissement (#8, #12, #13, #14, #16, #18, #19, #20, #25) +
 // les points faibles (csvEscape \r, money(), backup sur le vrai répertoire).
@@ -105,7 +105,7 @@ describe('P16 (#8) — un compte de démo supprimé ne revient pas', () => {
 
 describe('P16 (#13) — changer de mot de passe exige le mot de passe actuel', () => {
   it('token seul → 403 ; avec le mot de passe actuel → 200', async () => {
-    const token = await login('amina.castors@demo.dz', 'amina31')
+    const token = await login('amina.castors@demo.dz', TEST_DEMO_PASSWORD)
     assert.ok(token, 'login cliente impossible')
 
     const blind = await call('POST', '/api/me/password', { body: { password: 'nouveau1' }, token })
@@ -115,7 +115,7 @@ describe('P16 (#13) — changer de mot de passe exige le mot de passe actuel', (
     const wrong = await call('POST', '/api/me/password', { body: { password: 'nouveau1', current: 'paslebon' }, token })
     assert.equal(wrong.status, 403)
 
-    const good = await call('POST', '/api/me/password', { body: { password: 'nouveau1', current: 'amina31' }, token })
+    const good = await call('POST', '/api/me/password', { body: { password: 'nouveau1', current: TEST_DEMO_PASSWORD }, token })
     assert.equal(good.status, 200, `changement légitime refusé : ${JSON.stringify(good.data)}`)
     assert.ok(await login('amina.castors@demo.dz', 'nouveau1'), 'le nouveau mot de passe ne fonctionne pas')
   })
@@ -128,7 +128,7 @@ describe('P16 (#14) — reset master sans mot de passe devinable', () => {
     assert.equal(empty.status, 400, `un corps vide a été accepté : ${JSON.stringify(empty.data)}`)
 
     // Et l'ancien mot de passe doit toujours fonctionner.
-    assert.ok(await login('yacine.pc@demo.dz', 'yacine31'), 'le mot de passe du client a changé tout seul')
+    assert.ok(await login('yacine.pc@demo.dz', TEST_DEMO_PASSWORD), 'le mot de passe du client a changé tout seul')
 
     const ok = await call('POST', '/api/master/customers/demo-yacine/reset-password', { body: { password: 'tmp-2026' }, token: master })
     assert.equal(ok.status, 200)

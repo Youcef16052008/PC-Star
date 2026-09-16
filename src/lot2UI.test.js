@@ -54,7 +54,9 @@ const { default: MasterPage } = await import('./MasterPage.jsx')
 const { default: OrdersPage } = await import('./OrdersPage.jsx')
 const { dict } = await import('./i18n.js')
 const { PRODUCTS, PART_LINES } = await import('./data.js')
-const { buildShopView } = await import('./shopStore.js')
+// LOT 1.19 : le mode local n'utilise plus les mots de passe publiés du seed
+// serveur — une valeur locale unique, `DEMO_LOCAL_PASSWORD`.
+const { buildShopView, DEMO_LOCAL_PASSWORD } = await import('./shopStore.js')
 
 const settle = (ms) => act(async () => new Promise((r) => setTimeout(r, ms)))
 const t = (key, vars) => {
@@ -277,7 +279,7 @@ describe('LOT 2.4 (F6) — la confirmation du client précédent disparaît à l
       const modal = m.host.querySelector('.modal')
       assert.ok(modal, 'le panneau de connexion s’ouvre')
       await fill(modal.querySelector('#auth-email'), 'amina.castors@demo.dz')
-      await fill(modal.querySelector('#auth-pass'), 'amina31')
+      await fill(modal.querySelector('#auth-pass'), DEMO_LOCAL_PASSWORD)
       await submit(modal.querySelector('form'))
       await settle(150)
       assert.ok(m.text().includes('Amina K.'), 'le second compte est connecté')
