@@ -4,6 +4,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import http from 'node:http'
+import { TEST_MASTER_EMAIL, TEST_MASTER_PASSWORD } from '../scripts/test-env.mjs'
 
 // ---------------------------------------------------------------------------
 // P21 — « je clique sur préparer / prêt / remis, rien ne change ».
@@ -63,7 +64,7 @@ async function call(method, pathname, { body, token } = {}) {
 describe('P21 — un échec d’écriture du store renvoie une réponse exploitable', () => {
   it('PATCH /api/orders/:code → 500 JSON quand le store ne peut pas être écrit', async () => {
     const login = await call('POST', '/api/auth/login', {
-      body: { email: 'pcstar.info31@gmail.com', password: 'star31' }
+      body: { email: TEST_MASTER_EMAIL, password: TEST_MASTER_PASSWORD }
     })
     assert.equal(login.status, 200, 'login master')
     const token = login.data.token

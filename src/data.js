@@ -58,17 +58,12 @@ export const STORE_LINKS = [
   { id: 'maps', label: 'Google Maps', subKey: 'storeMapSub', sub: 'Les Castors, Oran', href: 'https://www.google.com/maps/search/?api=1&query=Rue+Mimoune+Bouadjimi+El+Makari+Les+Castors+Oran' }
 ]
 
-export function money(n) {
-  // P16 : un prix absent/cassé (`undefined`, `"abc"` rescapé d'un override)
-  // affichait « NaN DA » en vitrine. On affiche un tiret plutôt qu'un prix faux.
-  const v = Number(n)
-  if (!Number.isFinite(v)) return '— DA'
-  return `${Math.round(v).toLocaleString('fr-DZ')} DA`
-}
-
-export function third(n) {
-  return money(Math.round(n / 3))
-}
+// LOT 8.8 (A8) : le formatage des prix vit dans `src/format.js` — UNE seule
+// définition, locale dérivée de la langue. Ré-exporté ici parce que huit
+// modules importent `money` depuis `./data.js` : les appelants ne changent pas,
+// mais il n'existe plus de seconde définition à faire diverger (l'ancien
+// `money()` figeait `fr-DZ` quelle que soit la langue).
+export { money } from './format.js'
 
 export const SLOTS = [
   '10:30',
@@ -143,6 +138,65 @@ export const KINDS = [
   { id: 'machine', label: 'Laptops & PCs' },
   { id: 'service', label: 'Repairs' }
 ]
+
+/**
+ * LOT 8.10 (A10) — les valeurs autorisées pour `category` et `kind`, et une
+ * seule fois.
+ *
+ * Avant ce correctif, `createProduct` (`server/masterApi.js`) acceptait
+ * n'importe quelle chaîne : `category: "SSD"` (un libellé, pas un id) ou
+ * `category: "ssd"` (cet id n'existe pas — le catalogue utilise `memory`)
+ * étaient enregistrés tels quels. Le produit apparaissait dans le panneau
+ * master mais dans **aucun** filtre de la vitrine (`App.jsx` compare
+ * `p.category === category`), dans aucune ligne de `PART_LINES` (toutes les
+ * fonctions `match` testent des ids précis) et jamais dans le Builder
+ * (`slot.pick` filtre par catégorie) : invendable par navigation, trouvable
+ * seulement par recherche texte, avec un libellé retombant sur l'id brut.
+ *
+ * `sanitizeProductPatch` validait déjà `category` — mais contre un ensemble
+ * dérivé de `PRODUCTS` (`new Set(PRODUCTS.map(p => p.category))`), pas contre
+ * `CATEGORIES`. Les deux ensembles sont identiques aujourd'hui (vérifié par
+ * test), mais la liste du formulaire master est `CATEGORIES` : c'est elle, la
+ * source de vérité. Une catégorie sans produit de base serait sinon
+ * impossible à utiliser alors que le formulaire la propose.
+ *
+ * `all` est exclu des deux listes : c'est une valeur de **filtre**
+ * (« Everything »), pas une classification de produit.
+ */
+export const CATEGORY_IDS = CATEGORIES.filter((c) => c.id !== 'all').map((c) => c.id)
+export const KIND_IDS = KINDS.filter((k) => k.id !== 'all').map((k) => k.id)
+
+const CATEGORY_ID_SET = new Set(CATEGORY_IDS)
+const KIND_ID_SET = new Set(KIND_IDS)
+
+/**
+ * Comparaison **exacte** : aucune normalisation silencieuse (ni casse, ni
+ * espaces). Le principe du lot est de dire au maître quoi saisir plutôt que de
+ * deviner — un `400 { error: 'category' }` explicite, pas une correction muette
+ * qui range le produit là où personne ne le cherchera.
+ */
+export function isKnownCategory(value) {
+  return CATEGORY_ID_SET.has(typeof value === 'string' ? value : '')
+}
+
+export function isKnownKind(value) {
+  return KIND_ID_SET.has(typeof value === 'string' ? value : '')
+}
+
+/**
+ * `kind` par défaut d'après la catégorie — la règle que le mode local
+ * (`shopStore.addProduct`) appliquait déjà de son côté, et que le serveur
+ * ignorait (il posait `'part'` systématiquement). Un produit `repair` créé via
+ * l'API était donc `kind: 'part'` alors que le même produit créé hors ligne
+ * était `kind: 'service'`, et que le catalogue de base classe ses réparations
+ * en `service`. Même règle des deux côtés, désormais.
+ */
+export function kindForCategory(category) {
+  if (category === 'repair') return 'service'
+  if (category === 'laptop' || category === 'ready') return 'machine'
+  if (category === 'accessories') return 'accessory'
+  return 'part'
+}
 
 export const BRANDS = [
   'AMD', 'Intel', 'NVIDIA', 'ASUS', 'MSI', 'Gigabyte', 'ASRock',

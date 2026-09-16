@@ -85,6 +85,9 @@ describe('purge des entrées expirées (B11)', () => {
 
   it('readDb purge une base sur le disque et persiste le résultat', () => {
     const now = Date.now()
+    // Durcissement des jetons : les clés de session sont des empreintes sha256.
+    const kOld = db.hashToken('jeton-expire')
+    const kFresh = db.hashToken('jeton-valide')
     fs.writeFileSync(
       dbFile,
       JSON.stringify({
@@ -92,14 +95,42 @@ describe('purge des entrées expirées (B11)', () => {
         orders: [],
         stock: {},
         meta: {},
-        sessions: { old: { userId: 'u1', at: now - 8 * DAY }, fresh: { userId: 'u2', at: now } },
+        sessions: { [kOld]: { userId: 'u1', at: now - 8 * DAY }, [kFresh]: { userId: 'u2', at: now } },
         oauthPending: { old: { createdAt: now - 16 * MIN } }
       })
     )
     const d = db.readDb()
-    assert.deepEqual(Object.keys(d.sessions), ['fresh'])
+    assert.deepEqual(Object.keys(d.sessions), [kFresh])
     assert.deepEqual(Object.keys(d.oauthPending), [])
     // persisté : le prochain readDb (sans purge) voit la même chose
-    assert.deepEqual(Object.keys(db.readDb().sessions), ['fresh'])
+    assert.deepEqual(Object.keys(db.readDb().sessions), [kFresh])
+  })
+
+  it('les clés de session d’avant le hachage (jetons bruts) sont purgées et persistées', () => {
+    const now = Date.now()
+    const rawToken = 'a1'.repeat(24) // 48 hex : forme des jetons avant durcissement
+    const hashed = db.hashToken('jeton-valide')
+    fs.writeFileSync(
+      dbFile,
+      JSON.stringify({
+        users: db.readDb().users,
+        orders: [],
+        stock: {},
+        meta: {},
+        sessions: {
+          [rawToken]: { userId: 'u1', at: now },
+          'autre-jeton-brut': { userId: 'u2', at: now },
+          [hashed]: { userId: 'u3', at: now }
+        },
+        oauthPending: {}
+      })
+    )
+    const d = db.readDb()
+    assert.deepEqual(Object.keys(d.sessions), [hashed], 'seules les empreintes subsistent')
+    // … et le fichier lui-même est purgé : un jeton brut ne doit plus traîner
+    // dans store.json, donc plus dans aucun backup.
+    const onDisk = JSON.parse(fs.readFileSync(dbFile, 'utf8'))
+    assert.deepEqual(Object.keys(onDisk.sessions || {}), [hashed])
+    assert.equal(fs.readFileSync(dbFile, 'utf8').includes(rawToken), false, 'jeton brut encore sur le disque')
   })
 })

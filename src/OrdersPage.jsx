@@ -1,7 +1,12 @@
 import { useEffect, useState } from 'react'
 import { money } from './data.js'
+// LOT 8.8 (A8) : le formatage de la date passe par le module partagé — avant,
+// `new Date(o.at).toLocaleString()` ignorait la langue choisie et rendait la
+// locale du NAVIGATEUR : en mode arabe, le comptoir affichait `ar-DZ` et cette
+// page `fr-FR`, deux formats pour la même commande.
+import { formatDateTime } from './format.js'
 import * as api from './api.js'
-import { statusLabelKey } from './orderLogic.js'
+import { canCancelHere, statusLabelKey } from './orderLogic.js'
 import { loadOrders } from './prefs.js'
 
 /**
@@ -15,8 +20,11 @@ import { loadOrders } from './prefs.js'
  *    les commandes réussies via l'API sont maintenant aussi persistées localement
  *    à la création (reserve → saveOrders), un guest retrouve donc les siennes
  *    depuis cet appareil.
+ *
+ * LOT 2.8 (F12) : les commandes **guest de cet appareil** restent visibles après
+ * connexion, marquées « passées sans compte ».
  */
-export default function OrdersPage({ t, user, apiOnline, mode, onCancelOrder, onBack }) {
+export default function OrdersPage({ t, lang = 'fr', user, apiOnline, mode, onCancelOrder, onBack }) {
   const [orders, setOrders] = useState([])
   const [loading, setLoading] = useState(true)
   const [cancelTick, setCancelTick] = useState(0)
@@ -25,7 +33,21 @@ export default function OrdersPage({ t, user, apiOnline, mode, onCancelOrder, on
     let cancelled = false
     setLoading(true)
     const all = loadOrders()
-    const local = user ? all.filter((o) => o.userId === user.id) : all.filter((o) => o.userId == null)
+    // LOT 2.8 (F12) : avant, un compte connecté ne voyait QUE `userId ===
+    // user.id`. Les commandes passées en guest depuis cet appareil
+    // (`userId == null`) disparaissaient donc à la connexion — y compris celle
+    // qui venait d'être faite, puisque le client se connectait souvent APRÈS
+    // avoir réservé (le serveur, lui, les rattache déjà par téléphone dans
+    // `/api/me/orders`). Union des deux, chacune marquée dans l'UI.
+    //
+    // Limite assumée : sur un appareil partagé, un compte connecté voit aussi
+    // les commandes guest d'un tiers faites sur le même navigateur. C'est la
+    // frontière de confiance du `localStorage` — la même que celle du serveur,
+    // qui rattache par numéro de téléphone saisi. Le marquage explicite
+    // (« passée sans compte ») dit d'où vient la ligne.
+    const local = user
+      ? all.filter((o) => o.userId === user.id || o.userId == null)
+      : all.filter((o) => o.userId == null)
     ;(async () => {
       if (!(user && apiOnline && mode === 'api')) {
         if (!cancelled) {
@@ -83,10 +105,23 @@ export default function OrdersPage({ t, user, apiOnline, mode, onCancelOrder, on
                     <article key={o.code} className="border rounded p-3">
                       <div className="d-flex justify-content-between gap-2 flex-wrap">
                         <span className="font-monospace fw-semibold">{o.code}</span>
-                        <span className="badge text-bg-secondary">{t(statusLabelKey(o.status === 'pending' ? 'new' : o.status || 'new'))}</span>
+                        <span className="d-flex gap-1 flex-wrap">
+                          {/* LOT 2.8 (F12) : distingue les commandes rattachées au
+                              compte de celles passées sans compte depuis cet
+                              appareil (ou rattachées par téléphone côté serveur). */}
+                          {user && o.userId == null && (
+                            <span className="badge text-bg-light border">{t('orderGuestBadge')}</span>
+                          )}
+                          {/* LOT 2.3 (F5) : commande créée hors-ligne, jamais
+                              parvenue au serveur — conservée par la fusion. */}
+                          {o.localOnly === true && (
+                            <span className="badge text-bg-warning">{t('ordersLocalOnly')}</span>
+                          )}
+                          <span className="badge text-bg-secondary">{t(statusLabelKey(o.status === 'pending' ? 'new' : o.status || 'new'))}</span>
+                        </span>
                       </div>
                       <div className="small text-secondary mt-1">
-                        {o.slot || '—'} · {o.at ? new Date(o.at).toLocaleString() : ''}
+                        {o.slot || '—'} · {formatDateTime(o.at, lang)}
                       </div>
                       <ul className="small mb-1 mt-2">
                         {(o.items || []).map((i) => (
@@ -96,9 +131,16 @@ export default function OrdersPage({ t, user, apiOnline, mode, onCancelOrder, on
                         ))}
                       </ul>
                       <div className="d-flex justify-content-between align-items-center">
-                        <div className="fw-semibold text-success">{money(o.total)}</div>
-                        {/* annulation possible tant que la commande est « neuve » */}
-                        {(o.status === 'new' || o.status === 'pending') && (
+                        <div className="fw-semibold text-success">{money(o.total, lang)}</div>
+                        {/* LOT 8.3 (A3) : annulation possible tant que la commande
+                            est « neuve » ET revendicable (`canCancelHere`).
+                            Avant, seul le statut comptait : une commande
+                            `claimable: false` (guest déposée au numéro d'un
+                            compte, lot 4.4 / R20) affichait un bouton que le
+                            serveur refusait toujours en 404 — une action
+                            promise et impossible, avec un message d'échec qui ne
+                            disait ni pourquoi ni quoi faire. */}
+                        {canCancelHere(o) && (
                           <button
                             type="button"
                             className="btn btn-sm btn-outline-danger"
@@ -107,6 +149,11 @@ export default function OrdersPage({ t, user, apiOnline, mode, onCancelOrder, on
                           >
                             {t('orderCancel')}
                           </button>
+                        )}
+                        {o.claimable === false && (
+                          <span className="small text-secondary text-end" title={t('orderNotClaimable')}>
+                            {t('orderNotClaimable')}
+                          </span>
                         )}
                       </div>
                     </article>

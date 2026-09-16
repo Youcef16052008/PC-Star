@@ -24,6 +24,7 @@ import { ensureProductPhotos } from './productPhotos.js'
 import SearchPage from './SearchPage.jsx'
 import BuilderPage from './BuilderPage.jsx'
 import PartThumb from './PartThumb.jsx'
+import { stockLabel } from './stockLabel.js'
 import ContactButton from './ContactPicker.jsx'
 import { specRows } from './media.js'
 import AuthPanel from './AuthPanel.jsx'
@@ -33,12 +34,26 @@ import MasterPage from './MasterPage.jsx'
 import DeskPage from './DeskPage.jsx'
 import ProductPage from './ProductPage.jsx'
 import LegalPage from './LegalPage.jsx'
-import { localDay, mergeServerOrders, nextLocalOrderCode, orderApiFailure, pickupForUser } from './orderLogic.js'
-import { t as translate, LANGS, langMeta } from './i18n.js'
+import {
+  buildWaMessage,
+  canCancelHere,
+  dropCartLines,
+  localDay,
+  mergeServerOrders,
+  nextLocalOrderCode,
+  orderApiFailure,
+  orderBlockedMessage,
+  pickupForUser,
+  shortageMessage
+} from './orderLogic.js'
+import { isStorageBlocked, safeStorage } from './safeStorage.js'
+import { t as translate, labelOr, LANGS, langMeta } from './i18n.js'
 import {
   applyDocumentChrome,
+  loadDeskSeenAt,
   loadLang,
   loadOrders,
+  saveDeskSeenAt,
   saveLang,
   saveOrders
 } from './prefs.js'
@@ -73,16 +88,50 @@ import {
  * en invocation optionnelle (`storage?.getItem?.(k)`), ce wrapper leur est
  * donc transparent — et il suit le stockage réel dès qu'il apparaît.
  */
-const liveStorage = () => (typeof localStorage !== 'undefined' ? localStorage : null)
-const storage = {
-  getItem(key) {
-    return liveStorage()?.getItem(key) ?? null
-  },
-  setItem(key, value) {
-    liveStorage()?.setItem(key, value)
-  },
-  removeItem(key) {
-    liveStorage()?.removeItem(key)
+// LOT 3.1 (F7 + F8) : ce wrapper maison — ajouté pour les iframes à stockage
+// bloqué — levait comme le reste, faute de `try/catch`. Il est remplacé par le
+// module partagé `safeStorage`, qui ne lève jamais, garde la résolution
+// paresseuse décrite ci-dessus, et retombe sur un repli mémoire par clé.
+const storage = safeStorage
+
+/**
+ * LOT 3.9 (B12) — bornes du retry de `me()` après un retour OAuth. Un cold
+ * start serverless ou une base lente faisait échouer l'unique tentative, et
+ * l'utilisateur restait sur une page qui ne disait rien.
+ */
+const OAUTH_ME_ATTEMPTS = 3
+const OAUTH_ME_RETRY_MS = 700
+
+/**
+ * LOT 3.11 (B16) — plafond de notifications navigateur pour les commandes
+ * arrivées pendant l'absence du comptoir : 20 résas nocturnes ne doivent pas
+ * produire 20 notifications. Le toast, lui, donne le compte exact.
+ */
+const MAX_MISSED_NOTIFY = 3
+
+/**
+ * LOT 3.16 (B19) — âge lisible d'un horodatage, dans la langue de l'interface.
+ * `Intl.RelativeTimeFormat` rend déjà « il y a 5 minutes » / « 5 minutes ago » /
+ * « قبل ٥ دقائق » : la clé i18n ne répète donc pas la locution.
+ */
+const RELATIVE_FMT = {}
+function timeAgo(ts, lang) {
+  const at = Number(ts)
+  if (!Number.isFinite(at) || at <= 0) return ''
+  const sec = Math.max(1, Math.round((Date.now() - at) / 1000))
+  const locale = lang === 'ar' ? 'ar-DZ' : lang === 'fr' ? 'fr-FR' : 'en-GB'
+  try {
+    RELATIVE_FMT[locale] =
+      RELATIVE_FMT[locale] || new Intl.RelativeTimeFormat(locale, { numeric: 'always' })
+    const rtf = RELATIVE_FMT[locale]
+    if (sec < 60) return rtf.format(-sec, 'second')
+    const min = Math.round(sec / 60)
+    if (min < 60) return rtf.format(-min, 'minute')
+    const h = Math.round(min / 60)
+    if (h < 24) return rtf.format(-h, 'hour')
+    return rtf.format(-Math.round(h / 24), 'day')
+  } catch {
+    return `${sec}s`
   }
 }
 
@@ -120,7 +169,12 @@ const BASE_PANELS = [
 // chaque bipe. Avant : `new AudioContext()` par commande — Chrome plafonne à
 // ~6 contextes actifs par page, au-delà plus aucun son + fuite mémoire.
 let deskAudioCtx = null
-function deskBeep() {
+/** LOT 5.9 (U9) : paramètres du bip — exportés pour test (enveloppe vérifiée). */
+export const BEEP_PEAK_GAIN = 0.04
+export const BEEP_ATTACK_S = 0.01
+export const BEEP_DURATION_S = 0.12
+
+export function deskBeep() {
   try {
     const AC = window.AudioContext || window.webkitAudioContext
     if (!AC) return
@@ -132,23 +186,39 @@ function deskBeep() {
     o.connect(g)
     g.connect(deskAudioCtx.destination)
     o.frequency.value = 880
-    g.gain.value = 0.04
-    o.start()
-    o.stop(deskAudioCtx.currentTime + 0.12)
+    // LOT 5.9 (U9) : enveloppe de gain. `g.gain.value = 0.04` posait le niveau
+    // d'un coup et l'oscillateur démarrait/s'arrêtait à pleine amplitude : une
+    // discontinuité = un **clic** audible à chaque commande annoncée au
+    // comptoir (le bip censé aider était le bruit le plus désagréable des deux).
+    // Attaque 10 ms, retombée exponentielle vers le silence AVANT l'arrêt, et
+    // `start`/`stop` calés sur le même horodatage (pas `Date.now`).
+    const t0 = deskAudioCtx.currentTime
+    g.gain.setValueAtTime(0.0001, t0)
+    g.gain.exponentialRampToValueAtTime(BEEP_PEAK_GAIN, t0 + BEEP_ATTACK_S)
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + BEEP_DURATION_S)
+    o.start(t0)
+    o.stop(t0 + BEEP_DURATION_S + 0.01)
   } catch {
     /* ignore */
   }
 }
 
-function stockLabel(n, t) {
-  if (n <= 0) return { text: t('outOfStock'), cls: 'stock-out' }
-  if (n <= 3) return { text: `${n} ${t('left')}`, cls: 'stock-low' }
-  return { text: `${n} ${t('inStore')}`, cls: 'stock-ok' }
+/** Test uniquement : oublie le contexte audio partagé (jsdom n'en a pas). */
+export function __resetDeskAudio() {
+  try {
+    if (deskAudioCtx && deskAudioCtx.state !== 'closed') deskAudioCtx.close()
+  } catch {
+    /* ignore */
+  }
+  deskAudioCtx = null
 }
 
+// LOT 6.1 (Q1) : `stockLabel` vient de `src/stockLabel.js` — une seule définition,
+// une seule famille de classes (la classe Bootstrap complète, rien à traduire).
+
 /** Un lien externe DOIT s'ouvrir même dans un environnement qui bloque les
-    popups (aperçus iframe) : window.open d'abord, repli même onglet ensuite
-    (même pattern que ContactPicker). */
+    popups (aperçu de développement, bloqueurs de fenêtres) : window.open
+    d'abord, repli même onglet ensuite (même pattern que ContactPicker). */
 function openExternal(e, href) {
   e.preventDefault()
   let w = null
@@ -160,20 +230,10 @@ function openExternal(e, href) {
   if (!w) window.location.href = href
 }
 
-function cartMessage(cart, total, pickup, t) {
-  const lines = cart.map((i) => `${i.qty} x ${i.name} (${i.sku})`).join('\n')
-  const who = pickup.name ? `${t('waName')}: ${pickup.name}\n` : ''
-  const tel = pickup.phone ? `${t('waPhone')}: ${pickup.phone}\n` : ''
-  const when = pickup.slot ? `${t('waSlot')}: ${pickup.slot}\n` : ''
-  return t('waMessage', {
-    address: STORE.address,
-    who,
-    tel,
-    when,
-    items: lines,
-    total: money(total)
-  })
-}
+// LOT 5.7 (U7) : `cartMessage` vivait ici, sans garde de longueur. La
+// composition (et la troncature honnête du récapitulatif) est passée dans
+// `buildWaMessage` (`src/orderLogic.js`) — pure, partagée, testable sans monter
+// toute l'application.
 
 function Stars({ product, t }) {
   if (!product || !product.rating) return null
@@ -252,16 +312,72 @@ export default function App() {
   const authIdRef = useRef(authId)
   authIdRef.current = authId
 
+  // LOT 3.3 (B6) — miroirs SYNCHRONES de l'état, et effets de bord hors des
+  // updaters React.
+  //
+  // Avant, `setCart` écrivait dans le stockage **depuis l'updater** :
+  //  · React rappelle un updater (StrictMode, rendu interrompu puis repris) →
+  //    deux écritures pour une mutation, et potentiellement l'écriture d'un état
+  //    intermédiaire jamais affiché ;
+  //  · l'updater lisait `authIdRef.current` au moment du rappel, pas au moment de
+  //    l'appel : le panier pouvait être persisté sous la clé d'un autre compte.
+  //
+  // Les miroirs servent aussi B7/B8 : un calcul qui dépend de l'état courant
+  // (code de commande, garde de stock) lit une valeur À JOUR, plus la closure du
+  // dernier rendu.
+  const cartRef = useRef(cart)
+  const reservationsRef = useRef(reservations)
+  // LOT 3.7 (B10) : séquence de `refreshStock` — la dernière requête partie est
+  // la seule dont la réponse est appliquée.
+  const stockReqSeq = useRef(0)
+  // LOT 3.11 (B16) : horodatage du dernier pull Desk, persisté.
+  const deskSeenAt = useRef(loadDeskSeenAt(storage))
+  // LOT 3.16 (B19) : âge et source du repli dégradé.
+  const [degradedInfo, setDegradedInfo] = useState(null)
+  // LOT 3.8/3.9 (B11 + B13) : une seule alerte « session expirée » par session.
+  const sessionExpiredNotified = useRef(false)
+
+  /** Écrit le panier — jamais depuis un updater (LOT 3.3 / B6). */
+  function persistCart(next) {
+    // `safeStorage.setItem` ne lève pas : stockage bloqué ou quota dépassé, la
+    // page continue (LOT 3.1 / F7 + F8). La clé suit le compte COURANT au moment
+    // de l'appel, plus au moment où React rappelle un updater.
+    safeStorage.setItem(cartKeyFor(authIdRef.current), JSON.stringify(next))
+  }
+
+  /**
+   * Calcule `next` hors updater, met à jour état + miroir, persiste, renvoie
+   * `next`. Synchrone : les appelants peuvent lire le résultat tout de suite
+   * (garde de stock de B8, toast du panier).
+   */
   function setCart(updater) {
-    setCartState((prev) => {
-      const next = typeof updater === 'function' ? updater(prev) : updater
-      try {
-        storage?.setItem?.(cartKeyFor(authIdRef.current), JSON.stringify(next))
-      } catch {
-        /* ignore */
-      }
-      return next
-    })
+    const next = typeof updater === 'function' ? updater(cartRef.current) : updater
+    cartRef.current = next
+    setCartState(next)
+    persistCart(next)
+    return next
+  }
+
+  /** Remplace le panier sans réécrire (chargement depuis le stockage). */
+  function loadCart(next) {
+    cartRef.current = next
+    setCartState(next)
+    return next
+  }
+
+  /** Commandes : état + miroir. Pour les mises à jour d'origine SERVEUR. */
+  function syncReservations(updater) {
+    const next = typeof updater === 'function' ? updater(reservationsRef.current) : updater
+    reservationsRef.current = next
+    setReservations(next)
+    return next
+  }
+
+  /** Commandes : état + miroir + copie navigateur. Pour les mutations locales. */
+  function commitReservations(updater) {
+    const next = syncReservations(updater)
+    saveOrders(storage, next)
+    return next
   }
 
   const shopView = useMemo(() => buildShopView(PRODUCTS, PART_LINES, BASE_PANELS, meta), [meta])
@@ -376,21 +492,22 @@ export default function App() {
       if (cancelled) return
       setApiOnline(Boolean(h?.ok))
       if (h?.ok) {
+        // LOT 3.7 (B10) : même séquence que `refreshStock` — un rafraîchissement
+        // parti entre-temps doit avoir le dernier mot.
+        const catSeq = (stockReqSeq.current += 1)
         const cat = await api.getCatalog()
-        if (!cancelled) {
+        if (!cancelled && catSeq === stockReqSeq.current) {
           // P12 (B25) : on ne déclare le catalogue « prêt » que sur une vraie
           // réponse (200 + tableau). Un 500/502/timeout laissait avant
           // serverCatalogReady=true avec une liste vide → plus AUCUN produit
           // alors que la base contenait tout.
-          if (cat.ok && Array.isArray(cat.data?.products)) {
-            setServerCatalog(cat.data.products)
-            const map = {}
-            for (const pr of cat.data.products) map[pr.id] = pr.stock
-            setStockMap(map)
-            setCatalogDegraded(Boolean(cat.data.degraded))
-            setServerCatalogReady(true)
-          }
+          if (cat.ok && Array.isArray(cat.data?.products)) applyCatalog(cat.data)
         }
+        // LOT 3.7 (B10) : réponse périmée = un rafraîchissement PLUS RÉCENT a
+        // déjà appliqué un catalogue serveur, et `applyCatalog` a donc déjà
+        // marqué le catalogue prêt. Laisser `serverCatalogReady` à false ici
+        // aurait fait retomber la boutique sur le catalogue statique alors que
+        // l'état serveur était bien en mémoire.
         // Panneaux (P6) : le serveur est la source de vérité pour
         // extraPanels/hiddenPanelIds → le shop est cohérent multi-appareils.
         // P12 (B25) : jamais en mode dégradé — l'API renverrait des panneaux
@@ -407,13 +524,15 @@ export default function App() {
       }
       const token = api.getToken()
       if (token) {
-        const me = await api.me()
-        if (me.ok && me.data?.user) {
-          setApiUser(me.data.user)
-          setAuthMode('api')
-        } else {
-          api.setToken(null)
-        }
+        // LOT 3.9 (B12) : deux tentatives — une API lente au démarrage ne doit
+        // pas faire purger un jeton valide. La purge n'intervient que sur un
+        // refus DÉFINITIF du serveur (401 = jeton expiré/révoqué). Sur un 503,
+        // un timeout ou un réseau coupé, le jeton reste : la session est toujours
+        // valable côté serveur et le prochain chargement retentera. Purger sur
+        // une panne transitoire déconnectait le maître (et le client OAuth qui
+        // venait d'atterrir) pour rien.
+        const res = await applyApiSession({ attempts: 2 })
+        if (!res.applied && res.unauthorized) api.setToken(null)
       }
     })()
     return () => {
@@ -421,43 +540,135 @@ export default function App() {
     }
   }, [])
 
-  // OAuth return ?oauth_token=
+  /**
+   * LOT 3.9 (B12 + B13) — applique la session API en bornant les tentatives.
+   *
+   * @returns {Promise<{applied: boolean, unauthorized: boolean}>}
+   *   `applied`      : un utilisateur a été appliqué ;
+   *   `unauthorized` : le serveur a refusé le jeton (401) — il est réellement
+   *                    mort, le purger est sûr. `false` quand l'échec vient d'un
+   *                    503 / timeout / réseau coupé : le jeton doit être
+   *                    CONSERVÉ (une panne transitoire ne coûte pas la session).
+   */
+  async function applyApiSession({ attempts = OAUTH_ME_ATTEMPTS, delayMs = OAUTH_ME_RETRY_MS } = {}) {
+    let unauthorized = false
+    for (let attempt = 1; attempt <= attempts; attempt += 1) {
+      if (attempt > 1) await new Promise((r) => setTimeout(r, delayMs * (attempt - 1)))
+      const me = await api.me()
+      if (me.ok && me.data?.user) {
+        sessionExpiredNotified.current = false
+        setApiUser(me.data.user)
+        setAuthMode('api')
+        setApiOnline(true)
+        return { applied: true, unauthorized: false }
+      }
+      // Jeton mort (expiré, révoqué après changement de mot de passe) : insister
+      // ne servirait à rien.
+      if (me.status === 401) {
+        unauthorized = true
+        break
+      }
+    }
+    return { applied: false, unauthorized }
+  }
+
+  // LOT 3.18 (R14) — retour OAuth par FRAGMENT (`#oauth_token=`), plus par query.
+  //
+  // Un token en query string part dans les journaux du proxy et de l'hébergeur,
+  // dans l'historique du serveur, et dans l'en-tête `Referer` de toute requête
+  // tierce déclenchée par la page (images, polices, analytics). Le fragment
+  // n'est **jamais** envoyé au serveur, et il est retiré de l'URL dès la lecture
+  // — donc absent de l'historique du navigateur après le `replaceState`.
+  // L'ancien paramètre `?oauth_token=` reste accepté en repli le temps qu'un
+  // retour déjà en vol atterrisse.
   useEffect(() => {
     try {
       const u = new URL(window.location.href)
-      const tok = u.searchParams.get('oauth_token')
+      const hashParams = new URLSearchParams(String(u.hash || '').replace(/^#/, ''))
+      const tok = hashParams.get('oauth_token') || u.searchParams.get('oauth_token')
       if (!tok) return
       api.setToken(tok)
+      hashParams.delete('oauth_token')
+      hashParams.delete('oauth_provider')
+      u.hash = hashParams.toString() ? `#${hashParams.toString()}` : ''
+      u.searchParams.delete('oauth_token')
+      u.searchParams.delete('oauth_provider')
+      // Nettoyage IMMÉDIAT : le token ne doit pas survivre dans l'URL affichée,
+      // partageable ou recopiée dans l'historique.
+      window.history.replaceState({}, '', u.pathname + u.search + u.hash)
       ;(async () => {
-        const me = await api.me()
-        if (me.ok && me.data?.user) {
-          setApiUser(me.data.user)
-          setAuthMode('api')
-          setApiOnline(true)
+        const { applied } = await applyApiSession()
+        if (applied) {
           setToast(t('authOk'))
           setPage('shop')
           setNavOpen(false)
+        } else {
+          // LOT 3.9 (B12) : avant, aucun retry et AUCUN message — l'utilisateur
+          // restait sur la vitrine comme si rien ne s'était passé. Le jeton est
+          // conservé s'il n'est pas rejeté (401) : une API momentanément lente ne
+          // doit pas coûter la session, et le bootstrap du prochain chargement
+          // retentera.
+          setToast(t('authRetryFailed'))
         }
-        u.searchParams.delete('oauth_token')
-        u.searchParams.delete('oauth_provider')
-        window.history.replaceState({}, '', u.pathname + u.search)
       })()
     } catch {
       /* ignore */
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // LOT 3.8/3.9 (B11 + B13) — toute réponse 401 sur une route authentifiée
+  // purge la session API, repasse en mode local et LE DIT.
+  //
+  // Avant : le polling du Desk avalait le 401 (`!r.ok` → `return`) et continuait
+  // d'interroger toutes les 20 s, en silence, jusqu'à la fermeture de l'onglet ;
+  // ailleurs, un 401 se confondait avec un échec réseau. Une seule alerte par
+  // session morte, réarmée dès qu'une session est appliquée.
+  useEffect(() => {
+    api.setUnauthorizedHandler(() => {
+      if (sessionExpiredNotified.current) return
+      if (!api.getToken()) return
+      sessionExpiredNotified.current = true
+      api.setToken(null)
+      setApiUser(null)
+      setAuthMode('local')
+      setApiOnline(false)
+      setToast(t('sessionExpired'))
+    })
+    return () => api.clearUnauthorizedHandler()
+  }, [lang]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  /**
+   * Applique une réponse de catalogue. LOT 3.16 (B19) : on conserve aussi
+   * `db.asOf` / `db.source` — l'âge du repli dégradé, que le bandeau affiche au
+   * lieu de laisser l'utilisateur deviner si les prix datent de cinq secondes ou
+   * du dernier déploiement.
+   */
+  function applyCatalog(data) {
+    setServerCatalog(data.products)
+    const map = {}
+    for (const pr of data.products) map[pr.id] = pr.stock
+    setStockMap(map)
+    setCatalogDegraded(Boolean(data.degraded))
+    setDegradedInfo(data.db && typeof data.db === 'object' ? data.db : null)
+    // Appelée UNIQUEMENT sur une réponse valable (200 + tableau de produits) :
+    // c'est donc ici, et pas seulement au démarrage, que le catalogue serveur
+    // devient la source affichée (LOT 3.7 / B10).
+    setServerCatalogReady(true)
+  }
+
   async function refreshStock() {
     if (!apiOnline) return
+    // LOT 3.7 (B10) — garde de fraîcheur. `refreshStock` est appelé par
+    // l'annulation, la suppression, le changement de statut et le polling : trois
+    // appels pouvaient se croiser, et c'était la réponse la plus LENTE (donc la
+    // plus ancienne) qui s'appliquait en dernier, écrasant le stock le plus
+    // récent. Chaque requête prend un numéro ; seule la dernière partie est
+    // appliquée.
+    const seq = (stockReqSeq.current += 1)
     try {
       const cat = await api.getCatalog()
-      if (cat.ok && Array.isArray(cat.data?.products)) {
-        setServerCatalog(cat.data.products)
-        const map = {}
-        for (const pr of cat.data.products) map[pr.id] = pr.stock
-        setStockMap(map)
-        setCatalogDegraded(Boolean(cat.data.degraded))
-      }
+      if (seq !== stockReqSeq.current) return
+      if (cat.ok && Array.isArray(cat.data?.products)) applyCatalog(cat.data)
     } catch {
       /* ignore */
     }
@@ -467,13 +678,28 @@ export default function App() {
   // stock, donc on rafraîchit aussi l'état du catalogue.
   async function handleOrderDelete(code) {
     if (!(apiOnline && authMode === 'api' && isMaster)) return false
+    // LOT 2.3 (F5) : une commande `localOnly` n'existe PAS côté serveur — l'API
+    // répondrait 404 `not_found` et la suppression échouerait. Comme la fusion
+    // du polling la conserve désormais (au lieu de l'effacer en silence), il
+    // faut une voie de suppression locale : état + copie navigateur. Pas de
+    // rendu de stock côté serveur (il n'a jamais été décrémenté là-bas) ; le
+    // rafraîchissement du catalogue remet le stock local d'aplomb.
+    const target = (reservations || []).find((o) => o.code === code)
+    if (target?.localOnly) {
+      commitReservations((prev) => prev.filter((o) => o.code !== code))
+      await refreshStock()
+      setToast(t('orderDeleted'))
+      return true
+    }
     try {
       const r = await api.deleteOrder(code)
       if (!r.ok) {
         setToast(t('deskDeleteFail'))
         return false
       }
-      setReservations((prev) => prev.filter((o) => o.code !== code))
+      // La copie navigateur doit partir elle aussi : conservée, elle serait
+      // réinjectée par la fusion suivante (et un `localOnly` ressusciterait).
+      commitReservations((prev) => prev.filter((o) => o.code !== code))
       await refreshStock()
       setToast(t('orderDeleted'))
       return true
@@ -491,7 +717,7 @@ export default function App() {
           // P21 : horodatage AVANT la mise à jour d'état, pour que la fusion
           // du polling suivant sache que ce statut est plus récent.
           orderEditedAt.current.set(code, Date.now())
-          setReservations((prev) => prev.map((o) => (o.code === code ? { ...o, ...r.data.order } : o)))
+          syncReservations((prev) => prev.map((o) => (o.code === code ? { ...o, ...r.data.order } : o)))
           await refreshStock()
           return true
         }
@@ -508,14 +734,7 @@ export default function App() {
       }
     }
     // local fallback
-    setReservations((prev) => {
-      const next = prev.map((o) => {
-        if (o.code !== code) return o
-        return { ...o, status }
-      })
-      saveOrders(storage, next)
-      return next
-    })
+    commitReservations((prev) => prev.map((o) => (o.code === code ? { ...o, status } : o)))
     return true
   }
 
@@ -530,32 +749,56 @@ export default function App() {
         r = { ok: false, offline: true }
       }
       if (r?.ok && r.data?.order) {
-        setReservations((prev) => prev.map((o) => (o.code === code ? { ...o, ...r.data.order } : o)))
+        syncReservations((prev) => prev.map((o) => (o.code === code ? { ...o, ...r.data.order } : o)))
         await refreshStock()
         setToast(t('orderCancelled'))
         return true
+      }
+      // LOT 8.3 (A3) : le 404 de R20 n'est pas une panne. Il dit « cette
+      // commande n'est pas à vous » (guest non revendicable déposée au numéro
+      // du compte, commande supprimée par le maître, numéro qui ne correspond
+      // plus) — le message générique « Annulation impossible » laissait le
+      // client réessayer indéfiniment sans comprendre.
+      if (r?.status === 404 || r?.data?.error === 'not_found') {
+        setToast(t('orderCancelNotMine'))
+        return false
       }
       setToast(t(r?.offline || !r ? 'backendOffline' : 'orderCancelFail'))
       return false
     }
     const target = (reservations || []).find((o) => o.code === code)
-    if (!target || (target.status !== 'new' && target.status !== 'pending')) {
+    if (!target) {
       setToast(t('orderOnlyNew'))
       return false
     }
-    setReservations((prev) => {
-      const next = prev.map((o) => (o.code === code ? { ...o, status: 'cancelled', cancelledAt: new Date().toISOString() } : o))
-      saveOrders(storage, next)
-      return next
-    })
-    setStockMap((prev) => {
-      const next = { ...prev }
-      for (const line of target.items || []) {
-        const cur = next[line.id] != null ? next[line.id] : catalog.find((p) => p.id === line.id)?.stock ?? 0
-        next[line.id] = Math.max(0, cur + (Number(line.qty) || 0))
-      }
-      return next
-    })
+    // LOT 8.3 (A3) : même règle que le bouton de la page « Commandes »
+    // (`canCancelHere`) — une commande non revendicable n'est pas annulable ici
+    // non plus, et le message dit quoi faire (au comptoir).
+    if (!canCancelHere(target)) {
+      setToast(target.claimable === false ? t('orderNotClaimable') : t('orderOnlyNew'))
+      return false
+    }
+    commitReservations((prev) =>
+      prev.map((o) => (o.code === code ? { ...o, status: 'cancelled', cancelledAt: new Date().toISOString() } : o))
+    )
+    // LOT 3.6 (B9) — en mode mixte, le stock AFFICHÉ vient du serveur
+    // (`stockMap`). L'incrémenter localement pour une commande SERVEUR ajoutait
+    // des unités fantômes : le serveur rend déjà le stock à l'annulation, et le
+    // prochain `refreshStock` appliquait SA valeur — l'incrément local servait
+    // juste à gonfler l'affichage entre-temps. On ne touche `stockMap` que pour
+    // une commande vraiment locale (mode hors-ligne, `localOnly`).
+    if (apiOnline && target.localOnly !== true) {
+      await refreshStock()
+    } else {
+      setStockMap((prev) => {
+        const next = { ...prev }
+        for (const line of target.items || []) {
+          const cur = next[line.id] != null ? next[line.id] : catalog.find((p) => p.id === line.id)?.stock ?? 0
+          next[line.id] = Math.max(0, cur + (Number(line.qty) || 0))
+        }
+        return next
+      })
+    }
     setToast(t('orderCancelled'))
     return true
   }
@@ -565,11 +808,19 @@ export default function App() {
   // nom/tél depuis son profil (un nouveau client ne voit plus le panier
   // ni les infos du précédent).
   useEffect(() => {
-    setCartState(loadCartFor(storage, authId))
+    loadCart(loadCartFor(storage, authId))
     // P8 (P7-3) : sans compte → formulaire VIDE (plus les nom/tél du client
     // précédent) ; avec compte → reprise depuis le profil.
     setPickup((p) => pickupForUser(user, p, PICKUP_DEFAULTS))
-  }, [authId]) // eslint-disable-line react-hooks/exhaustive-deps
+    // LOT 2.4 (F6) : la confirmation de commande (`reserved`) porte le NOM, le
+    // créneau et le total d'un client précis. Elle survivait au changement de
+    // compte : sur un poste partagé (comptoir, cybercafé, téléphone familial),
+    // le client suivant qui ouvrait le panier voyait « Réservation confirmée ·
+    // Karim B. · 12:30 · 45 000 DA » — la confirmation d'un autre, avec ses
+    // données personnelles. Le panier et le formulaire étaient déjà
+    // réinitialisés ici ; l'écran de confirmation ne l'était pas.
+    setReserved(null)
+  }, [authId]) // eslint-disable-next-line react-hooks/exhaustive-deps
 
   // P19 : demande de permission de notification dès que le master est connecté.
   // Sans accord explicite, aucune notification navigateur n'est possible. Le
@@ -588,7 +839,12 @@ export default function App() {
       // après cet instant est plus récente que la réponse qui va arriver.
       const requestedAt = Date.now()
       const r = await api.listOrders()
-      if (cancelled || !r.ok || !Array.isArray(r.data?.orders)) return
+      if (cancelled) return
+      // LOT 3.8 (B11) : session morte. Le handler 401 global (`api.js`) purge le
+      // jeton, repasse en mode local et affiche `sessionExpired` ; cet effet se
+      // démontera (ses dépendances changent). On ne fusionne rien.
+      if (r.status === 401) return
+      if (!r.ok || !Array.isArray(r.data?.orders)) return
       const server = r.data.orders
       // P19 : détection par ensemble de codes (pas par longueur) — une
       // suppression simultanée masquait auparavant l'arrivée d'une commande.
@@ -604,15 +860,43 @@ export default function App() {
           }
           // Notification navigateur : visible même si l'onglet est en
           // arrière-plan. Silencieuse si la permission n'a pas été accordée.
-          notifyNewOrder(o, t)
+          notifyNewOrder(o, t, { lang })
+        }
+      } else {
+        // LOT 3.11 (B16) — premier pull de la session.
+        //
+        // Avant, `seenOrderCodes` démarrait à `null` et ce premier pull se
+        // contentait de l'initialiser : les commandes arrivées pendant l'absence
+        // du comptoir (navigateur fermé, onglet rechargé) s'affichaient dans la
+        // liste SANS bip ni notification. On les compare à l'horodatage du
+        // dernier pull persisté ; sans horodatage (tout premier démarrage), on
+        // initialise en silence comme avant — annoncer tout l'historique à la
+        // première ouverture serait du bruit.
+        const since = deskSeenAt.current
+        if (since) {
+          const missed = server
+            .filter((o) => Number.isFinite(Date.parse(o?.at || '')) && Date.parse(o.at) > since)
+            .sort((a, b) => Date.parse(b.at) - Date.parse(a.at))
+          if (missed.length) {
+            if (page === 'desk') {
+              deskBeep()
+              setToast(missed.length === 1 ? t('deskNewOrder') : t('deskNewOrders', { n: missed.length }))
+            }
+            for (const o of missed.slice(0, MAX_MISSED_NOTIFY)) notifyNewOrder(o, t, { lang })
+          }
         }
       }
       seenOrderCodes.current = new Set(server.map((o) => o.code))
       prevOrderCount.current = server.length
+      // LOT 3.11 (B16) : horodatage persisté du dernier pull réussi — pris AVANT
+      // l'envoi, donc toute commande créée pendant la requête sera vue comme
+      // « arrivée depuis » au prochain démarrage à froid.
+      deskSeenAt.current = requestedAt
+      saveDeskSeenAt(storage, requestedAt)
       // P21 : forme FONCTIONNELLE obligatoire. Ce useEffect ne liste pas
       // `reservations` dans ses dépendances : la variable capturée ici serait
       // celle du montage, donc périmée. `prev` est l'état réellement courant.
-      setReservations((prev) => mergeServerOrders(server, prev, requestedAt, orderEditedAt.current))
+      syncReservations((prev) => mergeServerOrders(server, prev, requestedAt, orderEditedAt.current))
     }
     pull()
     // P19 : socket en temps réel, avec repli automatique sur le polling si le
@@ -674,6 +958,12 @@ export default function App() {
     setApiUser(null)
     setAuthMode('local')
     persistSession(null)
+    // LOT 2.4 (F6) : même raison que dans l'effet `authId` — et `logout()`
+    // n'entraîne pas toujours un changement d'`authId` observable (déconnexion
+    // d'un guest, ou repli local qui conserve un `user`), donc l'effet seul ne
+    // suffit pas. La déconnexion doit fermer la confirmation du compte qui
+    // vient de partir.
+    setReserved(null)
     setToast(t('navLogout'))
     if (page === 'desk' || page === 'master' || page === 'profile' || page === 'help' || page === 'orders') {
       setPage('shop')
@@ -682,7 +972,52 @@ export default function App() {
   }
 
   const count = cart.reduce((s, i) => s + i.qty, 0)
-  const total = cart.reduce((s, i) => s + i.qty * i.price, 0)
+  // LOT 5.4 (U4) : les prix du panier suivent le catalogue LIVE.
+  //
+  // Reproduit à l'audit : le prix est figé à l'ajout au panier (`{...product}`
+  // dans `add()`), puis le maître change un prix pendant la visite — le
+  // rafraîchissement du catalogue arrive, la vitrine affiche le nouveau prix,
+  // mais le panier, son total, le récapitulatif de commande et le message
+  // WhatsApp restent sur l'ancien. Le serveur, lui, recalcule les prix depuis le
+  // catalogue (`placeOrder` ignore le prix envoyé) : la commande confirmée ne
+  // correspondait donc à rien de ce que l'écran venait de montrer.
+  //
+  // `pricedCart` est la vue affichée/envoyée ; `priceDrift` liste les écarts pour
+  // (a) recaler le panier persisté et (b) le dire à l'utilisateur — un prix qui
+  // change en silence sous un total est exactement le genre de chose qu'il faut
+  // annoncer.
+  const { pricedCart, priceDrift } = useMemo(() => {
+    const drift = []
+    const priced = cart.map((i) => {
+      const live = catalog.find((p) => p.id === i.id)
+      if (!live) return i // produit sorti du catalogue : on garde le snapshot
+      const livePrice = Number(live.price) || 0
+      if (livePrice !== Number(i.price)) {
+        drift.push({ id: i.id, name: live.name || i.name, from: Number(i.price) || 0, to: livePrice })
+      }
+      return { ...i, price: livePrice, name: live.name || i.name }
+    })
+    return { pricedCart: priced, priceDrift: drift }
+  }, [cart, catalog])
+  const total = pricedCart.reduce((s, i) => s + i.qty * i.price, 0)
+
+  // Recale le panier persisté (miroir inclus) et annonce l'écart. Une fois les
+  // prix recopiés, `priceDrift` se vide : l'effet ne se rejoue pas.
+  useEffect(() => {
+    if (!priceDrift.length) return
+    setCart((prev) =>
+      prev.map((i) => {
+        const d = priceDrift.find((x) => x.id === i.id)
+        return d ? { ...i, price: d.to, name: d.name } : i
+      })
+    )
+    const shown = priceDrift
+      .slice(0, 2)
+      .map((d) => `${d.name} → ${money(d.to, lang)}`)
+      .join(' · ')
+    setToast(t('cartPriceUpdated', { lines: priceDrift.length > 2 ? `${shown} …` : shown }))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [priceDrift])
   const warnings = useMemo(() => checkCompatibility(cart), [cart])
   const { blocks, notes } = useMemo(() => splitWarnings(warnings), [warnings])
 
@@ -710,24 +1045,46 @@ export default function App() {
   }
 
   function add(product) {
-    const left = liveStock(product)
-    if (left <= 0) {
+    // LOT 3.5 (B8) — la garde de stock est évaluée SUR LE PANIER COURANT, dans
+    // la mise à jour, et non avant sur la closure du dernier rendu.
+    //
+    // Reproduit à l'audit : stock = 1, double-clic sur « Ajouter ». Les deux
+    // clics lisaient le même `cart` (vide) et le même `liveStock` (1) : les deux
+    // passaient la garde, le panier finissait à 2 unités pour 1 en stock — puis
+    // la commande partait en 409 `stock` ou, hors-ligne, en survente locale.
+    // `setCart` étant synchrone (miroir + état), la décision et le toast sont
+    // cohérents avec ce qui a réellement été ajouté.
+    const base = stockMap[product.id] != null ? stockMap[product.id] : product.stock
+    let qtyAfter = 0
+    setCart((prev) => {
+      const inCart = prev.find((i) => i.id === product.id)?.qty || 0
+      if (Math.max(0, base - inCart) <= 0) return prev
+      qtyAfter = inCart + 1
+      return inCart
+        ? prev.map((i) => (i.id === product.id ? { ...i, qty: i.qty + 1 } : i))
+        : [...prev, { ...product, qty: 1 }]
+    })
+    if (!qtyAfter) {
       setToast(t('outOfStock'))
       return
     }
-    setCart((prev) => {
-      const found = prev.find((i) => i.id === product.id)
-      if (found) return prev.map((i) => (i.id === product.id ? { ...i, qty: i.qty + 1 } : i))
-      return [...prev, { ...product, qty: 1 }]
-    })
-    setToast({ kind: 'cart', name: product.name, count: (cart.find((i) => i.id === product.id)?.qty || 0) + 1 })
+    // LOT 6.3 (Q5) : le champ `count` était posé ici puis **jamais lu** — le
+    // rendu affiche `nom · ajouté au panier`, et la quantité totale vit dans le
+    // badge du panier. Un champ mort dans un état partagé, c'est un lecteur
+    // futur qui croit l'information affichée. `qtyAfter` reste utilisé juste
+    // au-dessus : c'est lui qui dit si l'ajout a eu lieu (garde de stock B8).
+    setToast({ kind: 'cart', name: product.name })
   }
 
   function setQty(id, qty) {
     const product = catalog.find((p) => p.id === id)
-    // P5 (B20) : plafond = stock VRAIMENT dispo = stock live (stockMap, incluant
-    // ce qui est déjà dans le panier) — pas le product.stock statique.
-    const max = product ? liveStock(product) + (cart.find((i) => i.id === id)?.qty || 0) : 1
+    // LOT 3.5 (B8) : le plafond est calculé DANS la mise à jour. Avant, il
+    // passait par `liveStock(product)` — donc par le `cart` du dernier rendu —
+    // puis soustrayait/réajoutait la quantité déjà présente : deux changements
+    // rapides lisaient la même valeur périmée.
+    // P5 (B20) inchangé : plafond = stock VRAIMENT disponible (`stockMap`), pas
+    // le `product.stock` statique ; produit sorti du catalogue → plafond 1.
+    const max = product ? (stockMap[id] != null ? stockMap[id] : product.stock) : 1
     setCart((prev) =>
       prev
         .map((i) => (i.id === id ? { ...i, qty: Math.min(max, Math.max(1, qty)) } : i))
@@ -755,6 +1112,18 @@ export default function App() {
   }
 
   function go(next) {
+    // LOT 2.1 (F1) : le panier est un OFFCANVAS, pas une page — il n'a donc pas
+    // sa place dans `KNOWN_PAGES`, et le garde-fou ci-dessous le réécrivait en
+    // `'shop'` AVANT que la branche `next === 'cart'` ne soit atteinte. Cette
+    // branche était morte : depuis le configurateur, « Ajouter la config »
+    // (`BuilderPage.jsx` → `onGoCart`) ajoutait bien les pièces au panier puis
+    // renvoyait l'utilisateur sur la boutique, panier fermé. Le test ci-dessous
+    // est donc placé EN TÊTE, et `KNOWN_PAGES` reste la liste des pages réelles.
+    if (next === 'cart') {
+      setCartOpen(true)
+      setNavOpen(false)
+      return
+    }
     if (!KNOWN_PAGES.includes(next)) next = 'shop'
     if ((next === 'desk' || next === 'master' || next === 'help') && !isMaster) {
       setToast(t(next === 'help' ? 'masterOnlyGuide' : next === 'desk' ? 'masterOnlyDesk' : 'masterForbidden'))
@@ -763,11 +1132,6 @@ export default function App() {
     }
     if (next === 'profile' && !user) {
       setAuthOpen(true)
-      return
-    }
-    if (next === 'cart') {
-      setCartOpen(true)
-      setNavOpen(false)
       return
     }
     setPage(next)
@@ -804,7 +1168,9 @@ export default function App() {
       day: localDay(new Date()),
       payment: 'cash',
       slot: pickup.slot,
-      items: cart.map((i) => ({
+      // LOT 5.4 (U4) : `pricedCart`, pas `cart` — le récapitulatif local (repli
+      // hors-ligne) et le message WhatsApp portent les mêmes prix que l'écran.
+      items: pricedCart.map((i) => ({
         id: i.id,
         sku: i.sku,
         name: i.name,
@@ -824,11 +1190,7 @@ export default function App() {
         // commande « disparaissait » (aucune trace locale ; un guest n'avait
         // nulle part où la retrouver). La page « Commandes » croise maintenant
         // cette copie avec le serveur.
-        setReservations((prev) => {
-          const next = [order, ...prev.filter((o) => o.code !== order.code)]
-          saveOrders(storage, next)
-          return next
-        })
+        commitReservations((prev) => [order, ...prev.filter((o) => o.code !== order.code)])
         setReserved(order)
         setCart([])
         setCartStep(0)
@@ -842,7 +1204,29 @@ export default function App() {
       // invisible au shop + code en collision avec le serveur).
       const fail = orderApiFailure(r)
       if (fail.kind === 'stock') {
-        setToast(t('stockShort'))
+        // LOT 5.2 (U2) : le 409 du serveur porte `shortages` — la ligne qui
+        // manque, la quantité demandée, ce qui reste. Tout était jeté au profit
+        // d'un « Stock insuffisant » générique : à l'utilisateur de deviner
+        // quelle ligne de son panier posait problème, puis de tester des
+        // quantités au hasard. Le détail est maintenant nommé.
+        setToast(shortageMessage(fail.shortages, t))
+        await refreshStock()
+        return
+      }
+      // LOT 8.1 (A1) + LOT 8.2 (A2) : refus DÉFINITIF du serveur sur certaines
+      // lignes — produit retiré de la vente par le maître, ou id inconnu du
+      // catalogue (onglet ouvert avant un changement de catalogue, commande
+      // rejouée). Le message nomme les lignes, elles sont retirées du panier, et
+      // le reste reste commandable : sans cela l'utilisateur renvoyait la même
+      // commande en boucle sur un échec identique — et le repli hors-ligne
+      // pouvait finir par créer une commande locale sur un article fantôme.
+      if (fail.kind === 'unavailable' || fail.kind === 'unknown') {
+        setToast(orderBlockedMessage(fail.lines, t, fail.kind))
+        const kept = dropCartLines(cart, fail.lines)
+        setCart(kept)
+        // Panier vidé par le retrait : on sort de l'étape de commande plutôt que
+        // de laisser un formulaire de retrait face à un panier vide.
+        if (!kept.length) setCartStep(0)
         await refreshStock()
         return
       }
@@ -858,14 +1242,23 @@ export default function App() {
     }
 
     // Local fallback — still decrement local stockMap view
+    // LOT 5.2 (U2) : mêmes exigences qu'avec le serveur. Le parcours s'arrêtait
+    // sur la PREMIÈRE ligne courte avec le même message générique ; on collecte
+    // maintenant toutes les lignes en manque et on les nomme (le repli local
+    // connaît les quantités, il n'y a aucune raison d'être moins précis que
+    // l'API).
+    const localShortages = []
     for (const line of base.items) {
       // P5 (B14) : on compare le stock BRUT (pas liveStock qui soustrait le
       // panier — la ligne en cours de checkout fait partie du stock réservé)
       const raw = stockMap[line.id] != null ? stockMap[line.id] : catalog.find((p) => p.id === line.id)?.stock ?? 0
       if (raw < line.qty) {
-        setToast(t('stockShort'))
-        return
+        localShortages.push({ id: line.id, name: line.name, need: line.qty, left: Math.max(0, raw) })
       }
+    }
+    if (localShortages.length) {
+      setToast(shortageMessage(localShortages, t))
+      return
     }
     setStockMap((prev) => {
       const next = { ...prev }
@@ -875,18 +1268,29 @@ export default function App() {
       }
       return next
     })
+    // LOT 3.4 (B7) : le code est calculé sur le MIROIR SYNCHRONE, pas sur la
+    // variable `reservations` capturée au dernier rendu. `reserve()` est
+    // asynchrone : en mode mixte (API injoignable après l'envoi), deux
+    // réservations quasi simultanées lisaient toutes deux la même closure
+    // périmée et produisaient le MÊME code local. Le miroir est mis à jour dès
+    // la création, donc la seconde réservation voit le code de la première.
+    const currentOrders = reservationsRef.current
     const order = {
       // P8 (P7-2) : séquence = max des codes locaux du jour + 1 (jamais
       // `reservations.length + 1`) → plus de collision si la liste client est
       // partielle.
-      code: nextLocalOrderCode(reservations.map((o) => o.code)),
+      code: nextLocalOrderCode(currentOrders.map((o) => o.code)),
       ...base,
       status: 'new',
-      at: new Date().toISOString()
+      at: new Date().toISOString(),
+      // LOT 2.3 (F5) : marqueur de commande JAMAIS envoyée au serveur. Sans
+      // lui, `mergeServerOrders` ne peut pas la distinguer d'une copie locale
+      // d'une commande supprimée côté serveur — et la réinjecter ferait
+      // ressusciter les suppressions. Posé uniquement ici (repli hors-ligne) :
+      // le chemin API ci-dessus ne le met pas.
+      localOnly: true
     }
-    const next = [order, ...reservations]
-    setReservations(next)
-    saveOrders(storage, next)
+    commitReservations([order, ...currentOrders])
     setReserved(order)
     setCart([])
     setCartStep(0)
@@ -895,10 +1299,38 @@ export default function App() {
     setToast(t('ordersLocalOnly'))
   }
 
-  const msg = cartMessage(cart, total, pickup, t)
-  const waHref = `https://wa.me/${STORE.whatsapp}?text=${encodeURIComponent(msg)}`
-  const waHref2 = `https://wa.me/${STORE.whatsapp2}?text=${encodeURIComponent(msg)}`
+  // LOT 5.7 (U7) : mémoïsé. Le message était recomposé — puis
+  // `encodeURIComponent`-é DEUX fois — à chaque rendu, donc à chaque frappe dans
+  // le formulaire de retrait ou le champ de recherche (le composant entier se
+  // re-rend). Sur un panier de 40 lignes, ça fait quelques centaines de
+  // microsecondes par touche, pour un résultat strictement identique tant que
+  // panier/total/retrait/langue n'ont pas bougé.
+  // `t` est recréé à chaque rendu : c'est `lang` qui est en dépendance.
+  const wa = useMemo(() => {
+    // LOT 5.4 (U4) : le message WhatsApp porte les prix/labels LIVE, comme
+    // l'écran et la commande — sinon le commerçant lit un récapitulatif qui ne
+    // correspond à rien de ce que le client vient de voir.
+    // LOT 8.8 (A8) : le message WhatsApp suit la langue de l'interface — le total
+    // n'y fait plus exception (il restait au format français en mode arabe).
+    const text = buildWaMessage(pricedCart, total, pickup, t, { lang })
+    const encoded = encodeURIComponent(text)
+    return {
+      msg: text,
+      href: `https://wa.me/${STORE.whatsapp}?text=${encoded}`,
+      href2: `https://wa.me/${STORE.whatsapp2}?text=${encoded}`
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pricedCart, total, pickup, lang])
+  const msg = wa.msg
+  const waHref = wa.href
+  const waHref2 = wa.href2
   const carrier = phoneCarrier(pickup.phone)
+
+  // LOT 5.1 (U1) : état système affiché dans la topbar.
+  //  · offline  — API injoignable : mode local, commandes non synchronisées ;
+  //  · degraded — API debout mais base en repli (catalogue/stock d'origine) ;
+  //  · online   — tout vient du serveur.
+  const sysState = !apiOnline ? 'offline' : catalogDegraded ? 'degraded' : 'online'
 
   const toastText = typeof toast === 'string' ? toast : toast?.kind === 'cart' ? `${toast.name} · ${t('addedToCart')}` : ''
 
@@ -913,7 +1345,17 @@ export default function App() {
       {catalogDegraded && !degradedDismissed && (
         <div className="alert alert-warning rounded-0 mb-0 py-2" role="alert">
           <div className="container d-flex flex-wrap align-items-center gap-2">
-            <span className="small flex-grow-1">{t('catalogDegraded')}</span>
+            <span className="small flex-grow-1">
+              {t('catalogDegraded')}{' '}
+              {/* LOT 3.16 (B19) : l'âge du repli est dit, au lieu d'être deviné.
+                  `asOf` vient de la dernière lecture réussie (source `cache`) ;
+                  sans elle (source `static`), c'est le catalogue du build. */}
+              <span className="text-secondary">
+                {degradedInfo?.asOf
+                  ? t('catalogDegradedSince', { ago: timeAgo(degradedInfo.asOf, lang) })
+                  : t('catalogDegradedStatic')}
+              </span>
+            </span>
             <button type="button" className="btn btn-sm btn-outline-warning" onClick={() => window.location.reload()}>
               {t('catalogRetry')}
             </button>
@@ -921,10 +1363,42 @@ export default function App() {
           </div>
         </div>
       )}
+      {/* LOT 3.1 (F7 + F8) : stockage navigateur bloqué (cookies tiers refusés,
+          navigation privée) ou plein → l'app tourne sur son repli mémoire. Le
+          dire est la seule façon honnête d'expliquer un panier qui se vide au
+          rechargement. LOT 5.10 (U10) : l'encadrement par un tiers, lui, est
+          interdit en production (X-Frame-Options / frame-ancestors) — ce
+          bandeau ne couvre pas ce cas, il ne se produira pas. */}
+      {isStorageBlocked() && (
+        <div className="alert alert-secondary rounded-0 mb-0 py-2" role="status">
+          <div className="container">
+            <span className="small">{t('storageBlockedNote')}</span>
+          </div>
+        </div>
+      )}
       <div className="topbar small py-1">
         <div className="container d-flex flex-wrap justify-content-between gap-2">
           <span>
-            <span className="text-success" aria-hidden="true">●</span> SYS.ONLINE <span className="blink" aria-hidden="true">_</span>
+            {/* LOT 5.1 (U1) : l'indicateur reflète l'état RÉEL. Il était
+                codé en dur — point vert + « SYS.ONLINE » en permanence, y
+                compris API morte, base dégradée ou mode local : la seule
+                information d'état du site disait toujours la même chose, et le
+                bandeau dégradé (B19) était le seul indice, une fois descendu
+                dans la page. Trois états, trois couleurs, et une explication
+                dans la langue de l'utilisateur (title + aria-label) : le
+                libellé terminal reste en anglais, c'est la charte graphique. */}
+            <span
+              className={sysState === 'online' ? 'text-success' : sysState === 'degraded' ? 'text-warning' : 'text-danger'}
+              aria-hidden="true"
+            >
+              ●
+            </span>{' '}
+            <span title={t(`sysState_${sysState}`)}>
+              <span aria-label={t(`sysState_${sysState}`)}>
+                {sysState === 'online' ? 'SYS.ONLINE' : sysState === 'degraded' ? 'SYS.DEGRADED' : 'SYS.OFFLINE'}
+              </span>{' '}
+              {sysState === 'online' && <span className="blink" aria-hidden="true">_</span>}
+            </span>
             {' · '}
             {t('storeOpen')} · Oran
           </span>
@@ -1106,7 +1580,13 @@ export default function App() {
           <div className="cats mb-4" id="catalog">
             {CATEGORIES.map((c) => (
               <button key={c.id} type="button" className={`btn btn-sm cat-${c.id} ${category === c.id ? 'btn-success' : 'btn-outline-secondary'}`} onClick={() => setCategory(c.id)}>
-                {t(`cat_${c.id}`)}
+                {/* LOT 5.6 (U6) : repli explicite — `t()` renvoie la clé quand
+                    la traduction manque, et `cat_ssd` se retrouverait affiché
+                    tel quel. `BuilderPage`/`SearchPage` avaient déjà le motif,
+                    pas la vitrine. Aucune clé ne manque aujourd'hui (13
+                    catégories × 3 langues), mais une catégorie master ajoutée
+                    sans traduction ne doit pas fuiter jusqu'à l'écran. */}
+                {labelOr(t, `cat_${c.id}`, c.label || c.id)}
               </button>
             ))}
             <input
@@ -1138,7 +1618,7 @@ export default function App() {
                         <div className="ratio ratio-4x3 photo-frame overflow-hidden">
                           <PartThumb product={p} />
                         </div>
-                        <span className={`badge position-absolute top-0 start-0 m-2 ${st.cls === 'stock-ok' ? 'text-bg-success' : st.cls === 'stock-low' ? 'text-bg-warning' : 'text-bg-danger'}`}>
+                        <span className={`badge position-absolute top-0 start-0 m-2 ${st.cls}`}>
                           {st.text}
                         </span>
                       </button>
@@ -1155,7 +1635,7 @@ export default function App() {
                           ))}
                         </div>
                         <div className="card-row mt-auto d-flex justify-content-between align-items-center gap-2">
-                          <span className="price text-success">{money(p.price)}</span>
+                          <span className="price text-success">{money(p.price, lang)}</span>
                           <button className="btn btn-sm btn-success" type="button" disabled={left <= 0} onClick={() => add(p)}>
                             {left <= 0 ? t('soldOut') : t('add')}
                           </button>
@@ -1295,6 +1775,7 @@ export default function App() {
         <ProductPage
           key={selected.id}
           t={t}
+          lang={lang}
           product={selected}
           photoIndex={photoIndex}
           setPhotoIndex={setPhotoIndex}
@@ -1311,6 +1792,7 @@ export default function App() {
       {page === 'builder' && (
         <BuilderPage
           t={t}
+          lang={lang}
           products={catalog}
           build={build}
           setBuild={setBuild}
@@ -1499,6 +1981,7 @@ export default function App() {
       {page === 'orders' && (
         <OrdersPage
           t={t}
+          lang={lang}
           user={user}
           apiOnline={apiOnline}
           mode={authMode}
@@ -1575,7 +2058,7 @@ export default function App() {
                 <div className="fw-semibold mb-1">{reserved.name}</div>
                 <div className="small">{reserved.slot} · {STORE.address}</div>
                 <div className="small mt-2">{t('successCash')}</div>
-                <div className="fs-5 fw-bold text-success mt-2">{money(reserved.total)}</div>
+                <div className="fs-5 fw-bold text-success mt-2">{money(reserved.total, lang)}</div>
               </div>
               <div className="d-grid gap-2">
                 {user && (
@@ -1633,7 +2116,7 @@ export default function App() {
                 ))}
               </div>
               <div className="list-group list-group-flush mb-3 flex-grow-1 overflow-auto">
-                {cart.map((i) => (
+                {pricedCart.map((i) => (
                   <div className="list-group-item px-0" key={i.id}>
                     <div className="d-flex gap-3">
                       <div style={{ width: 64, height: 64 }} className="rounded overflow-hidden photo-frame flex-shrink-0">
@@ -1651,7 +2134,7 @@ export default function App() {
                           <button type="button" className="btn btn-sm btn-link text-danger" onClick={() => remove(i.id)}>
                             {t('remove')}
                           </button>
-                          <strong className="ms-auto">{money(i.qty * i.price)}</strong>
+                          <strong className="ms-auto">{money(i.qty * i.price, lang)}</strong>
                         </div>
                       </div>
                     </div>
@@ -1679,7 +2162,7 @@ export default function App() {
               <form onSubmit={reserve} className="border-top pt-3 mt-auto" onFocus={() => setCartStep(1)}>
                 <div className="d-flex justify-content-between align-items-center mb-2">
                   <span className="fw-semibold">{t('total')}</span>
-                  <span className="fs-5 fw-bold text-success">{money(total)}</span>
+                  <span className="fs-5 fw-bold text-success">{money(total, lang)}</span>
                 </div>
                 <div className="mb-2">
                   <label className="form-label small mb-1" htmlFor="name">{t('yourName')}</label>

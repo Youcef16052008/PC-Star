@@ -51,7 +51,8 @@ export default function ContactButton({ label, btnClass = 'btn btn-sm btn-outlin
               onClick={(e) => {
                 setOpen(false)
                 // Le lien choisi DOIT s'ouvrir (demande client). Dans certains
-                // environnements (aperçus iframe, bloqueurs), target=_blank
+                // environnements (aperçu de développement, bloqueurs de
+                // fenêtres), target=_blank
                 // seul ne suffit pas : on réessaie via window.open — SANS
                 // paramètre « features » (avec noopener la spec impose un
                 // retour null, ce qui déclenchait une navigation même

@@ -26,6 +26,91 @@ import { transformSync } from 'esbuild'
  */
 const BOOTSTRAP_STUB = 'pcstar-test:bootstrap'
 
+/**
+ * LOT 2 — le stub Bootstrap reproduit ce que l'API réelle fait AU DOM :
+ * classe `show`, attributs ARIA, et événements `show/shown` + `hide/hidden`.
+ *
+ * Le stub précédent se contentait d'un drapeau interne (`this.shown`) sans
+ * toucher l'élément. Or c'est précisément la classe `show` posée par
+ * `Offcanvas.show()` qui rend le panier visible — impossible alors de tester
+ * F1 (« Ajouter la config » ouvrait la boutique, panier fermé) ni F6 (la
+ * confirmation du client précédent restait affichée) sur le DOM réel.
+ *
+ * Restent simulés : l'animation, le backdrop, le focus-trap et le blocage de
+ * scroll — sans effet sur ce que l'app décide.
+ */
+const BOOTSTRAP_STUB_SOURCE = `
+  const REGISTRY = new WeakMap()
+  function fire(el, name) {
+    if (!el || typeof el.dispatchEvent !== 'function') return
+    el.dispatchEvent(new Event(name, { bubbles: true, cancelable: true }))
+  }
+  function makeStub(kind) {
+    const ns = kind === 'modal' ? 'bs.modal' : 'bs.offcanvas'
+    class Stub {
+      constructor(el) {
+        this._el = el
+        this.shown = false
+        this.disposed = false
+        Stub.instances.push(this)
+      }
+      show() {
+        if (this.disposed || !this._el || this.shown) return
+        this.shown = true
+        this._el.classList.add('show')
+        this._el.removeAttribute('aria-hidden')
+        this._el.setAttribute('aria-modal', 'true')
+        this._el.setAttribute('role', 'dialog')
+        this._el.style.visibility = 'visible'
+        this._el.style.display = 'block'
+        fire(this._el, 'show.' + ns)
+        fire(this._el, 'shown.' + ns)
+      }
+      hide() {
+        if (this.disposed || !this._el || !this.shown) return
+        this.shown = false
+        this._el.classList.remove('show')
+        this._el.setAttribute('aria-hidden', 'true')
+        this._el.removeAttribute('aria-modal')
+        this._el.removeAttribute('role')
+        this._el.style.removeProperty('visibility')
+        this._el.style.removeProperty('display')
+        fire(this._el, 'hide.' + ns)
+        fire(this._el, 'hidden.' + ns)
+      }
+      toggle() {
+        if (this.shown) this.hide()
+        else this.show()
+      }
+      dispose() {
+        if (this._el && REGISTRY.get(this._el) === this) REGISTRY.delete(this._el)
+        this.disposed = true
+      }
+      static getOrCreateInstance(el) {
+        const found = Stub.getInstance(el)
+        if (found) return found
+        const inst = new Stub(el)
+        if (el) REGISTRY.set(el, inst)
+        return inst
+      }
+      static getInstance(el) {
+        return (el && REGISTRY.get(el)) || null
+      }
+    }
+    Stub.instances = []
+    return Stub
+  }
+  export const Modal = makeStub('modal')
+  export const Offcanvas = makeStub('offcanvas')
+  export const Tooltip = makeStub('tooltip')
+  export const Popover = makeStub('popover')
+  export const Dropdown = makeStub('dropdown')
+  export const Collapse = makeStub('collapse')
+  export const Tab = makeStub('tab')
+  export const Toast = makeStub('toast')
+  export default { Modal, Offcanvas, Tooltip, Popover, Dropdown, Collapse, Tab, Toast }
+`
+
 export async function resolve(specifier, context, next) {
   if (specifier === 'bootstrap') return { url: BOOTSTRAP_STUB, shortCircuit: true, format: 'module' }
   try {
@@ -49,26 +134,7 @@ export async function load(url, context, next) {
     return {
       format: 'module',
       shortCircuit: true,
-      source: `
-        class Stub {
-          constructor(el) { this._el = el; Stub.instances.push(this) }
-          show() { this.shown = true }
-          hide() { this.shown = false }
-          dispose() { this.disposed = true }
-          static getOrCreateInstance(el) { return new Stub(el) }
-          static getInstance(el) { return null }
-        }
-        Stub.instances = []
-        export const Modal = Stub
-        export const Offcanvas = Stub
-        export const Tooltip = Stub
-        export const Popover = Stub
-        export const Dropdown = Stub
-        export const Collapse = Stub
-        export const Tab = Stub
-        export const Toast = Stub
-        export default { Modal: Stub, Offcanvas: Stub, Tooltip: Stub, Popover: Stub, Dropdown: Stub, Collapse: Stub, Tab: Stub, Toast: Stub }
-      `
+      source: BOOTSTRAP_STUB_SOURCE
     }
   }
   if (url.startsWith('file:') && url.endsWith('.jsx')) {

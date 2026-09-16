@@ -3,12 +3,31 @@ import { money, starText, STORE, REVIEWS } from './data.js'
 import PartThumb from './PartThumb.jsx'
 import ContactButton from './ContactPicker.jsx'
 import { relatedProducts, specRows } from './media.js'
+import { stockLabel } from './stockLabel.js'
 
-function stockLabel(n, t) {
-  if (n <= 0) return { text: t('outOfStock'), cls: 'stock-out' }
-  if (n <= 3) return { text: `${n} ${t('left')}`, cls: 'stock-low' }
-  return { text: `${n} ${t('inStore')}`, cls: 'stock-ok' }
+/**
+ * LOT 2.6 (F10) — texte du bloc « besoins » d'une fiche produit.
+ *
+ * `needs` est désormais un TABLEAU (normalisé côté serveur,
+ * `normalizeNeeds`) mais peut encore être une chaîne dans une base antérieure
+ * ou créée en mode local. Deux pièges corrigés ici :
+ *  · React concatène un tableau de chaînes SANS séparateur (« Socket AM5BIOS à
+ *    jour ») — d'où la jointure explicite ;
+ *  · `[]` est truthy en JS : la condition d'affichage `product.needs` aurait
+ *    dessiné un encart vide pour tout produit sans besoins.
+ */
+function needsText(needs) {
+  if (Array.isArray(needs)) {
+    return needs
+      .map((x) => String(x ?? '').trim())
+      .filter(Boolean)
+      .join(' · ')
+  }
+  return String(needs ?? '').trim()
 }
+
+// LOT 6.1 (Q1) : `stockLabel` vient de `src/stockLabel.js` — une seule définition,
+// une seule famille de classes (la classe Bootstrap complète, rien à traduire).
 
 function Stars({ product, t }) {
   if (!product || !product.rating) return null
@@ -43,9 +62,10 @@ function SpecBadges({ product, t }) {
   )
 }
 
-export default function ProductPage({ t, product, photoIndex, setPhotoIndex, left, onBack, onAdd, onOpen, liveStock, onAddRelated, catalog }) {
+export default function ProductPage({ t, lang = 'fr', product, photoIndex, setPhotoIndex, left, onBack, onAdd, onOpen, liveStock, onAddRelated, catalog }) {
   const st = stockLabel(left, t)
-  const badge = st.cls === 'stock-ok' ? 'text-bg-success' : st.cls === 'stock-low' ? 'text-bg-warning' : 'text-bg-danger'
+  // LOT 6.1 (Q1) : la classe vient complète — plus de ternaire de traduction.
+  const badge = st.cls
   const photos = product.photos || []
   const also = relatedProducts(product, catalog, 4)
   const specs = specRows(product, t)
@@ -116,7 +136,7 @@ export default function ProductPage({ t, product, photoIndex, setPhotoIndex, lef
           <h1 className="h3 mb-2">{product.name}</h1>
           <Stars product={product} t={t} />
           <p className="text-secondary">{product.short}</p>
-          <div className="fs-4 fw-bold text-success mb-2">{money(product.price)}</div>
+          <div className="fs-4 fw-bold text-success mb-2">{money(product.price, lang)}</div>
           <SpecBadges product={product} t={t} />
           {specs.length > 0 && (
             <div className="table-responsive mb-3">
@@ -132,9 +152,9 @@ export default function ProductPage({ t, product, photoIndex, setPhotoIndex, lef
               </table>
             </div>
           )}
-          {(product.needsKey || product.needs) && (
+          {(product.needsKey || needsText(product.needs)) && (
             <div className={`alert py-2 ${left <= 0 ? 'alert-danger' : 'alert-secondary'}`}>
-              {product.needsKey ? t(product.needsKey) : product.needs}
+              {product.needsKey ? t(product.needsKey) : needsText(product.needs)}
             </div>
           )}
 
@@ -149,12 +169,12 @@ export default function ProductPage({ t, product, photoIndex, setPhotoIndex, lef
               choices={[
                 {
                   title: STORE.phone,
-                  href: `https://wa.me/${STORE.whatsapp}?text=${encodeURIComponent(t('pdpWaMsg', { name: product.name, sku: product.sku, price: money(product.price) }))}`,
+                  href: `https://wa.me/${STORE.whatsapp}?text=${encodeURIComponent(t('pdpWaMsg', { name: product.name, sku: product.sku, price: money(product.price, lang) }))}`,
                   external: true
                 },
                 {
                   title: STORE.phone2,
-                  href: `https://wa.me/${STORE.whatsapp2}?text=${encodeURIComponent(t('pdpWaMsg', { name: product.name, sku: product.sku, price: money(product.price) }))}`,
+                  href: `https://wa.me/${STORE.whatsapp2}?text=${encodeURIComponent(t('pdpWaMsg', { name: product.name, sku: product.sku, price: money(product.price, lang) }))}`,
                   external: true
                 }
               ]}
@@ -168,7 +188,7 @@ export default function ProductPage({ t, product, photoIndex, setPhotoIndex, lef
           au bureau (d-lg-none) ; safe-area-inset-bottom dans index.css. */}
       <div className="pdp-sticky-cta d-lg-none">
         <div className="d-flex align-items-center gap-2">
-          <strong className="text-success">{money(product.price)}</strong>
+          <strong className="text-success">{money(product.price, lang)}</strong>
           <button className="btn btn-success flex-grow-1" type="button" disabled={left <= 0} onClick={onAdd}>
             {left <= 0 ? t('soldOut') : t('addToCart')}
           </button>
@@ -218,7 +238,7 @@ export default function ProductPage({ t, product, photoIndex, setPhotoIndex, lef
                         </button>
                       </h3>
                       <Stars product={p} t={t} />
-                      <div className="fw-bold text-success mb-2">{money(p.price)}</div>
+                      <div className="fw-bold text-success mb-2">{money(p.price, lang)}</div>
                       <button className="btn btn-sm btn-success mt-auto" type="button" disabled={l <= 0} onClick={() => onAddRelated(p)}>
                         {l <= 0 ? t('soldOut') : t('add')}
                       </button>

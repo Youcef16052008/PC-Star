@@ -1,7 +1,15 @@
 #!/usr/bin/env node
 /** API smoke: health → catalog → login → order → me/orders → legal pages via front */
+import { masterCredentials, demoCredentials } from './masterEnv.mjs'
+
 const API = process.env.API || 'http://127.0.0.1:8787'
 const FRONT = process.env.FRONT || 'http://127.0.0.1:5173'
+// LOT 1.2 : plus d'identifiants codés en dur dans les scripts de recette.
+const MASTER = masterCredentials('smoke-e2e')
+// LOT 1.19 : le mot de passe des comptes de démonstration n'est plus publié. Il
+// vient de `DEMO_PASSWORD` ; absent, les comptes sont verrouillés côté serveur et
+// la recette crée son propre client jetable.
+const DEMO = demoCredentials('smoke-e2e')
 
 async function j(url, opts = {}) {
   const r = await fetch(url, opts)
@@ -27,19 +35,38 @@ const cat = await j(`${API}/api/catalog`)
 // comptoir) → 222 visibles.
 ok('catalog', cat.ok && cat.data?.count >= 222 && cat.data?.count <= 223, cat.data?.count)
 
-const login = await j(`${API}/api/auth/login`, {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({ email: 'karim.oran@demo.dz', password: 'karim31' })
-})
-ok('login-customer', login.ok && login.data?.token)
-const token = login.data?.token
+let token = null
+let customerName = 'Recette Smoke'
+if (DEMO) {
+  const login = await j(`${API}/api/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(DEMO)
+  })
+  ok('login-customer', login.ok && login.data?.token, login.data?.error || '')
+  token = login.data?.token
+  customerName = 'Karim B.'
+} else {
+  const stamp = Date.now()
+  const reg = await j(`${API}/api/auth/register`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      email: `smoke-${stamp}@test.pcstar.local`,
+      password: `smoke-${stamp}`,
+      name: customerName,
+      phone: '0550123456'
+    })
+  })
+  ok('register-customer', reg.ok && reg.data?.token, reg.data?.error || '')
+  token = reg.data?.token
+}
 
 const order = await j(`${API}/api/orders`, {
   method: 'POST',
   headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
   body: JSON.stringify({
-    name: 'Karim B.',
+    name: customerName,
     phone: '0550123456',
     wilaya: 'Oran',
     slot: '16:00',
@@ -57,7 +84,7 @@ ok('me-orders', mine.ok && Array.isArray(mine.data?.orders) && mine.data.orders.
 const master = await j(`${API}/api/auth/login`, {
   method: 'POST',
   headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({ email: 'pcstar.info31@gmail.com', password: 'star31' })
+  body: JSON.stringify(MASTER)
 })
 ok('login-master', master.ok && master.data?.token)
 

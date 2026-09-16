@@ -5,18 +5,33 @@
 
 const TOKEN_KEY = 'pcstar-api-token'
 
-// Memory fallback: some embedded iframes block third-party localStorage —
-// the token must still work for the lifetime of the page session.
+/** LOT 5.11 (U12) : délai avant révocation d'une `blob:` URL de téléchargement. */
+export const REVOKE_DELAY_MS = 4000
+
+// LOT 3.1 (F7 + F8) : le jeton passe par `safeStorage`. Le stockage peut être
+// bloqué (SecurityError : cookies tiers refusés, navigation privée, quota
+// dépassé, contexte intégré) — le jeton doit rester utilisable pour la durée de
+// la page, et surtout `getToken()` ne doit pas lever dans un initializer de
+// `useState`.
+// LOT 5.10 (U10) : l'encadrement par un tiers n'est PAS un scénario supporté —
+// `X-Frame-Options: SAMEORIGIN` et `frame-ancestors 'self'` l'interdisent en
+// production (voir `docs/DEPLOY-VERCEL.md`, §Encadrement). Le repli mémoire
+// couvre les autres cas de stockage indisponible, qui sont réels.
+import { asSafeStorage, safeStorage } from './safeStorage.js'
+
+// Repli mémoire historique, conservé : il couvre aussi le cas où l'appelant
+// passe un stockage explicite (test) puis lit sans argument.
 let memoryToken = null
 
-export function getToken(storage = typeof localStorage !== 'undefined' ? localStorage : null) {
-  return storage?.getItem?.(TOKEN_KEY) || memoryToken || null
+export function getToken(storage = safeStorage) {
+  return asSafeStorage(storage).getItem(TOKEN_KEY) || memoryToken || null
 }
 
-export function setToken(token, storage = typeof localStorage !== 'undefined' ? localStorage : null) {
+export function setToken(token, storage = safeStorage) {
   memoryToken = token || null
-  if (!token) storage?.removeItem?.(TOKEN_KEY)
-  else storage?.setItem?.(TOKEN_KEY, token)
+  const st = asSafeStorage(storage)
+  if (!token) st.removeItem(TOKEN_KEY)
+  else st.setItem(TOKEN_KEY, token)
 }
 
 // P21 : délai maximal d'une requête. Sans lui, un fetch qui pend (proxy
@@ -26,7 +41,22 @@ export function setToken(token, storage = typeof localStorage !== 'undefined' ? 
 // page — le maître cliquait sur « préparer » / « prêt » sans aucun effet.
 export const API_TIMEOUT_MS = 15000
 
-async function req(path, { method = 'GET', body, token, timeoutMs = API_TIMEOUT_MS } = {}) {
+/**
+ * LOT 3.8/3.9 (B11 + B13) — point d'entrée unique pour « la session est morte ».
+ * `App.jsx` y branche la purge du jeton, le retour en mode local et le message
+ * `sessionExpired`. `null` désactive la notification.
+ */
+let unauthorizedHandler = null
+
+export function setUnauthorizedHandler(fn) {
+  unauthorizedHandler = typeof fn === 'function' ? fn : null
+}
+
+export function clearUnauthorizedHandler() {
+  unauthorizedHandler = null
+}
+
+async function req(path, { method = 'GET', body, token, timeoutMs = API_TIMEOUT_MS, skip401 = false } = {}) {
   const headers = { Accept: 'application/json' }
   if (body !== undefined) headers['Content-Type'] = 'application/json'
   const t = token ?? getToken()
@@ -54,8 +84,23 @@ async function req(path, { method = 'GET', body, token, timeoutMs = API_TIMEOUT_
   } catch {
     data = null
   }
+  // LOT 3.8/3.9 (B11 + B13) : un 401 sur une route authentifiée signifie que la
+  // session est morte (TTL serveur de 7 jours, révocation après changement de
+  // mot de passe, reset maître). Avant, chaque appelant réagissait à sa façon —
+  // le polling du Desk se contentait de `return`, en silence, toutes les 20 s
+  // jusqu'à la fermeture de l'onglet. Un seul point de notification ici ; les
+  // routes d'authentification sont exclues : un 401 de `login` est une réponse
+  // normale (« identifiants incorrects »), pas une session expirée.
+  if (res.status === 401 && unauthorizedHandler && !skip401 && !/^\/api\/auth\//.test(path)) {
+    try {
+      unauthorizedHandler({ path, status: 401, data })
+    } catch {
+      /* un handler défaillant ne doit pas casser la réponse */
+    }
+  }
   return { ok: res.ok, status: res.status, data }
 }
+
 
 export async function health() {
   try {
@@ -190,7 +235,19 @@ export async function downloadOrdersCsv(day) {
   a.href = url
   a.download = `pcstar-orders${day ? '-' + day : ''}.csv`
   a.click()
-  URL.revokeObjectURL(url)
+  // LOT 5.11 (U12) : révocation DIFFÉRÉE. `a.click()` ne fait que demander le
+  // téléchargement — la lecture du blob démarre après le retour de cet appel.
+  // Révoquer l'URL dans la foulée la coupait donc parfois en plein vol :
+  // export CSV vide ou téléchargement annulé, de façon intermittente (plus
+  // visible sur les gros exports et les machines lentes). On laisse le
+  // téléchargement s'amorcer, puis on libère la mémoire.
+  setTimeout(() => {
+    try {
+      URL.revokeObjectURL(url)
+    } catch {
+      /* déjà libérée */
+    }
+  }, REVOKE_DELAY_MS)
   return { ok: true }
 }
 
@@ -210,6 +267,18 @@ export async function cancelMyOrder(code) {
   return req(`/api/me/orders/${encodeURIComponent(code)}/cancel`, { method: 'POST' })
 }
 
-export async function changePassword(password) {
-  return req('/api/me/password', { method: 'POST', body: { password } })
+/**
+ * LOT 1.4 : `current` est OBLIGATOIRE.
+ *
+ * Le serveur exige le mot de passe actuel depuis P16 (#13) — sinon un token de
+ * session volé suffisait à verrouiller le compte. Mais cette fonction
+ * n'envoyait que `{ password }` : la route répondait 403 `current_password` à
+ * chaque appel, et le changement de mot de passe était mort pour 100 % des
+ * utilisateurs (aucun test ne couvrait le chemin client → serveur).
+ *
+ * `current` est transmis tel quel : c'est le serveur qui le compare au hash
+ * stocké (`verifyPass`), jamais le client.
+ */
+export async function changePassword(password, current) {
+  return req('/api/me/password', { method: 'POST', body: { password, current } })
 }

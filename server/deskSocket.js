@@ -6,18 +6,107 @@
  * posée à la seconde 1 n'apparaissait qu'à la seconde 20 — trop tard pour
  * rappeler un client qui attend une confirmation.
  *
- * Sécurité : la connexion n'est acceptée que pour un **token de session master**
- * valide. Tout le reste est détruit avant l'upgrade, donc un client non
- * autorisé n'obtient jamais de socket (et ne reçoit aucune commande).
+ * Sécurité (LOT 3.18 / R14) : la connexion n'est acceptée que pour un **token
+ * de session master** valide, et ce token n'est plus transporté dans l'URL
+ * d'upgrade — il arrivait dans les journaux d'accès du proxy et dans
+ * l'historique des caches intermédiaires. Le client s'authentifie désormais par
+ * son PREMIER message (`{type:'auth',token}`) ; sans authentification dans les
+ * `AUTH_TIMEOUT_MS`, le socket est fermé. Tant qu'il n'est pas authentifié, il
+ * n'est PAS enregistré dans le registre de diffusion : il ne reçoit aucune
+ * commande.
+ *
+ * Robustesse (LOT 3.10 / B15) : heartbeat `ping`/`pong` côté serveur. Une
+ * connexion TCP à moitié morte (onglet mis en veille, coupure réseau sans FIN)
+ * restait `readyState === OPEN` pour toujours : le comptoir se croyait en direct
+ * et `deskClientCount()` comptait des fantômes. Un client qui ne répond pas au
+ * ping est terminé au cycle suivant.
  *
  * Vercel ne supporte pas les WebSockets en serverless : `attachDeskSocket`
  * n'est appelé que par `startLocalServer()`. Le front, lui, retombe
  * automatiquement sur le polling quand le socket est indisponible.
  */
 import { WebSocketServer } from 'ws'
-import { addDeskClient, deskClientCount } from './notify.js'
+import { addDeskClient, removeDeskClient, deskClientCount } from './notify.js'
+
+const envMs = (name, fallback) => {
+  const v = Number(process.env[name])
+  return Number.isFinite(v) && v > 0 ? v : fallback
+}
+
+/** Délai accordé au client pour envoyer son message d'authentification. */
+const AUTH_TIMEOUT_MS = envMs('DESK_WS_AUTH_TIMEOUT_MS', 5000)
+/** Cadence du heartbeat serveur. */
+const HEARTBEAT_MS = envMs('DESK_WS_HEARTBEAT_MS', 30000)
+/** Nombre maximal de sockets en attente d'authentification (anti-abus). */
+const MAX_PENDING = 32
+/** Codes de fermeture applicatifs (4000-4999 = réservés à l'application). */
+export const WS_CLOSE = {
+  AUTH_REQUIRED: 4401,
+  FORBIDDEN: 4403,
+  AUTH_TIMEOUT: 4408,
+  TOO_MANY_PENDING: 4429
+}
 
 let wss = null
+let heartbeatId = null
+let pending = 0
+
+/**
+ * LOT 3.10 (B15) : un cycle de heartbeat.
+ *
+ * Un client qui n'a pas répondu au ping précédent (`isAlive === false`) est
+ * considéré mort : il est retiré du registre de diffusion puis terminé. Les
+ * autres reçoivent un ping et repassent à `isAlive = false` en attendant leur
+ * pong. C'est ce qui empêche `deskClientCount()` de compter des fantômes
+ * (onglet en veille, coupure réseau sans FIN) — un socket TCP à moitié mort
+ * reste `readyState === OPEN` indéfiniment.
+ */
+export function heartbeatOnce() {
+  if (!wss) return { terminated: 0, pinged: 0 }
+  let terminated = 0
+  let pinged = 0
+  for (const client of [...wss.clients]) {
+    if (client.isAlive === false) {
+      removeDeskClient(client)
+      try {
+        client.terminate()
+      } catch {
+        /* déjà mort */
+      }
+      terminated += 1
+      continue
+    }
+    client.isAlive = false
+    try {
+      client.ping()
+      pinged += 1
+    } catch {
+      /* fermé entre-temps */
+    }
+  }
+  return { terminated, pinged }
+}
+
+function safeSend(ws, payload) {
+  try {
+    if (ws.readyState === 1) ws.send(JSON.stringify(payload))
+    return true
+  } catch {
+    return false
+  }
+}
+
+function safeClose(ws, code, reason) {
+  try {
+    ws.close(code, reason)
+  } catch {
+    try {
+      ws.terminate()
+    } catch {
+      /* déjà mort */
+    }
+  }
+}
 
 /**
  * @param {import('node:http').Server} server
@@ -26,29 +115,101 @@ let wss = null
 export function attachDeskSocket(server, isMasterToken) {
   wss = new WebSocketServer({ noServer: true })
 
-  wss.on('connection', (ws) => {
-    addDeskClient(ws)
-    try {
-      ws.send(JSON.stringify({ type: 'hello', desk: true, clients: deskClientCount() }))
-    } catch {
-      /* déjà fermé */
+  wss.on('connection', (ws, req) => {
+    ws.isAlive = true
+    ws.on('pong', () => {
+      ws.isAlive = true
+    })
+    ws.on('error', () => {
+      /* la fermeture suit ; rien à propager */
+    })
+
+    let authed = false
+    let resolved = false // décision prise (accès accordé OU refus effectué)
+    let verifying = false // une vérification de token est en cours
+
+    const grant = () => {
+      if (resolved) return
+      resolved = true
+      authed = true
+      ws.authed = true
+      pending = Math.max(0, pending - 1)
+      try {
+        clearTimeout(authTimer)
+      } catch {
+        /* minuteur pas encore créé (legacy token) */
+      }
+      addDeskClient(ws)
+      // `hello` confirme l'authentification au client et lui donne le nombre
+      // d'onglets Desk actuellement connectés.
+      safeSend(ws, { type: 'hello', desk: true, authed: true, clients: deskClientCount() })
     }
-    // P19 : le client peut demander un état immédiat (utile après une
-    // reconnexion, pour ne pas rater une commande arrivée pendant la coupure).
+
+    const deny = (code, reason) => {
+      if (resolved) return
+      resolved = true
+      pending = Math.max(0, pending - 1)
+      clearTimeout(authTimer)
+      safeClose(ws, code, reason)
+    }
+
+    const checkToken = (token) => {
+      if (verifying) return
+      verifying = true
+      return Promise.resolve()
+        .then(() => isMasterToken(String(token || '')))
+        .then((ok) => (ok ? grant() : deny(WS_CLOSE.FORBIDDEN, 'forbidden')))
+        .catch(() => deny(WS_CLOSE.FORBIDDEN, 'forbidden'))
+    }
+
+    // LOT 3.18 (R14) : aucun token n'est exigé dans l'URL. Un ancien front en
+    // cache peut encore en envoyer un — on l'accepte (même vérification, même
+    // exigence master) le temps que le déploiement se propage.
+    const url = new URL(req?.url || '/', 'http://localhost')
+    const legacyToken = String(url.searchParams.get('token') || '')
+
+    const authTimer = setTimeout(() => {
+      if (!resolved) deny(WS_CLOSE.AUTH_TIMEOUT, 'auth_timeout')
+    }, AUTH_TIMEOUT_MS)
+
+    pending += 1
+    if (legacyToken) checkToken(legacyToken)
+
     ws.on('message', (raw) => {
       let msg = null
       try {
         msg = JSON.parse(String(raw))
       } catch {
+        if (!authed) deny(WS_CLOSE.AUTH_REQUIRED, 'auth_required')
         return
       }
-      if (msg?.type === 'ping') {
-        try {
-          ws.send(JSON.stringify({ type: 'pong', at: Date.now(), clients: deskClientCount() }))
-        } catch {
-          /* fermé */
+      if (!authed) {
+        // LOT 3.18 (R14) : le premier message DOIT être l'authentification.
+        if (msg?.type !== 'auth') {
+          deny(WS_CLOSE.AUTH_REQUIRED, 'auth_required')
+          return
         }
+        if (!msg?.token) {
+          deny(WS_CLOSE.AUTH_REQUIRED, 'auth_required')
+          return
+        }
+        // Token déjà en cours de vérification (ou décision déjà prise) : on
+        // ignore le doublon plutôt que de lancer deux vérifications.
+        if (verifying || resolved) return
+        checkToken(msg.token)
+        return
       }
+      // P19 : le client peut demander un état immédiat (utile après une
+      // reconnexion, pour ne pas rater une commande arrivée pendant la coupure).
+      if (msg?.type === 'ping') {
+        safeSend(ws, { type: 'pong', at: Date.now(), clients: deskClientCount() })
+      }
+    })
+
+    ws.on('close', () => {
+      if (!resolved) pending = Math.max(0, pending - 1)
+      clearTimeout(authTimer)
+      removeDeskClient(ws)
     })
   })
 
@@ -58,29 +219,25 @@ export function attachDeskSocket(server, isMasterToken) {
       socket.destroy()
       return
     }
-    const token = String(url.searchParams.get('token') || '')
-    if (!token) {
-      socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n')
+    // Anti-abus : sans WebSocket serverless ni file d'attente, un attaquant
+    // pourrait ouvrir des milliers de sockets non authentifiés. On borne le
+    // nombre de connexions EN ATTENTE d'authentification (les sockets
+    // authentifiés ne sont pas concernés).
+    if (pending >= MAX_PENDING) {
+      socket.write('HTTP/1.1 429 Too Many Requests\r\n\r\n')
       socket.destroy()
       return
     }
-    // Vérification AVANT l'upgrade : un non-master n'obtient jamais de socket.
-    Promise.resolve()
-      .then(() => isMasterToken(token))
-      .then((ok) => {
-        if (!ok || socket.destroyed) {
-          if (!socket.destroyed) {
-            socket.write('HTTP/1.1 403 Forbidden\r\n\r\n')
-            socket.destroy()
-          }
-          return
-        }
-        wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req))
-      })
-      .catch(() => {
-        if (!socket.destroyed) socket.destroy()
-      })
+    wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req))
   })
+
+  // LOT 3.10 (B15) : heartbeat. Un socket qui n'a pas répondu au ping précédent
+  // est considéré mort et terminé — il sort du registre de diffusion, donc
+  // `deskClientCount()` ne compte plus de fantômes.
+  if (heartbeatId === null) {
+    heartbeatId = setInterval(heartbeatOnce, HEARTBEAT_MS)
+    heartbeatId.unref?.()
+  }
 
   return wss
 }
@@ -89,7 +246,29 @@ export function deskSocketClientCount() {
   return deskClientCount()
 }
 
+/** Nombre de sockets ouverts mais pas encore authentifiés (tests / diagnostic). */
+export function deskPendingCount() {
+  return pending
+}
+
+/** Accès interne pour les tests (heartbeat, sockets en attente). */
+export const __deskSocketInternals = {
+  heartbeatOnce,
+  get wss() {
+    return wss
+  },
+  get pending() {
+    return pending
+  },
+  AUTH_TIMEOUT_MS,
+  HEARTBEAT_MS
+}
+
 export function closeDeskSocket() {
+  if (heartbeatId !== null) {
+    clearInterval(heartbeatId)
+    heartbeatId = null
+  }
   if (wss) {
     for (const c of wss.clients) {
       try {
@@ -101,4 +280,5 @@ export function closeDeskSocket() {
     wss.close()
     wss = null
   }
+  pending = 0
 }

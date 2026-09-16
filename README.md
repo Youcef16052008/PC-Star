@@ -8,18 +8,34 @@ Boutique pickup **PC Star Informatique** — El Makari Les Castors, Oran.
 npm install
 npm run start:api   # :8787 multi-device orders + auth
 npm run dev         # :5173 site (proxies /api)
-npm test
-npm run build
+npm test            # 807 tests (node:test)
+npm run build       # vite build, then scans dist/ for secrets — fails if any landed there
+npm run check:bundle # re-run only the dist/ secret scan (lot 7.3)
 ```
 
 ## Demo accounts (click in Login, or type)
 
 | Role | Email | Password |
 |------|-------|----------|
-| **Master** (store) | `pcstar.info31@gmail.com` | `star31` |
-| Customer | `karim.oran@demo.dz` | `karim31` |
-| Customer | `amina.castors@demo.dz` | `amina31` |
-| Customer | `yacine.pc@demo.dz` | `yacine31` |
+| **Master** (store) | _set via `MASTER_EMAIL` / `MASTER_PASSWORD`_ | _not published_ |
+| Customer (demo) | `karim.oran@demo.dz` | _set via `DEMO_PASSWORD`, or locked_ |
+| Customer (demo) | `amina.castors@demo.dz` | _set via `DEMO_PASSWORD`, or locked_ |
+| Customer (demo) | `yacine.pc@demo.dz` | _set via `DEMO_PASSWORD`, or locked_ |
+
+> **Master account:** no longer published here. It is defined by the
+> `MASTER_EMAIL` / `MASTER_PASSWORD` environment variables (see `.env.example`).
+> The credentials that used to be printed on this page **and shipped in the
+> client bundle** are considered compromised and must be rotated — removing
+> them from the repo is not enough.
+>
+> **Demo customer accounts (lot 1.19):** same rule. Their password comes from
+> `DEMO_PASSWORD` — one value for the three fixtures. **Without it the accounts
+> are seeded locked** (`passwordHash: null`): they still show up as demo data,
+> but `POST /api/auth/login` answers `401 demo_locked`. The three values that
+> used to be printed here, in the guides and in the client bundle are considered
+> compromised (they opened real API sessions) — never reuse them. In **local
+> mode** (no API) the browser accounts open with `DEMO_LOCAL_PASSWORD` from
+> `src/shopStore.js`; that value only ever unlocks this browser sandbox.
 
 Full how-to: **[docs/GUIDE-DEMO.md](docs/GUIDE-DEMO.md)** · [FR](docs/GUIDE-DEMO-FR.md) · [AR](docs/GUIDE-DEMO-AR.md)  
 Also in the app menu: **Guide**.

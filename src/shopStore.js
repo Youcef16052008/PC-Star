@@ -1,14 +1,37 @@
-export const MASTER = {
-  email: 'pcstar.info31@gmail.com',
-  password: 'star31',
-  name: 'PC Star Desk'
-}
+/**
+ * LOT 1.1 — plus AUCUN compte maître côté client.
+ *
+ * Cet export contenait auparavant l'e-mail et le mot de passe du compte maître
+ * EN CLAIR : Vite les incluait dans le bundle JS public, et ces valeurs
+ * ouvraient une vraie session `role: 'master'` sur l'API (reproduit à
+ * l'époque : `POST /api/auth/login` -> 200 + token).
+ *
+ * Le compte maître est désormais défini côté serveur uniquement, depuis
+ * `MASTER_EMAIL` / `MASTER_PASSWORD` (voir `masterAccount()` dans
+ * `server/db.js`). Les anciennes valeurs sont considérées comme compromises :
+ * elles doivent être changées, pas seulement retirées du code.
+ *
+ * Ce commentaire ne répète volontairement aucune des valeurs exposées — elles
+ * resteraient lisibles dans les sources, donc dans le dépôt.
+ *
+ * Conséquence assumée : le mode 100 % local (aucune API) n'a plus de comptoir —
+ * les pages Desk/Master exigent une session maître, qui ne peut venir que du
+ * serveur. C'est cohérent avec leur conception (elles étaient déjà vides en
+ * l'absence d'API).
+ */
 
 const KEY_USERS = 'pcstar-users'
 const KEY_META = 'pcstar-catalog'
 const KEY_SESSION = 'pcstar-session'
 const KEY_SAVED_SEARCHES = 'pcstar-saved-searches'
 const MAX_SAVED_SEARCHES = 10
+
+// LOT 3.1 (F7 + F8) : accès au stockage qui ne lève jamais + repli mémoire.
+// `loadUsers` / `loadSession` / `loadMeta` étaient appelés dans les
+// initializers de `useState` d'`App.jsx` : avec un `localStorage` bloqué
+// (cookies tiers refusés, navigation privée, quota dépassé), ils levaient un
+// `SecurityError` pendant le rendu.
+import { asSafeStorage, safeStorage } from './safeStorage.js'
 
 export function hashPass(password) {
   let h = 2166136261
@@ -32,18 +55,24 @@ export function isEmail(value) {
  * « numéro invalide » pour un numéro correct. Un mobile algérien ne commence
  * jamais par `00` (05/06/07), retirer ce préfixe est donc sans risque.
  */
-export function normalizePhone(value) {
-  let d = String(value || '').replace(/\D/g, '')
-  if (d.startsWith('00')) d = d.slice(2)
-  if (d.startsWith('213')) d = `0${d.slice(3)}`
-  if (d.length === 9 && /^[567]/.test(d)) d = `0${d}`
-  return d
-}
+// LOT 6.2 (Q2) : la règle vit dans `src/phoneLogic.js`, partagée avec le
+// serveur. Ré-exportée ici : `App.jsx`, `AuthPanel.jsx`, `ProfilePage.jsx` et
+// les tests l'importent depuis `shopStore.js` depuis toujours.
+//
+// Import PUIS export, et non `export ... from` : la forme `export { x } from
+// './y'` ne crée AUCUNE liaison locale — `registerEmail()` (plus bas) appelle
+// `normalizePhone` et tombait en `ReferenceError` dès qu'un compte e-mail était
+// créé. Le module a donc besoin des deux lignes.
+import { normalizePhone, isDzPhone, phoneCarrier } from './phoneLogic.js'
+export { normalizePhone, isDzPhone, phoneCarrier }
 
-export function isDzPhone(value) {
-  const p = normalizePhone(value)
-  return /^0[567]\d{8}$/.test(p)
-}
+// LOT 8.10 (A10) : les valeurs autorisées pour `category` / `kind` et la règle
+// de dérivation du `kind` viennent de `data.js` — les mêmes que le serveur
+// (`server/masterApi.js`). Le mode local appliquait déjà la règle de dérivation
+// (une ternaire inline) mais ne validait PAS la catégorie : hors ligne, un
+// produit `category: "SSD"` était enregistré et disparaissait de tous les
+// filtres, exactement comme avant le correctif côté API.
+import { isKnownCategory, kindForCategory } from './data.js'
 
 export function createMemoryStorage(seed = {}) {
   const map = { ...seed }
@@ -64,20 +93,6 @@ function nowId(prefix) {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`
 }
 
-function masterUser() {
-  return {
-    id: 'master-pcstar',
-    role: 'master',
-    email: MASTER.email,
-    password: hashPass(MASTER.password),
-    name: MASTER.name,
-    phone: '0770650387',
-    avatar: 'star',
-    accent: 'green',
-    provider: 'email'
-  }
-}
-
 function emptyMeta() {
   return {
     extraProducts: [],
@@ -88,12 +103,32 @@ function emptyMeta() {
   }
 }
 
+/**
+ * LOT 1.19 — le mot de passe des comptes de démonstration **en mode local**.
+ *
+ * Les trois comptes ci-dessous portaient chacun un mot de passe en clair — ce
+ * commentaire ne répète volontairement aucune des trois valeurs, comme en tête
+ * de fichier pour le compte maître : elles sont embarquées dans le bundle public
+ * par Vite, et surtout elles étaient **identiques aux empreintes seedées côté
+ * serveur**, donc valables sur l'API déployée. Depuis ce lot, le serveur ne seed plus aucune
+ * valeur publiée : il suit `DEMO_PASSWORD` et verrouille les comptes si la
+ * variable est absente (`server/db.js`, `demoAccounts()`).
+ *
+ * Ce qui reste ici ne concerne **que le mode local** : un bac à sable dans ce
+ * navigateur, sans serveur, sans sauvegarde, avec un hachage FNV-1a assumé comme
+ * faible (encart `demoModeNote` de `AuthPanel`). Une valeur unique, explicite,
+ * documentée — et qui n'ouvre rien d'autre que ce bac à sable.
+ *
+ * ⚠️ À ne jamais choisir comme `DEMO_PASSWORD` côté serveur : cette chaîne est
+ * dans le bundle public.
+ */
+export const DEMO_LOCAL_PASSWORD = 'demo-local'
+
 export const DEMO_CUSTOMERS = [
   {
     id: 'demo-karim',
     role: 'customer',
     email: 'karim.oran@demo.dz',
-    passwordPlain: 'karim31',
     name: 'Karim B.',
     phone: '0550123456',
     avatar: 'chip',
@@ -105,7 +140,6 @@ export const DEMO_CUSTOMERS = [
     id: 'demo-amina',
     role: 'customer',
     email: 'amina.castors@demo.dz',
-    passwordPlain: 'amina31',
     name: 'Amina K.',
     phone: '0669174617',
     avatar: 'card',
@@ -117,7 +151,6 @@ export const DEMO_CUSTOMERS = [
     id: 'demo-yacine',
     role: 'customer',
     email: 'yacine.pc@demo.dz',
-    passwordPlain: 'yacine31',
     name: 'Yacine M.',
     phone: '0770650388',
     avatar: 'pad',
@@ -128,12 +161,13 @@ export const DEMO_CUSTOMERS = [
 ]
 
 function demoUser(seed) {
-  const { passwordPlain, ...rest } = seed
-  return { ...rest, password: hashPass(passwordPlain) }
+  // LOT 1.19 : plus de mot de passe par compte — une seule valeur locale,
+  // partagée par les trois fixtures (voir `DEMO_LOCAL_PASSWORD`).
+  return { ...seed, password: hashPass(DEMO_LOCAL_PASSWORD) }
 }
 
-export function loadUsers(storage) {
-  const raw = storage?.getItem?.(KEY_USERS)
+export function loadUsers(storage = safeStorage) {
+  const raw = asSafeStorage(storage).getItem(KEY_USERS)
   let list = []
   if (raw) {
     try {
@@ -144,10 +178,9 @@ export function loadUsers(storage) {
     }
   }
   let changed = false
-  if (!list.some((u) => u.role === 'master')) {
-    list = [masterUser(), ...list]
-    changed = true
-  }
+  // LOT 1.1 : le maître n'est plus seedé en local (voir le commentaire en tête
+  // de fichier). Un `master` déjà présent dans un `localStorage` antérieur est
+  // conservé tel quel — il ne donne accès à rien que le mode local.
   DEMO_CUSTOMERS.forEach((d) => {
     if (!list.some((u) => u.id === d.id || (d.email && u.email === d.email))) {
       list = [...list, demoUser(d)]
@@ -158,23 +191,16 @@ export function loadUsers(storage) {
   return list
 }
 
-export function phoneCarrier(value) {
-  const p = normalizePhone(value)
-  if (!isDzPhone(p)) return null
-  if (p.startsWith('05')) return 'ooredoo'
-  if (p.startsWith('06')) return 'mobilis'
-  if (p.startsWith('07')) return 'djezzy'
-  return null
-}
+// `phoneCarrier` : ré-exporté plus haut (LOT 6.2 / Q2).
 
-export function saveUsers(storage, users) {
-  storage?.setItem?.(KEY_USERS, JSON.stringify(users))
+export function saveUsers(storage = safeStorage, users) {
+  asSafeStorage(storage).setItem(KEY_USERS, JSON.stringify(users))
 }
 
 /** P10 (P7-14) : recherches sauvées persistées (bornées à 10). */
-export function loadSavedSearches(storage = typeof localStorage !== 'undefined' ? localStorage : null) {
+export function loadSavedSearches(storage = safeStorage) {
   try {
-    const raw = storage?.getItem?.(KEY_SAVED_SEARCHES)
+    const raw = asSafeStorage(storage).getItem(KEY_SAVED_SEARCHES)
     if (!raw) return []
     const list = JSON.parse(raw)
     return Array.isArray(list) ? list.slice(0, MAX_SAVED_SEARCHES) : []
@@ -183,20 +209,17 @@ export function loadSavedSearches(storage = typeof localStorage !== 'undefined' 
   }
 }
 
-export function saveSavedSearches(storage = typeof localStorage !== 'undefined' ? localStorage : null, list = []) {
+export function saveSavedSearches(storage = safeStorage, list = []) {
   // P15 (#5) : `null` explicite (c'était l'appel de SearchPage) écrasait le
   // paramètre par défaut → AUCUNE persistance, toute la feature P7-14 était
   // inopérante. On retombe sur localStorage quand aucun storage n'est fourni.
-  const store = storage || (typeof localStorage !== 'undefined' ? localStorage : null)
-  try {
-    store?.setItem?.(KEY_SAVED_SEARCHES, JSON.stringify((list || []).slice(0, MAX_SAVED_SEARCHES)))
-  } catch {
-    /* quota/iframe : les recherches sauvées restent en mémoire */
-  }
+  // `asSafeStorage` couvre le quota et le stockage bloqué : les recherches sauvées
+  // restent en mémoire pour la page, sans `try/catch` local.
+  asSafeStorage(storage).setItem(KEY_SAVED_SEARCHES, JSON.stringify((list || []).slice(0, MAX_SAVED_SEARCHES)))
 }
 
-export function loadSession(storage) {
-  const raw = storage?.getItem?.(KEY_SESSION)
+export function loadSession(storage = safeStorage) {
+  const raw = asSafeStorage(storage).getItem(KEY_SESSION)
   if (!raw) return null
   try {
     return JSON.parse(raw)
@@ -205,13 +228,14 @@ export function loadSession(storage) {
   }
 }
 
-export function saveSession(storage, session) {
-  if (!session) storage?.removeItem?.(KEY_SESSION)
-  else storage?.setItem?.(KEY_SESSION, JSON.stringify(session))
+export function saveSession(storage = safeStorage, session) {
+  const st = asSafeStorage(storage)
+  if (!session) st.removeItem(KEY_SESSION)
+  else st.setItem(KEY_SESSION, JSON.stringify(session))
 }
 
-export function loadMeta(storage) {
-  const raw = storage?.getItem?.(KEY_META)
+export function loadMeta(storage = safeStorage) {
+  const raw = asSafeStorage(storage).getItem(KEY_META)
   if (!raw) return emptyMeta()
   try {
     const parsed = JSON.parse(raw)
@@ -221,8 +245,8 @@ export function loadMeta(storage) {
   }
 }
 
-export function saveMeta(storage, meta) {
-  storage?.setItem?.(KEY_META, JSON.stringify(meta))
+export function saveMeta(storage = safeStorage, meta) {
+  asSafeStorage(storage).setItem(KEY_META, JSON.stringify(meta))
 }
 
 export function registerEmail(users, { email, password, name, phone } = {}) {
@@ -338,7 +362,13 @@ export function addProduct(meta, { name, price, category, brand, stock, short, p
   const title = String(name || '').trim()
   const n = Number(price)
   if (!title || !Number.isFinite(n) || n < 0) return { ok: false, error: 'product' }
-  const cat = String(category || 'accessories')
+  // Absent → repli `accessories` ; présent mais hors liste (chaîne vide
+  // comprise) → refus, comme à l'API : la même règle des deux côtés.
+  const cat = category == null ? 'accessories' : String(category)
+  // LOT 8.10 (A10) : même refus qu'à l'API — `category` doit être un id de
+  // `CATEGORIES` (hors `all`). Sans cela, le mode local enregistrait un produit
+  // invisible dans tous les filtres de la vitrine et dans le Builder.
+  if (!isKnownCategory(cat)) return { ok: false, error: 'category' }
   // P22 (bug H) : un SKU saisi doit être libre — dans les produits du master
   // comme dans le catalogue de base.
   const manualSku = String(sku || '').trim()
@@ -362,7 +392,11 @@ export function addProduct(meta, { name, price, category, brand, stock, short, p
     short: String(short || title),
     brand: String(brand || 'PC Star'),
     category: cat,
-    kind: cat === 'repair' ? 'service' : cat === 'laptop' || cat === 'ready' ? 'machine' : cat === 'accessories' ? 'accessory' : 'part',
+    // LOT 8.10 (A10) : la règle inline (repair→service, laptop/ready→machine,
+    // accessories→accessory, sinon part) est maintenant partagée avec le
+    // serveur via `kindForCategory` — un produit créé via l'API et le même créé
+    // hors ligne ne divergent plus.
+    kind: kindForCategory(cat),
     price: Math.round(n),
     stock: Math.max(0, Math.round(Number(stock) || 0)),
     rating: 0,

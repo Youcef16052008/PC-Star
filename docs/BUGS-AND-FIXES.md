@@ -1622,6 +1622,15 @@ Compte des alertes pour une commande : **3** — 1 notification navigateur
 - **B22** — Identifiants master/démo présents dans le bundle client et le serveur.
   Conception démo assumée et documentée (`DEPLOY-VERCEL.md`) ; à retirer pour une prod
   réelle.
+  → **jugement révisé, et traité** : le maître au **lot 1.1** (`MASTER_EMAIL` /
+  `MASTER_PASSWORD`, aucun repli codé en dur, plus de `MASTER` côté client), les
+  trois comptes de démonstration au **lot 1.19** (`DEMO_PASSWORD`, comptes
+  verrouillés et `401 demo_locked` quand la variable est absente, `passwordPlain`
+  retiré du bundle). L'audit A→Z et la vérification du « lot 0 » du 16/09 ont
+  montré que « conception démo assumée » ne tenait pas : ces comptes ouvraient de
+  **vraies sessions** sur l'API déployée (commandes, profil, historique), et une
+  rotation menée sans sortir les valeurs du dépôt ne fait que remplacer un secret
+  publié par un autre. Détail : `docs/PLAN-CORRECTIONS.md` §9 « lot 1.19 ».
 - **B23** — Historique des commandes plafonné à 500 (`server/catalog.js`). En Vercel
   `/tmp` est éphémère de toute façon (documenté dans `DEPLOY-VERCEL.md`).
 

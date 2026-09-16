@@ -13,9 +13,14 @@
  * Configuration WhatsApp (variables d'environnement) :
  *   WHATSAPP_TOKEN             jeton permanent de l'app Meta
  *   WHATSAPP_PHONE_NUMBER_ID   identifiant du numéro émetteur
- *   WHATSAPP_RECIPIENT         destinataire(s), séparés par virgule ou espace.
- *                              Défaut : les DEUX numéros du magasin
- *                              (STORE_WHATSAPP) — le 07… et le 06….
+ *   WHATSAPP_RECIPIENT         destinataire(s), séparés par virgule, espace ou
+ *                              point-virgule. Format international recommandé
+ *                              (`213770650387`) ; le format local algérien
+ *                              (`0770650387`) est **normalisé** automatiquement
+ *                              (LOT 8.6 / A6). Défaut : les DEUX numéros du
+ *                              magasin (STORE_WHATSAPP) — le 07… et le 06….
+ *                              Une entrée non normalisable est écartée et
+ *                              signalée (démarrage + /api/health).
  *   WHATSAPP_API_VERSION       défaut v21.0
  *
  * P20 : le second numéro (06…) est tout aussi important que le premier. Une
@@ -29,39 +34,108 @@ import { waNumber } from '../src/orderLogic.js'
 const GRAPH_BASE = 'https://graph.facebook.com'
 
 /**
- * Liste des destinataires, dédupliquée et nettoyée.
+ * LOT 8.6 (A6) — normalisation d'UN destinataire WhatsApp.
  *
- * `WHATSAPP_RECIPIENT` accepte plusieurs numéros (virgule, espace ou
- * point-virgule) ; sans la variable, on prend **les deux numéros du magasin**
- * définis dans `src/data.js` — source unique partagée avec les boutons de la
- * page « À propos ».
+ * L'API Cloud de Meta exige le format international **sans « + »**
+ * (`213770650387`). Or `WHATSAPP_RECIPIENT` était passé tel quel après un
+ * simple `replace(/\D/g, '')` : un numéro saisi au format local algérien
+ * (`0770650387`, celui que le site affiche partout et que la documentation de
+ * déploiement donnait en exemple) partait vers Meta sous cette forme et était
+ * **refusé** — donc aucune alerte de commande, en silence, jusqu'à ce que le
+ * maître regarde les logs. Vérifié à l'audit :
+ * `whatsappRecipients({ WHATSAPP_RECIPIENT: '0770650387' })` renvoyait
+ * `['0770650387']` alors que `waNumber('0770650387')` — déjà présent dans le
+ * dépôt pour les liens `wa.me` (P14) — donne `213770650387`.
+ *
+ * Règles, dans l'ordre :
+ *  1. `waNumber()` traite tous les formats algériens : `0XXXXXXXXX`,
+ *     `XXXXXXXXX`, `213XXXXXXXXX`, `00213…`, `+213 …` ;
+ *  2. sinon, un numéro de 8 à 15 chiffres ne commençant pas par 0 est gardé
+ *     tel quel : c'est un destinataire étranger déjà international (un
+ *     fournisseur au `+33…` reste joignable — le magasin n'a pas à être
+ *     limité à l'Algérie) ;
+ *  3. sinon l'entrée est **invalide** : elle est écartée et remontée dans
+ *     `invalid` pour être journalisée au démarrage et dans `/api/health`.
+ *     Un numéro qui commence par 0 après retrait du préfixe `00` n'est pas
+ *     international (ex. `0123456789`) : l'envoyer serait un échec garanti.
+ *
+ * Une entrée sans AUCUN chiffre (mot résiduel, champ vide) est ignorée en
+ * silence : ce n'est pas un numéro mal écrit, c'est du bruit de saisie.
+ *
+ * @returns {{ok: true, number: string} | {ok: false, digits: string}}
  */
-export function whatsappRecipients(env = process.env) {
+function normalizeRecipient(value) {
+  const text = String(value == null ? '' : value).trim()
+  let digits = text.replace(/\D/g, '')
+  if (!digits) return { ok: false, digits: '', silent: true }
+  // `00` est le préfixe international écrit à la main (« 00213… », « 0033… »).
+  if (digits.startsWith('00')) digits = digits.slice(2)
+  const dz = waNumber(digits)
+  if (dz) return { ok: true, number: dz }
+  if (digits.length >= 8 && digits.length <= 15 && !digits.startsWith('0')) return { ok: true, number: digits }
+  return { ok: false, digits }
+}
+
+/**
+ * Liste des destinataires **normalisés**, avec les entrées rejetées.
+ *
+ * `WHATSAPP_RECIPIENT` accepte plusieurs numéros (virgule, point-virgule ou
+ * espace) ; sans la variable, on prend **les deux numéros du magasin** définis
+ * dans `src/data.js` — source unique partagée avec les boutons de la page
+ * « À propos ». Chaque numéro passe par `normalizeRecipient` (LOT 8.6 / A6) :
+ * la liste renvoyée est donc directement envoyable à Meta, et un même numéro
+ * écrit au format local puis au format international n'apparaît qu'une fois.
+ *
+ * @returns {{valid: string[], invalid: Array<{raw: string, digits: string}>}}
+ */
+function resolveRecipients(env) {
   const raw = String(env.WHATSAPP_RECIPIENT || '').trim()
   const source = raw ? raw.split(/[,;]+/) : STORE_WHATSAPP.map((n) => n.number)
-  const out = []
+  const valid = []
+  const invalid = []
   const push = (value) => {
-    const num = String(value || '').replace(/\D/g, '')
-    // Un numéro fait 9 chiffres en local ou 11 à 13 en international ; on borne
-    // largement pour accepter les indicatifs tout en refusant les résidus.
-    if (num.length >= 8 && num.length <= 15 && !out.includes(num)) out.push(num)
+    const r = normalizeRecipient(value)
+    if (!r.ok) {
+      // Le bruit sans chiffres n'est pas signalé (voir `normalizeRecipient`).
+      if (!r.silent) invalid.push({ raw: String(value == null ? '' : value).trim(), digits: r.digits })
+      return
+    }
+    if (!valid.includes(r.number)) valid.push(r.number)
   }
   for (const part of source) {
     const joined = String(part || '').replace(/\D/g, '')
     // Un SEUL numéro peut contenir des espaces (« 213 550 123 456 ») : on le
     // recolle d'abord. Si le résultat dépasse 15 chiffres, c'est en réalité
     // plusieurs numéros séparés par des espaces → on les prend un par un.
-    if (joined.length <= 15) push(joined)
+    if (joined.length <= 15) push(part)
     else for (const token of String(part || '').trim().split(/\s+/)) push(token)
   }
-  return out
+  return { valid, invalid }
+}
+
+/**
+ * Destinataires prêts à envoyer (format international, dédupliqués).
+ * Voir `resolveRecipients` pour les entrées rejetées.
+ */
+export function whatsappRecipients(env = process.env) {
+  return resolveRecipients(env).valid
+}
+
+/**
+ * LOT 8.6 (A6) — entrées de `WHATSAPP_RECIPIENT` qui ne sont pas des numéros
+ * exploitables. Vide en régime normal ; sert au démarrage et à `/api/health`
+ * pour qu'une faute de frappe ne se traduise plus par une alerte perdue.
+ */
+export function whatsappRecipientIssues(env = process.env) {
+  return resolveRecipients(env).invalid
 }
 
 /** Configuration WhatsApp courante. `enabled` = les 2 jetons obligatoires sont là. */
 export function whatsappConfig(env = process.env) {
   const token = String(env.WHATSAPP_TOKEN || '').trim()
   const phoneNumberId = String(env.WHATSAPP_PHONE_NUMBER_ID || '').trim()
-  const recipients = whatsappRecipients(env)
+  const resolved = resolveRecipients(env)
+  const recipients = resolved.valid
   return {
     enabled: Boolean(token && phoneNumberId),
     token,
@@ -70,6 +144,10 @@ export function whatsappConfig(env = process.env) {
     // numéro pour compatibilité (logs, anciens appels).
     recipients,
     recipient: recipients[0] || '',
+    // LOT 8.6 (A6) : entrées de WHATSAPP_RECIPIENT écartées (numéro non
+    // normalisable). Une configuration invalide doit se voir AU DÉMARRAGE, pas
+    // à la première commande perdue.
+    invalidRecipients: resolved.invalid,
     apiVersion: String(env.WHATSAPP_API_VERSION || 'v21.0').trim()
   }
 }

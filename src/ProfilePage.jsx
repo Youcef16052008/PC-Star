@@ -13,6 +13,13 @@ export default function ProfilePage({ t, user, users, onUsers, onUser, setToast,
   const [busy, setBusy] = useState(false)
   const [pw, setPw] = useState('')
   const [pw2, setPw2] = useState('')
+  // LOT 1.4 : mot de passe ACTUEL — exigé par le serveur (P16 #13) et jamais
+  // envoyé par le client, d'où un 403 systématique.
+  const [pwCurrent, setPwCurrent] = useState('')
+  // LOT 1.5 : le serveur révoque les AUTRES sessions et renvoie leur nombre ;
+  // on le dit à l'utilisateur au lieu de le laisser découvrir des appareils
+  // déconnectés sans explication.
+  const [revoked, setRevoked] = useState(0)
 
   const carrier = phoneCarrier(phone)
   const carrierLabel =
@@ -38,7 +45,16 @@ export default function ProfilePage({ t, user, users, onUsers, onUser, setToast,
       if (apiOnline && mode === 'api') {
         const r = await api.updateMe({ name, phone, wilaya })
         if (!r.ok) {
-          setErr(t(r.data?.error === 'phone' ? 'phoneInvalid' : 'authErrorAuth'))
+          // LOT 1.9 : messages distincts — `t()` retombe sur la clé inconnue,
+          // donc un code non mappé afficherait du texte technique.
+          const code = r.data?.error
+          setErr(
+            code === 'phone'
+              ? t('phoneInvalid')
+              : code === 'name_too_long'
+                ? t('authErrorName')
+                : t('authErrorAuth')
+          )
           return
         }
         onUser(r.data.user)
@@ -60,6 +76,14 @@ export default function ProfilePage({ t, user, users, onUsers, onUser, setToast,
 
   async function savePassword(e) {
     e.preventDefault()
+    // LOT 1.4 : contrôle local du mot de passe actuel — le serveur renvoie
+    // 403 `current_password` s'il est faux, mais un aller-retour évitable pour
+    // un champ vide est une mauvaise expérience (et consomme le rate-limit
+    // de la route, 5 appels / 10 min).
+    if (!pwCurrent) {
+      setErr(t('authErrorCurrentPassword'))
+      return
+    }
     if (pw.length < 6) {
       setErr(t('authErrorPassword'))
       return
@@ -72,13 +96,22 @@ export default function ProfilePage({ t, user, users, onUsers, onUser, setToast,
     setErr('')
     try {
       if (apiOnline && mode === 'api') {
-        const r = await api.changePassword(pw)
+        const r = await api.changePassword(pw, pwCurrent)
         if (!r.ok) {
-          setErr(t('authErrorPassword'))
+          // LOT 1.4 : distinguer le mot de passe actuel refusé (403) du nouveau
+          // mot de passe trop court (400) — avant, tout échec affichait
+          // « 6 caractères minimum », y compris pour un `current` faux.
+          setErr(
+            r.data?.error === 'current_password'
+              ? t('authErrorCurrentPassword')
+              : t('authErrorPassword')
+          )
           return
         }
+        setPwCurrent('')
         setPw('')
         setPw2('')
+        setRevoked(Number(r.data?.revoked) || 0)
         setToast(t('passwordChanged'))
         return
       }
@@ -161,17 +194,70 @@ export default function ProfilePage({ t, user, users, onUsers, onUser, setToast,
               <div className="card-body p-4">
                 <h2 className="h6">{t('passwordChange')}</h2>
                 <form onSubmit={savePassword} className="row g-2">
+                  {/* LOT 1.4 : champ « mot de passe actuel », avec <label> réel
+                      (les deux autres champs n'ont qu'un placeholder — reproduit
+                      dans le rapport accessibilité ; on ne l'aggrave pas). */}
                   <div className="col-12">
-                    <input className="form-control" type="password" value={pw} onChange={(e) => setPw(e.target.value)} placeholder={t('authPassword')} minLength={6} />
+                    <label className="form-label small mb-1" htmlFor="pf-pw-current">
+                      {t('currentPassword')}
+                    </label>
+                    <input
+                      id="pf-pw-current"
+                      className="form-control"
+                      type="password"
+                      value={pwCurrent}
+                      onChange={(e) => setPwCurrent(e.target.value)}
+                      placeholder={t('currentPassword')}
+                      autoComplete="current-password"
+                      required
+                    />
                   </div>
                   <div className="col-12">
-                    <input className="form-control" type="password" value={pw2} onChange={(e) => setPw2(e.target.value)} placeholder={t('passwordConfirm')} minLength={6} />
+                    <label className="form-label small mb-1" htmlFor="pf-pw-new">
+                      {t('authPassword')}
+                    </label>
+                    <input
+                      id="pf-pw-new"
+                      className="form-control"
+                      type="password"
+                      value={pw}
+                      onChange={(e) => setPw(e.target.value)}
+                      placeholder={t('authPassword')}
+                      minLength={6}
+                      autoComplete="new-password"
+                      required
+                    />
+                  </div>
+                  <div className="col-12">
+                    <label className="form-label small mb-1" htmlFor="pf-pw-confirm">
+                      {t('passwordConfirm')}
+                    </label>
+                    <input
+                      id="pf-pw-confirm"
+                      className="form-control"
+                      type="password"
+                      value={pw2}
+                      onChange={(e) => setPw2(e.target.value)}
+                      placeholder={t('passwordConfirm')}
+                      minLength={6}
+                      autoComplete="new-password"
+                      required
+                    />
                   </div>
                   <div className="col-12">
                     <button className="btn btn-outline-success w-100" type="submit" disabled={busy}>
                       {t('passwordChange')}
                     </button>
                   </div>
+                  {/* LOT 1.5 : confirmation explicite de la révocation des autres
+                      sessions (le serveur renvoie `revoked`). */}
+                  {revoked > 0 && (
+                    <div className="col-12">
+                      <p className="small text-success mb-0" role="status">
+                        {t('passwordRevokedSessions')} ({revoked})
+                      </p>
+                    </div>
+                  )}
                 </form>
               </div>
             </div>

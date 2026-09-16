@@ -1,4 +1,4 @@
-import { specOf } from './data.js'
+import { STORE, money, specOf } from './data.js'
 
 /**
  * Pure order helpers (shared client tests + local fallback).
@@ -88,6 +88,37 @@ export function canTransition(from, to) {
   return allowed.includes(to)
 }
 
+/**
+ * LOT 8.3 (A3) — une commande est-elle annulable **depuis cet écran** ?
+ *
+ * Deux conditions, une seule règle (la même pour le bouton de la page
+ * « Commandes » et pour le garde locale de `cancelMyOrder`) :
+ *  · le statut doit être `new`/`pending` — la règle historique, côté serveur
+ *    comme client (`ORDER_TRANSITIONS` n'autorise plus l'annulation au-delà) ;
+ *  · la commande doit être **revendicable**. Depuis le lot 4.4 (R20), une
+ *    commande guest déposée au numéro d'un compte existant est marquée
+ *    `claimable: false` : le serveur l'écarte de `GET /api/me/orders` ET répond
+ *    **404** à son annulation. Le client recevait ce drapeau, le persistait dans
+ *    sa copie locale, puis l'ignorait — la page affichait un bouton « Annuler »
+ *    qui échouait à tous les coups avec un message générique
+ *    (« L'annulation a échoué »), sans dire ni pourquoi ni quoi faire.
+ *
+ * `claimable` absent veut dire revendicable (commandes antérieures au lot 4.4,
+ * commandes locales hors-ligne, commandes du titulaire du compte) : le
+ * comportement habituel est préservé.
+ *
+ * @param {{status?: string, claimable?: boolean}} order
+ * @returns {boolean}
+ */
+export function canCancelHere(order) {
+  // Pas d'objet → pas d'annulation : un `undefined` qui traîne (commande
+  // supprimée entre-temps) ne doit pas être traité comme une commande neuve.
+  if (!order || typeof order !== 'object') return false
+  const status = order?.status || 'new'
+  if (status !== 'new' && status !== 'pending') return false
+  return order?.claimable !== false
+}
+
 export function statusLabelKey(status) {
   const s = status === 'pending' ? 'new' : status
   return `orderStatus_${s}`
@@ -129,15 +160,26 @@ export function localDay(date = new Date()) {
 
 /**
  * P8 (P7-2) : classification d'un échec de `api.postOrder`.
- * - 'offline'  : backend injoignable → SEUL cas où le repli local est légitime.
- * - 'stock'    : 409/rupture → message stock, stock actualisé.
- * - 'rate'     : 429 → message d'attente (retryAfter s), panier conservé.
- * - 'server'   : 5xx/autre → message erreur serveur, panier conservé.
+ * - 'offline'     : backend injoignable → SEUL cas où le repli local est légitime.
+ * - 'unavailable' : 409 — produit retiré de la vente par le maître (LOT 8.1 / A1).
+ * - 'unknown'     : 400 — id inconnu du catalogue serveur (LOT 8.2 / A2).
+ * - 'stock'       : 409/rupture → message stock, stock actualisé.
+ * - 'rate'        : 429 → message d'attente (retryAfter s), panier conservé.
+ * - 'server'      : 5xx/autre → message erreur serveur, panier conservé.
  * (un succès est géré avant l'appel — ne pas passer un r.ok.)
+ *
+ * LOT 8.1 + 8.2 : les deux nouveaux refus sont testés AVANT la rupture, parce
+ * qu'ils partagent son statut 409 (`unavailable`) ou un corps `error` distinct :
+ * sans cet ordre, un produit retiré de la vente aurait été annoncé comme une
+ * simple rupture — donc « réessayez plus tard » pour un article qui ne
+ * reviendra pas, et le panier aurait été conservé tel quel.
  */
 export function orderApiFailure(r) {
   if (!r || r.offline) return { kind: 'offline' }
-  if (r.status === 409 || r.data?.error === 'stock') {
+  const err = r.data?.error
+  if (err === 'unavailable') return { kind: 'unavailable', lines: r.data?.unavailable || [] }
+  if (err === 'unknown_product') return { kind: 'unknown', lines: r.data?.unknown || [] }
+  if (r.status === 409 || err === 'stock') {
     return { kind: 'stock', shortages: r.data?.shortages || [] }
   }
   if (r.status === 429) return { kind: 'rate', retryAfter: r.data?.retryAfter || null }
@@ -145,21 +187,194 @@ export function orderApiFailure(r) {
 }
 
 /**
- * P8 (P7-2) : prochain code local de commande pour `date` — dérivé du max des
+ * LOT 8.1 (A1) + LOT 8.2 (A2) — message qui NOMME les lignes refusées.
+ *
+ * Le serveur renvoie les lignes en cause (`{ id, name }`) : un produit retiré
+ * de la vente par le maître, ou un id qu'il ne connaît pas (catalogue changé
+ * depuis l'ouverture de l'onglet, commande rejouée). Un message générique
+ * laisserait l'utilisateur renvoyer exactement la même commande, indéfiniment.
+ * Comme `shortageMessage`, la liste est bornée (`max`, 3) pour rester lisible.
+ *
+ * @param {Array<{id?: string, name?: string}>} lines
+ * @param {(key: string, vars?: object) => string} t
+ * @param {'unavailable'|'unknown'} kind
+ */
+export function orderBlockedMessage(lines, t, kind = 'unavailable', { max = 3 } = {}) {
+  const list = (Array.isArray(lines) ? lines : []).filter(Boolean)
+  const detail = kind === 'unknown' ? 'orderUnknownDetail' : 'orderUnavailableDetail'
+  if (!list.length) return t(kind === 'unknown' ? 'orderUnknown' : 'orderUnavailable')
+  const shown = list.slice(0, Math.max(1, max)).map((l) => l.name || l.id || '?')
+  if (list.length > shown.length) shown.push(t('stockShortMore', { n: list.length - shown.length }))
+  return t(detail, { lines: shown.join(' · ') })
+}
+
+/**
+ * LOT 8.1 (A1) + LOT 8.2 (A2) — retire du panier les lignes refusées.
+ *
+ * Le refus serveur est définitif pour ces lignes : les laisser dans le panier
+ * ferait échouer chaque tentative suivante (et le repli hors-ligne finirait par
+ * créer une commande locale sur un article qui n'existe plus). Le reste du
+ * panier est conservé — l'utilisateur peut commander les autres lignes.
+ *
+ * @param {Array<{id: string}>} cart
+ * @param {Array<{id?: string}|string>} lines lignes refusées (ou simples ids)
+ * @returns {Array} nouveau panier, sans les lignes refusées
+ */
+export function dropCartLines(cart, lines) {
+  const list = Array.isArray(cart) ? cart : []
+  const ids = new Set(
+    (Array.isArray(lines) ? lines : [])
+      .map((l) => String(l?.id ?? l ?? ''))
+      .filter(Boolean)
+  )
+  if (!ids.size) return list
+  return list.filter((c) => !ids.has(String(c?.id || '')))
+}
+
+/**
+ * LOT 2.2 (F3 + F4) — prochain code de commande, dérivé du **max** des
+ * séquences du jour. Fonction PARTAGÉE : le client (repli hors-ligne) et le
+ * serveur (`server/catalog.js`) appellent exactement le même algorithme.
+ *
+ * Avant :
+ *  · le client dérivait déjà du max (P8 / P7-2) ;
+ *  · le serveur comptait les commandes du jour (`sameDay.length + 1`).
+ *
+ * Le comptage produisait des collisions dès qu'une commande du jour était
+ * supprimée (`DELETE /api/orders/:code`, P19) : 0001, 0002, 0003 créées, 0002
+ * supprimée → la suivante recomptait 2 + 1 = **0003, déjà attribué**. Deux
+ * `PS-20260915-0003` ont été observés en base pendant l'audit. Le code est la
+ * clé affichée au comptoir, reprise dans l'export CSV, le message WhatsApp et
+ * `PATCH /api/orders/:code` (qui ne traite que la première occurrence trouvée) :
+ * un doublon rend la commande ambiguë partout.
+ *
+ * `day` : 'YYYY-MM-DD'. Toute autre valeur → journée locale courante.
+ */
+/**
+ * LOT 5.2 (U2) — message d'échec de stock qui nomme les lignes en cause.
+ *
+ * Le serveur renvoie `shortages` avec le 409 (`{ id, name, need, left }`) :
+ * quelle pièce manque, combien étaient demandées, combien il en reste. Le front
+ * jetait tout cela et affichait « Stock insuffisant » — à l'utilisateur de
+ * deviner quelle ligne de son panier posait problème, puis de tester des
+ * quantités au hasard. Les lignes sont bornées à `max` (3) pour que le toast
+ * reste lisible ; le reliquat est annoncé (« et N autres lignes »).
+ *
+ * @param {Array<{id?: string, name?: string, need?: number, left?: number}>} shortages
+ * @param {(key: string, vars?: object) => string} t
+ */
+export function shortageMessage(shortages, t, { max = 3 } = {}) {
+  const list = (Array.isArray(shortages) ? shortages : []).filter(Boolean)
+  if (!list.length) return t('stockShort')
+  const shown = list.slice(0, Math.max(1, max)).map((s) =>
+    t('stockShortLine', { name: s.name || s.id || '?', need: s.need ?? '?', left: s.left ?? 0 })
+  )
+  if (list.length > shown.length) shown.push(t('stockShortMore', { n: list.length - shown.length }))
+  return t('stockShortDetail', { lines: shown.join(' · ') })
+}
+
+/**
+ * Limite pratique du texte d'un lien `wa.me`.
+ *
+ * LOT 5.7 (U7) : WhatsApp/`wa.me` tronque les URL très longues (de l'ordre de
+ * 4 Ko une fois le texte encodé) — et la troncature tombe où elle veut, en
+ * général au milieu du récapitulatif, sans aucun avertissement. Un panier de
+ * 40 lignes dépassait cette limite : le commerçant recevait un message coupé
+ * **sans le savoir**, et le total pouvait disparaître avec. On garde une marge
+ * sous les 4 Ko (le texte est ensuite `encodeURIComponent`-é, ce qui gonfle les
+ * accents et l'arabe).
+ */
+export const WA_TEXT_LIMIT = 3800
+
+/**
+ * Message WhatsApp du panier — composition + garde de longueur.
+ *
+ * Seules les LIGNES DE PANIER sont bornées (c'est la partie non bornée du
+ * message) : l'en-tête, l'adresse, le total et les coordonnées restent
+ * intacts, et une mention dit combien de lignes ont été retirées. Un message
+ * plus court mais complet vaut mieux qu'un message long coupé au hasard.
+ *
+ * @param {Array<{qty:number,name:string,sku:string}>} cart
+ * @param {number} total
+ * @param {{name?:string,phone?:string,slot?:string}} pickup
+ * @param {(key: string, vars?: object) => string} t
+ * @param {{ limit?: number, lang?: string }} [opts] `lang` : langue de
+ *   l'interface — LOT 8.8 (A8), le total du message suit la même locale que le
+ *   reste de l'écran (défaut : français).
+ */
+export function buildWaMessage(cart, total, pickup, t, { limit = WA_TEXT_LIMIT, lang = 'fr' } = {}) {
+  const lines = (Array.isArray(cart) ? cart : []).map((i) => `${i.qty} x ${i.name} (${i.sku})`)
+  const who = pickup?.name ? `${t('waName')}: ${pickup.name}\n` : ''
+  const tel = pickup?.phone ? `${t('waPhone')}: ${pickup.phone}\n` : ''
+  const when = pickup?.slot ? `${t('waSlot')}: ${pickup.slot}\n` : ''
+  const compose = (kept, note = '') =>
+    t('waMessage', {
+      address: STORE.address,
+      who,
+      tel,
+      when,
+      items: [...lines.slice(0, kept), ...(note ? [note] : [])].join('\n'),
+      total: money(total, lang)
+    })
+
+  let kept = lines.length
+  let msg = compose(kept)
+  while (msg.length > limit && kept > 1) {
+    kept -= 1
+    msg = compose(kept)
+  }
+  if (kept < lines.length) {
+    // La mention « N lignes retirées » est ce qui rend la troncature honnête :
+    // on lui fait de la place en retirant une ligne de plus, plutôt que de
+    // l'abandonner. Elle ne doit en revanche JAMAIS pousser le message hors
+    // limite — la troncature brute qui suivrait mangerait le TOTAL (dernière
+    // ligne du modèle), donc en dernier recours on s'en passe.
+    const note = (n) => t('waTruncated', { n })
+    let noted = compose(kept, note(lines.length - kept))
+    while (noted.length > limit && kept > 1) {
+      kept -= 1
+      noted = compose(kept, note(lines.length - kept))
+    }
+    msg = noted.length <= limit ? noted : compose(kept)
+  }
+  // Cas pathologique : une seule ligne dépasse déjà (nom de produit énorme).
+  // On tronque alors brutalement — un message coupé et signalé vaut mieux qu'un
+  // lien `wa.me` qui ne s'ouvre pas.
+  if (msg.length > limit) msg = `${msg.slice(0, Math.max(0, limit - 1))}…`
+  return msg
+}
+
+export function nextOrderCode(existingCodes = [], day) {
+  const d = /^\d{4}-\d{2}-\d{2}$/.test(String(day || ''))
+    ? // Les composants sont passés un par un : `new Date('YYYY-MM-DD')` serait
+      // interprété en UTC et reculerait d'un jour avant 1 h à Oran (UTC+1).
+      new Date(Number(day.slice(0, 4)), Number(day.slice(5, 7)) - 1, Number(day.slice(8, 10)), 12)
+    : new Date()
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const dd = String(d.getDate()).padStart(2, '0')
+  const re = new RegExp(`^PS-${y}${m}${dd}-(\\d+)$`)
+  let max = 0
+  for (const raw of existingCodes || []) {
+    const mt = re.exec(String(raw?.code || raw || ''))
+    if (mt) max = Math.max(max, parseInt(mt[1], 10))
+  }
+  return makeOrderCode(d, max + 1)
+}
+
+/**
+ * P8 (P7-2) : prochain code LOCAL de commande pour `date` — dérivé du max des
  * codes existants du jour (jamais `length + 1`) : plus de collision quand la
  * liste client ne contient pas toutes les commandes du jour.
+ *
+ * LOT 2.2 : simple adaptation de `nextOrderCode` au paramètre `Date` historique
+ * (les appelants et les tests existants passent une Date, pas une chaîne).
  */
 export function nextLocalOrderCode(existingCodes = [], date = new Date()) {
   const y = date.getFullYear()
   const m = String(date.getMonth() + 1).padStart(2, '0')
-  const day = String(date.getDate()).padStart(2, '0')
-  const re = new RegExp(`^PS-${y}${m}${day}-(\\d+)$`)
-  let max = 0
-  for (const raw of existingCodes) {
-    const mt = re.exec(String(raw || ''))
-    if (mt) max = Math.max(max, parseInt(mt[1], 10))
-  }
-  return makeOrderCode(date, max + 1)
+  const d = String(date.getDate()).padStart(2, '0')
+  return nextOrderCode(existingCodes, `${y}-${m}-${d}`)
 }
 
 /**
@@ -293,6 +508,20 @@ export function applyPreset(catalog, preset) {
  * requête (`editedAfter`) garde son statut local ; toutes les autres prennent
  * la valeur du serveur, qui reste la source de vérité.
  *
+ * LOT 2.3 (F5) : les commandes **locales-only** survivent à la fusion. Avant,
+ * la fonction ne renvoyait que `server.map(...)` : une commande créée pendant
+ * une coupure réseau (repli hors-ligne de `reserve()`, marquée `localOnly`)
+ * disparaissait de l'écran au premier `pull()` réussi — définitivement, puisque
+ * le serveur ne l'a jamais reçue. Elle restait dans `localStorage` mais plus
+ * dans l'état, donc invisible au comptoir comme dans « Mes commandes ».
+ *
+ * Seules les commandes explicitement marquées `localOnly` à la création sont
+ * réinjectées. Ce choix est délibéré : une copie locale d'une commande
+ * supprimée côté serveur (par un autre appareil du maître) n'a PAS ce marqueur
+ * et ne ressuscite donc pas. Si le serveur connaît finalement le même code
+ * (collision de séquence, cf. `nextOrderCode`), c'est l'objet serveur qui gagne
+ * et le marqueur tombe.
+ *
  * @param {Array}  serverOrders  commandes renvoyées par GET /api/orders
  * @param {Array}  localOrders   état local courant
  * @param {number} editedAfter   horodatage du départ de la requête (ms)
@@ -305,7 +534,7 @@ export function mergeServerOrders(serverOrders, localOrders, editedAfter, edited
   if (!editedAt || typeof editedAt.get !== 'function') return server
 
   const localByCode = new Map(local.map((o) => [o?.code, o]))
-  return server.map((o) => {
+  const merged = server.map((o) => {
     const at = editedAt.get(o?.code)
     // Non édité localement, ou édité AVANT le départ de la requête : la réponse
     // du serveur est postérieure au changement, on la prend.
@@ -315,4 +544,11 @@ export function mergeServerOrders(serverOrders, localOrders, editedAfter, edited
     // local (et l'objet serveur pour tout le reste).
     return mine ? { ...o, status: mine.status } : o
   })
+
+  const serverCodes = new Set(server.map((o) => o?.code))
+  const orphans = local.filter((o) => o?.localOnly === true && o?.code && !serverCodes.has(o.code))
+  // Les commandes locales-only sont les plus récentes (créées pendant la
+  // coupure) : devant, comme le reste de la liste triée du plus récent au plus
+  // ancien.
+  return [...orphans, ...merged]
 }

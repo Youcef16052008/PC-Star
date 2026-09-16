@@ -1,16 +1,14 @@
 import { useMemo, useState } from 'react'
 import { BUILDER_SLOTS, STORE, checkCompatibility, money, socketsMatch, specOf, splitWarnings } from './data'
 import { BUILD_PRESETS, applyPreset, buildPowerRecap } from './orderLogic.js'
+import { stockLabel } from './stockLabel.js'
 import PartThumb from './PartThumb.jsx'
 import ContactButton from './ContactPicker.jsx'
 
-function stockLabel(n, t) {
-  if (n <= 0) return { text: t('outOfStock'), cls: 'danger' }
-  if (n <= 3) return { text: `${n} ${t('left')}`, cls: 'warning' }
-  return { text: `${n} ${t('inStore')}`, cls: 'success' }
-}
+// LOT 6.1 (Q1) : `stockLabel` vient de `src/stockLabel.js` — une seule définition,
+// une seule famille de classes (la classe Bootstrap complète, rien à traduire).
 
-export default function BuilderPage({ t, products, build, setBuild, liveStock, onAdd, onOpen, onGoCart, setToast }) {
+export default function BuilderPage({ t, lang = 'fr', products, build, setBuild, liveStock, onAdd, onOpen, onGoCart, setToast }) {
   const catalog = products || []
   const [group, setGroup] = useState('parts')
   const [slotKey, setSlotKey] = useState('motherboard')
@@ -28,6 +26,14 @@ export default function BuilderPage({ t, products, build, setBuild, liveStock, o
   // ni carte mère du catalogue n'a de `compat.socket` en tableau aujourd'hui
   // (seuls les ventirads), mais la comparaison `===` aurait silently validé un
   // couple incompatible si ça arrivait.
+  //
+  // LOT 6.6 (Q6) : P17 n'était appliqué qu'ICI (l'indicateur de compatibilité).
+  // Les listes d'options filtraient autrement — `===` pour les CPU,
+  // `socket.includes(...)` pour les ventirads — donc une carte mère multi-socket
+  // aurait affiché un badge compatible tout en masquant les CPU correspondants
+  // dans le sélecteur. Un seul prédicat désormais (`socketsMatch`), et la même
+  // tolérance que `socketOk` : une donnée de socket absente ne disqualifie pas
+  // (on ne peut pas prouver l'incompatibilité), comme `!cpu || !board || ...`.
   const socketOk = !cpu || !board || socketsMatch(cpu.compat?.socket, board.compat?.socket)
   const requiredReady = BUILDER_SLOTS.filter((s) => s.required).every((s) => build[s.key])
   const total = picked.reduce((s, p) => s + p.price, 0)
@@ -39,10 +45,14 @@ export default function BuilderPage({ t, products, build, setBuild, liveStock, o
   const options = useMemo(() => {
     if (locked) return []
     let list = catalog.filter(slot.pick)
-    if (slot.key === 'cpu' && board) list = list.filter((p) => p.compat?.socket === board.compat?.socket)
+    if (slot.key === 'cpu' && board)
+      list = list.filter((p) => !p.compat?.socket || !board.compat?.socket || socketsMatch(p.compat.socket, board.compat.socket))
     if (slot.key === 'ram' && board) list = list.filter((p) => !board.compat?.memory || p.compat?.memory === board.compat.memory)
     if (slot.key === 'cooler' && board) {
-      list = list.filter((p) => Array.isArray(p.compat?.socket) && p.compat.socket.includes(board.compat?.socket))
+      // LOT 6.6 (Q6) : `includes` ne tolérait qu'un ventirad multi-socket face à
+      // une carte mère mono-socket, et rejetait tout ventirad dont `socket` est
+      // une chaîne. `socketsMatch` gère les deux côtés (chaîne ou tableau).
+      list = list.filter((p) => !p.compat?.socket || !board.compat?.socket || socketsMatch(p.compat.socket, board.compat.socket))
     }
     if (slot.key === 'case' && board) {
       list = list.filter((p) => {
@@ -259,7 +269,7 @@ export default function BuilderPage({ t, products, build, setBuild, liveStock, o
                         <div className="ratio ratio-1x1 photo-frame overflow-hidden">
                           <PartThumb product={p} />
                         </div>
-                        <span className={`badge position-absolute top-0 end-0 m-2 text-bg-${st.cls}`}>{st.text}</span>
+                        <span className={`badge position-absolute top-0 end-0 m-2 ${st.cls}`}>{st.text}</span>
                       </button>
                       <div className="card-body d-flex flex-column">
                         <div className="small text-secondary">
@@ -288,7 +298,7 @@ export default function BuilderPage({ t, products, build, setBuild, liveStock, o
                           </div>
                         )}
                         <div className="d-flex justify-content-between align-items-center gap-2 mt-auto">
-                          <span className="fw-bold text-success">{money(p.price)}</span>
+                          <span className="fw-bold text-success">{money(p.price, lang)}</span>
                           <button
                             type="button"
                             className={`btn btn-sm ${on ? 'btn-outline-success' : 'btn-success'}`}
@@ -324,7 +334,7 @@ export default function BuilderPage({ t, products, build, setBuild, liveStock, o
                         </button>
                         {build[s.key] ? (
                           <span className="d-flex align-items-center gap-2">
-                            <strong className="text-success">{money(build[s.key].price)}</strong>
+                            <strong className="text-success">{money(build[s.key].price, lang)}</strong>
                             <button type="button" className="btn-close btn-sm" aria-label={t('remove')} onClick={() => clearSlot(s.key)} />
                           </span>
                         ) : (
@@ -338,7 +348,7 @@ export default function BuilderPage({ t, products, build, setBuild, liveStock, o
 
               <div className="d-flex justify-content-between align-items-center mb-2">
                 <span className="fw-semibold">{t('total')}</span>
-                <span className="fs-5 fw-bold text-success">{money(total)}</span>
+                <span className="fs-5 fw-bold text-success">{money(total, lang)}</span>
               </div>
               {(power.socket || power.estimateWatts) && (
                 <div className="small border rounded p-2 mb-3 bg-body-tertiary">
@@ -361,8 +371,8 @@ export default function BuilderPage({ t, products, build, setBuild, liveStock, o
                   type="button"
                   className="btn btn-sm btn-outline-secondary"
                   onClick={() => {
-                    const lines = BUILDER_SLOTS.map((s) => build[s.key]).filter(Boolean).map((p) => `- ${p.name} (${money(p.price)})`).join('\n')
-                    const text = t('buildCopyMsg', { lines, total: money(total) })
+                    const lines = BUILDER_SLOTS.map((s) => build[s.key]).filter(Boolean).map((p) => `- ${p.name} (${money(p.price, lang)})`).join('\n')
+                    const text = t('buildCopyMsg', { lines, total: money(total, lang) })
                     // P10 (P7-16) : gestion de l'échec (iframe sans permission
                     // clipboard → la promesse rejetait sans être gérée) + toast
                     // honnête au lieu de « copié » systématique.
@@ -386,7 +396,7 @@ export default function BuilderPage({ t, products, build, setBuild, liveStock, o
                       href: `https://wa.me/${STORE.whatsapp}?text=${encodeURIComponent(
                         t('buildShareMsg', {
                           lines: BUILDER_SLOTS.map((s) => build[s.key]).filter(Boolean).map((p) => `- ${p.name}`).join('\n'),
-                          total: money(total)
+                          total: money(total, lang)
                         })
                       )}`,
                       external: true
@@ -396,7 +406,7 @@ export default function BuilderPage({ t, products, build, setBuild, liveStock, o
                       href: `https://wa.me/${STORE.whatsapp2}?text=${encodeURIComponent(
                         t('buildShareMsg', {
                           lines: BUILDER_SLOTS.map((s) => build[s.key]).filter(Boolean).map((p) => `- ${p.name}`).join('\n'),
-                          total: money(total)
+                          total: money(total, lang)
                         })
                       )}`,
                       external: true

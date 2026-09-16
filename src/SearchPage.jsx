@@ -1,13 +1,11 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { PRICE_PRESETS, SOCKETS, STORE, money, starText } from './data'
 import { loadSavedSearches, saveSavedSearches } from './shopStore.js'
+import { stockLabel } from './stockLabel.js'
 import PartThumb from './PartThumb.jsx'
 
-function stockLabel(n, t) {
-  if (n <= 0) return { text: t('outOfStock'), cls: 'danger' }
-  if (n <= 3) return { text: `${n} ${t('left')}`, cls: 'warning' }
-  return { text: `${n} ${t('inStore')}`, cls: 'success' }
-}
+// LOT 6.1 (Q1) : `stockLabel` vient de `src/stockLabel.js` — une seule définition,
+// une seule famille de classes (la classe Bootstrap complète, rien à traduire).
 
 const EMPTY = {
   q: '',
@@ -38,6 +36,14 @@ export default function SearchPage({ t, products, lines, panels, lang, liveStock
 
   const allLines = lines || []
   const allPanels = panels || []
+
+  // LOT 6.7 (Q7) : la persistance suit l'état au lieu d'être appelée à la main
+  // dans le handler — un double-clic écrit donc les DEUX recherches.
+  // P15 (#5) : `undefined` en 1ᵉʳ argument (un `null` explicite écrasait le
+  // stockage par défaut → la recherche n'était JAMAIS retrouvée au rechargement).
+  useEffect(() => {
+    saveSavedSearches(undefined, saved)
+  }, [saved])
 
   function set(key, value) {
     setFilters((f) => {
@@ -109,11 +115,29 @@ export default function SearchPage({ t, products, lines, panels, lang, liveStock
       .filter(Boolean)
       .join(' · ')
     // P10 (P7-14) : bornée à 10 + persistée (localStorage)
-    const next = [{ id: `s-${Date.now()}`, title, filters: { ...filters, brands: [...filters.brands] } }, ...saved].slice(0, 10)
-    setSaved(next)
-    // P15 (#5) : `null` en 1ᵉʳ argument écrasait le storage par défaut → la
-    // recherche n'était JAMAIS retrouvée au rechargement.
-    saveSavedSearches(undefined, next)
+    //
+    // LOT 6.7 (Q7) — deux défauts d'un coup, et ils se déclenchent ensemble :
+    //
+    //  1. `s-${Date.now()}` n'est PAS unique : deux clics dans la même
+    //     milliseconde donnaient deux recherches au même id → `key` React
+    //     dupliqué (liste mal réconciliée) et toute suppression par id en
+    //     emportait une au hasard. `Math.random` n'est pas un identifiant
+    //     cryptographique, c'est un anti-collision local : deux suffixes
+    //     différents dans la même milliseconde suffisent.
+    //  2. `...saved` lisait l'état du rendu en cours : un double-clic batchait
+    //     deux appels partant de la MÊME liste, donc la seconde recherche
+    //     écrasait la première (une seule des deux était enregistrée).
+    //     L'updateur fonctionnel part de l'état précédent réel.
+    setSaved((prev) =>
+      [
+        {
+          id: `s-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          title,
+          filters: { ...filters, brands: [...filters.brands] }
+        },
+        ...(Array.isArray(prev) ? prev : [])
+      ].slice(0, 10)
+    )
     setSaveNote(t('searchSaved'))
     setTimeout(() => setSaveNote(''), 1600)
   }
@@ -133,7 +157,7 @@ export default function SearchPage({ t, products, lines, panels, lang, liveStock
           <div className="ratio ratio-1x1 photo-frame overflow-hidden">
             <PartThumb product={p} />
           </div>
-          <span className={`badge position-absolute top-0 end-0 m-2 text-bg-${st.cls}`}>{st.text}</span>
+          <span className={`badge position-absolute top-0 end-0 m-2 ${st.cls}`}>{st.text}</span>
         </button>
         <div className="card-body d-flex flex-column">
           <div className="small text-secondary">
@@ -147,7 +171,7 @@ export default function SearchPage({ t, products, lines, panels, lang, liveStock
           ) : null}
           <p className="small text-secondary flex-grow-1">{p.short}</p>
           <div className="d-flex justify-content-between align-items-center gap-2 mt-auto">
-            <span className="fw-bold text-success">{money(p.price)}</span>
+            <span className="fw-bold text-success">{money(p.price, lang)}</span>
             <button type="button" className="btn btn-sm btn-success" disabled={left <= 0} onClick={() => onAdd(p)}>
               {left <= 0 ? t('soldOut') : t('add')}
             </button>
@@ -361,10 +385,10 @@ export default function SearchPage({ t, products, lines, panels, lang, liveStock
                           {p.name}
                         </button>
                         <div className="small text-secondary">{p.short}</div>
-                        <span className={`badge text-bg-${st.cls}`}>{st.text}</span>
+                        <span className={`badge ${st.cls}`}>{st.text}</span>
                       </div>
                       <div className="text-end">
-                        <div className="fw-bold text-success mb-2">{money(p.price)}</div>
+                        <div className="fw-bold text-success mb-2">{money(p.price, lang)}</div>
                         <button type="button" className="btn btn-sm btn-success" disabled={left <= 0} onClick={() => onAdd(p)}>
                           {left <= 0 ? t('soldOut') : t('add')}
                         </button>

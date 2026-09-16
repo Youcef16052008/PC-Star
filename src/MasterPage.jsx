@@ -1,23 +1,83 @@
 import { useEffect, useMemo, useState } from 'react'
-import { CATEGORIES, money } from './data.js'
+// LOT 2.5 (F9) : `PRODUCTS` est le catalogue de base COMPLET — non filtré par
+// stock ni par masquage. C'est la seule source qui contient les SKU des
+// références en rupture ou masquées.
+import { CATEGORIES, PRODUCTS, money } from './data.js'
 import { addPanel, addProduct, deleteCustomer, hideProduct, setProductPhotos, togglePanel } from './shopStore.js'
 import PartThumb from './PartThumb.jsx'
 import * as api from './api.js'
 import { compressDataUrl } from './photoCompress.js'
+// LOT 8.4 (A4) + LOT 8.5 (A5) : les budgets d'octets viennent du module
+// partagé — les mêmes valeurs bornent la compression client, cette garde
+// d'envoi, la borne du corps côté serveur et le refus par photo.
+import { MAX_INPUT_BYTES, MAX_PHOTOS, MAX_UPLOAD_BODY_BYTES, payloadOverBudget, toMb } from './limits.js'
+import { labelOr } from './i18n.js'
 
-function errToast(setToast, t, r, fallbackKey) {
+/**
+ * Traduit une réponse d'API en message utilisateur.
+ * Exportée pour test : c'est elle qui nomme le refus de stockage (LOT 4.2/F15)
+ * au lieu d'un « échec » générique qui faisait réessayer en boucle.
+ */
+export function errToast(setToast, t, r, fallbackKey) {
   // P6 : message d'erreur honnête — offline ≠ refus serveur.
-  if (r?.offline || !r) setToast(t('backendOffline'))
-  else setToast(t(fallbackKey))
+  if (r?.offline || !r) {
+    setToast(t('backendOffline'))
+    return
+  }
+  // LOT 4.2 (F15) : le serveur refuse l'upload quand il n'a aucun stockage
+  // durable (Vercel sans `BLOB_READ_WRITE_TOKEN` : les fichiers iraient dans
+  // `/tmp` et mourraient au cold start, laissant des URL de photos mortes en
+  // base). Le message générique « échec » faisait réessayer en boucle ;
+  // celui-ci nomme la cause et la variable à poser.
+  if (r?.data?.error === 'upload_storage') {
+    setToast(t('masterPhotoNoStorage'))
+    return
+  }
+  // LOT 8.10 (A10) : le serveur refuse désormais une `category` ou un `kind`
+  // hors liste (`CATEGORIES` / `KINDS`, hors `all`). Un refus qui dit quoi
+  // saisir vaut mieux que « échec de la création » : sans message dédié, le
+  // maître ne sait pas quel champ reprendre.
+  if (r?.data?.error === 'category') {
+    setToast(t('masterCategoryInvalid'))
+    return
+  }
+  if (r?.data?.error === 'kind') {
+    setToast(t('masterKindInvalid'))
+    return
+  }
+  setToast(t(fallbackKey))
+}
+
+/**
+ * LOT 4.3 (F16) — message de suppression d'un compte client.
+ *
+ * Le serveur annule les commandes EN COURS du compte (le stock réservé est
+ * rendu) et renvoie le détail. Le message le dit : avant, un « Client supprimé »
+ * muet laissait le master croire que rien d'autre ne s'était passé, alors que
+ * des pièces venaient de revenir au stock — et que la trace restait au
+ * comptoir (commandes `cancelled`). Les codes sont bornés à 4 pour ne pas
+ * noyer le toast.
+ */
+export function customerDeletedMessage(t, data) {
+  const cancelled = Array.isArray(data?.cancelled) ? data.cancelled : []
+  if (!cancelled.length) return t('masterCustomerGone')
+  const codes = cancelled
+    .map((c) => c?.code)
+    .filter(Boolean)
+    .slice(0, 4)
+    .join(', ')
+  return t('masterCustomerGoneOrders', { n: cancelled.length, codes })
 }
 
 // P4 (B10) : compression canvas avant envoi (800 px / JPEG q0.8) → le body
 // d'upload passe de ~20 Mo max à ~2 Mo (Vercel 413 évité, latence réduite).
 // Limite d'entrée relevée à 10 Mo : la sortie compressée reste bien plus petite.
-const MAX_INPUT_BYTES = 10 * 1024 * 1024
+// LOT 8.5 (A5) : la compression est désormais aussi pilotée par un budget
+// d'octets (voir src/photoCompress.js), donc une image petite en pixels mais
+// lourde est ré-encodée au lieu de partir telle quelle.
 
 function readFilesAsDataUrls(fileList) {
-  const files = [...(fileList || [])].slice(0, 6)
+  const files = [...(fileList || [])].slice(0, MAX_PHOTOS)
   return Promise.all(
     files.map(
       (file) =>
@@ -32,6 +92,10 @@ function readFilesAsDataUrls(fileList) {
     )
   ).then((list) => list.filter(Boolean))
 }
+
+// LOT 8.5 (A5) : la garde d'envoi vit dans `src/limits.js`, à côté des budgets
+// qu'elle applique (`payloadOverBudget`) — la même fonction est testable hors
+// React, et client comme documentation parlent d'une seule borne.
 
 export default function MasterPage({ t, lang, user, users, onUsers, products, masterCatalog, meta, onMeta, basePanels, setToast, onBack, apiOnline, onStockRefresh }) {
   const [tab, setTab] = useState('products')
@@ -83,6 +147,21 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, ma
   const productsLoading = apiOnline && apiProducts.length === 0
   const productsShown = apiOnline ? apiProducts : (masterCatalog || products || [])
 
+  // LOT 2.5 (F9) : liste de référence pour le contrôle de SKU en mode local.
+  //
+  // `addProduct` recevait `products`, c'est-à-dire le catalogue PUBLIC filtré :
+  // `shopView.products` privé des références en rupture (`stock > 0`,
+  // src/App.jsx). Un SKU appartenant à une référence masquée OU en rupture
+  // n'était donc dans aucune des listes examinées, et la création passait —
+  // deux fiches portant la même référence d'étiquette, le même dossier photo et
+  // la même ligne d'export CSV. Côté API le serveur compare déjà à
+  // `[...PRODUCTS, ...extraProducts]` (server/masterApi.js) : le mode local
+  // s'aligne sur cette source de vérité.
+  const allKnownSkus = useMemo(
+    () => [...PRODUCTS, ...(masterCatalog || []), ...(products || []), ...(meta.extraProducts || [])],
+    [masterCatalog, products, meta]
+  )
+
   const customers = useMemo(
     () => (apiOnline ? apiCustomers : users.filter((u) => u.role !== 'master')),
     [apiOnline, apiCustomers, users]
@@ -102,9 +181,9 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, ma
   async function onFormPhotos(e) {
     try {
       const urls = await readFilesAsDataUrls(e.target.files)
-      setForm((f) => ({ ...f, photos: [...f.photos, ...urls].slice(0, 6) }))
+      setForm((f) => ({ ...f, photos: [...f.photos, ...urls].slice(0, MAX_PHOTOS) }))
     } catch {
-      setToast(t('masterPhotoTooBig'))
+      setToast(t('masterPhotoTooBig', { mb: toMb(MAX_INPUT_BYTES) }))
     }
     e.target.value = ''
   }
@@ -112,9 +191,9 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, ma
   async function onEditPhotos(e) {
     try {
       const urls = await readFilesAsDataUrls(e.target.files)
-      setEditPhotos((prev) => [...prev, ...urls].slice(0, 6))
+      setEditPhotos((prev) => [...prev, ...urls].slice(0, MAX_PHOTOS))
     } catch {
-      setToast(t('masterPhotoTooBig'))
+      setToast(t('masterPhotoTooBig', { mb: toMb(MAX_INPUT_BYTES) }))
     }
     e.target.value = ''
   }
@@ -122,6 +201,12 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, ma
   async function submitProduct(e) {
     e.preventDefault()
     if (apiOnline) {
+      // LOT 8.5 (A5) : refus AVANT l'envoi si le corps dépasserait le budget.
+      const over = payloadOverBudget(form.photos)
+      if (over) {
+        setToast(t('masterPhotosTooHeavy', { size: toMb(over), limit: toMb(MAX_UPLOAD_BODY_BYTES) }))
+        return
+      }
       const r = await api.masterCreateProduct({
         name: form.name,
         price: Number(form.price),
@@ -159,11 +244,20 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, ma
       },
       // P22 (bug H) : le catalogue de base compte aussi — un SKU saisi ne doit
       // pas doubler une référence existante.
-      products
+      // LOT 2.5 (F9) : catalogue COMPLET (base non filtrée + master + extra),
+      // pas la liste publique amputée des ruptures et des masquées.
+      allKnownSkus
     )
     if (!res.ok) {
       if (res.error === 'sku_taken') {
         setToast(t('masterSkuTaken'))
+        return
+      }
+      // LOT 8.10 (A10) : le mode local valide la catégorie avec la même liste
+      // que l'API — même message dédié, pour que les deux chemins disent la
+      // même chose.
+      if (res.error === 'category') {
+        setToast(t('masterCategoryInvalid'))
         return
       }
       // P17 (rapport #1) : copier-coller de la page de connexion — un master en
@@ -179,7 +273,7 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, ma
 
   function openEdit(p) {
     setEditId(p.id)
-    setEditPhotos([...(p.photos || [])].slice(0, 6))
+    setEditPhotos([...(p.photos || [])].slice(0, MAX_PHOTOS))
   }
 
   async function saveEditPhotos() {
@@ -190,6 +284,12 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, ma
       const paths = editPhotos.filter((x) => !String(x).startsWith('data:'))
       let photos = paths
       if (dataUrls.length) {
+        // LOT 8.5 (A5) : même garde que la création.
+        const over = payloadOverBudget(dataUrls)
+        if (over) {
+          setToast(t('masterPhotosTooHeavy', { size: toMb(over), limit: toMb(MAX_UPLOAD_BODY_BYTES) }))
+          return
+        }
         const up = await api.masterPhotos(editId, dataUrls)
         if (!up.ok) {
           errToast(setToast, t, up, 'masterActionFail')
@@ -247,7 +347,12 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, ma
       api.deleteCustomer(id).then((r) => {
         if (r.ok) {
           setApiCustomers((prev) => prev.filter((c) => c.id !== id))
-          setToast(t('masterCustomerGone'))
+          // LOT 4.3 (F16) : le serveur annule les commandes EN COURS du compte
+          // (le stock réservé est rendu) et renvoie le détail. Le master voit
+          // ainsi ce que la suppression a entraîné — avant, un `{ok:true}` muet
+          // laissait des pièces réservées pour un compte qui n'existe plus,
+          // sans aucune trace à l'écran.
+          setToast(customerDeletedMessage(t, r.data))
         } else {
           errToast(setToast, t, r, 'masterActionFail')
         }
@@ -275,7 +380,13 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, ma
         errToast(setToast, t, r, 'masterActionFail')
         return
       }
-      onMeta({ ...meta, hiddenPanelIds: [...current] })
+      // LOT 2.7 (F11 + B20) : la RÉPONSE DU SERVEUR est la source de vérité,
+      // pas le calcul local. Le serveur déduplique (`new Set(...)`) et tronque
+      // `extraPanels` à 12 : un état client reconstruit à partir de `meta`
+      // divergeait donc silencieusement de la base, jusqu'au prochain
+      // rechargement. La réponse ne porte que les deux champs de panneaux —
+      // d'où la fusion, qui préserve `extraProducts`, `productOverrides`, etc.
+      onMeta({ ...meta, ...(r.data?.meta || {}) })
       return
     }
     onMeta(togglePanel(meta, id, on))
@@ -291,7 +402,13 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, ma
         errToast(setToast, t, r, 'masterActionFail')
         return
       }
-      onMeta(res.meta)
+      // LOT 2.7 (F11 + B20) : `res.meta` est le meta calculé LOCALEMENT par
+      // `addPanel`, qui ne connaît pas la troncature serveur
+      // (`body.extraPanels.slice(0, 12)`, server/index.js). Reproduit à
+      // l'audit : au 13ᵉ panneau, le comptoir en affichait 13 alors que la base
+      // n'en gardait que 12 — le 13ᵉ disparaissait au rechargement suivant, sans
+      // aucun message. On prend la réponse du serveur.
+      onMeta({ ...meta, ...(r.data?.meta || {}) })
     } else {
       onMeta(res.meta)
     }
@@ -361,7 +478,7 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, ma
                   <select className="form-select" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })}>
                     {CATEGORIES.filter((c) => c.id !== 'all').map((c) => (
                       <option key={c.id} value={c.id}>
-                        {t(`cat_${c.id}`)}
+                        {labelOr(t, `cat_${c.id}`, c.label || c.id)}
                       </option>
                     ))}
                   </select>
@@ -421,7 +538,7 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, ma
                         </div>
                         <strong>{p.name}</strong>
                         <div className="small text-secondary">
-                          {money(p.price)} · {p.stock} · {t(`cat_${p.category}`) || p.category} · {(p.photos || []).length} img
+                          {money(p.price, lang)} · {p.stock} · {labelOr(t, `cat_${p.category}`, p.category)} · {(p.photos || []).length} img
                         </div>
                       </div>
                       <div className="d-flex gap-2">
@@ -457,7 +574,12 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, ma
                         </div>
                         <div className="d-flex gap-2">
                           <button type="button" className="btn btn-sm btn-success" onClick={saveEditPhotos}>
-                            {t('masterPhotosSaved')}
+                            {/* LOT 5.3 (U3) : le bouton disait « Photos
+                                enregistrées » — au passé, AVANT d'enregistrer.
+                                Un libellé d'action se lit comme une action ;
+                                « Photos enregistrées » reste le toast de
+                                confirmation (`saveEditPhotos`). */}
+                            {t('masterSavePhotos')}
                           </button>
                           <button
                             type="button"
@@ -531,7 +653,7 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, ma
                   <select className="form-select" value={panelCat} onChange={(e) => setPanelCat(e.target.value)}>
                     {CATEGORIES.filter((c) => c.id !== 'all').map((c) => (
                       <option key={c.id} value={c.id}>
-                        {t(`cat_${c.id}`)}
+                        {labelOr(t, `cat_${c.id}`, c.label || c.id)}
                       </option>
                     ))}
                   </select>

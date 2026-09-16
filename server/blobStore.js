@@ -2,7 +2,13 @@
  * Object storage adapter for master-uploaded product photos.
  *
  * Vercel (production) : uploads go to Vercel Blob via BLOB_READ_WRITE_TOKEN.
- *                       Photo URLs are direct CDN links — served without /api.
+ *     LOT 1.11 : l'URL **stockée** reste un chemin relatif
+ *     (`/api/upload-file?name=…`), même quand le contenu part sur le CDN Blob —
+ *     la route fait un 302 vers l'URL CDN. Avant, la base et la réponse API
+ *     contenaient l'URL CDN brute (`https://….public.blob.vercel-storage.com/…`),
+ *     ce qui (a) exposait l'infrastructure de stockage, (b) dépendait d'une
+ *     origine tierce dans `img-src` et (c) rendait les photos impossibles à
+ *     ré-héberger sans réécrire toute la base.
  * Local / serverless-fallback : writes to the filesystem (public/photos/uploads
  *     localement, /tmp/pcstar-uploads sous Vercel) et servi via /api/upload-file.
  */
@@ -19,8 +25,16 @@ export const UPLOAD_DIR = process.env.PCSTAR_UPLOAD_DIR
     ? path.join('/tmp', 'pcstar-uploads')
     : path.join(__dirname, '../public/photos/uploads')
 
-export const MAX_BYTES = 2.5 * 1024 * 1024
-export const MAX_PHOTOS = 6
+// LOT 8.4 (A4) + LOT 8.5 (A5) : les bornes viennent du module partagé
+// `src/limits.js` — les MÊMES valeurs pilotent la compression client, la garde
+// d'envoi de MasterPage, la borne du corps côté serveur et ce refus par photo.
+// Avant, chaque valeur était recopiée à la main (2.5 Mo ici, 6 photos ici,
+// 10 Mo dans MasterPage, 15 Mo dans server/index.js, 10 Mo annoncés dans
+// api/index.js) : cinq recopies, aucune garantie de cohérence.
+import { MAX_PHOTOS as MAX_PHOTOS_LIMIT, MAX_PHOTO_SERVER_BYTES } from '../src/limits.js'
+
+export const MAX_BYTES = MAX_PHOTO_SERVER_BYTES
+export const MAX_PHOTOS = MAX_PHOTOS_LIMIT
 export { IS_SERVERLESS }
 
 export const UPLOAD_PUBLIC_PREFIX = IS_SERVERLESS ? '/api/upload-file' : '/photos/uploads'
@@ -78,18 +92,41 @@ export async function uploadBlob(name, buffer, contentType = 'image/jpeg') {
   if (!safe) throw new Error('unsafe upload name')
   const blob = await loadBlob()
   if (blob) {
-    const { url } = await blob.put(`${BLOB_PREFIX}${safe}`, buffer, {
+    await blob.put(`${BLOB_PREFIX}${safe}`, buffer, {
       contentType,
-      access: 'public'
+      access: 'public',
+      // LOT 4.1 (F14) : explicite plutôt qu'implicite. Tout le contrat de
+      // LOT 1.11 repose sur le fait que la clé Blob est EXACTEMENT `safe` —
+      // c'est ce nom qui est stocké en base (`/api/upload-file?name=…`), puis
+      // résolu par `resolveBlobUrl` et supprimé par `deleteBlob`. Si
+      // `addRandomSuffix` devenait vrai (défaut documentaire actuel : false),
+      // chaque photo uploadée pointerait vers une clé inexistante.
+      addRandomSuffix: false
     })
-    return { url, storage: 'blob' }
+    // LOT 1.11 : on retourne le chemin RELATIF (même forme que la branche
+    // filesystem serverless), pas `put.url` (CDN). La route /api/upload-file
+    // sert le fichier depuis /tmp si présent, sinon 302 vers
+    // `resolveBlobUrl(name)` — donc l'image s'affiche toujours, mais la base ne
+    // stocke plus d'URL vercel-storage.com.
+    return { url: `${UPLOAD_PUBLIC_PREFIX}?name=${encodeURIComponent(safe)}`, storage: 'blob' }
   }
-  // Filesystem fallback (local dev / serverless sans Blob)
-  if (IS_SERVERLESS) {
-    fs.mkdirSync(UPLOAD_DIR, { recursive: true })
-  } else {
-    ensureUploadDir()
+  // LOT 4.2 (F15) : sous Vercel, le repli filesystem écrit dans
+  // `/tmp/pcstar-uploads` — éphémère par construction. La photo « montait »
+  // (201, URL en base, aperçu immédiat tant que l'instance vivait), puis
+  // `/api/upload-file` renvoyait 404 au cold start suivant : une URL morte en
+  // base, sans aucun signal au moment de l'upload. Mieux vaut refuser tout de
+  // suite et le dire, que de fabriquer des photos fantômes.
+  if (IS_SERVERLESS && !blob) {
+    const err = new Error(
+      '[pcstar] upload photo impossible : aucun stockage durable en serverless. ' +
+        'Renseigner BLOB_READ_WRITE_TOKEN (Vercel Blob) — sans lui les fichiers partent ' +
+        'dans /tmp et meurent au cold start.'
+    )
+    err.code = 'UPLOAD_STORAGE_UNAVAILABLE'
+    throw err
   }
+  // Filesystem fallback (local dev uniquement)
+  ensureUploadDir()
   const file = path.join(UPLOAD_DIR, safe)
   // Double garde : le chemin résolu doit rester DANS UPLOAD_DIR.
   const rel = path.relative(UPLOAD_DIR, file)
@@ -129,22 +166,35 @@ export async function resolveBlobUrl(name) {
  */
 export async function deleteBlob(publicUrl) {
   if (!publicUrl) return false
+  const raw = String(publicUrl || '')
   const blob = await loadBlob()
-  if (blob && isBlobUrl(publicUrl)) {
+  if (blob && isBlobUrl(raw)) {
+    // Anciennes photos (pré-1.11) : l'URL CDN était stockée telle quelle.
     try {
-      await blob.del(publicUrl)
+      await blob.del(raw)
       return true
     } catch {
       return false
     }
   }
-  // Filesystem fallback
+  const name = raw.includes('name=')
+    ? decodeURIComponent(raw.split('name=')[1])
+    : raw.split('/').pop()
+  if (!name || name.includes('..') || name.includes('/') || name.length > 200) return false
+  if (blob) {
+    // LOT 1.11 : le chemin relatif `/api/upload-file?name=…` désigne AUSSI un
+    // objet Blob depuis que `uploadBlob` ne stocke plus l'URL CDN. Sans cette
+    // branche, la suppression tombait dans le repli filesystem, ratait
+    // l'objet, et le laissait orphelin sur le stockage.
+    try {
+      await blob.del(resolveBlobUrl(name))
+      return true
+    } catch {
+      return false
+    }
+  }
+  // Filesystem fallback (pas de BLOB_READ_WRITE_TOKEN : local / Vercel sans Blob)
   try {
-    const raw = String(publicUrl || '')
-    const name = raw.includes('name=')
-      ? decodeURIComponent(raw.split('name=')[1])
-      : raw.split('/').pop()
-    if (!name || name.includes('..') || name.includes('/') || name.length > 200) return false
     fs.unlinkSync(path.join(UPLOAD_DIR, name))
     return true
   } catch {
