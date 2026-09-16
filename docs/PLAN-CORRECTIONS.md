@@ -179,6 +179,28 @@ Estimations en « unités de changement » (U) : S = < 30 lignes, M = 30–120, 
 
 **Ce lot ne dépend d'aucun autre et ne doit pas attendre le code.**
 
+> ⬜ **TOUJOURS À FAIRE — vérifié le 16/09/2026.**
+> Une tentative a été livrée sur la branche `arena/01a090f7-pc-star`
+> (commit `2880c2a`) : elle **ne réalise pas** ce lot. Le commit n'y modifie
+> **aucun fichier de l'application** — il ajoute 19 fichiers dans un dossier
+> imbriqué `PC-Star-main/` que ni le build, ni les tests, ni Vercel n'exécutent ;
+> le `server/db.js` racine de cette branche contient toujours
+> `hashPassLegacy('star31')`. En contrepartie, **quatre nouveaux mots de passe
+> sont publiés en clair** (README, 6 guides, scripts de recette, tests, et un
+> `MASTER` client) dans un dépôt **public** — le défaut R1/R12 que ce lot doit
+> fermer, reproduit à l'identique avec d'autres valeurs. La branche n'a en outre
+> **aucun ancêtre commun** avec `main` (parent `b3bb620` = PR #3 déjà fusionnée)
+> et sa fusion ferait passer la suite de **724/724 à 372 verts / 42 rouges /
+> 3 annulés**, verrous LOT 1.1 et LOT 1.2 au rouge.
+> Détails, preuves et commandes reproductibles :
+> **`docs/VERIFICATION-RAPPORT-LOT0.md`**.
+> Les quatre mots de passe publiés sur cette branche sont à considérer comme
+> **compromis** — ne jamais les poser en production.
+> Reste à faire : les étapes exploitant (variables d'env Vercel, purge des
+> sessions, contrôle du journal) et, côté code, le lot 1.3 (comptes de
+> démonstration hors du seed codé en dur) + l'élargissement du scanner 1.2,
+> aujourd'hui aveugle aux dossiers imbriqués et aux tableaux Markdown.
+
 ---
 
 ### 🔐 Lot 1 — Secrets & authentification (R1→R13, R15, R16, F2, R6)
