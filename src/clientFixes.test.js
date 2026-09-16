@@ -184,7 +184,7 @@ describe('LOT 1.3 — le mode local est annoncé comme mode démonstration', () 
       })
     )
     try {
-      assert.equal(m.host.querySelector('.alert-warning'), null)
+      assert.ok(!m.host.querySelector('.alert-warning'))
       assert.ok(!m.text().includes(t('demoModeTitle')), 'pas de « mode démonstration » quand l’API répond')
     } finally {
       await m.unmount()
@@ -355,7 +355,7 @@ describe('LOT 1.4 — le changement de mot de passe envoie le mot de passe actue
       assert.deepEqual(toasts, [t('passwordChanged')])
       assert.equal(m.host.querySelector('#pf-pw-current').value, '', 'champ actuel vidé')
       assert.equal(m.host.querySelector('#pf-pw-new').value, '', 'nouveau mot de passe vidé')
-      assert.equal(m.host.querySelector('.alert-danger'), null, 'aucune erreur')
+      assert.ok(!m.host.querySelector('.alert-danger'), 'aucune erreur')
       const status = m.host.querySelector('[role="status"]')
       assert.ok(status, 'la révocation est annoncée')
       assert.ok(
@@ -389,7 +389,7 @@ describe('LOT 1.4 — le changement de mot de passe envoie le mot de passe actue
       await fill(m.host.querySelector('#pf-pw-new'), 'nouveau1')
       await fill(m.host.querySelector('#pf-pw-confirm'), 'nouveau1')
       await submitPasswordForm(m.host)
-      assert.equal(m.host.querySelector('[role="status"]'), null)
+      assert.ok(!m.host.querySelector('[role="status"]'))
     } finally {
       await m.unmount()
     }

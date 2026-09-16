@@ -247,7 +247,7 @@ describe('LOT 3.16 (B19) — le bandeau dégradé dit l’âge du repli', () => 
       '/api/meta': { ok: true, degraded: false, meta: { extraPanels: [], hiddenPanelIds: [] } }
     })
     try {
-      assert.equal(m.host.querySelector('.alert-warning'), null, 'pas d’avertissement quand la base répond')
+      assert.ok(!m.host.querySelector('.alert-warning'), 'pas d’avertissement quand la base répond')
     } finally {
       await m.unmount()
     }

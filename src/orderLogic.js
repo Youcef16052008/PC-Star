@@ -88,6 +88,37 @@ export function canTransition(from, to) {
   return allowed.includes(to)
 }
 
+/**
+ * LOT 8.3 (A3) — une commande est-elle annulable **depuis cet écran** ?
+ *
+ * Deux conditions, une seule règle (la même pour le bouton de la page
+ * « Commandes » et pour le garde locale de `cancelMyOrder`) :
+ *  · le statut doit être `new`/`pending` — la règle historique, côté serveur
+ *    comme client (`ORDER_TRANSITIONS` n'autorise plus l'annulation au-delà) ;
+ *  · la commande doit être **revendicable**. Depuis le lot 4.4 (R20), une
+ *    commande guest déposée au numéro d'un compte existant est marquée
+ *    `claimable: false` : le serveur l'écarte de `GET /api/me/orders` ET répond
+ *    **404** à son annulation. Le client recevait ce drapeau, le persistait dans
+ *    sa copie locale, puis l'ignorait — la page affichait un bouton « Annuler »
+ *    qui échouait à tous les coups avec un message générique
+ *    (« L'annulation a échoué »), sans dire ni pourquoi ni quoi faire.
+ *
+ * `claimable` absent veut dire revendicable (commandes antérieures au lot 4.4,
+ * commandes locales hors-ligne, commandes du titulaire du compte) : le
+ * comportement habituel est préservé.
+ *
+ * @param {{status?: string, claimable?: boolean}} order
+ * @returns {boolean}
+ */
+export function canCancelHere(order) {
+  // Pas d'objet → pas d'annulation : un `undefined` qui traîne (commande
+  // supprimée entre-temps) ne doit pas être traité comme une commande neuve.
+  if (!order || typeof order !== 'object') return false
+  const status = order?.status || 'new'
+  if (status !== 'new' && status !== 'pending') return false
+  return order?.claimable !== false
+}
+
 export function statusLabelKey(status) {
   const s = status === 'pending' ? 'new' : status
   return `orderStatus_${s}`

@@ -328,7 +328,7 @@ Les deux rapports d'origine restent **non modifiés**.
 |---|---|---|---|---|
 | 8.1 ✅ | **A1** 🔴 **LIVRÉ le 16/09/2026** — Refuser une commande sur un produit **masqué** (`hiddenProductIds`) dans `placeOrder`, dans la transaction et avant tout décrément ; `409 unavailable` côté route ; message dédié **et retrait de la ligne du panier** côté client | `server/catalog.js:72-168`, `server/index.js:826-925`, `src/orderLogic.js` (`orderApiFailure`), `src/App.jsx` (`reserve`, `pricedCart`) | M | Masquer un produit puis le commander en anonyme → **409**, stock inchangé, aucune commande créée, aucune notification |
 | 8.2 ✅ | **A2** 🔴 **LIVRÉ le 16/09/2026** — Refuser une ligne dont le prix de référence est inconnu (`priceOf` → `null`) au lieu de la tarifer **0 DA** ; purger les entrées orphelines de `db.stock` et `productOverrides` dans `normalizeDb` (journalisées) | `server/catalog.js:58-90`, `server/db.js:271-340` | M | `placeOrder` sur un id inconnu présent dans `db.stock` → refus `unknown_product`, **aucune** commande à 0 DA ; après `writeDb`, la clé orpheline a disparu et les overrides valides sont conservés |
-| 8.3 | **A3** 🟠 — Lire le drapeau `claimable` côté client : pas de bouton « Annuler » sur une commande non revendicable, mention explicite, et message d'échec distingué du 404 | `src/OrdersPage.jsx:130-140`, `src/App.jsx` (`cancelMyOrder`), `src/i18n.js` (nouvelle clé × 3) | S | Une commande `claimable: false` s'affiche **sans** bouton d'annulation ; un clic forcé (API directe) renvoie un message qui dit pourquoi |
+| 8.3 ✅ | **A3** 🟠 **LIVRÉ le 16/09/2026** — Lire le drapeau `claimable` côté client : pas de bouton « Annuler » sur une commande non revendicable, mention explicite, et message d'échec distingué du 404 | `src/OrdersPage.jsx:130-140`, `src/App.jsx` (`cancelMyOrder`), `src/i18n.js` (nouvelle clé × 3) | S | Une commande `claimable: false` s'affiche **sans** bouton d'annulation ; un clic forcé (API directe) renvoie un message qui dit pourquoi |
 | 8.4 | **A4** 🟠 — Aligner la limite de corps sur la contrainte réelle de Vercel (4,5 Mo) : `MAX_BODY_BYTES` réduit en environnement serverless, configuration `bodyParser` supprimée ou commentée véridiquement, limite plateforme documentée | `api/index.js:24-31`, `server/index.js:129`, `docs/DEPLOY-VERCEL.md` §7 | S | Sur Vercel, un corps trop gros reçoit le **413 JSON de l'application** (ou un refus client expliqué), jamais la page d'erreur plateforme ; plus aucune valeur annoncée contredite par un commentaire |
 | 8.5 | **A5** 🟠 — Compression à **budget** : ré-encoder aussi quand `scale === 1` si le data URL dépasse un seuil en octets, boucle de réduction bornée, et garde de payload total avant l'envoi (constante partagée client/serveur) | `src/photoCompress.js:32-67`, `src/MasterPage.jsx:62,162,172`, module de constantes partagé | M | Un PNG 800×800 de 2 Mo part **compressé** sous le seuil ; 6 photos lourdes → refus client expliqué avant l'envoi, payload total sous la limite plateforme |
 | 8.6 ✅ | **A6** 🟠 **LIVRÉ le 16/09/2026** — Normaliser les destinataires WhatsApp avec la règle partagée (`waNumber`/`phoneLogic`), rejeter un numéro non normalisable, signaler une configuration invalide **au démarrage** et dans `/api/health` ; exemple de la doc au format international | `server/notify.js:39-57`, `server/index.js` (démarrage + health), `docs/DEPLOY-VERCEL.md` §3 | S | `WHATSAPP_RECIPIENT=0770650387` → destinataire `213770650387` envoyé à Meta ; un numéro invalide est refusé au boot avec un message lisible, pas à la première commande |
@@ -1505,14 +1505,121 @@ fuite de numéro, et les deux alertes de démarrage. Suite complète :
 
 ---
 
-### ⏳ À faire — reste du lot 8 (A3 → A5, A7 → A10)
+### ✅ Fait — lot 8.3, le drapeau `claimable` est enfin lu (16/09/2026)
 
-**A1, A2 (les 2 bloquants) et A6 sont livrés** — voir ci-dessus. Restent 3
+**A3** : depuis le lot 4.4 (R20), une commande guest déposée au numéro d'un
+compte existant est marquée `claimable: false` — le serveur l'écarte de
+`GET /api/me/orders` et répond **404** à son annulation. Le client recevait le
+drapeau (la copie locale est un spread de la réponse serveur), le persistait, puis
+l'ignorait : **zéro occurrence de `claimable` dans tout `src/`**. La page
+« Commandes » affichait donc un bouton « Annuler » qui échouait à tous les coups,
+avec un message générique (« Annulation impossible ») qui ne disait ni pourquoi ni
+quoi faire.
+
+**`src/orderLogic.js`** — nouveau `canCancelHere(order)` : **une seule règle**
+pour le bouton et pour la garde de `cancelMyOrder` (statut `new`/`pending` **et**
+`claimable !== false`). Entrée invalide (`null`, chaîne) → `false` : un
+`undefined` qui traîne n'est pas une commande neuve.
+
+**`src/OrdersPage.jsx`** — le bouton passe par `canCancelHere(o)` ; quand
+`o.claimable === false`, une mention courte prend sa place
+(`orderNotClaimable` — « Passée sans compte — annulation au comptoir
+uniquement »). La commande reste **affichée** (elle est réelle, le client l'a
+passée depuis cet appareil) : seule l'action impossible disparaît.
+
+**`src/App.jsx`** — `cancelMyOrder()` :
+- le **404** (`not_found`) est distingué de la panne : message dédié
+  `orderCancelNotMine` (« Cette commande n'est pas rattachée à votre compte :
+  annulation impossible ici ») au lieu de `orderCancelFail`. Un 500 reste
+  annoncé comme une panne — le distinguo est testé dans les deux sens ;
+- la branche locale (hors-ligne / guest) passe par la **même** règle
+  `canCancelHere(target)`, avec `orderNotClaimable` pour le cas `claimable:
+  false` et `orderOnlyNew` pour le cas statut. Le doublon de contrôle de statut
+  écrit à la main a été retiré.
+
+**`src/i18n.js`** — 2 clés × 3 langues, blocs rééquilibrés (537/537/537).
+
+**Décisions**
+
+1. **Cacher le bouton plutôt que le laisser échouer.** Une action promise et
+   impossible est le pire des deux mondes : l'utilisateur réessaie. La mention
+   dit quoi faire (au comptoir), ce que le message d'échec ne disait pas.
+2. **La commande reste visible.** Masquer la ligne entière aurait fait
+   disparaître une commande réelle du navigateur de celui qui l'a passée — le
+   drapeau `claimable` porte sur la **revendication par un compte**, pas sur
+   l'existence de la commande.
+3. **Une règle, un endroit.** Le bouton et la garde locale appellent
+   `canCancelHere` : si la règle évolue (nouveau statut annulable, autre
+   marqueur), les deux chemins suivent. C'est la leçon des lots 5 et 6 appliquée
+   d'emblée.
+
+**Vérification en direct** (serveur d'aperçu) :
+
+| Étape | Résultat |
+|---|---|
+| commande **anonyme** au `0550123456` (numéro du compte `demo-karim`) | `201`, `claimable=false`, `userId=null` |
+| `GET /api/me/orders` en tant que karim | **0 commande** — le serveur l'écarte |
+| `POST /api/me/orders/:code/cancel` en tant que karim | **404 `not_found`** — l'échec que le bouton promettait |
+| annulation par le **maître** (nettoyage) | `200`, stock `mousepad` rendu (18) |
+
+**Tests** — 11 nouveaux dans `src/lot8Claimable.test.js` : matrice de la règle
+pure (statuts × `claimable` vrai/faux/absent, entrées invalides), couverture
+i18n des 2 clés, **rendu réel d'`OrdersPage`** (bouton absent + mention présente
+sur la ligne `claimable:false`, bouton présent sur la ligne normale, absent sur
+`preparing`, un seul bouton au total ; même règle pour un visiteur sans compte ;
+`claimable:true` explicite ne bloque pas), **App connecté en mode API** (404 →
+message dédié et **pas** le générique ; 500 → le générique et pas le dédié), et
+contrôle à la source que la garde locale appelle bien la règle partagée.
+Suite complète : **664 tests, 664 passent** (653 avant), build propre.
+
+**Neutralisations vérifiées régressives (5)** :
+
+| # | Correctif retiré | Tests qui rougissent |
+|---|---|---|
+| N13 | `canCancelHere` ignore le drapeau `claimable` | 3 |
+| N14 | `OrdersPage` revient au contrôle de statut seul | 2 |
+| N15 | mention « au comptoir » retirée | 2 |
+| N16 | branche 404 de `cancelMyOrder` retirée | 1 |
+| N17 | garde locale `canCancelHere` retirée | 1 |
+
+**⚠ Piège découvert à cette occasion (à retenir pour tous les tests jsdom).**
+Les deux premières neutralisations ne faisaient pas « échouer un test » : elles
+**faisaient tuer le processus de test par l'OOM killer** (mesuré dans `dmesg` :
+3,7 Go de RSS, 16 Go de mémoire virtuelle, sur une machine à 3,9 Go). Cause :
+`assert.equal(nœudDOM, null)`. Quand l'assertion **réussit**, rien ne se passe ;
+quand elle **échoue**, Node génère le message en inspectant la valeur réelle —
+un élément jsdom remonte vers son `document` puis vers `window`, et
+`util.inspect` déroule des centaines de mégaoctets de graphe cyclique. Un test
+qui échoue doit coûter quelques kilo-octets, pas la machine : écrire
+`assert.ok(!nœud, 'message')`.
+
+Corrigé dans `src/lot8Claimable.test.js` (3 assertions) **et dans les fichiers
+antérieurs qui portaient la même bombe latente** : `src/clientFixes.test.js`
+(3) et `src/lot3UI.test.js` (1). Ces tests passaient, donc le défaut ne se
+voyait pas — il serait apparu le jour où l'un d'eux échoue, en transformant un
+échec net en mort du runner. Vérification : les 5 neutralisations produisent
+désormais des échecs propres (11 tests exécutés à chaque fois, ~4 s au lieu de
+16 s puis SIGKILL).
+
+Second piège, plus discret : un fichier de test qui enregistre des `describe`
+**avant et après** des `await` de haut niveau perd des suites. Avec
+`node:test`, les suites enregistrées pendant l'évaluation du module partent
+immédiatement ; celles déclarées après un `await import(...)` peuvent ne jamais
+être exécutées (observé : `1..2` au lieu de `1..4`, 6 tests sur 11, sans aucun
+message d'erreur). Règle : **tout le setup asynchrone d'abord, tous les
+`describe` ensuite** — c'est déjà la disposition de `lot2UI`/`lot5UI`, que ce
+fichier ne respectait pas.
+
+---
+
+### ⏳ À faire — reste du lot 8 (A4, A5, A7 → A10)
+
+**A1, A2 (les 2 bloquants), A6 et A3 sont livrés** — voir ci-dessus. Restent 2
 majeurs et 4 mineurs du **lot 8** (§7), trouvés hors des deux rapports
-d'origine : **A3** drapeau `claimable` jamais lu, **A4** limite Vercel
-contredite par le code, **A5** photos non compressées en octets, puis les
-mineurs **A7** fsync, **A8** dates localisées à moitié, **A9** 62 clés i18n
-mortes, **A10** `category`/`kind` libres à la création. Preuves et
+d'origine : **A4** limite Vercel contredite par le code, **A5** photos non
+compressées en octets, puis les mineurs **A7** fsync, **A8** dates localisées à
+moitié, **A9** 62 clés i18n mortes, **A10** `category`/`kind` libres à la
+création. Preuves et
 reproductions **exécutées** (A1 sur l'API en direct, A2/A6/A9/A10 par appel direct
 du code du dépôt) dans `docs/VERIFICATION-RAPPORT-AUDIT-3.md`. Les deux rapports
 d'origine n'ont **pas** été modifiés.

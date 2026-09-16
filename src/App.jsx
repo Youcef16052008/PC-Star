@@ -36,6 +36,7 @@ import ProductPage from './ProductPage.jsx'
 import LegalPage from './LegalPage.jsx'
 import {
   buildWaMessage,
+  canCancelHere,
   dropCartLines,
   localDay,
   mergeServerOrders,
@@ -753,12 +754,28 @@ export default function App() {
         setToast(t('orderCancelled'))
         return true
       }
+      // LOT 8.3 (A3) : le 404 de R20 n'est pas une panne. Il dit « cette
+      // commande n'est pas à vous » (guest non revendicable déposée au numéro
+      // du compte, commande supprimée par le maître, numéro qui ne correspond
+      // plus) — le message générique « Annulation impossible » laissait le
+      // client réessayer indéfiniment sans comprendre.
+      if (r?.status === 404 || r?.data?.error === 'not_found') {
+        setToast(t('orderCancelNotMine'))
+        return false
+      }
       setToast(t(r?.offline || !r ? 'backendOffline' : 'orderCancelFail'))
       return false
     }
     const target = (reservations || []).find((o) => o.code === code)
-    if (!target || (target.status !== 'new' && target.status !== 'pending')) {
+    if (!target) {
       setToast(t('orderOnlyNew'))
+      return false
+    }
+    // LOT 8.3 (A3) : même règle que le bouton de la page « Commandes »
+    // (`canCancelHere`) — une commande non revendicable n'est pas annulable ici
+    // non plus, et le message dit quoi faire (au comptoir).
+    if (!canCancelHere(target)) {
+      setToast(target.claimable === false ? t('orderNotClaimable') : t('orderOnlyNew'))
       return false
     }
     commitReservations((prev) =>

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { money } from './data.js'
 import * as api from './api.js'
-import { statusLabelKey } from './orderLogic.js'
+import { canCancelHere, statusLabelKey } from './orderLogic.js'
 import { loadOrders } from './prefs.js'
 
 /**
@@ -127,8 +127,15 @@ export default function OrdersPage({ t, user, apiOnline, mode, onCancelOrder, on
                       </ul>
                       <div className="d-flex justify-content-between align-items-center">
                         <div className="fw-semibold text-success">{money(o.total)}</div>
-                        {/* annulation possible tant que la commande est « neuve » */}
-                        {(o.status === 'new' || o.status === 'pending') && (
+                        {/* LOT 8.3 (A3) : annulation possible tant que la commande
+                            est « neuve » ET revendicable (`canCancelHere`).
+                            Avant, seul le statut comptait : une commande
+                            `claimable: false` (guest déposée au numéro d'un
+                            compte, lot 4.4 / R20) affichait un bouton que le
+                            serveur refusait toujours en 404 — une action
+                            promise et impossible, avec un message d'échec qui ne
+                            disait ni pourquoi ni quoi faire. */}
+                        {canCancelHere(o) && (
                           <button
                             type="button"
                             className="btn btn-sm btn-outline-danger"
@@ -137,6 +144,11 @@ export default function OrdersPage({ t, user, apiOnline, mode, onCancelOrder, on
                           >
                             {t('orderCancel')}
                           </button>
+                        )}
+                        {o.claimable === false && (
+                          <span className="small text-secondary text-end" title={t('orderNotClaimable')}>
+                            {t('orderNotClaimable')}
+                          </span>
                         )}
                       </div>
                     </article>

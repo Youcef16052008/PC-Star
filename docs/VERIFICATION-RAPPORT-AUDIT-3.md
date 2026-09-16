@@ -19,14 +19,15 @@ d'origine ne sont pas modifiés (même règle que pour les lots précédents).
 | Sévérité | Nombre | Items | Statut |
 |---|---|---|---|
 | 🔴 Bloquant (argent / intégrité des commandes) | **2** | A1, A2 | ✅ **corrigés** le 16/09/2026 (lot 8.1 + 8.2) |
-| 🟠 Majeur (échec silencieux, production Vercel) | **4** | A3, A4, A5, A6 | ✅ A6 corrigé ; A3, A4, A5 à corriger |
+| 🟠 Majeur (échec silencieux, production Vercel) | **4** | A3, A4, A5, A6 | ✅ A3 et A6 corrigés ; A4, A5 à corriger |
 | 🟡 Mineur (durabilité, cohérence, hygiène) | **4** | A7, A8, A9, A10 | à corriger |
-| **Total** | **10** | | 3 corrigés, 7 à corriger |
+| **Total** | **10** | | 4 corrigés, 6 à corriger |
 
-> **Mise à jour du 16/09/2026.** A1, A2 et A6 ont été corrigés et livrés sur
-> cette même branche (50 tests de non-régression, suite à 653/653, reproductions
+> **Mise à jour du 16/09/2026.** A1, A2, A6 et A3 ont été corrigés et livrés sur
+> cette même branche (61 tests de non-régression, suite à 664/664, reproductions
 > en direct rejouées : 409 et 400 à la place de 201 pour A1/A2, destinataire
-> `213770650387` à la place de `0770650387` pour A6). Détail des correctifs,
+> `213770650387` à la place de `0770650387` pour A6, 404 et bouton retiré pour
+> A3). Détail des correctifs,
 > décisions et neutralisations dans `docs/PLAN-CORRECTIONS.md` §9, section
 > « ✅ Fait — lot 8.1 + 8.2 ». Le corps de ce rapport reste **inchangé** : il
 > décrit l'état audité, les statuts sont ajoutés en tête de chaque item corrigé.
@@ -230,6 +231,14 @@ tout ce qui lit `db.stock` (Desk, page master, `publicCatalog`).
 ## 3. Items majeurs
 
 ### 🟠 A3 — Le drapeau `claimable` est reçu, stocké… et jamais lu
+
+> ✅ **CORRIGÉ (16/09/2026, lot 8.3).** Nouvelle règle unique `canCancelHere()`
+> (`src/orderLogic.js`) : `OrdersPage` ne rend plus le bouton « Annuler » sur une
+> commande `claimable: false` et affiche une mention « annulation au comptoir » ;
+> `cancelMyOrder()` distingue le **404** (`orderCancelNotMine`) de la panne
+> (`orderCancelFail`) et sa branche locale applique la même règle. Vérifié en
+> direct : commande anonyme au numéro d'un compte → `claimable=false`, absente de
+> `GET /api/me/orders`, annulation par le titulaire → **404**.
 
 **Affirmation.** Depuis le lot 4.4 (R20), une commande guest passée au numéro
 d'un compte existant est marquée `claimable: false` : le serveur la refuse à
