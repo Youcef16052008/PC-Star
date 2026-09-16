@@ -326,8 +326,8 @@ Les deux rapports d'origine restent **non modifiés**.
 
 | # | Correction | Fichiers | Taille | Critère d'acceptation |
 |---|---|---|---|---|
-| 8.1 | **A1** 🔴 — Refuser une commande sur un produit **masqué** (`hiddenProductIds`) dans `placeOrder`, dans la transaction et avant tout décrément ; `409 unavailable` côté route ; message dédié **et retrait de la ligne du panier** côté client | `server/catalog.js:72-168`, `server/index.js:826-925`, `src/orderLogic.js` (`orderApiFailure`), `src/App.jsx` (`reserve`, `pricedCart`) | M | Masquer un produit puis le commander en anonyme → **409**, stock inchangé, aucune commande créée, aucune notification |
-| 8.2 | **A2** 🔴 — Refuser une ligne dont le prix de référence est inconnu (`priceOf` → `null`) au lieu de la tarifer **0 DA** ; purger les entrées orphelines de `db.stock` et `productOverrides` dans `normalizeDb` (journalisées) | `server/catalog.js:58-90`, `server/db.js:271-340` | M | `placeOrder` sur un id inconnu présent dans `db.stock` → refus `unknown_product`, **aucune** commande à 0 DA ; après `writeDb`, la clé orpheline a disparu et les overrides valides sont conservés |
+| 8.1 ✅ | **A1** 🔴 **LIVRÉ le 16/09/2026** — Refuser une commande sur un produit **masqué** (`hiddenProductIds`) dans `placeOrder`, dans la transaction et avant tout décrément ; `409 unavailable` côté route ; message dédié **et retrait de la ligne du panier** côté client | `server/catalog.js:72-168`, `server/index.js:826-925`, `src/orderLogic.js` (`orderApiFailure`), `src/App.jsx` (`reserve`, `pricedCart`) | M | Masquer un produit puis le commander en anonyme → **409**, stock inchangé, aucune commande créée, aucune notification |
+| 8.2 ✅ | **A2** 🔴 **LIVRÉ le 16/09/2026** — Refuser une ligne dont le prix de référence est inconnu (`priceOf` → `null`) au lieu de la tarifer **0 DA** ; purger les entrées orphelines de `db.stock` et `productOverrides` dans `normalizeDb` (journalisées) | `server/catalog.js:58-90`, `server/db.js:271-340` | M | `placeOrder` sur un id inconnu présent dans `db.stock` → refus `unknown_product`, **aucune** commande à 0 DA ; après `writeDb`, la clé orpheline a disparu et les overrides valides sont conservés |
 | 8.3 | **A3** 🟠 — Lire le drapeau `claimable` côté client : pas de bouton « Annuler » sur une commande non revendicable, mention explicite, et message d'échec distingué du 404 | `src/OrdersPage.jsx:130-140`, `src/App.jsx` (`cancelMyOrder`), `src/i18n.js` (nouvelle clé × 3) | S | Une commande `claimable: false` s'affiche **sans** bouton d'annulation ; un clic forcé (API directe) renvoie un message qui dit pourquoi |
 | 8.4 | **A4** 🟠 — Aligner la limite de corps sur la contrainte réelle de Vercel (4,5 Mo) : `MAX_BODY_BYTES` réduit en environnement serverless, configuration `bodyParser` supprimée ou commentée véridiquement, limite plateforme documentée | `api/index.js:24-31`, `server/index.js:129`, `docs/DEPLOY-VERCEL.md` §7 | S | Sur Vercel, un corps trop gros reçoit le **413 JSON de l'application** (ou un refus client expliqué), jamais la page d'erreur plateforme ; plus aucune valeur annoncée contredite par un commentaire |
 | 8.5 | **A5** 🟠 — Compression à **budget** : ré-encoder aussi quand `scale === 1` si le data URL dépasse un seuil en octets, boucle de réduction bornée, et garde de payload total avant l'envoi (constante partagée client/serveur) | `src/photoCompress.js:32-67`, `src/MasterPage.jsx:62,162,172`, module de constantes partagé | M | Un PNG 800×800 de 2 Mo part **compressé** sous le seuil ; 6 photos lourdes → refus client expliqué avant l'envoi, payload total sous la limite plateforme |
@@ -1318,10 +1318,113 @@ présent dans la constante `DEMO` — le test cherche désormais la construction
 d'attente **dans chaque bloc** `test(...)`, et après `page.reload()` pour le
 second. Les 18 cas échouent maintenant pour la bonne raison.
 
-### ⏳ À faire — lot 8 (audit A→Z du 16/09/2026)
+### ✅ Fait — lot 8.1 + 8.2, les deux bloquants de l'audit A→Z (16/09/2026)
 
-Le **lot 8** (§7) regroupe 10 défauts trouvés hors des deux rapports d'origine :
-2 bloquants (**A1** commande d'un produit masqué, **A2** commande tarifée 0 DA),
+**A1 + A2 livrés ensemble**, comme le conseillait le §7 : les deux défauts se
+corrigent au même endroit (`placeOrder`), et les livrer séparément aurait laissé
+une fenêtre où l'un des deux chemins restait ouvert.
+
+**Serveur**
+
+- `server/catalog.js` — `placeOrder` refuse désormais **avant tout décrément** :
+  - une ligne dont `priceOf()` renvoie `null` (id inconnu du serveur) →
+    `{ ok: false, error: 'unknown_product', unknown: [{ id, name }] }` ;
+  - une ligne dont l'id figure dans `meta.hiddenProductIds` →
+    `{ ok: false, error: 'unavailable', unavailable: [{ id, name }] }`.
+
+  Le refus est **global** : une seule ligne douteuse fait tomber toute la
+  commande, par cohérence avec le contrôle de stock existant (aucun commit
+  partiel). La branche `if (!line.id)` du contrôle de stock est devenue morte et
+  a été retirée — ces lignes sont refusées plus haut.
+- `server/db.js` — nouveau `purgeOrphanCatalogRefs(db)`, appelé par
+  `normalizeDb()` : supprime de `db.stock` et `meta.productOverrides` les clés
+  dont l'id n'existe ni dans `PRODUCTS` ni dans `meta.extraProducts`, avec un
+  `console.warn` qui les nomme. C'est la source même du chemin A2 (trois origines
+  réalistes : un id retiré de `src/data.js` — précédent réel, `cpu-5600` et
+  `mag-ddr4-16` supprimés au lot P21 —, une migration partielle, une sauvegarde
+  restaurée).
+- `server/index.js` — route `POST /api/orders` : `unavailable` → **409** (conflit
+  avec l'état courant du catalogue, comme la rupture) avec les lignes nommées ;
+  `unknown_product` → **400** (requête invalide).
+
+**Client**
+
+- `src/orderLogic.js` — `orderApiFailure()` classe `unavailable` et
+  `unknown_product` **avant** la rupture (le premier partage son statut 409) ;
+  nouveaux `orderBlockedMessage()` (nomme les lignes refusées, borné à 3 puis
+  « et N autres », exactement comme `shortageMessage`) et `dropCartLines()`.
+- `src/App.jsx` — `reserve()` : message nommé, **retrait des lignes refusées** du
+  panier (état et persistance), reste du panier conservé, `refreshStock()` ; si le
+  retrait vide le panier, retour à l'étape 0 plutôt qu'un formulaire de retrait
+  face à un panier vide.
+- `src/i18n.js` — 4 clés × 3 langues (`orderUnavailable`, `orderUnavailableDetail`,
+  `orderUnknown`, `orderUnknownDetail`), blocs rééquilibrés (535/535/535).
+
+**Décisions**
+
+1. **`unknown_product` prime sur `unavailable`.** Un id à la fois inconnu et
+   masqué est signalé comme inconnu : c'est le fait le plus fort (on ne peut pas
+   dire « retiré de la vente » d'une référence qui n'existe pas), et les deux
+   issues refusent la commande de toute façon.
+2. **Pas de repli hors-ligne sur ces deux refus.** Le repli local reste réservé à
+   `offline` (règle P8) : créer une commande locale sur un article retiré de la
+   vente ou fantôme aurait reproduit le bug côté client, sans serveur pour le
+   rattraper. Le test vérifie explicitement que `pcstar-orders` reste vide.
+3. **Purge conservative.** Si `meta.extraProducts` est présent mais illisible (ni
+   tableau ni `null`), `purgeOrphanCatalogRefs` ne retire **rien** et le signale
+   (`skipped: true`) : impossible alors de distinguer un orphelin d'un produit
+   maître, et effacer un stock légitime est pire que laisser une clé morte.
+4. **`qty: 0` → 1 n'est pas corrigé** (constat annexe de l'audit A2). C'est la
+   règle `lineQty()` partagée avec le client depuis P22 (bug C) : la symétrie
+   décrément/restauration en dépend. Commander 0 unité n'a pas de sens métier ;
+   le refuser aurait été un changement de comportement sans bénéfice.
+
+**Piège** — `{lines}` placé en **tête** de chaîne i18n : le test d'interface
+extrait le préfixe du message pour l'attendre dans le rendu
+(`dict.fr.orderUnavailableDetail.split('{lines}')[0]`), comme le fait déjà
+`stockShortDetail`. Avec `{lines}` en premier, le préfixe est vide et
+l'assertion échoue sur « préfixe introuvable » au lieu de tester le rendu. Les
+deux chaînes détaillées portent donc un libellé **avant** la variable — ce qui se
+lit d'ailleurs mieux dans un toast.
+
+**Vérification en direct** (serveur d'aperçu relancé sur le code corrigé) :
+
+| Étape | Avant (audit) | Après |
+|---|---|---|
+| masquer `gpu-4070s`, confirmer son absence du catalogue public (221 produits) | ok | ok |
+| `POST /api/orders` **anonyme** sur ce produit | **HTTP 201**, commande créée | **HTTP 409** `unavailable`, ligne nommée |
+| `POST /api/orders` sur `produit-fantome` | accepté, **total 0 DA**, stock décrémenté | **HTTP 400** `unknown_product` |
+| stock de la référence masquée après refus | décrémenté | **inchangé (3)** |
+| commande légitime (`mousepad`) | 201 | **201**, total 7 500 DA recalculé depuis le catalogue |
+
+État de l'aperçu nettoyé ensuite : référence démasquée (222 produits visibles),
+commandes de test annulées, stock rendu (`mousepad` 17 → 18).
+
+**Tests** — 33 nouveaux, répartis en trois fichiers : `src/lot8Logic.test.js`
+(22, logique pure serveur + client), `src/lot8Server.test.js` (7, routes HTTP
+réelles sur une base semée **avant** l'import du handler — seule façon de voir la
+purge réellement persistée dans `store.json`), `src/lot8UI.test.js` (4, App réel
+dans jsdom : toast nommé, panier purgé, repli hors-ligne muet). Suite complète :
+**636 tests, 636 passent** (603 avant), build propre.
+
+**Neutralisations vérifiées régressives (7)** :
+
+| # | Correctif retiré | Tests qui rougissent |
+|---|---|---|
+| N1 | contrôle des produits masqués dans `placeOrder` | 8 |
+| N2 | refus de l'id inconnu (retour à `price: 0`) | 9 |
+| N3 | purge des références orphelines | 6 |
+| N4 | mapping 409/400 de la route | 3 |
+| N5 | classification `unavailable`/`unknown` côté client | 5 |
+| N6 | retrait des lignes refusées du panier | 3 |
+| N7 | message nommé (remplacé par un message générique) | 2 |
+
+---
+
+### ⏳ À faire — reste du lot 8 (A3 → A10)
+
+**A1 et A2 (les 2 bloquants) sont livrés** — voir ci-dessus. Restent 4 majeurs
+et 4 mineurs du **lot 8** (§7), trouvés hors des deux rapports d'origine :
 4 majeurs (**A3** drapeau `claimable` jamais lu, **A4** limite Vercel contredite
 par le code, **A5** photos non compressées en octets, **A6** WhatsApp jamais
 normalisé) et 4 mineurs (**A7** fsync, **A8** dates localisées à moitié, **A9**

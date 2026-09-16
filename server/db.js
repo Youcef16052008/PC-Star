@@ -2,6 +2,9 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import crypto from 'node:crypto'
+// LOT 8.2 (A2) : liste des ids connus du catalogue de base — sert à repérer les
+// entrées orphelines de `db.stock` / `productOverrides` (voir `purgeOrphanCatalogRefs`).
+import { PRODUCTS } from '../src/data.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 /** On Vercel serverless the bundle FS is read-only — persist under /tmp (ephemeral per instance). */
@@ -374,6 +377,18 @@ export function normalizeDb(db) {
       }
     }
   }
+  // LOT 8.2 (A2) : entrées orphelines — un id présent dans `db.stock` ou
+  // `productOverrides` mais absent du catalogue (produit retiré de `src/data.js`,
+  // migration, restauration de sauvegarde). Sans purge, ces clés alimentaient le
+  // seul chemin qui permettait encore de commander un produit inconnu : le
+  // contrôle de stock les trouvait disponibles et `priceOf` les tarifait 0 DA.
+  const orphan = purgeOrphanCatalogRefs(db)
+  if (orphan.purged.length) {
+    console.warn(
+      `[pcstar-db] ${orphan.purged.length} entrée(s) orpheline(s) purgée(s) — id absent du catalogue : ${orphan.purged.join(', ')}`
+    )
+    changed = true
+  }
   // P13 (S3) : clés internes de transit — elles n'ont rien à faire dans la base
   // persistante. `_lastAuth` contenait un TOKEN DE SESSION valide, recopié tel
   // quel dans chaque backup de store.json. `_err` empoisonnait les inscriptions
@@ -522,6 +537,47 @@ export function stripInternalKeys(db) {
     }
   }
   return changed
+}
+
+/**
+ * LOT 8.2 (A2) — purge des références catalogue orphelines.
+ *
+ * Une entrée de `db.stock` ou de `db.meta.productOverrides` dont l'id n'existe
+ * ni dans le catalogue de base (`PRODUCTS`) ni parmi les produits créés par le
+ * maître (`meta.extraProducts`) est morte : aucun écran ne l'affiche, aucune
+ * fiche ne la porte. Elle n'est pourtant pas inoffensive — `liveStockOf`
+ * renvoyait sa quantité et `placeOrder` acceptait la ligne en la tarifant
+ * **0 DA** (`priceOf` → `null`, reproduit à l'audit avec `produit-fantome`).
+ *
+ * Trois chemins réalistes produisent ces clés : un id renommé/retiré dans
+ * `src/data.js` (précédent réel : `cpu-5600` et `mag-ddr4-16`, supprimés au
+ * lot P21), une migration partielle, la restauration d'une sauvegarde prise
+ * sur une version antérieure du catalogue.
+ *
+ * Règle de prudence : si `meta.extraProducts` est présent mais illisible
+ * (ni tableau ni `null`), on ne purge **rien** — impossible alors de
+ * distinguer un orphelin d'un produit maître, et effacer un stock légitime est
+ * pire que laisser une clé morte. Le cas est signalé dans la valeur de retour.
+ *
+ * @returns {{purged: string[], skipped: boolean}} ids retirés, préfixés du champ
+ */
+export function purgeOrphanCatalogRefs(db) {
+  const extras = db?.meta?.extraProducts
+  if (extras != null && !Array.isArray(extras)) return { purged: [], skipped: true }
+  const known = new Set(PRODUCTS.map((p) => String(p.id)))
+  for (const p of extras || []) if (p && p.id != null) known.add(String(p.id))
+  const purged = []
+  const clean = (obj, field) => {
+    for (const key of Object.keys(obj)) {
+      if (known.has(String(key))) continue
+      delete obj[key]
+      purged.push(`${field}:${key}`)
+    }
+  }
+  if (db?.stock && typeof db.stock === 'object' && !Array.isArray(db.stock)) clean(db.stock, 'stock')
+  const ov = db?.meta?.productOverrides
+  if (ov && typeof ov === 'object' && !Array.isArray(ov)) clean(ov, 'productOverrides')
+  return { purged, skipped: false }
 }
 
 /**

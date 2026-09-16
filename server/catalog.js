@@ -78,24 +78,60 @@ export function placeOrder(db, body, { userId = null, unclaimable = false } = {}
 
   // Prix recalculés côté serveur depuis le catalogue (le prix/total envoyé
   // par le client n'est jamais fait confiance).
-  const normalized = items.map((i) => {
+  //
+  // LOT 8.1 (A1) + LOT 8.2 (A2) : deux refus ajoutés ICI, avant tout
+  // décrément, donc dans la transaction de la route — l'état persisté ne peut
+  // plus contenir ni commande sur produit masqué, ni commande à 0 DA.
+  //
+  // · A2 — `priceOf` renvoie `null` pour un id que le serveur ne connaît pas
+  //   (ni catalogue de base, ni produit maître, ni override). L'ancienne
+  //   normalisation écrivait `price: 0` : la commande passait, son total
+  //   valait 0 DA et le stock de l'id fantôme était décrémenté. Reproduit à
+  //   l'audit (`produit-fantome` → `PS-20260916-0001`, total 0). On refuse la
+  //   ligne au lieu de l'offrir.
+  // · A1 — `publicCatalog` exclut les produits masqués par le maître
+  //   (`hiddenProductIds`), mais `placeOrder` ne les consultait jamais : un
+  //   visiteur anonyme pouvait commander un produit retiré de la vente en
+  //   visant son id (reproduit en direct → HTTP 201). Le masquage est une
+  //   décision du maître, elle doit valoir aussi à la commande.
+  const hidden = new Set(Array.isArray(db.meta?.hiddenProductIds) ? db.meta.hiddenProductIds : [])
+  const normalized = []
+  const unknown = []
+  const unavailable = []
+  for (const i of items) {
     const id = String(i.id || '')
     const price = priceOf(db, id)
-    return {
+    const line = {
       id,
       sku: String(i.sku || ''),
       name: String(i.name || ''),
       qty: Math.max(1, Math.floor(Number(i.qty) || 1)),
       price: price == null ? 0 : price
     }
-  })
+    // Ligne sans id ou id inconnu du serveur : jamais tarifée 0 DA (A2).
+    if (!id || price == null) {
+      unknown.push({ id, name: line.name })
+      continue
+    }
+    // Produit retiré de la vente par le maître : pas commandable (A1).
+    if (hidden.has(id)) {
+      unavailable.push({ id, name: line.name })
+      continue
+    }
+    normalized.push(line)
+  }
+  // Rien n'est décrémenté tant qu'un refus est levé — et une seule ligne
+  // douteuse suffit à refuser TOUTE la commande (atomicité déjà exigée par le
+  // contrôle de stock ci-dessous).
+  if (unknown.length) return { ok: false, error: 'unknown_product', unknown }
+  if (unavailable.length) return { ok: false, error: 'unavailable', unavailable }
 
   const shortages = []
   for (const line of normalized) {
-    if (!line.id) {
-      shortages.push({ id: line.id, need: line.qty, left: 0 })
-      continue
-    }
+    // LOT 8.2 (A2) : la branche `if (!line.id)` qui poussait une « rupture »
+    // pour une ligne sans identifiant est devenue morte — ces lignes sont
+    // refusées plus haut (`unknown_product`). Toute ligne ici a un id connu
+    // du serveur et donc un prix de référence.
     const left = liveStockOf(db, line.id)
     if (left < line.qty) shortages.push({ id: line.id, name: line.name, need: line.qty, left })
   }

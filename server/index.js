@@ -900,6 +900,17 @@ export async function handler(req, res) {
       })
       if (!result?.ok) {
         if (result?.error === 'stock') return send(res, 409, { ok: false, error: 'stock', shortages: result.shortages })
+        // LOT 8.1 (A1) : produit retiré de la vente par le maître. Conflit avec
+        // l'état actuel du catalogue (409, comme la rupture) et les lignes en
+        // cause sont nommées — le client les retire du panier au lieu de
+        // renvoyer la même commande en boucle.
+        if (result?.error === 'unavailable')
+          return send(res, 409, { ok: false, error: 'unavailable', unavailable: result.unavailable })
+        // LOT 8.2 (A2) : id inconnu du serveur (ni catalogue, ni produit maître,
+        // ni override). Requête invalide → 400. Avant ce correctif la ligne
+        // était tarifée 0 DA et la commande acceptée en 201.
+        if (result?.error === 'unknown_product')
+          return send(res, 400, { ok: false, error: 'unknown_product', unknown: result.unknown })
         return send(res, 400, { ok: false, error: result?.error || 'order' })
       }
       // P19 — notifier le master. Jamais bloquant : une panne WhatsApp ou un

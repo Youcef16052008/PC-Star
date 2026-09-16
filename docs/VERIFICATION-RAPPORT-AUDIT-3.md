@@ -16,12 +16,19 @@ d'origine ne sont pas modifiés (même règle que pour les lots précédents).
 
 ## 1. Verdict global
 
-| Sévérité | Nombre | Items |
-|---|---|---|
-| 🔴 Bloquant (argent / intégrité des commandes) | **2** | A1, A2 |
-| 🟠 Majeur (échec silencieux, production Vercel) | **4** | A3, A4, A5, A6 |
-| 🟡 Mineur (durabilité, cohérence, hygiène) | **4** | A7, A8, A9, A10 |
-| **Total** | **10** | |
+| Sévérité | Nombre | Items | Statut |
+|---|---|---|---|
+| 🔴 Bloquant (argent / intégrité des commandes) | **2** | A1, A2 | ✅ **corrigés** le 16/09/2026 (lot 8.1 + 8.2) |
+| 🟠 Majeur (échec silencieux, production Vercel) | **4** | A3, A4, A5, A6 | à corriger |
+| 🟡 Mineur (durabilité, cohérence, hygiène) | **4** | A7, A8, A9, A10 | à corriger |
+| **Total** | **10** | | 2 corrigés, 8 à corriger |
+
+> **Mise à jour du 16/09/2026.** A1 et A2 ont été corrigés et livrés sur cette
+> même branche (33 tests de non-régression, suite à 636/636, reproduction en
+> direct rejouée : 409 et 400 à la place de 201). Détail des correctifs,
+> décisions et neutralisations dans `docs/PLAN-CORRECTIONS.md` §9, section
+> « ✅ Fait — lot 8.1 + 8.2 ». Le corps de ce rapport reste **inchangé** : il
+> décrit l'état audité, les statuts sont ajoutés en tête de chaque item corrigé.
 
 Les deux items bloquants concernent **le même point d'entrée** —
 `placeOrder()` (`server/catalog.js`) et la route `POST /api/orders`
@@ -39,6 +46,14 @@ correction proposée. Le plan de correction par lot est dans
 ## 2. Items bloquants
 
 ### 🔴 A1 — Un produit **masqué** par le maître reste commandable par n'importe qui
+
+> ✅ **CORRIGÉ (16/09/2026, lot 8.1).** `placeOrder()` refuse toute ligne dont
+> l'id figure dans `hiddenProductIds` — dans la transaction, avant tout
+> décrément — et la route répond **409 `unavailable`** en nommant la ligne. Le
+> client retire la ligne du panier et dit pourquoi. Reproduction ci-dessous
+> rejouée sur le code corrigé : **409** au lieu de 201, stock inchangé, aucune
+> commande créée. Tests : `src/lot8Logic.test.js`, `src/lot8Server.test.js`,
+> `src/lot8UI.test.js`.
 
 **Affirmation.** `hiddenProductIds` retire un produit du catalogue public, mais
 ni `placeOrder()` ni la route de commande ne le consultent : une commande sur un
@@ -115,6 +130,12 @@ le panier, pas seulement au moment de commander.
 ---
 
 ### 🔴 A2 — Commande acceptée à **0 DA** sur un identifiant inconnu
+
+> ✅ **CORRIGÉ (16/09/2026, lot 8.2).** Une ligne dont `priceOf()` renvoie
+> `null` est refusée (`unknown_product`, **400**) au lieu d'être tarifée 0 DA, et
+> `normalizeDb()` purge désormais les entrées orphelines de `db.stock` et
+> `productOverrides` qui alimentaient ce chemin (avec journalisation des clés
+> retirées). Reproduction rejouée : **400** au lieu d'une commande à 0 DA.
 
 **Affirmation.** Si `db.stock` contient une entrée pour un identifiant qui ne
 correspond à **aucun** produit (ni catalogue de base, ni `extraProducts`, ni

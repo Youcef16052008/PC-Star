@@ -129,19 +129,75 @@ export function localDay(date = new Date()) {
 
 /**
  * P8 (P7-2) : classification d'un échec de `api.postOrder`.
- * - 'offline'  : backend injoignable → SEUL cas où le repli local est légitime.
- * - 'stock'    : 409/rupture → message stock, stock actualisé.
- * - 'rate'     : 429 → message d'attente (retryAfter s), panier conservé.
- * - 'server'   : 5xx/autre → message erreur serveur, panier conservé.
+ * - 'offline'     : backend injoignable → SEUL cas où le repli local est légitime.
+ * - 'unavailable' : 409 — produit retiré de la vente par le maître (LOT 8.1 / A1).
+ * - 'unknown'     : 400 — id inconnu du catalogue serveur (LOT 8.2 / A2).
+ * - 'stock'       : 409/rupture → message stock, stock actualisé.
+ * - 'rate'        : 429 → message d'attente (retryAfter s), panier conservé.
+ * - 'server'      : 5xx/autre → message erreur serveur, panier conservé.
  * (un succès est géré avant l'appel — ne pas passer un r.ok.)
+ *
+ * LOT 8.1 + 8.2 : les deux nouveaux refus sont testés AVANT la rupture, parce
+ * qu'ils partagent son statut 409 (`unavailable`) ou un corps `error` distinct :
+ * sans cet ordre, un produit retiré de la vente aurait été annoncé comme une
+ * simple rupture — donc « réessayez plus tard » pour un article qui ne
+ * reviendra pas, et le panier aurait été conservé tel quel.
  */
 export function orderApiFailure(r) {
   if (!r || r.offline) return { kind: 'offline' }
-  if (r.status === 409 || r.data?.error === 'stock') {
+  const err = r.data?.error
+  if (err === 'unavailable') return { kind: 'unavailable', lines: r.data?.unavailable || [] }
+  if (err === 'unknown_product') return { kind: 'unknown', lines: r.data?.unknown || [] }
+  if (r.status === 409 || err === 'stock') {
     return { kind: 'stock', shortages: r.data?.shortages || [] }
   }
   if (r.status === 429) return { kind: 'rate', retryAfter: r.data?.retryAfter || null }
   return { kind: 'server' }
+}
+
+/**
+ * LOT 8.1 (A1) + LOT 8.2 (A2) — message qui NOMME les lignes refusées.
+ *
+ * Le serveur renvoie les lignes en cause (`{ id, name }`) : un produit retiré
+ * de la vente par le maître, ou un id qu'il ne connaît pas (catalogue changé
+ * depuis l'ouverture de l'onglet, commande rejouée). Un message générique
+ * laisserait l'utilisateur renvoyer exactement la même commande, indéfiniment.
+ * Comme `shortageMessage`, la liste est bornée (`max`, 3) pour rester lisible.
+ *
+ * @param {Array<{id?: string, name?: string}>} lines
+ * @param {(key: string, vars?: object) => string} t
+ * @param {'unavailable'|'unknown'} kind
+ */
+export function orderBlockedMessage(lines, t, kind = 'unavailable', { max = 3 } = {}) {
+  const list = (Array.isArray(lines) ? lines : []).filter(Boolean)
+  const detail = kind === 'unknown' ? 'orderUnknownDetail' : 'orderUnavailableDetail'
+  if (!list.length) return t(kind === 'unknown' ? 'orderUnknown' : 'orderUnavailable')
+  const shown = list.slice(0, Math.max(1, max)).map((l) => l.name || l.id || '?')
+  if (list.length > shown.length) shown.push(t('stockShortMore', { n: list.length - shown.length }))
+  return t(detail, { lines: shown.join(' · ') })
+}
+
+/**
+ * LOT 8.1 (A1) + LOT 8.2 (A2) — retire du panier les lignes refusées.
+ *
+ * Le refus serveur est définitif pour ces lignes : les laisser dans le panier
+ * ferait échouer chaque tentative suivante (et le repli hors-ligne finirait par
+ * créer une commande locale sur un article qui n'existe plus). Le reste du
+ * panier est conservé — l'utilisateur peut commander les autres lignes.
+ *
+ * @param {Array<{id: string}>} cart
+ * @param {Array<{id?: string}|string>} lines lignes refusées (ou simples ids)
+ * @returns {Array} nouveau panier, sans les lignes refusées
+ */
+export function dropCartLines(cart, lines) {
+  const list = Array.isArray(cart) ? cart : []
+  const ids = new Set(
+    (Array.isArray(lines) ? lines : [])
+      .map((l) => String(l?.id ?? l ?? ''))
+      .filter(Boolean)
+  )
+  if (!ids.size) return list
+  return list.filter((c) => !ids.has(String(c?.id || '')))
 }
 
 /**

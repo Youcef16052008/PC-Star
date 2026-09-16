@@ -36,10 +36,12 @@ import ProductPage from './ProductPage.jsx'
 import LegalPage from './LegalPage.jsx'
 import {
   buildWaMessage,
+  dropCartLines,
   localDay,
   mergeServerOrders,
   nextLocalOrderCode,
   orderApiFailure,
+  orderBlockedMessage,
   pickupForUser,
   shortageMessage
 } from './orderLogic.js'
@@ -1191,6 +1193,23 @@ export default function App() {
         // quelle ligne de son panier posait problème, puis de tester des
         // quantités au hasard. Le détail est maintenant nommé.
         setToast(shortageMessage(fail.shortages, t))
+        await refreshStock()
+        return
+      }
+      // LOT 8.1 (A1) + LOT 8.2 (A2) : refus DÉFINITIF du serveur sur certaines
+      // lignes — produit retiré de la vente par le maître, ou id inconnu du
+      // catalogue (onglet ouvert avant un changement de catalogue, commande
+      // rejouée). Le message nomme les lignes, elles sont retirées du panier, et
+      // le reste reste commandable : sans cela l'utilisateur renvoyait la même
+      // commande en boucle sur un échec identique — et le repli hors-ligne
+      // pouvait finir par créer une commande locale sur un article fantôme.
+      if (fail.kind === 'unavailable' || fail.kind === 'unknown') {
+        setToast(orderBlockedMessage(fail.lines, t, fail.kind))
+        const kept = dropCartLines(cart, fail.lines)
+        setCart(kept)
+        // Panier vidé par le retrait : on sort de l'étape de commande plutôt que
+        // de laisser un formulaire de retrait face à un panier vide.
+        if (!kept.length) setCartStep(0)
         await refreshStock()
         return
       }
