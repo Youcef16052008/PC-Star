@@ -1,5 +1,10 @@
 import { useEffect, useState } from 'react'
 import { money } from './data.js'
+// LOT 8.8 (A8) : le formatage de la date passe par le module partagé — avant,
+// `new Date(o.at).toLocaleString()` ignorait la langue choisie et rendait la
+// locale du NAVIGATEUR : en mode arabe, le comptoir affichait `ar-DZ` et cette
+// page `fr-FR`, deux formats pour la même commande.
+import { formatDateTime } from './format.js'
 import * as api from './api.js'
 import { canCancelHere, statusLabelKey } from './orderLogic.js'
 import { loadOrders } from './prefs.js'
@@ -19,7 +24,7 @@ import { loadOrders } from './prefs.js'
  * LOT 2.8 (F12) : les commandes **guest de cet appareil** restent visibles après
  * connexion, marquées « passées sans compte ».
  */
-export default function OrdersPage({ t, user, apiOnline, mode, onCancelOrder, onBack }) {
+export default function OrdersPage({ t, lang = 'fr', user, apiOnline, mode, onCancelOrder, onBack }) {
   const [orders, setOrders] = useState([])
   const [loading, setLoading] = useState(true)
   const [cancelTick, setCancelTick] = useState(0)
@@ -116,7 +121,7 @@ export default function OrdersPage({ t, user, apiOnline, mode, onCancelOrder, on
                         </span>
                       </div>
                       <div className="small text-secondary mt-1">
-                        {o.slot || '—'} · {o.at ? new Date(o.at).toLocaleString() : ''}
+                        {o.slot || '—'} · {formatDateTime(o.at, lang)}
                       </div>
                       <ul className="small mb-1 mt-2">
                         {(o.items || []).map((i) => (
@@ -126,7 +131,7 @@ export default function OrdersPage({ t, user, apiOnline, mode, onCancelOrder, on
                         ))}
                       </ul>
                       <div className="d-flex justify-content-between align-items-center">
-                        <div className="fw-semibold text-success">{money(o.total)}</div>
+                        <div className="fw-semibold text-success">{money(o.total, lang)}</div>
                         {/* LOT 8.3 (A3) : annulation possible tant que la commande
                             est « neuve » ET revendicable (`canCancelHere`).
                             Avant, seul le statut comptait : une commande

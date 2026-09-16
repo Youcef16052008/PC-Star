@@ -20,18 +20,19 @@ d'origine ne sont pas modifiés (même règle que pour les lots précédents).
 |---|---|---|---|
 | 🔴 Bloquant (argent / intégrité des commandes) | **2** | A1, A2 | ✅ **corrigés** le 16/09/2026 (lot 8.1 + 8.2) |
 | 🟠 Majeur (échec silencieux, production Vercel) | **4** | A3, A4, A5, A6 | ✅ **les quatre corrigés** (lots 8.3, 8.4, 8.5, 8.6) |
-| 🟡 Mineur (durabilité, cohérence, hygiène) | **4** | A7, A8, A9, A10 | ✅ A7 corrigé (lot 8.7) ; A8, A9, A10 à corriger |
-| **Total** | **10** | | **7 corrigés** (A1 → A7), 3 à corriger (A8, A9, A10) |
+| 🟡 Mineur (durabilité, cohérence, hygiène) | **4** | A7, A8, A9, A10 | ✅ A7 et A8 corrigés (lots 8.7, 8.8) ; A9, A10 à corriger |
+| **Total** | **10** | | **8 corrigés** (A1 → A8), 2 à corriger (A9, A10) |
 
-> **Mise à jour du 16/09/2026.** A1, A2, A6, A3, A4, A5, puis **A7** ont été
-> corrigés et livrés sur cette même branche (94 tests de non-régression au
-> total, suite à **697/697**, reproductions en direct rejouées : 409 et 400 à la
+> **Mise à jour du 16/09/2026.** A1, A2, A6, A3, A4, A5, A7 puis **A8** ont
+> été corrigés et livrés sur cette même branche (117 tests de non-régression au
+> total, suite à **720/720**, reproductions en direct rejouées : 409 et 400 à la
 > place de 201 pour A1/A2, destinataire `213770650387` à la place de
 > `0770650387` pour A6, 404 et bouton retiré pour A3, `413
 > {"maxBytes":4194304,"platformLimit":4718592}` sur un banc `VERCEL=1` pour A4,
 > 6 photos au plafond acceptées et corps trop lourd refusé avant envoi pour A5,
 > commande écrite puis annulée sur disque valide sans `store.json.tmp` résiduel
-> pour A7). Détail des correctifs, décisions et neutralisations dans
+> pour A7, et pour A8 la même commande rendue `16‏/9‏/2026، 10:30:00 ص` /
+> `97.000 دج` au Desk **et** dans « Mes commandes »). Détail des correctifs, décisions et neutralisations dans
 > `docs/PLAN-CORRECTIONS.md` §9, sections « ✅ Fait — lot 8.1 + 8.2 »,
 > « lot 8.6 », « lot 8.3 », « lots 8.4 + 8.5 » et « lot 8.7 ». Le corps de ce
 > rapport reste **inchangé** : il décrit l'état audité, les statuts sont ajoutés
@@ -565,6 +566,32 @@ jugé trop coûteux — mais alors l'écrire, car le commentaire actuel parle
 d'atomicité sans mentionner la durabilité.
 
 ### 🟡 A8 — Les dates de « Mes commandes » ignorent la langue choisie
+
+> ✅ **CORRIGÉ (16/09/2026, lot 8.8).** Nouveau module `src/format.js` (sur le
+> modèle de `stockLabel.js` au lot 6.1) : **une** table de locales
+> (`fr-DZ` / `ar-DZ` / `en-GB`), `localeFor()`, `normalizeLang()`, `money(n,
+> lang)`, `third()`, `formatDateTime(value, lang)`. `src/data.js` **ré-exporte**
+> `money`/`third` — la même fonction, plus de seconde définition.
+>
+> **Décision tranchée et écrite dans le code** : la locale **suit la langue de
+> l'interface**, pour les dates **et** les prix, suffixe monétaire compris
+> (`DA` en français/anglais, `دج` en arabe — les libellés i18n arabes disent
+> déjà « دج », `price_u15: 'أقل من 15 000 دج'`). Le français reste la valeur par
+> défaut (langue absente/inconnue) : c'est le format historique du magasin, et
+> les chemins sans interface (WhatsApp au maître, CSV, scripts) n'ont pas de
+> langue à choisir.
+>
+> `OrdersPage` reçoit désormais `lang` (comme `ProductPage` et `BuilderPage`,
+> transmis par `App`) et rend `formatDateTime(o.at, lang)` ; `DeskPage` a perdu
+> son `formatAt` maison au profit du module partagé ; `src/notify.js`
+> (notification du comptoir) et `buildWaMessage` suivent la langue — plus aucune
+> recopie `toLocaleString('fr-DZ')` dans le code rendu.
+>
+> Rendu réel vérifié dans jsdom : en arabe, la même commande affiche
+> `16‏/9‏/2026، 10:30:00 ص` **et** `97.000 دج` au Desk comme dans « Mes
+> commandes » ; en français, `16/09/2026 10:30:00` et `97 000 DA` sur les deux
+> écrans. Le défaut exact est testé : la chaîne ne contient **plus** le rendu de
+> la locale du navigateur (`9/16/2026, 10:30:00 AM`).
 
 **Preuve.** Deux traitements différents pour la même donnée :
 

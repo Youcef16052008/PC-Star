@@ -171,7 +171,7 @@ export default function SearchPage({ t, products, lines, panels, lang, liveStock
           ) : null}
           <p className="small text-secondary flex-grow-1">{p.short}</p>
           <div className="d-flex justify-content-between align-items-center gap-2 mt-auto">
-            <span className="fw-bold text-success">{money(p.price)}</span>
+            <span className="fw-bold text-success">{money(p.price, lang)}</span>
             <button type="button" className="btn btn-sm btn-success" disabled={left <= 0} onClick={() => onAdd(p)}>
               {left <= 0 ? t('soldOut') : t('add')}
             </button>
@@ -388,7 +388,7 @@ export default function SearchPage({ t, products, lines, panels, lang, liveStock
                         <span className={`badge ${st.cls}`}>{st.text}</span>
                       </div>
                       <div className="text-end">
-                        <div className="fw-bold text-success mb-2">{money(p.price)}</div>
+                        <div className="fw-bold text-success mb-2">{money(p.price, lang)}</div>
                         <button type="button" className="btn btn-sm btn-success" disabled={left <= 0} onClick={() => onAdd(p)}>
                           {left <= 0 ? t('soldOut') : t('add')}
                         </button>

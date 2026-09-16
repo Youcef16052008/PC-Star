@@ -519,7 +519,7 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, ma
                         </div>
                         <strong>{p.name}</strong>
                         <div className="small text-secondary">
-                          {money(p.price)} · {p.stock} · {labelOr(t, `cat_${p.category}`, p.category)} · {(p.photos || []).length} img
+                          {money(p.price, lang)} · {p.stock} · {labelOr(t, `cat_${p.category}`, p.category)} · {(p.photos || []).length} img
                         </div>
                       </div>
                       <div className="d-flex gap-2">

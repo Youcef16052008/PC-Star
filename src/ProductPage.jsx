@@ -62,7 +62,7 @@ function SpecBadges({ product, t }) {
   )
 }
 
-export default function ProductPage({ t, product, photoIndex, setPhotoIndex, left, onBack, onAdd, onOpen, liveStock, onAddRelated, catalog }) {
+export default function ProductPage({ t, lang = 'fr', product, photoIndex, setPhotoIndex, left, onBack, onAdd, onOpen, liveStock, onAddRelated, catalog }) {
   const st = stockLabel(left, t)
   // LOT 6.1 (Q1) : la classe vient complète — plus de ternaire de traduction.
   const badge = st.cls
@@ -136,7 +136,7 @@ export default function ProductPage({ t, product, photoIndex, setPhotoIndex, lef
           <h1 className="h3 mb-2">{product.name}</h1>
           <Stars product={product} t={t} />
           <p className="text-secondary">{product.short}</p>
-          <div className="fs-4 fw-bold text-success mb-2">{money(product.price)}</div>
+          <div className="fs-4 fw-bold text-success mb-2">{money(product.price, lang)}</div>
           <SpecBadges product={product} t={t} />
           {specs.length > 0 && (
             <div className="table-responsive mb-3">
@@ -169,12 +169,12 @@ export default function ProductPage({ t, product, photoIndex, setPhotoIndex, lef
               choices={[
                 {
                   title: STORE.phone,
-                  href: `https://wa.me/${STORE.whatsapp}?text=${encodeURIComponent(t('pdpWaMsg', { name: product.name, sku: product.sku, price: money(product.price) }))}`,
+                  href: `https://wa.me/${STORE.whatsapp}?text=${encodeURIComponent(t('pdpWaMsg', { name: product.name, sku: product.sku, price: money(product.price, lang) }))}`,
                   external: true
                 },
                 {
                   title: STORE.phone2,
-                  href: `https://wa.me/${STORE.whatsapp2}?text=${encodeURIComponent(t('pdpWaMsg', { name: product.name, sku: product.sku, price: money(product.price) }))}`,
+                  href: `https://wa.me/${STORE.whatsapp2}?text=${encodeURIComponent(t('pdpWaMsg', { name: product.name, sku: product.sku, price: money(product.price, lang) }))}`,
                   external: true
                 }
               ]}
@@ -188,7 +188,7 @@ export default function ProductPage({ t, product, photoIndex, setPhotoIndex, lef
           au bureau (d-lg-none) ; safe-area-inset-bottom dans index.css. */}
       <div className="pdp-sticky-cta d-lg-none">
         <div className="d-flex align-items-center gap-2">
-          <strong className="text-success">{money(product.price)}</strong>
+          <strong className="text-success">{money(product.price, lang)}</strong>
           <button className="btn btn-success flex-grow-1" type="button" disabled={left <= 0} onClick={onAdd}>
             {left <= 0 ? t('soldOut') : t('addToCart')}
           </button>
@@ -238,7 +238,7 @@ export default function ProductPage({ t, product, photoIndex, setPhotoIndex, lef
                         </button>
                       </h3>
                       <Stars product={p} t={t} />
-                      <div className="fw-bold text-success mb-2">{money(p.price)}</div>
+                      <div className="fw-bold text-success mb-2">{money(p.price, lang)}</div>
                       <button className="btn btn-sm btn-success mt-auto" type="button" disabled={l <= 0} onClick={() => onAddRelated(p)}>
                         {l <= 0 ? t('soldOut') : t('add')}
                       </button>

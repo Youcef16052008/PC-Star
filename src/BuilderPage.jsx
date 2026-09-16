@@ -8,7 +8,7 @@ import ContactButton from './ContactPicker.jsx'
 // LOT 6.1 (Q1) : `stockLabel` vient de `src/stockLabel.js` — une seule définition,
 // une seule famille de classes (la classe Bootstrap complète, rien à traduire).
 
-export default function BuilderPage({ t, products, build, setBuild, liveStock, onAdd, onOpen, onGoCart, setToast }) {
+export default function BuilderPage({ t, lang = 'fr', products, build, setBuild, liveStock, onAdd, onOpen, onGoCart, setToast }) {
   const catalog = products || []
   const [group, setGroup] = useState('parts')
   const [slotKey, setSlotKey] = useState('motherboard')
@@ -298,7 +298,7 @@ export default function BuilderPage({ t, products, build, setBuild, liveStock, o
                           </div>
                         )}
                         <div className="d-flex justify-content-between align-items-center gap-2 mt-auto">
-                          <span className="fw-bold text-success">{money(p.price)}</span>
+                          <span className="fw-bold text-success">{money(p.price, lang)}</span>
                           <button
                             type="button"
                             className={`btn btn-sm ${on ? 'btn-outline-success' : 'btn-success'}`}
@@ -334,7 +334,7 @@ export default function BuilderPage({ t, products, build, setBuild, liveStock, o
                         </button>
                         {build[s.key] ? (
                           <span className="d-flex align-items-center gap-2">
-                            <strong className="text-success">{money(build[s.key].price)}</strong>
+                            <strong className="text-success">{money(build[s.key].price, lang)}</strong>
                             <button type="button" className="btn-close btn-sm" aria-label={t('remove')} onClick={() => clearSlot(s.key)} />
                           </span>
                         ) : (
@@ -348,7 +348,7 @@ export default function BuilderPage({ t, products, build, setBuild, liveStock, o
 
               <div className="d-flex justify-content-between align-items-center mb-2">
                 <span className="fw-semibold">{t('total')}</span>
-                <span className="fs-5 fw-bold text-success">{money(total)}</span>
+                <span className="fs-5 fw-bold text-success">{money(total, lang)}</span>
               </div>
               {(power.socket || power.estimateWatts) && (
                 <div className="small border rounded p-2 mb-3 bg-body-tertiary">
@@ -371,8 +371,8 @@ export default function BuilderPage({ t, products, build, setBuild, liveStock, o
                   type="button"
                   className="btn btn-sm btn-outline-secondary"
                   onClick={() => {
-                    const lines = BUILDER_SLOTS.map((s) => build[s.key]).filter(Boolean).map((p) => `- ${p.name} (${money(p.price)})`).join('\n')
-                    const text = t('buildCopyMsg', { lines, total: money(total) })
+                    const lines = BUILDER_SLOTS.map((s) => build[s.key]).filter(Boolean).map((p) => `- ${p.name} (${money(p.price, lang)})`).join('\n')
+                    const text = t('buildCopyMsg', { lines, total: money(total, lang) })
                     // P10 (P7-16) : gestion de l'échec (iframe sans permission
                     // clipboard → la promesse rejetait sans être gérée) + toast
                     // honnête au lieu de « copié » systématique.
@@ -396,7 +396,7 @@ export default function BuilderPage({ t, products, build, setBuild, liveStock, o
                       href: `https://wa.me/${STORE.whatsapp}?text=${encodeURIComponent(
                         t('buildShareMsg', {
                           lines: BUILDER_SLOTS.map((s) => build[s.key]).filter(Boolean).map((p) => `- ${p.name}`).join('\n'),
-                          total: money(total)
+                          total: money(total, lang)
                         })
                       )}`,
                       external: true
@@ -406,7 +406,7 @@ export default function BuilderPage({ t, products, build, setBuild, liveStock, o
                       href: `https://wa.me/${STORE.whatsapp2}?text=${encodeURIComponent(
                         t('buildShareMsg', {
                           lines: BUILDER_SLOTS.map((s) => build[s.key]).filter(Boolean).map((p) => `- ${p.name}`).join('\n'),
-                          total: money(total)
+                          total: money(total, lang)
                         })
                       )}`,
                       external: true

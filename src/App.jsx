@@ -860,7 +860,7 @@ export default function App() {
           }
           // Notification navigateur : visible même si l'onglet est en
           // arrière-plan. Silencieuse si la permission n'a pas été accordée.
-          notifyNewOrder(o, t)
+          notifyNewOrder(o, t, { lang })
         }
       } else {
         // LOT 3.11 (B16) — premier pull de la session.
@@ -882,7 +882,7 @@ export default function App() {
               deskBeep()
               setToast(missed.length === 1 ? t('deskNewOrder') : t('deskNewOrders', { n: missed.length }))
             }
-            for (const o of missed.slice(0, MAX_MISSED_NOTIFY)) notifyNewOrder(o, t)
+            for (const o of missed.slice(0, MAX_MISSED_NOTIFY)) notifyNewOrder(o, t, { lang })
           }
         }
       }
@@ -1013,7 +1013,7 @@ export default function App() {
     )
     const shown = priceDrift
       .slice(0, 2)
-      .map((d) => `${d.name} → ${money(d.to)}`)
+      .map((d) => `${d.name} → ${money(d.to, lang)}`)
       .join(' · ')
     setToast(t('cartPriceUpdated', { lines: priceDrift.length > 2 ? `${shown} …` : shown }))
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1310,7 +1310,9 @@ export default function App() {
     // LOT 5.4 (U4) : le message WhatsApp porte les prix/labels LIVE, comme
     // l'écran et la commande — sinon le commerçant lit un récapitulatif qui ne
     // correspond à rien de ce que le client vient de voir.
-    const text = buildWaMessage(pricedCart, total, pickup, t)
+    // LOT 8.8 (A8) : le message WhatsApp suit la langue de l'interface — le total
+    // n'y fait plus exception (il restait au format français en mode arabe).
+    const text = buildWaMessage(pricedCart, total, pickup, t, { lang })
     const encoded = encodeURIComponent(text)
     return {
       msg: text,
@@ -1633,7 +1635,7 @@ export default function App() {
                           ))}
                         </div>
                         <div className="card-row mt-auto d-flex justify-content-between align-items-center gap-2">
-                          <span className="price text-success">{money(p.price)}</span>
+                          <span className="price text-success">{money(p.price, lang)}</span>
                           <button className="btn btn-sm btn-success" type="button" disabled={left <= 0} onClick={() => add(p)}>
                             {left <= 0 ? t('soldOut') : t('add')}
                           </button>
@@ -1773,6 +1775,7 @@ export default function App() {
         <ProductPage
           key={selected.id}
           t={t}
+          lang={lang}
           product={selected}
           photoIndex={photoIndex}
           setPhotoIndex={setPhotoIndex}
@@ -1789,6 +1792,7 @@ export default function App() {
       {page === 'builder' && (
         <BuilderPage
           t={t}
+          lang={lang}
           products={catalog}
           build={build}
           setBuild={setBuild}
@@ -1977,6 +1981,7 @@ export default function App() {
       {page === 'orders' && (
         <OrdersPage
           t={t}
+          lang={lang}
           user={user}
           apiOnline={apiOnline}
           mode={authMode}
@@ -2053,7 +2058,7 @@ export default function App() {
                 <div className="fw-semibold mb-1">{reserved.name}</div>
                 <div className="small">{reserved.slot} · {STORE.address}</div>
                 <div className="small mt-2">{t('successCash')}</div>
-                <div className="fs-5 fw-bold text-success mt-2">{money(reserved.total)}</div>
+                <div className="fs-5 fw-bold text-success mt-2">{money(reserved.total, lang)}</div>
               </div>
               <div className="d-grid gap-2">
                 {user && (
@@ -2129,7 +2134,7 @@ export default function App() {
                           <button type="button" className="btn btn-sm btn-link text-danger" onClick={() => remove(i.id)}>
                             {t('remove')}
                           </button>
-                          <strong className="ms-auto">{money(i.qty * i.price)}</strong>
+                          <strong className="ms-auto">{money(i.qty * i.price, lang)}</strong>
                         </div>
                       </div>
                     </div>
@@ -2157,7 +2162,7 @@ export default function App() {
               <form onSubmit={reserve} className="border-top pt-3 mt-auto" onFocus={() => setCartStep(1)}>
                 <div className="d-flex justify-content-between align-items-center mb-2">
                   <span className="fw-semibold">{t('total')}</span>
-                  <span className="fs-5 fw-bold text-success">{money(total)}</span>
+                  <span className="fs-5 fw-bold text-success">{money(total, lang)}</span>
                 </div>
                 <div className="mb-2">
                   <label className="form-label small mb-1" htmlFor="name">{t('yourName')}</label>

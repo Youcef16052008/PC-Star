@@ -333,7 +333,7 @@ Les deux rapports d'origine restent **non modifiés**.
 | 8.5 ✅ | **A5** 🟠 **LIVRÉ le 16/09/2026** — Compression à **budget d'octets** : `dataUrlBytes()` mesure le poids décodé, ré-encodage aussi à `scale === 1`, boucle bornée (qualité 0,8→0,5 puis dimensions ×0,8, plancher 320 px, 12 itérations max), jamais plus lourd que l'entrée à dimensions constantes ; **garde de total** `payloadOverBudget()` avant création ET édition des photos, message `masterPhotosTooHeavy` × 3 langues | `src/limits.js`, `src/photoCompress.js`, `src/MasterPage.jsx:13,193,269`, `src/i18n.js` | M | ✅ 6 photos au plafond client (400 Ko décodés → corps 3,13 Mo) → `200`, 6 stockées ; 7 → écrémées à 6 ; photo de 3 Mo écartée ; corps > 4 Mo → **aucun appel réseau**, toast chiffré |
 | 8.6 ✅ | **A6** 🟠 **LIVRÉ le 16/09/2026** — Normaliser les destinataires WhatsApp avec la règle partagée (`waNumber`/`phoneLogic`), rejeter un numéro non normalisable, signaler une configuration invalide **au démarrage** et dans `/api/health` ; exemple de la doc au format international | `server/notify.js:39-57`, `server/index.js` (démarrage + health), `docs/DEPLOY-VERCEL.md` §3 | S | `WHATSAPP_RECIPIENT=0770650387` → destinataire `213770650387` envoyé à Meta ; un numéro invalide est refusé au boot avec un message lisible, pas à la première commande |
 | 8.7 ✅ | **A7** 🟡 **LIVRÉ le 16/09/2026** — Durabilité de l'écriture : nouveau module `server/durableWrite.js` (tmp → **fsync du fichier** → rename → **fsync du répertoire**, non bloquant), `fs` injectable pour tester l'**ordre** des appels ; `writeDb()` et `ensure()` câblés, plus aucun `writeFileSync`+`renameSync` à la main | `server/durableWrite.js`, `server/db.js:11,262,846` | S | ✅ Coupure simulée entre écriture et rename : la cible garde son contenu précédent (fs factice **et** fs réel) ; l'ordre open→write→**fsync**→close→rename→fsync(dir) est vérifié par test |
-| 8.8 | **A8** 🟡 — Un seul module de formatage date/monnaie, locale dérivée de la langue (ou `fr-DZ` assumé **partout**) ; `OrdersPage` cesse d'ignorer la langue | nouveau `src/format.js`, `src/OrdersPage.jsx:119`, `src/DeskPage.jsx:76`, `src/data.js:66` | S | En mode arabe, la même commande affiche la même date au Desk et dans « Mes commandes » ; la décision (varier ou figer) est écrite dans le code |
+| 8.8 ✅ | **A8** 🟡 **LIVRÉ le 16/09/2026** — Un seul module de formatage (`src/format.js`) : `localeFor`/`normalizeLang`/`money(n, lang)`/`third`/`formatDateTime(value, lang)`, **décision écrite** : la locale suit la langue (dates **et** prix, suffixe `DA`/`دج` compris), français par défaut pour les chemins sans interface. `data.js` ré-exporte (plus de seconde définition), `OrdersPage`/`ProductPage`/`BuilderPage` reçoivent `lang`, `DeskPage` perd son `formatAt` maison, `notify.js` et `buildWaMessage` suivent la langue | `src/format.js`, `src/data.js:66`, `src/OrdersPage.jsx`, `src/DeskPage.jsx:74`, `src/App.jsx`, `src/orderLogic.js`, `src/notify.js` | S | ✅ En mode arabe, la même commande affiche `16‏/9‏/2026، 10:30:00 ص` et `97.000 دج` **au Desk et dans « Mes commandes »** (rendu réel jsdom) ; la chaîne de la locale du navigateur (`9/16/2026, 10:30:00 AM`) n'apparaît plus |
 | 8.9 | **A9** 🟡 — Supprimer les 62 clés i18n mortes × 3 langues (186 chaînes), sauf décision contraire explicite par groupe ; verrouiller par un test dans `i18n.coverage.test.js` (toute clé doit être référencée, directement ou par préfixe dynamique **déclaré**) | `src/i18n.js`, `src/i18n.coverage.test.js` | M | Le balayage ne remonte plus aucune clé morte ; une clé ajoutée sans usage fait **échouer** la suite |
 | 8.10 | **A10** 🟡 — Valider `category` (contre `CATEGORIES`, hors `all`) et `kind` (contre `KINDS`) à la création et au patch produit ; refus `400` explicite plutôt que correction muette | `server/masterApi.js:93-136,200-262` | S | Créer un produit avec `category: "SSD"` → **400** `category` ; un produit master créé via le formulaire apparaît bien dans le filtre de sa catégorie |
 
@@ -1884,12 +1884,139 @@ propre.
 
 ---
 
-### ⏳ À faire — reste du lot 8 (A8 → A10)
+### ✅ Fait — lot 8.8, dates et prix dans une seule locale (16/09/2026)
 
-**A1, A2 (les 2 bloquants), A6, A3, A4, A5 et A7 sont livrés** — voir
-ci-dessus : les **6 défauts 🔴/🟠** de l'audit A→Z sont corrigés, et le premier
-des 4 **mineurs** aussi. Restent **A8** dates localisées à moitié, **A9** 62 clés
-i18n mortes, **A10** `category`/`kind` libres à la création. Preuves et
+**A8** : la même donnée était rendue différemment selon l'écran. `DeskPage`
+localisait ses dates selon la langue de l'interface (`ar-DZ` / `fr-DZ` /
+`en-GB`), `OrdersPage` appelait `new Date(o.at).toLocaleString()` **sans
+locale** — donc celle du navigateur. En mode arabe, le comptoir affichait une
+date en `ar-DZ` et « Mes commandes » une date `fr-FR`/`en-US` : **deux formats
+pour la même commande**, à quelques écrans d'écart. Même famille : `money()`
+(`src/data.js`) figeait `fr-DZ` quelle que soit la langue, alors que les filtres
+de prix arabes du dictionnaire disent déjà « دج » ; et `src/notify.js` recopiait
+`${total.toLocaleString('fr-DZ')} DA` à la main.
+
+**`src/format.js` (nouveau)** — sur le modèle de `stockLabel.js` (lot 6.1) : la
+règle n'existe qu'une fois.
+
+| Export | Rôle |
+|---|---|
+| `LOCALES` / `CURRENCY` | les seules tables du dépôt (`fr-DZ`/`ar-DZ`/`en-GB`, `DA`/`DA`/`دج`) |
+| `normalizeLang(lang)` | ramène `ar`, `AR`, `ar-DZ`, `undefined`, `de`… à une langue connue |
+| `localeFor(lang)` / `currencyFor(lang)` | la locale et le suffixe à utiliser |
+| `money(n, lang)` | prix lisible — **P16 conservé** : prix absent/cassé → tiret, jamais « NaN » |
+| `third(n, lang)` | tiers d'un prix, même locale |
+| `formatDateTime(value, lang)` | date et heure — vide si absent, **valeur brute si invalide** (un horodatage cassé se voit) |
+
+**`src/data.js`** — `export { money, third } from './format.js'` : huit modules
+importent `money` depuis `./data.js`, aucun appelant ne change, mais il n'existe
+plus de seconde définition à faire diverger. Le test vérifie l'**identité** des
+fonctions (`dataMod.money === format.money`), pas seulement leur sortie.
+
+**Câblage** — `OrdersPage`, `ProductPage` et `BuilderPage` reçoivent `lang`
+(transmis par `App`, comme c'était déjà le cas pour `SearchPage`, `DeskPage` et
+`MasterPage`) ; `DeskPage.formatAt` devient `formatDateTime(at, lang)` ;
+`buildWaMessage(cart, total, pickup, t, { lang })` et
+`notifyNewOrder(order, t, { lang })` suivent la langue ; `server/notify.js` ne
+recopie plus le formatage. **Plus aucun `toLocaleString(` dans le code rendu**
+hors `src/format.js` — vérifié fichier par fichier, commentaires exclus.
+
+**La décision, écrite** (l'audit demandait de trancher explicitement) : la locale
+**suit la langue de l'interface**, pour les dates **et** les prix, suffixe
+monétaire compris. Le **français reste le défaut** (langue absente ou inconnue) :
+c'est le format historique du magasin, et les chemins sans interface — WhatsApp
+au maître, exports CSV, scripts — n'ont pas de langue à choisir. L'incohérence
+était le défaut, pas le choix : il n'y a désormais qu'un choix, et il est dans le
+code.
+
+**Décisions**
+
+1. **Varier plutôt que figer.** Figer `fr-DZ` partout aurait aussi supprimé
+   l'incohérence, mais au prix d'un écran arabe moitié arabe moitié français —
+   alors que le dictionnaire arabe écrit déjà « دج » dans ses filtres de prix.
+   Suivre la langue rend les trois langues cohérentes de bout en bout.
+2. **Le suffixe suit avec le nombre.** `97.000 دج` à côté de « أقل من 15 000 دج »
+   est cohérent ; `97.000 DA` ne l'aurait pas été. En français et en anglais,
+   `DA` reste — c'est l'usage du magasin et celui des libellés i18n.
+3. **Défaut français explicite, pas implicite.** `money(n)` sans langue vaut
+   `money(n, 'fr')` : les 25 appelants historiques (dont le serveur) ne changent
+   pas de rendu, et aucune locale de **machine** ne peut s'infiltrer.
+4. **`null` reste converti en `0`.** `Number(null) === 0`, donc `money(null)`
+   rend « 0 DA » — comportement **antérieur**, volontairement inchangé : A8 ne
+   modifie que la locale, pas ce qui compte comme prix invalide. Un test le fige
+   et le dit, pour qu'un futur correctif ne change pas un affichage de prix sans
+   le déclarer.
+5. **`lang` en prop, jamais en état global.** Un module avec une « langue
+   courante » implicite aurait fuité d'un utilisateur à l'autre côté serveur
+   (`orderLogic` et `notify` s'exécutent aussi dans le process API). L'argument
+   explicite est la seule forme sûre ici.
+6. **`lang = 'fr'` en valeur par défaut de prop** pour les trois composants qui
+   la reçoivent : un rendu de test ou un appelant ancien ne casse pas, et `App`
+   passe toujours la vraie langue (vérifié par test sur le source d'`App.jsx`).
+
+**Vérification en direct**
+
+Le serveur de dev sert bien le module et ses appelants (aperçu `:5173`) :
+
+| Vérification | Résultat |
+|---|---|
+| `GET /src/format.js` | `200`, 6 occurrences des fonctions exportées |
+| `/src/OrdersPage.jsx` servi | contient `formatDateTime(o.at, lang)` **et** `money(o.total, lang)` |
+| `/src/DeskPage.jsx` servi | contient `formatDateTime(at, lang)` |
+
+Rendu réel (moteur ICU, celui du navigateur) :
+
+| Langue | prix 97 000 | date `2026-09-16T10:30:00Z` |
+|---|---|---|
+| `fr` | `97 000 DA` | `16/09/2026 10:30:00 AM` |
+| `ar` | `97.000 دج` | `16‏/9‏/2026، 10:30:00 ص` |
+| `en` | `97,000 DA` | `16/09/2026, 10:30:00` |
+| *(défaut)* | `97 000 DA` | `16/09/2026 10:30:00 AM` |
+| *(ancienne OrdersPage : locale du navigateur)* | — | `9/16/2026, 10:30:00 AM` ← le défaut |
+
+**Neutralisations** (chaque correctif retiré → les tests rougissent) :
+
+| # | Correctif retiré | Tests qui rougissent |
+|---|---|---|
+| N33 | `OrdersPage` revenu à la locale du navigateur (le défaut exact) | **5** |
+| N34 | `money()` ignore la langue (`fr-DZ` figé) | **6** |
+| N35 | `DeskPage` reprend son `formatAt` maison (table recopiée) | **2** |
+| N36 | le suffixe monétaire ne suit plus la langue | **8** |
+| N37 | `buildWaMessage` ignore la langue pour le total | **1** |
+| N38 | `notifyNewOrder` ignore la langue pour le total | **1** |
+| N39 | `formatDateTime` retombe sur la locale du navigateur | **2** |
+| N40 | `data.js` reprend sa propre définition de `money` | **5** |
+| N41 | `App` ne transmet plus `lang` aux trois pages | **1** |
+
+**Tests** : 23 nouveaux (`src/lot8Format.test.js`) — `normalizeLang` (formes
+longues, casse, inconnue), table des locales exacte, suffixe monétaire cohérent
+avec le dictionnaire arabe, `money` dans les trois langues + défaut + P16
+(tiret, jamais `NaN`) + `null` figé, `third`, identité du ré-export `data.js`,
+comportement défensif de `formatDateTime` (absent/invalide/objet `Date`) et
+**différence d'avec la locale du navigateur**, `buildWaMessage` et
+`notifyNewOrder` avec une notification stubbée, absence de `toLocaleString` dans
+les dix fichiers rendus, `DeskPage` sans table recopiée, `OrdersPage` qui reçoit
+`lang`, `App` qui le transmet aux trois pages, et **quatre rendus réels** :
+`OrdersPage` en arabe (date `ar-DZ` + `دج`, et la chaîne du navigateur absente),
+`OrdersPage` en français, **Desk et « Mes commandes » qui rendent la même date
+pour la même commande** dans les deux langues, et le même prix sur les deux
+écrans. Suite : **720/720** (697 avant), build propre.
+
+**Piège rencontré.** Le premier test de `buildWaMessage` passait `(k) => k` comme
+traducteur : la fonction renvoyait alors la **clé** `waMessage` sans
+interpolation, le total n'apparaissait nulle part, et l'assertion « contient دج »
+échouait pour une raison qui n'avait rien à voir avec le correctif. Remplacé par
+le traducteur réel de l'app (`t(lang, key, vars)` de `src/i18n.js`) bound à la
+langue testée — c'est aussi ce que fait l'application.
+
+---
+
+### ⏳ À faire — reste du lot 8 (A9 → A10)
+
+**A1, A2 (les 2 bloquants), A6, A3, A4, A5, A7 et A8 sont livrés** — voir
+ci-dessus : les **6 défauts 🔴/🟠** de l'audit A→Z sont corrigés, et **deux des
+quatre mineurs** aussi. Restent **A9** 62 clés i18n mortes et **A10**
+`category`/`kind` libres à la création. Preuves et
 reproductions **exécutées** (A1 sur l'API en direct, A2/A6/A9/A10 par appel direct
 du code du dépôt) dans `docs/VERIFICATION-RAPPORT-AUDIT-3.md`. Les deux rapports
 d'origine n'ont **pas** été modifiés.

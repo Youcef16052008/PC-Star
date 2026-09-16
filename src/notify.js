@@ -11,6 +11,8 @@
  * on retourne `false`, sans jamais lever d'exception.
  */
 
+import { money } from './format.js'
+
 /** Peut-on au moins *demander* la permission ? */
 export function notificationsSupported() {
   return typeof window !== 'undefined' && 'Notification' in window
@@ -85,11 +87,20 @@ export function showNotification({ title, body, tag, icon }) {
 
 /**
  * Notification de nouvelle commande, formatée à partir de l'objet commande.
+ *
+ * LOT 8.8 (A8) : le total passe par le module de formatage partagé — il était
+ * recopié à la main (`toLocaleString('fr-DZ')` + ` DA`), donc figé au format
+ * français même quand le comptoir est en arabe ou en anglais, alors que le
+ * titre de la notification, lui, suit la langue via `t`.
+ *
+ * @param {object} order
+ * @param {(key: string, vars?: object) => string} [t] traducteur bound
+ * @param {{ lang?: string }} [opts] langue de l'interface (défaut : français)
  */
-export function notifyNewOrder(order, t) {
+export function notifyNewOrder(order, t, { lang = 'fr' } = {}) {
   if (!order) return false
   const label = t || ((k) => k)
-  const total = typeof order.total === 'number' ? `${order.total.toLocaleString('fr-DZ')} DA` : ''
+  const total = typeof order.total === 'number' ? money(order.total, lang) : ''
   const body = [order.name, order.phone, total].filter(Boolean).join(' · ')
   return showNotification({
     title: `${label('deskNotifyTitle')} ${order.code || ''}`.trim(),

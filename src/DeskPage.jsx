@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import { money } from './data.js'
+import { formatDateTime } from './format.js'
 import { localDay, statusLabelKey, waNumber } from './orderLogic.js'
 import * as api from './api.js'
 
@@ -68,16 +69,9 @@ export default function DeskPage({ t, lang, reservations, onStatus, onDelete, se
     }
   }
 
-  function formatAt(at) {
-    if (!at) return ''
-    try {
-      const d = new Date(at)
-      if (Number.isNaN(d.getTime())) return String(at)
-      return d.toLocaleString(lang === 'ar' ? 'ar-DZ' : lang === 'fr' ? 'fr-DZ' : 'en-GB')
-    } catch {
-      return String(at)
-    }
-  }
+  // LOT 8.8 (A8) : la locale ne se déduit plus ici — `formatDateTime` est la
+  // seule définition (voir `src/format.js`), partagée avec `OrdersPage`.
+  const formatAt = (at) => formatDateTime(at, lang)
 
   // P14 (#3) : conversion partagée et testée (`waNumber`, src/orderLogic.js).
   // wa.me exige l'international 213XXXXXXXXX alors que la base stocke le
@@ -89,8 +83,8 @@ export default function DeskPage({ t, lang, reservations, onStatus, onDelete, se
     const st = r.status === 'pending' ? 'new' : r.status || 'new'
     const msg =
       st === 'ready'
-        ? t('deskWaReady', { code: r.code, name: r.name, slot: r.slot || '', total: money(r.total) })
-        : t('deskWaContact', { code: r.code, name: r.name, status: t(statusLabelKey(st)), slot: r.slot || '', total: money(r.total) })
+        ? t('deskWaReady', { code: r.code, name: r.name, slot: r.slot || '', total: money(r.total, lang) })
+        : t('deskWaContact', { code: r.code, name: r.name, status: t(statusLabelKey(st)), slot: r.slot || '', total: money(r.total, lang) })
     return `https://wa.me/${num}?text=${encodeURIComponent(msg)}`
   }
 
@@ -198,7 +192,7 @@ export default function DeskPage({ t, lang, reservations, onStatus, onDelete, se
                     </ul>
                     <div className="d-flex justify-content-between align-items-center mb-3">
                       <span className="small text-secondary">{t('dueInStore')}</span>
-                      <strong className="text-success fs-5">{money(r.total)}</strong>
+                      <strong className="text-success fs-5">{money(r.total, lang)}</strong>
                     </div>
 
                     <div className="d-flex flex-wrap gap-1 mt-auto">

@@ -298,9 +298,11 @@ export const WA_TEXT_LIMIT = 3800
  * @param {number} total
  * @param {{name?:string,phone?:string,slot?:string}} pickup
  * @param {(key: string, vars?: object) => string} t
- * @param {{ limit?: number }} [opts]
+ * @param {{ limit?: number, lang?: string }} [opts] `lang` : langue de
+ *   l'interface — LOT 8.8 (A8), le total du message suit la même locale que le
+ *   reste de l'écran (défaut : français).
  */
-export function buildWaMessage(cart, total, pickup, t, { limit = WA_TEXT_LIMIT } = {}) {
+export function buildWaMessage(cart, total, pickup, t, { limit = WA_TEXT_LIMIT, lang = 'fr' } = {}) {
   const lines = (Array.isArray(cart) ? cart : []).map((i) => `${i.qty} x ${i.name} (${i.sku})`)
   const who = pickup?.name ? `${t('waName')}: ${pickup.name}\n` : ''
   const tel = pickup?.phone ? `${t('waPhone')}: ${pickup.phone}\n` : ''
@@ -312,7 +314,7 @@ export function buildWaMessage(cart, total, pickup, t, { limit = WA_TEXT_LIMIT }
       tel,
       when,
       items: [...lines.slice(0, kept), ...(note ? [note] : [])].join('\n'),
-      total: money(total)
+      total: money(total, lang)
     })
 
   let kept = lines.length

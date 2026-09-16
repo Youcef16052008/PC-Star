@@ -58,17 +58,12 @@ export const STORE_LINKS = [
   { id: 'maps', label: 'Google Maps', subKey: 'storeMapSub', sub: 'Les Castors, Oran', href: 'https://www.google.com/maps/search/?api=1&query=Rue+Mimoune+Bouadjimi+El+Makari+Les+Castors+Oran' }
 ]
 
-export function money(n) {
-  // P16 : un prix absent/cassé (`undefined`, `"abc"` rescapé d'un override)
-  // affichait « NaN DA » en vitrine. On affiche un tiret plutôt qu'un prix faux.
-  const v = Number(n)
-  if (!Number.isFinite(v)) return '— DA'
-  return `${Math.round(v).toLocaleString('fr-DZ')} DA`
-}
-
-export function third(n) {
-  return money(Math.round(n / 3))
-}
+// LOT 8.8 (A8) : le formatage des prix vit dans `src/format.js` — UNE seule
+// définition, locale dérivée de la langue. Ré-exporté ici parce que huit
+// modules importent `money` depuis `./data.js` : les appelants ne changent pas,
+// mais il n'existe plus de seconde définition à faire diverger (l'ancien
+// `money()` figeait `fr-DZ` quelle que soit la langue).
+export { money, third } from './format.js'
 
 export const SLOTS = [
   '10:30',

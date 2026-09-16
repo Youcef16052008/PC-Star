@@ -1,0 +1,138 @@
+/**
+ * LOT 8.8 (A8) — formatage des dates et des prix : UNE seule définition,
+ * UNE seule règle de locale.
+ *
+ * Le défaut : la même donnée était rendue différemment selon l'écran.
+ *
+ *  · `DeskPage.formatAt()` localisait selon la langue de l'interface
+ *    (`ar-DZ` / `fr-DZ` / `en-GB`) ;
+ *  · `OrdersPage` appelait `new Date(o.at).toLocaleString()` **sans locale** —
+ *    donc celle du navigateur (`fr-FR`, `en-US`…). En mode arabe, le comptoir
+ *    affichait une date en `ar-DZ` et la page « Commandes » une date française
+ *    ou américaine : **deux formats pour la même commande**, à quelques écrans
+ *    d'écart ;
+ *  · `money()` (`src/data.js`) figeait `toLocaleString('fr-DZ')` quelle que
+ *    soit la langue : en mode anglais ou arabe, les prix restaient au format
+ *    français alors que les filtres de prix, eux, disent « دج » en arabe
+ *    (`price_u15: 'أقل من 15 000 دج'`) ;
+ *  · `server/notify.js` recopiait le même `${total.toLocaleString('fr-DZ')} DA`
+ *    à la main.
+ *
+ * Comme pour `stockLabel.js` (lot 6.1), tout est réuni ici : la table des
+ * locales n'existe qu'une fois, et un écran ne peut plus mélanger deux
+ * conventions.
+ *
+ * **Décision assumée** : la locale **suit la langue de l'interface**, pour les
+ * dates comme pour les prix — et le suffixe monétaire aussi (`DA` en français
+ * et en anglais, `دج` en arabe), pour rester cohérent avec les libellés i18n
+ * existants. Le **français reste la valeur par défaut** (langue absente ou
+ * inconnue) : c'est le format historique du magasin, et les chemins sans
+ * interface — WhatsApp au maître, exports CSV, scripts — n'ont pas de langue à
+ * choisir. L'incohérence était le défaut, pas le choix : désormais il n'y a
+ * qu'un choix, écrit ici.
+ */
+
+/** Langue par défaut : français (format historique du magasin). */
+export const DEFAULT_LANG = 'fr'
+
+/** Table des locales — la seule du dépôt. */
+export const LOCALES = {
+  fr: 'fr-DZ',
+  ar: 'ar-DZ',
+  en: 'en-GB'
+}
+
+/** Suffixe monétaire par langue, aligné sur les libellés i18n. */
+export const CURRENCY = {
+  fr: 'DA',
+  en: 'DA',
+  ar: 'دج'
+}
+
+/**
+ * Ramène une entrée de langue à l'identifiant court (`fr`, `ar`, `en`).
+ *
+ * Accepte `fr`, `fr-DZ`, `FR`, `undefined` — l'UI passe l'identifiant de
+ * `LANGS`, mais un réglage navigateur ou une préférence ancienne peut arriver
+ * sous forme longue.
+ *
+ * @param {string} [lang]
+ * @returns {'fr'|'ar'|'en'} une langue connue, `DEFAULT_LANG` sinon
+ */
+export function normalizeLang(lang) {
+  const short = String(lang || '')
+    .trim()
+    .toLowerCase()
+    .split(/[-_]/)[0]
+  return short === 'ar' || short === 'en' || short === 'fr' ? short : DEFAULT_LANG
+}
+
+/**
+ * Locale à utiliser pour une langue.
+ *
+ * @param {string} [lang]
+ * @returns {string} par exemple `ar-DZ`
+ */
+export function localeFor(lang) {
+  return LOCALES[normalizeLang(lang)]
+}
+
+/**
+ * Suffixe monétaire pour une langue (`DA`, `دج`).
+ *
+ * @param {string} [lang]
+ * @returns {string}
+ */
+export function currencyFor(lang) {
+  return CURRENCY[normalizeLang(lang)]
+}
+
+/**
+ * Prix lisible.
+ *
+ * P16 conservé : un prix absent ou cassé (`undefined`, `"abc"` rescapé d'un
+ * override) affichait « NaN DA » en vitrine — on rend un tiret plutôt qu'un
+ * prix faux.
+ *
+ * @param {number|string} n
+ * @param {string} [lang] langue de l'interface (`fr` par défaut)
+ * @returns {string} par exemple `97 000 DA`, `97.000 دج`, `97,000 DA`
+ */
+export function money(n, lang = DEFAULT_LANG) {
+  const v = Number(n)
+  if (!Number.isFinite(v)) return `— ${currencyFor(lang)}`
+  return `${Math.round(v).toLocaleString(localeFor(lang))} ${currencyFor(lang)}`
+}
+
+/**
+ * Tiers d'un prix (affichage « 3 × … »), dans la même locale.
+ *
+ * @param {number|string} n
+ * @param {string} [lang]
+ * @returns {string}
+ */
+export function third(n, lang = DEFAULT_LANG) {
+  return money(Math.round(Number(n) / 3), lang)
+}
+
+/**
+ * Date et heure lisibles, dans la langue de l'interface.
+ *
+ * Comportement défensif repris de `DeskPage.formatAt()` : valeur absente →
+ * chaîne vide ; date invalide → la valeur brute (un horodatage cassé se **voit**
+ * au lieu de disparaître) ; locale refusée par le moteur → idem.
+ *
+ * @param {string|number|Date} value
+ * @param {string} [lang]
+ * @returns {string}
+ */
+export function formatDateTime(value, lang = DEFAULT_LANG) {
+  if (value === null || value === undefined || value === '') return ''
+  const d = value instanceof Date ? value : new Date(value)
+  if (Number.isNaN(d.getTime())) return String(value)
+  try {
+    return d.toLocaleString(localeFor(lang))
+  } catch {
+    return String(value)
+  }
+}
