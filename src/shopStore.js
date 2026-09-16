@@ -29,7 +29,8 @@ const MAX_SAVED_SEARCHES = 10
 // LOT 3.1 (F7 + F8) : accès au stockage qui ne lève jamais + repli mémoire.
 // `loadUsers` / `loadSession` / `loadMeta` étaient appelés dans les
 // initializers de `useState` d'`App.jsx` : avec un `localStorage` bloqué
-// (iframe tierce), ils levaient un `SecurityError` pendant le rendu.
+// (cookies tiers refusés, navigation privée, quota dépassé), ils levaient un
+// `SecurityError` pendant le rendu.
 import { asSafeStorage, safeStorage } from './safeStorage.js'
 
 export function hashPass(password) {
@@ -54,18 +55,16 @@ export function isEmail(value) {
  * « numéro invalide » pour un numéro correct. Un mobile algérien ne commence
  * jamais par `00` (05/06/07), retirer ce préfixe est donc sans risque.
  */
-export function normalizePhone(value) {
-  let d = String(value || '').replace(/\D/g, '')
-  if (d.startsWith('00')) d = d.slice(2)
-  if (d.startsWith('213')) d = `0${d.slice(3)}`
-  if (d.length === 9 && /^[567]/.test(d)) d = `0${d}`
-  return d
-}
-
-export function isDzPhone(value) {
-  const p = normalizePhone(value)
-  return /^0[567]\d{8}$/.test(p)
-}
+// LOT 6.2 (Q2) : la règle vit dans `src/phoneLogic.js`, partagée avec le
+// serveur. Ré-exportée ici : `App.jsx`, `AuthPanel.jsx`, `ProfilePage.jsx` et
+// les tests l'importent depuis `shopStore.js` depuis toujours.
+//
+// Import PUIS export, et non `export ... from` : la forme `export { x } from
+// './y'` ne crée AUCUNE liaison locale — `registerEmail()` (plus bas) appelle
+// `normalizePhone` et tombait en `ReferenceError` dès qu'un compte e-mail était
+// créé. Le module a donc besoin des deux lignes.
+import { normalizePhone, isDzPhone, phoneCarrier } from './phoneLogic.js'
+export { normalizePhone, isDzPhone, phoneCarrier }
 
 export function createMemoryStorage(seed = {}) {
   const map = { ...seed }
@@ -165,14 +164,7 @@ export function loadUsers(storage = safeStorage) {
   return list
 }
 
-export function phoneCarrier(value) {
-  const p = normalizePhone(value)
-  if (!isDzPhone(p)) return null
-  if (p.startsWith('05')) return 'ooredoo'
-  if (p.startsWith('06')) return 'mobilis'
-  if (p.startsWith('07')) return 'djezzy'
-  return null
-}
+// `phoneCarrier` : ré-exporté plus haut (LOT 6.2 / Q2).
 
 export function saveUsers(storage = safeStorage, users) {
   asSafeStorage(storage).setItem(KEY_USERS, JSON.stringify(users))
@@ -194,7 +186,7 @@ export function saveSavedSearches(storage = safeStorage, list = []) {
   // P15 (#5) : `null` explicite (c'était l'appel de SearchPage) écrasait le
   // paramètre par défaut → AUCUNE persistance, toute la feature P7-14 était
   // inopérante. On retombe sur localStorage quand aucun storage n'est fourni.
-  // `asSafeStorage` couvre le quota et l'iframe : les recherches sauvées
+  // `asSafeStorage` couvre le quota et le stockage bloqué : les recherches sauvées
   // restent en mémoire pour la page, sans `try/catch` local.
   asSafeStorage(storage).setItem(KEY_SAVED_SEARCHES, JSON.stringify((list || []).slice(0, MAX_SAVED_SEARCHES)))
 }

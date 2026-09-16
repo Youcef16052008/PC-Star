@@ -5,10 +5,18 @@
 
 const TOKEN_KEY = 'pcstar-api-token'
 
-// LOT 3.1 (F7 + F8) : le jeton passe par `safeStorage`. Certaines iframes
-// tierces bloquent `localStorage` (SecurityError) — le jeton doit rester
-// utilisable pour la durée de la page, et surtout `getToken()` ne doit pas
-// lever dans un initializer de `useState`.
+/** LOT 5.11 (U12) : délai avant révocation d'une `blob:` URL de téléchargement. */
+export const REVOKE_DELAY_MS = 4000
+
+// LOT 3.1 (F7 + F8) : le jeton passe par `safeStorage`. Le stockage peut être
+// bloqué (SecurityError : cookies tiers refusés, navigation privée, quota
+// dépassé, contexte intégré) — le jeton doit rester utilisable pour la durée de
+// la page, et surtout `getToken()` ne doit pas lever dans un initializer de
+// `useState`.
+// LOT 5.10 (U10) : l'encadrement par un tiers n'est PAS un scénario supporté —
+// `X-Frame-Options: SAMEORIGIN` et `frame-ancestors 'self'` l'interdisent en
+// production (voir `docs/DEPLOY-VERCEL.md`, §Encadrement). Le repli mémoire
+// couvre les autres cas de stockage indisponible, qui sont réels.
 import { asSafeStorage, safeStorage } from './safeStorage.js'
 
 // Repli mémoire historique, conservé : il couvre aussi le cas où l'appelant
@@ -227,7 +235,19 @@ export async function downloadOrdersCsv(day) {
   a.href = url
   a.download = `pcstar-orders${day ? '-' + day : ''}.csv`
   a.click()
-  URL.revokeObjectURL(url)
+  // LOT 5.11 (U12) : révocation DIFFÉRÉE. `a.click()` ne fait que demander le
+  // téléchargement — la lecture du blob démarre après le retour de cet appel.
+  // Révoquer l'URL dans la foulée la coupait donc parfois en plein vol :
+  // export CSV vide ou téléchargement annulé, de façon intermittente (plus
+  // visible sur les gros exports et les machines lentes). On laisse le
+  // téléchargement s'amorcer, puis on libère la mémoire.
+  setTimeout(() => {
+    try {
+      URL.revokeObjectURL(url)
+    } catch {
+      /* déjà libérée */
+    }
+  }, REVOKE_DELAY_MS)
   return { ok: true }
 }
 

@@ -141,6 +141,37 @@ n'est appelé **que** par le serveur local ; sur Vercel, le front tente le socke
 polling (20 s). Aucune configuration à faire : le Desk fonctionne dans les deux
 cas, il est simplement moins « instantané » sur Vercel.
 
+### Encadrement (iframe) : interdit en production, et c'est voulu (LOT 5.10 / U10)
+
+`vercel.json` pose `X-Frame-Options: SAMEORIGIN` **et** `frame-ancestors 'self'`
+dans la CSP ; `send()` côté API pose les mêmes en-têtes sur les pages HTML qu'il
+sert (refus OAuth, aperçus d'upload). Le site ne peut donc pas être affiché dans
+une iframe d'un autre domaine.
+
+**Pourquoi c'est assumé :** une boutique encadrable est une boutique
+« clickjackable » — un bouton *Confirmer la commande* ou *Supprimer ce client*
+recouvert d'un calque transparent se clique sans que l'utilisateur le voie. Les
+commentaires du code parlaient autrefois d'un « aperçu iframe tiers » comme d'un
+scénario d'usage : cette conception n'existe pas, elle est retirée des
+commentaires (les en-têtes, eux, restent).
+
+Ce qui continue de fonctionner sans toucher aux en-têtes :
+
+- le **même domaine** (front + API derrière le domaine Vercel, ou un
+  sous-domaine de la boutique) ;
+- l'**aperçu de développement** (Vite ne pose pas ces en-têtes) ;
+- le **stockage bloqué** — cookies tiers refusés, navigation privée, quota plein
+  — n'a rien à voir avec l'encadrement : `safeStorage` retombe sur un repli
+  mémoire et un bandeau le dit (§7 du plan, LOT 3.1).
+
+**Si un jour tu veux vraiment un aperçu encadré** (vitrine intégrée à un site
+partenaire, preview d'agence) : ne retire pas `X-Frame-Options` partout. Ajoute
+une origine **explicite** — `frame-ancestors 'self' https://partenaire.example`
+dans `vercel.json`, et `X-Frame-Options: ALLOW-FROM` ne servant à rien sur les
+navigateurs modernes, c'est la CSP qui fait foi — puis vérifie que les actions
+sensibles (commande, suppression) demandent une confirmation visible. C'est un
+choix de sécurité à trancher délibérément, pas un réglage par défaut.
+
 ### Quand tu voudras de la persistance (plus tard, toujours sans VPS)
 
 1. **Vercel KV** ou **Upstash Redis** pour `store.json`  

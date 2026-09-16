@@ -31,7 +31,18 @@ function CategoryMark({ product, label }) {
 }
 
 /**
- * Product thumbnail — contain fit, lazy, optional srcset for /photos/sku.
+ * LOT 5.8 (U8) : plus d'attribut `sizes`.
+ *
+ * `sizes` ne sert qu'avec un `srcSet` à plusieurs largeurs : il dit au
+ * navigateur quelle taille d'image choisir parmi les candidates. Ici chaque
+ * produit n'a qu'UN fichier par format (uploadé par le maître, ≤ 2,5 Mo, aucune
+ * variante générée) : `sizes="(max-width: 576px) 50vw, 25vw"` était donc lu par
+ * personne — un attribut qui annonce une image responsive inexistante, et qui
+ * laissait croire à l'optimisation. Les `width`/`height` restent (ratio réservé
+ * → pas de décalage de mise en page au chargement), et le `<picture>` garde son
+ * vrai choix de format (webp puis jpg).
+ *
+ * Product thumbnail — contain fit, lazy, format négocié via <picture>.
  *
  * P15 (#6) : le repli sur erreur est piloté par l'état React, plus par une
  * mutation du DOM. Avant : `img.closest('picture').remove()` supprimait le
@@ -43,7 +54,7 @@ function CategoryMark({ product, label }) {
  * catégorie. Combiné à P15 (#7), un produit dont les fichiers n'existent pas
  * affiche un badge lisible au lieu d'une image cassée/invisible.
  */
-export default function PartThumb({ product, alt, eager = false, className = '', sizes = '(max-width: 576px) 50vw, 25vw' }) {
+export default function PartThumb({ product, alt, eager = false, className = '' }) {
   const label = alt ?? product?.name ?? ''
   const src = product?.photos && product.photos[0]
   const cands = src ? photoCandidates(src) : []
@@ -65,7 +76,6 @@ export default function PartThumb({ product, alt, eager = false, className = '',
       decoding="async"
       width={800}
       height={800}
-      sizes={sizes}
     />
   )
 
@@ -85,7 +95,6 @@ export default function PartThumb({ product, alt, eager = false, className = '',
           decoding="async"
           width={800}
           height={800}
-          sizes={sizes}
         />
       </picture>
     )

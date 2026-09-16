@@ -7,13 +7,45 @@ test('shop loads and exposes the API-backed catalog', async ({ page }) => {
   await expect(page.locator('body')).not.toContainText('undefined')
 })
 
+// LOT 6.9 (Q9) : le test s'arrêtait à « pas de texte d'erreur d'auth » —
+// assertion négative, qui passe aussi quand la connexion échoue silencieusement
+// (formulaire refermé, jeton perdu, session non rechargée). Un smoke test de
+// connexion doit vérifier l'ÉTAT CONNECTÉ : le compte démo existe dans la seed
+// (`server/db.js` : demo-karim / karim.oran@demo.dz / karim31, nom « Karim B. »),
+// donc on attend le bouton profil portant ce nom, le bouton de déconnexion, et
+// la disparition du bouton « Connexion ».
+const DEMO = { email: 'karim.oran@demo.dz', password: 'karim31', name: 'Karim B.' }
+
 test('demo customer can open login and authenticate', async ({ page }) => {
   await page.goto('/')
   const login = page.getByRole('button', { name: /connexion|login|تسجيل/i }).first()
   await expect(login).toBeVisible()
   await login.click()
-  await page.getByLabel(/e-mail|email/i).fill('karim.oran@demo.dz')
-  await page.getByLabel(/mot de passe|password|كلمة/i).fill('karim31')
+  await page.getByLabel(/e-mail|email/i).fill(DEMO.email)
+  await page.getByLabel(/mot de passe|password|كلمة/i).fill(DEMO.password)
   await page.getByRole('button', { name: /connexion|login|دخول/i }).last().click()
   await expect(page.locator('body')).not.toContainText(/auth.*error/i)
+
+  // État connecté : le nom du compte démo apparaît (bouton profil), avec un
+  // aria-label qui reprend nom + fonction (P22, bug E).
+  await expect(page.getByRole('button', { name: new RegExp(DEMO.name.replace('.', '\\.'), 'i') })).toBeVisible()
+  // La déconnexion devient disponible, le bouton « Connexion » disparaît.
+  await expect(page.getByRole('button', { name: /déconnexion|logout|خروج/i }).first()).toBeVisible()
+  await expect(page.getByRole('button', { name: /^\s*(connexion|login|تسجيل الدخول)\s*$/i })).toHaveCount(0)
+})
+
+// LOT 6.9 (Q9) : la session survit au rechargement — sinon « connecté » ne veut
+// rien dire au-delà du clic (le jeton doit être relisible et `loadSession` doit
+// le rendre). C'est exactement le chemin cassé par F7/F8 (initializer de
+// useState qui lève) et par R20 (jeton non persisté).
+test('demo session survives a page reload', async ({ page }) => {
+  await page.goto('/')
+  await page.getByRole('button', { name: /connexion|login|تسجيل/i }).first().click()
+  await page.getByLabel(/e-mail|email/i).fill(DEMO.email)
+  await page.getByLabel(/mot de passe|password|كلمة/i).fill(DEMO.password)
+  await page.getByRole('button', { name: /connexion|login|دخول/i }).last().click()
+  await expect(page.getByRole('button', { name: new RegExp(DEMO.name.replace('.', '\\.'), 'i') })).toBeVisible()
+
+  await page.reload()
+  await expect(page.getByRole('button', { name: new RegExp(DEMO.name.replace('.', '\\.'), 'i') })).toBeVisible()
 })

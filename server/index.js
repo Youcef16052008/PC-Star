@@ -44,7 +44,7 @@ import {
   deleteOrder
 } from './catalog.js'
 import { rateLimit, clientKey } from './rateLimit.js'
-import { normalizePhone, isDzPhone } from './phone.js'
+import { normalizePhone, isDzPhone, phoneCarrier } from './phone.js'
 // P10 (P7-18) : liste connue des wilayas servies par le shop (source partagée
 // src/data.js, déjà importée côté master via PRODUCTS).
 import { PRODUCTS, SLOTS, WILAYAS_NEAR } from '../src/data.js'
@@ -74,8 +74,29 @@ const FRONT_ORIGIN =
   (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : '')
 
 /** En-têtes CORS : présents uniquement si une origine autorisée est déclarée. */
-function corsHeaders() {
-  return FRONT_ORIGIN ? { 'Access-Control-Allow-Origin': FRONT_ORIGIN, Vary: 'Origin' } : {}
+/**
+ * LOT 6.8 (Q8) : UN seul jeu d'en-têtes CORS, exporté pour être testé.
+ *
+ * Avant : `Allow-Origin` + `Vary` sortaient d'ici (conditionnés à FRONT_ORIGIN),
+ * tandis que `Allow-Headers` et `Allow-Methods` n'étaient ajoutés **que** dans
+ * `send()`. Conséquence : les réponses qui n'utilisent pas `send()` — les
+ * redirections OAuth (302) et les aperçus d'upload — partaient sans
+ * `Allow-Methods`, donc un navigateur en contexte cross-origin pouvait refuser
+ * une réponse que le reste de l'API autorisait. Deux listes d'en-têtes
+ * légèrement différentes pour le même service, c'est le genre d'écart qui se
+ * paie en incident intermittent.
+ *
+ * Le tout reste conditionné à `FRONT_ORIGIN` : sans origine déclarée, l'API est
+ * servie en même-origine et n'a aucun en-tête CORS à poser (rien à autoriser).
+ */
+export function corsHeaders() {
+  if (!FRONT_ORIGIN) return {}
+  return {
+    'Access-Control-Allow-Origin': FRONT_ORIGIN,
+    Vary: 'Origin',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    'Access-Control-Allow-Methods': 'GET,POST,PUT,PATCH,DELETE,OPTIONS'
+  }
 }
 
 function send(res, status, body, headers = {}) {
@@ -84,8 +105,6 @@ function send(res, status, body, headers = {}) {
   res.writeHead(status, {
     'Content-Type': isJson ? 'application/json; charset=utf-8' : 'text/html; charset=utf-8',
     ...corsHeaders(),
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-    'Access-Control-Allow-Methods': 'GET,POST,PUT,PATCH,DELETE,OPTIONS',
     'X-Content-Type-Options': 'nosniff',
     'X-Frame-Options': 'SAMEORIGIN',
     'Referrer-Policy': 'strict-origin-when-cross-origin',
@@ -226,14 +245,8 @@ async function savePhotoDataUrlsSafe(productId, dataUrls) {
 function isClaimableGuest(order, phone) {
   return Boolean(order && order.userId == null && phone && order.phone === phone && order.claimable !== false)
 }
-function phoneCarrier(value) {
-  const p = normalizePhone(value)
-  if (!isDzPhone(p)) return null
-  if (p.startsWith('05')) return 'ooredoo'
-  if (p.startsWith('06')) return 'mobilis'
-  if (p.startsWith('07')) return 'djezzy'
-  return null
-}
+// LOT 6.2 (Q2) : `phoneCarrier` vient de `server/phone.js` (implémentation
+// partagée avec le front dans `src/phoneLogic.js`) — plus de copie serveur.
 
 export async function handler(req, res) {
   const url = new URL(req.url, `http://${req.headers.host || '127.0.0.1'}`)
@@ -726,7 +739,13 @@ export async function handler(req, res) {
       const { resolveBlobUrl } = await import('./blobStore.js')
       const blobUrl = await resolveBlobUrl(name)
       if (blobUrl) {
-        return res.writeHead(302, { Location: blobUrl, 'Cache-Control': 'public, max-age=3600' }), res.end()
+        // LOT 6.8 (Q8) : la redirection Blob porte les mêmes en-têtes CORS que
+        // la photo servie en local juste au-dessus (sinon un front cross-origin
+        // qui suit la réponse en `fetch()` voyait deux comportements).
+        return (
+          res.writeHead(302, { Location: blobUrl, 'Cache-Control': 'public, max-age=3600', ...corsHeaders() }),
+          res.end()
+        )
       }
       return send(res, 404, { ok: false, error: 'not_found' })
     }
@@ -1141,7 +1160,12 @@ export async function handler(req, res) {
       res.writeHead(200, {
         'Content-Type': 'text/csv; charset=utf-8',
         'Content-Disposition': `attachment; filename="pcstar-orders${day ? '-' + day : ''}.csv"`,
-        'Access-Control-Allow-Origin': FRONT_ORIGIN
+        // LOT 6.8 (Q8) : `...corsHeaders()` et non `'Access-Control-Allow-Origin':
+        // FRONT_ORIGIN` à la main — sans origine déclarée, FRONT_ORIGIN vaut ''
+        // et le serveur émettait un en-tête VIDE (invalide, et parfois interprété
+        // comme une origine nulle). C'était la troisième écriture de CORS du
+        // fichier ; il n'en reste qu'une.
+        ...corsHeaders()
       })
       // P10 (P7-12) : BOM UTF-8 — sans lui, Excel (Windows) lit en ANSI et
       // les accents FR/AR deviennent illisibles sur le comptoir.

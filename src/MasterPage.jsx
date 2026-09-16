@@ -7,6 +7,7 @@ import { addPanel, addProduct, deleteCustomer, hideProduct, setProductPhotos, to
 import PartThumb from './PartThumb.jsx'
 import * as api from './api.js'
 import { compressDataUrl } from './photoCompress.js'
+import { labelOr } from './i18n.js'
 
 /**
  * Traduit une réponse d'API en message utilisateur.
@@ -436,7 +437,7 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, ma
                   <select className="form-select" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })}>
                     {CATEGORIES.filter((c) => c.id !== 'all').map((c) => (
                       <option key={c.id} value={c.id}>
-                        {t(`cat_${c.id}`)}
+                        {labelOr(t, `cat_${c.id}`, c.label || c.id)}
                       </option>
                     ))}
                   </select>
@@ -496,7 +497,7 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, ma
                         </div>
                         <strong>{p.name}</strong>
                         <div className="small text-secondary">
-                          {money(p.price)} · {p.stock} · {t(`cat_${p.category}`) || p.category} · {(p.photos || []).length} img
+                          {money(p.price)} · {p.stock} · {labelOr(t, `cat_${p.category}`, p.category)} · {(p.photos || []).length} img
                         </div>
                       </div>
                       <div className="d-flex gap-2">
@@ -532,7 +533,12 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, ma
                         </div>
                         <div className="d-flex gap-2">
                           <button type="button" className="btn btn-sm btn-success" onClick={saveEditPhotos}>
-                            {t('masterPhotosSaved')}
+                            {/* LOT 5.3 (U3) : le bouton disait « Photos
+                                enregistrées » — au passé, AVANT d'enregistrer.
+                                Un libellé d'action se lit comme une action ;
+                                « Photos enregistrées » reste le toast de
+                                confirmation (`saveEditPhotos`). */}
+                            {t('masterSavePhotos')}
                           </button>
                           <button
                             type="button"
@@ -606,7 +612,7 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, ma
                   <select className="form-select" value={panelCat} onChange={(e) => setPanelCat(e.target.value)}>
                     {CATEGORIES.filter((c) => c.id !== 'all').map((c) => (
                       <option key={c.id} value={c.id}>
-                        {t(`cat_${c.id}`)}
+                        {labelOr(t, `cat_${c.id}`, c.label || c.id)}
                       </option>
                     ))}
                   </select>

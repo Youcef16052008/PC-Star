@@ -4,13 +4,24 @@
  *
  * Le problème, reproduit à l'audit :
  *
- *  · **F7** — dans une iframe tierce (aperçu intégré, réseau social, certains
- *    navigateurs en « blocage des cookies tiers »), `localStorage` lève un
+ *  · **F7** — quand le stockage tiers est bloqué (contexte intégré, cookies
+ *    tiers refusés, navigation privée, quota dépassé), `localStorage` lève un
  *    `SecurityError`. L'appel était fait dans les **initializers de `useState`**
  *    (`loadLang()`, `loadMeta()`, `loadSession()`, `loadUsers()`), donc pendant
- *    le rendu : tout le site tombait dans l'ErrorBoundary. Le magasin était
- *    injoignable depuis l'aperçu même qui le documente (`src/api.js:8`,
- *    « some embedded iframes block third-party localStorage »).
+ *    le rendu : tout le site tombait dans l'ErrorBoundary.
+ *
+ *    LOT 5.10 (U10) — décision tranchée, et elle change ce que ce commentaire
+ *    raconte : la boutique **n'est pas conçue pour être intégrée dans une iframe
+ *    tierce**. `X-Frame-Options: SAMEORIGIN` et `frame-ancestors 'self'`
+ *    (`vercel.json`, `send()` côté API) l'interdisent en production, et c'est
+ *    voulu : un magasin encadrable est un magasin clickjackable (une commande
+ *    validée dans un overlay invisible). Les commentaires qui parlaient d'un
+ *    « aperçu iframe tiers » comme d'un scénario d'usage décrivaient une
+ *    conception qui n'existe pas — ils sont corrigés, les en-têtes restent.
+ *    Le repli mémoire, lui, reste nécessaire : le stockage peut être indisponible
+ *    sans qu'il y ait iframe du tout (Safari ITP, cookies bloqués, quota plein,
+ *    aperçu de développement, navigateur durci), et dans ces cas-là le site doit
+ *    tourner au lieu de tomber dans l'ErrorBoundary.
  *  · **F8** — le wrapper `storage` d'`App.jsx` avait été ajouté *précisément*
  *    pour ces iframes… sans `try/catch`. Il levait donc comme le reste. Seuls
  *    `loadCartFor` et `setCart` étaient protégés.

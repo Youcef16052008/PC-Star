@@ -1,4 +1,4 @@
-import { specOf } from './data.js'
+import { STORE, money, specOf } from './data.js'
 
 /**
  * Pure order helpers (shared client tests + local fallback).
@@ -163,6 +163,98 @@ export function orderApiFailure(r) {
  *
  * `day` : 'YYYY-MM-DD'. Toute autre valeur → journée locale courante.
  */
+/**
+ * LOT 5.2 (U2) — message d'échec de stock qui nomme les lignes en cause.
+ *
+ * Le serveur renvoie `shortages` avec le 409 (`{ id, name, need, left }`) :
+ * quelle pièce manque, combien étaient demandées, combien il en reste. Le front
+ * jetait tout cela et affichait « Stock insuffisant » — à l'utilisateur de
+ * deviner quelle ligne de son panier posait problème, puis de tester des
+ * quantités au hasard. Les lignes sont bornées à `max` (3) pour que le toast
+ * reste lisible ; le reliquat est annoncé (« et N autres lignes »).
+ *
+ * @param {Array<{id?: string, name?: string, need?: number, left?: number}>} shortages
+ * @param {(key: string, vars?: object) => string} t
+ */
+export function shortageMessage(shortages, t, { max = 3 } = {}) {
+  const list = (Array.isArray(shortages) ? shortages : []).filter(Boolean)
+  if (!list.length) return t('stockShort')
+  const shown = list.slice(0, Math.max(1, max)).map((s) =>
+    t('stockShortLine', { name: s.name || s.id || '?', need: s.need ?? '?', left: s.left ?? 0 })
+  )
+  if (list.length > shown.length) shown.push(t('stockShortMore', { n: list.length - shown.length }))
+  return t('stockShortDetail', { lines: shown.join(' · ') })
+}
+
+/**
+ * Limite pratique du texte d'un lien `wa.me`.
+ *
+ * LOT 5.7 (U7) : WhatsApp/`wa.me` tronque les URL très longues (de l'ordre de
+ * 4 Ko une fois le texte encodé) — et la troncature tombe où elle veut, en
+ * général au milieu du récapitulatif, sans aucun avertissement. Un panier de
+ * 40 lignes dépassait cette limite : le commerçant recevait un message coupé
+ * **sans le savoir**, et le total pouvait disparaître avec. On garde une marge
+ * sous les 4 Ko (le texte est ensuite `encodeURIComponent`-é, ce qui gonfle les
+ * accents et l'arabe).
+ */
+export const WA_TEXT_LIMIT = 3800
+
+/**
+ * Message WhatsApp du panier — composition + garde de longueur.
+ *
+ * Seules les LIGNES DE PANIER sont bornées (c'est la partie non bornée du
+ * message) : l'en-tête, l'adresse, le total et les coordonnées restent
+ * intacts, et une mention dit combien de lignes ont été retirées. Un message
+ * plus court mais complet vaut mieux qu'un message long coupé au hasard.
+ *
+ * @param {Array<{qty:number,name:string,sku:string}>} cart
+ * @param {number} total
+ * @param {{name?:string,phone?:string,slot?:string}} pickup
+ * @param {(key: string, vars?: object) => string} t
+ * @param {{ limit?: number }} [opts]
+ */
+export function buildWaMessage(cart, total, pickup, t, { limit = WA_TEXT_LIMIT } = {}) {
+  const lines = (Array.isArray(cart) ? cart : []).map((i) => `${i.qty} x ${i.name} (${i.sku})`)
+  const who = pickup?.name ? `${t('waName')}: ${pickup.name}\n` : ''
+  const tel = pickup?.phone ? `${t('waPhone')}: ${pickup.phone}\n` : ''
+  const when = pickup?.slot ? `${t('waSlot')}: ${pickup.slot}\n` : ''
+  const compose = (kept, note = '') =>
+    t('waMessage', {
+      address: STORE.address,
+      who,
+      tel,
+      when,
+      items: [...lines.slice(0, kept), ...(note ? [note] : [])].join('\n'),
+      total: money(total)
+    })
+
+  let kept = lines.length
+  let msg = compose(kept)
+  while (msg.length > limit && kept > 1) {
+    kept -= 1
+    msg = compose(kept)
+  }
+  if (kept < lines.length) {
+    // La mention « N lignes retirées » est ce qui rend la troncature honnête :
+    // on lui fait de la place en retirant une ligne de plus, plutôt que de
+    // l'abandonner. Elle ne doit en revanche JAMAIS pousser le message hors
+    // limite — la troncature brute qui suivrait mangerait le TOTAL (dernière
+    // ligne du modèle), donc en dernier recours on s'en passe.
+    const note = (n) => t('waTruncated', { n })
+    let noted = compose(kept, note(lines.length - kept))
+    while (noted.length > limit && kept > 1) {
+      kept -= 1
+      noted = compose(kept, note(lines.length - kept))
+    }
+    msg = noted.length <= limit ? noted : compose(kept)
+  }
+  // Cas pathologique : une seule ligne dépasse déjà (nom de produit énorme).
+  // On tronque alors brutalement — un message coupé et signalé vaut mieux qu'un
+  // lien `wa.me` qui ne s'ouvre pas.
+  if (msg.length > limit) msg = `${msg.slice(0, Math.max(0, limit - 1))}…`
+  return msg
+}
+
 export function nextOrderCode(existingCodes = [], day) {
   const d = /^\d{4}-\d{2}-\d{2}$/.test(String(day || ''))
     ? // Les composants sont passés un par un : `new Date('YYYY-MM-DD')` serait

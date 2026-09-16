@@ -24,6 +24,7 @@ import { ensureProductPhotos } from './productPhotos.js'
 import SearchPage from './SearchPage.jsx'
 import BuilderPage from './BuilderPage.jsx'
 import PartThumb from './PartThumb.jsx'
+import { stockLabel } from './stockLabel.js'
 import ContactButton from './ContactPicker.jsx'
 import { specRows } from './media.js'
 import AuthPanel from './AuthPanel.jsx'
@@ -33,9 +34,17 @@ import MasterPage from './MasterPage.jsx'
 import DeskPage from './DeskPage.jsx'
 import ProductPage from './ProductPage.jsx'
 import LegalPage from './LegalPage.jsx'
-import { localDay, mergeServerOrders, nextLocalOrderCode, orderApiFailure, pickupForUser } from './orderLogic.js'
+import {
+  buildWaMessage,
+  localDay,
+  mergeServerOrders,
+  nextLocalOrderCode,
+  orderApiFailure,
+  pickupForUser,
+  shortageMessage
+} from './orderLogic.js'
 import { isStorageBlocked, safeStorage } from './safeStorage.js'
-import { t as translate, LANGS, langMeta } from './i18n.js'
+import { t as translate, labelOr, LANGS, langMeta } from './i18n.js'
 import {
   applyDocumentChrome,
   loadDeskSeenAt,
@@ -157,7 +166,12 @@ const BASE_PANELS = [
 // chaque bipe. Avant : `new AudioContext()` par commande — Chrome plafonne à
 // ~6 contextes actifs par page, au-delà plus aucun son + fuite mémoire.
 let deskAudioCtx = null
-function deskBeep() {
+/** LOT 5.9 (U9) : paramètres du bip — exportés pour test (enveloppe vérifiée). */
+export const BEEP_PEAK_GAIN = 0.04
+export const BEEP_ATTACK_S = 0.01
+export const BEEP_DURATION_S = 0.12
+
+export function deskBeep() {
   try {
     const AC = window.AudioContext || window.webkitAudioContext
     if (!AC) return
@@ -169,23 +183,39 @@ function deskBeep() {
     o.connect(g)
     g.connect(deskAudioCtx.destination)
     o.frequency.value = 880
-    g.gain.value = 0.04
-    o.start()
-    o.stop(deskAudioCtx.currentTime + 0.12)
+    // LOT 5.9 (U9) : enveloppe de gain. `g.gain.value = 0.04` posait le niveau
+    // d'un coup et l'oscillateur démarrait/s'arrêtait à pleine amplitude : une
+    // discontinuité = un **clic** audible à chaque commande annoncée au
+    // comptoir (le bip censé aider était le bruit le plus désagréable des deux).
+    // Attaque 10 ms, retombée exponentielle vers le silence AVANT l'arrêt, et
+    // `start`/`stop` calés sur le même horodatage (pas `Date.now`).
+    const t0 = deskAudioCtx.currentTime
+    g.gain.setValueAtTime(0.0001, t0)
+    g.gain.exponentialRampToValueAtTime(BEEP_PEAK_GAIN, t0 + BEEP_ATTACK_S)
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + BEEP_DURATION_S)
+    o.start(t0)
+    o.stop(t0 + BEEP_DURATION_S + 0.01)
   } catch {
     /* ignore */
   }
 }
 
-function stockLabel(n, t) {
-  if (n <= 0) return { text: t('outOfStock'), cls: 'stock-out' }
-  if (n <= 3) return { text: `${n} ${t('left')}`, cls: 'stock-low' }
-  return { text: `${n} ${t('inStore')}`, cls: 'stock-ok' }
+/** Test uniquement : oublie le contexte audio partagé (jsdom n'en a pas). */
+export function __resetDeskAudio() {
+  try {
+    if (deskAudioCtx && deskAudioCtx.state !== 'closed') deskAudioCtx.close()
+  } catch {
+    /* ignore */
+  }
+  deskAudioCtx = null
 }
 
+// LOT 6.1 (Q1) : `stockLabel` vient de `src/stockLabel.js` — une seule définition,
+// une seule famille de classes (la classe Bootstrap complète, rien à traduire).
+
 /** Un lien externe DOIT s'ouvrir même dans un environnement qui bloque les
-    popups (aperçus iframe) : window.open d'abord, repli même onglet ensuite
-    (même pattern que ContactPicker). */
+    popups (aperçu de développement, bloqueurs de fenêtres) : window.open
+    d'abord, repli même onglet ensuite (même pattern que ContactPicker). */
 function openExternal(e, href) {
   e.preventDefault()
   let w = null
@@ -197,20 +227,10 @@ function openExternal(e, href) {
   if (!w) window.location.href = href
 }
 
-function cartMessage(cart, total, pickup, t) {
-  const lines = cart.map((i) => `${i.qty} x ${i.name} (${i.sku})`).join('\n')
-  const who = pickup.name ? `${t('waName')}: ${pickup.name}\n` : ''
-  const tel = pickup.phone ? `${t('waPhone')}: ${pickup.phone}\n` : ''
-  const when = pickup.slot ? `${t('waSlot')}: ${pickup.slot}\n` : ''
-  return t('waMessage', {
-    address: STORE.address,
-    who,
-    tel,
-    when,
-    items: lines,
-    total: money(total)
-  })
-}
+// LOT 5.7 (U7) : `cartMessage` vivait ici, sans garde de longueur. La
+// composition (et la troncature honnête du récapitulatif) est passée dans
+// `buildWaMessage` (`src/orderLogic.js`) — pure, partagée, testable sans monter
+// toute l'application.
 
 function Stars({ product, t }) {
   if (!product || !product.rating) return null
@@ -933,7 +953,52 @@ export default function App() {
   }
 
   const count = cart.reduce((s, i) => s + i.qty, 0)
-  const total = cart.reduce((s, i) => s + i.qty * i.price, 0)
+  // LOT 5.4 (U4) : les prix du panier suivent le catalogue LIVE.
+  //
+  // Reproduit à l'audit : le prix est figé à l'ajout au panier (`{...product}`
+  // dans `add()`), puis le maître change un prix pendant la visite — le
+  // rafraîchissement du catalogue arrive, la vitrine affiche le nouveau prix,
+  // mais le panier, son total, le récapitulatif de commande et le message
+  // WhatsApp restent sur l'ancien. Le serveur, lui, recalcule les prix depuis le
+  // catalogue (`placeOrder` ignore le prix envoyé) : la commande confirmée ne
+  // correspondait donc à rien de ce que l'écran venait de montrer.
+  //
+  // `pricedCart` est la vue affichée/envoyée ; `priceDrift` liste les écarts pour
+  // (a) recaler le panier persisté et (b) le dire à l'utilisateur — un prix qui
+  // change en silence sous un total est exactement le genre de chose qu'il faut
+  // annoncer.
+  const { pricedCart, priceDrift } = useMemo(() => {
+    const drift = []
+    const priced = cart.map((i) => {
+      const live = catalog.find((p) => p.id === i.id)
+      if (!live) return i // produit sorti du catalogue : on garde le snapshot
+      const livePrice = Number(live.price) || 0
+      if (livePrice !== Number(i.price)) {
+        drift.push({ id: i.id, name: live.name || i.name, from: Number(i.price) || 0, to: livePrice })
+      }
+      return { ...i, price: livePrice, name: live.name || i.name }
+    })
+    return { pricedCart: priced, priceDrift: drift }
+  }, [cart, catalog])
+  const total = pricedCart.reduce((s, i) => s + i.qty * i.price, 0)
+
+  // Recale le panier persisté (miroir inclus) et annonce l'écart. Une fois les
+  // prix recopiés, `priceDrift` se vide : l'effet ne se rejoue pas.
+  useEffect(() => {
+    if (!priceDrift.length) return
+    setCart((prev) =>
+      prev.map((i) => {
+        const d = priceDrift.find((x) => x.id === i.id)
+        return d ? { ...i, price: d.to, name: d.name } : i
+      })
+    )
+    const shown = priceDrift
+      .slice(0, 2)
+      .map((d) => `${d.name} → ${money(d.to)}`)
+      .join(' · ')
+    setToast(t('cartPriceUpdated', { lines: priceDrift.length > 2 ? `${shown} …` : shown }))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [priceDrift])
   const warnings = useMemo(() => checkCompatibility(cart), [cart])
   const { blocks, notes } = useMemo(() => splitWarnings(warnings), [warnings])
 
@@ -984,7 +1049,12 @@ export default function App() {
       setToast(t('outOfStock'))
       return
     }
-    setToast({ kind: 'cart', name: product.name, count: qtyAfter })
+    // LOT 6.3 (Q5) : le champ `count` était posé ici puis **jamais lu** — le
+    // rendu affiche `nom · ajouté au panier`, et la quantité totale vit dans le
+    // badge du panier. Un champ mort dans un état partagé, c'est un lecteur
+    // futur qui croit l'information affichée. `qtyAfter` reste utilisé juste
+    // au-dessus : c'est lui qui dit si l'ajout a eu lieu (garde de stock B8).
+    setToast({ kind: 'cart', name: product.name })
   }
 
   function setQty(id, qty) {
@@ -1079,7 +1149,9 @@ export default function App() {
       day: localDay(new Date()),
       payment: 'cash',
       slot: pickup.slot,
-      items: cart.map((i) => ({
+      // LOT 5.4 (U4) : `pricedCart`, pas `cart` — le récapitulatif local (repli
+      // hors-ligne) et le message WhatsApp portent les mêmes prix que l'écran.
+      items: pricedCart.map((i) => ({
         id: i.id,
         sku: i.sku,
         name: i.name,
@@ -1113,7 +1185,12 @@ export default function App() {
       // invisible au shop + code en collision avec le serveur).
       const fail = orderApiFailure(r)
       if (fail.kind === 'stock') {
-        setToast(t('stockShort'))
+        // LOT 5.2 (U2) : le 409 du serveur porte `shortages` — la ligne qui
+        // manque, la quantité demandée, ce qui reste. Tout était jeté au profit
+        // d'un « Stock insuffisant » générique : à l'utilisateur de deviner
+        // quelle ligne de son panier posait problème, puis de tester des
+        // quantités au hasard. Le détail est maintenant nommé.
+        setToast(shortageMessage(fail.shortages, t))
         await refreshStock()
         return
       }
@@ -1129,14 +1206,23 @@ export default function App() {
     }
 
     // Local fallback — still decrement local stockMap view
+    // LOT 5.2 (U2) : mêmes exigences qu'avec le serveur. Le parcours s'arrêtait
+    // sur la PREMIÈRE ligne courte avec le même message générique ; on collecte
+    // maintenant toutes les lignes en manque et on les nomme (le repli local
+    // connaît les quantités, il n'y a aucune raison d'être moins précis que
+    // l'API).
+    const localShortages = []
     for (const line of base.items) {
       // P5 (B14) : on compare le stock BRUT (pas liveStock qui soustrait le
       // panier — la ligne en cours de checkout fait partie du stock réservé)
       const raw = stockMap[line.id] != null ? stockMap[line.id] : catalog.find((p) => p.id === line.id)?.stock ?? 0
       if (raw < line.qty) {
-        setToast(t('stockShort'))
-        return
+        localShortages.push({ id: line.id, name: line.name, need: line.qty, left: Math.max(0, raw) })
       }
+    }
+    if (localShortages.length) {
+      setToast(shortageMessage(localShortages, t))
+      return
     }
     setStockMap((prev) => {
       const next = { ...prev }
@@ -1177,10 +1263,36 @@ export default function App() {
     setToast(t('ordersLocalOnly'))
   }
 
-  const msg = cartMessage(cart, total, pickup, t)
-  const waHref = `https://wa.me/${STORE.whatsapp}?text=${encodeURIComponent(msg)}`
-  const waHref2 = `https://wa.me/${STORE.whatsapp2}?text=${encodeURIComponent(msg)}`
+  // LOT 5.7 (U7) : mémoïsé. Le message était recomposé — puis
+  // `encodeURIComponent`-é DEUX fois — à chaque rendu, donc à chaque frappe dans
+  // le formulaire de retrait ou le champ de recherche (le composant entier se
+  // re-rend). Sur un panier de 40 lignes, ça fait quelques centaines de
+  // microsecondes par touche, pour un résultat strictement identique tant que
+  // panier/total/retrait/langue n'ont pas bougé.
+  // `t` est recréé à chaque rendu : c'est `lang` qui est en dépendance.
+  const wa = useMemo(() => {
+    // LOT 5.4 (U4) : le message WhatsApp porte les prix/labels LIVE, comme
+    // l'écran et la commande — sinon le commerçant lit un récapitulatif qui ne
+    // correspond à rien de ce que le client vient de voir.
+    const text = buildWaMessage(pricedCart, total, pickup, t)
+    const encoded = encodeURIComponent(text)
+    return {
+      msg: text,
+      href: `https://wa.me/${STORE.whatsapp}?text=${encoded}`,
+      href2: `https://wa.me/${STORE.whatsapp2}?text=${encoded}`
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pricedCart, total, pickup, lang])
+  const msg = wa.msg
+  const waHref = wa.href
+  const waHref2 = wa.href2
   const carrier = phoneCarrier(pickup.phone)
+
+  // LOT 5.1 (U1) : état système affiché dans la topbar.
+  //  · offline  — API injoignable : mode local, commandes non synchronisées ;
+  //  · degraded — API debout mais base en repli (catalogue/stock d'origine) ;
+  //  · online   — tout vient du serveur.
+  const sysState = !apiOnline ? 'offline' : catalogDegraded ? 'degraded' : 'online'
 
   const toastText = typeof toast === 'string' ? toast : toast?.kind === 'cart' ? `${toast.name} · ${t('addedToCart')}` : ''
 
@@ -1213,9 +1325,12 @@ export default function App() {
           </div>
         </div>
       )}
-      {/* LOT 3.1 (F7 + F8) : stockage navigateur bloqué (iframe tierce, cookies
-          refusés) ou plein → l'app tourne sur son repli mémoire. Le dire est la
-          seule façon honnête d'expliquer un panier qui se vide au rechargement. */}
+      {/* LOT 3.1 (F7 + F8) : stockage navigateur bloqué (cookies tiers refusés,
+          navigation privée) ou plein → l'app tourne sur son repli mémoire. Le
+          dire est la seule façon honnête d'expliquer un panier qui se vide au
+          rechargement. LOT 5.10 (U10) : l'encadrement par un tiers, lui, est
+          interdit en production (X-Frame-Options / frame-ancestors) — ce
+          bandeau ne couvre pas ce cas, il ne se produira pas. */}
       {isStorageBlocked() && (
         <div className="alert alert-secondary rounded-0 mb-0 py-2" role="status">
           <div className="container">
@@ -1226,7 +1341,26 @@ export default function App() {
       <div className="topbar small py-1">
         <div className="container d-flex flex-wrap justify-content-between gap-2">
           <span>
-            <span className="text-success" aria-hidden="true">●</span> SYS.ONLINE <span className="blink" aria-hidden="true">_</span>
+            {/* LOT 5.1 (U1) : l'indicateur reflète l'état RÉEL. Il était
+                codé en dur — point vert + « SYS.ONLINE » en permanence, y
+                compris API morte, base dégradée ou mode local : la seule
+                information d'état du site disait toujours la même chose, et le
+                bandeau dégradé (B19) était le seul indice, une fois descendu
+                dans la page. Trois états, trois couleurs, et une explication
+                dans la langue de l'utilisateur (title + aria-label) : le
+                libellé terminal reste en anglais, c'est la charte graphique. */}
+            <span
+              className={sysState === 'online' ? 'text-success' : sysState === 'degraded' ? 'text-warning' : 'text-danger'}
+              aria-hidden="true"
+            >
+              ●
+            </span>{' '}
+            <span title={t(`sysState_${sysState}`)}>
+              <span aria-label={t(`sysState_${sysState}`)}>
+                {sysState === 'online' ? 'SYS.ONLINE' : sysState === 'degraded' ? 'SYS.DEGRADED' : 'SYS.OFFLINE'}
+              </span>{' '}
+              {sysState === 'online' && <span className="blink" aria-hidden="true">_</span>}
+            </span>
             {' · '}
             {t('storeOpen')} · Oran
           </span>
@@ -1408,7 +1542,13 @@ export default function App() {
           <div className="cats mb-4" id="catalog">
             {CATEGORIES.map((c) => (
               <button key={c.id} type="button" className={`btn btn-sm cat-${c.id} ${category === c.id ? 'btn-success' : 'btn-outline-secondary'}`} onClick={() => setCategory(c.id)}>
-                {t(`cat_${c.id}`)}
+                {/* LOT 5.6 (U6) : repli explicite — `t()` renvoie la clé quand
+                    la traduction manque, et `cat_ssd` se retrouverait affiché
+                    tel quel. `BuilderPage`/`SearchPage` avaient déjà le motif,
+                    pas la vitrine. Aucune clé ne manque aujourd'hui (13
+                    catégories × 3 langues), mais une catégorie master ajoutée
+                    sans traduction ne doit pas fuiter jusqu'à l'écran. */}
+                {labelOr(t, `cat_${c.id}`, c.label || c.id)}
               </button>
             ))}
             <input
@@ -1440,7 +1580,7 @@ export default function App() {
                         <div className="ratio ratio-4x3 photo-frame overflow-hidden">
                           <PartThumb product={p} />
                         </div>
-                        <span className={`badge position-absolute top-0 start-0 m-2 ${st.cls === 'stock-ok' ? 'text-bg-success' : st.cls === 'stock-low' ? 'text-bg-warning' : 'text-bg-danger'}`}>
+                        <span className={`badge position-absolute top-0 start-0 m-2 ${st.cls}`}>
                           {st.text}
                         </span>
                       </button>
@@ -1935,7 +2075,7 @@ export default function App() {
                 ))}
               </div>
               <div className="list-group list-group-flush mb-3 flex-grow-1 overflow-auto">
-                {cart.map((i) => (
+                {pricedCart.map((i) => (
                   <div className="list-group-item px-0" key={i.id}>
                     <div className="d-flex gap-3">
                       <div style={{ width: 64, height: 64 }} className="rounded overflow-hidden photo-frame flex-shrink-0">

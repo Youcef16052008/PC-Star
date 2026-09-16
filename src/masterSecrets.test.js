@@ -234,7 +234,12 @@ describe('LOT 1.2 — aucun identifiant maître dans le dépôt', () => {
     // motif flou, pour que toute NOUVELLE occurrence ailleurs soit détectée.
     const demoAllowlist = new Set([
       'server/db.js', // seed `DEMOS` (hashPassLegacy sur les mots de passe démo)
-      'scripts/smoke-e2e.mjs' // recette : login d'un client de démonstration
+      'scripts/smoke-e2e.mjs', // recette : login d'un client de démonstration
+      // LOT 6.9 (Q9) : le smoke Playwright doit vérifier l'ÉTAT CONNECTÉ, donc
+      // se connecter — avec le compte client de démonstration (`demo-karim`,
+      // `role: 'customer'`, non privilégié, documenté comme tel). Même nature
+      // que `scripts/smoke-e2e.mjs` ci-dessus : aucun secret maître ici.
+      'e2e/smoke.spec.js'
     ])
 
     const hits = []

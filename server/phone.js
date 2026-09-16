@@ -14,16 +14,9 @@
  * serveur n'a pas à tirer le stockage client, et l'inverse non plus.
  */
 
-/** Ramène un numéro au format local algérien `0[567]XXXXXXXX`. */
-export function normalizePhone(value) {
-  let d = String(value || '').replace(/\D/g, '')
-  if (d.startsWith('00')) d = d.slice(2)
-  if (d.startsWith('213')) d = `0${d.slice(3)}`
-  if (d.length === 9 && /^[567]/.test(d)) d = `0${d}`
-  return d
-}
-
-/** True si la valeur normalisée est un mobile algérien valide. */
-export function isDzPhone(value) {
-  return /^0[567]\d{8}$/.test(normalizePhone(value))
-}
+// LOT 6.2 (Q2) : l'implémentation canonique est partagée avec le front dans
+// `src/phoneLogic.js` (aucun DOM, aucun stockage : importable des deux côtés,
+// comme `src/data.js` et `src/orderLogic.js` le sont déjà). Ce module reste le
+// point d'entrée côté serveur — `index.js` et `db.js` l'importent — et
+// ré-exporte aussi `phoneCarrier`, dont `index.js` avait sa propre copie.
+export { normalizePhone, isDzPhone, phoneCarrier } from '../src/phoneLogic.js'

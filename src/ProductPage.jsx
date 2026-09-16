@@ -3,6 +3,7 @@ import { money, starText, STORE, REVIEWS } from './data.js'
 import PartThumb from './PartThumb.jsx'
 import ContactButton from './ContactPicker.jsx'
 import { relatedProducts, specRows } from './media.js'
+import { stockLabel } from './stockLabel.js'
 
 /**
  * LOT 2.6 (F10) — texte du bloc « besoins » d'une fiche produit.
@@ -25,11 +26,8 @@ function needsText(needs) {
   return String(needs ?? '').trim()
 }
 
-function stockLabel(n, t) {
-  if (n <= 0) return { text: t('outOfStock'), cls: 'stock-out' }
-  if (n <= 3) return { text: `${n} ${t('left')}`, cls: 'stock-low' }
-  return { text: `${n} ${t('inStore')}`, cls: 'stock-ok' }
-}
+// LOT 6.1 (Q1) : `stockLabel` vient de `src/stockLabel.js` — une seule définition,
+// une seule famille de classes (la classe Bootstrap complète, rien à traduire).
 
 function Stars({ product, t }) {
   if (!product || !product.rating) return null
@@ -66,7 +64,8 @@ function SpecBadges({ product, t }) {
 
 export default function ProductPage({ t, product, photoIndex, setPhotoIndex, left, onBack, onAdd, onOpen, liveStock, onAddRelated, catalog }) {
   const st = stockLabel(left, t)
-  const badge = st.cls === 'stock-ok' ? 'text-bg-success' : st.cls === 'stock-low' ? 'text-bg-warning' : 'text-bg-danger'
+  // LOT 6.1 (Q1) : la classe vient complète — plus de ternaire de traduction.
+  const badge = st.cls
   const photos = product.photos || []
   const also = relatedProducts(product, catalog, 4)
   const specs = specRows(product, t)

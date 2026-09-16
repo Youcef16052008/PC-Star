@@ -295,6 +295,9 @@ export const dict = {
     catalogDegradedSince: 'آخر قراءة ناجحة {ago} — الأسعار المعروضة تعود إلى ذلك الحين.',
     catalogDegradedStatic: 'الأسعار والمخزون من الكتالوج الأصلي (لم تنجح أي قراءة للقاعدة منذ الإقلاع).',
     storageBlockedNote: 'تخزين المتصفح محظور: السلة واللغة والجلسة لن تبقى بعد إعادة تحميل الصفحة.',
+    sysState_online: 'الخادم متاح: الأسعار والمخزون والطلبات من الخادم',
+    sysState_degraded: 'الخادم متاح لكن القاعدة متدهورة: كتالوج احتياطي بأسعار ومخزون أصلية',
+    sysState_offline: 'الخادم غير متاح: وضع محلي، الطلبات غير متزامنة',
     budgetPicks: "عروض اقتصادية",
     combos: "باقات",
     guideBudgetTitle: "ميزانية طالب",
@@ -324,6 +327,7 @@ export const dict = {
     masterPhotosHint: "حتى 6 صور (JPG/PNG، أقل من 2.5 ميغابايت). انقر صورة لحذفها.",
     masterEditPhotos: "الصور",
     masterPhotosSaved: "تم حفظ الصور",
+    masterSavePhotos: 'حفظ الصور',
     masterPhotoTooBig: "صورة كبيرة جداً (حد 2.5 ميغابايت)",
     helpNoPublicDemo: "لا تُعرض كلمات المرور هنا. انظر docs/GUIDE-DEMO.md",
     viewCart: 'عرض السلة',
@@ -332,6 +336,7 @@ export const dict = {
     emptyCartBody: 'أضف قطعاً من المتجر أو ابنِ PC ثم احجز الاستلام.',
     browseShop: 'تصفح المتجر',
     addedToCart: 'أُضيف إلى السلة',
+    cartPriceUpdated: 'تم تحديث الأسعار من الكتالوج: {lines}',
     itemsInCart: '{n} في السلة',
     orderStatus_new: 'جديد',
     orderStatus_preparing: 'قيد التحضير',
@@ -352,6 +357,9 @@ export const dict = {
     deskWaContact: 'Salam {name}، من PC Star — طلبكم {code} (الحالة: {status}) · الاستلام {slot} · {total}.',
     deskStatusOk: 'تم تحديث الحالة',
     stockShort: 'المخزون غير كافٍ',
+    stockShortDetail: 'المخزون غير كافٍ: {lines}',
+    stockShortLine: '{name} — المطلوب {need}، المتوفر {left}',
+    stockShortMore: 'و{n} سطور أخرى',
     cartStepCart: 'السلة',
     cartStepInfo: 'معلوماتك',
     cartStepDone: 'تم',
@@ -529,6 +537,7 @@ export const dict = {
     needsExtra: 'الاسم والسعر في المكتب. اسأل إن كنت بحاجة لقطعة متوافقة.',
     needsDz: 'متوفر في مكتب PC Star · وهران. اسأل عن التوافق.',
     waMessage: 'السلام عليكم PC Star، المرجو تجهيز هذا الطلب للاستلام في {address}:\n{who}{tel}{when}\n\n{items}\n\nالمجموع {total}',
+    waTruncated: '… تم اختصار الرسالة (أُزيلت {n} سطور للبقاء ضمن حد واتساب)',
     waName: 'الاسم',
     pdpWaMsg: 'السلام عليكم، أريد {name} ({sku}) — {price}',
     buildCopyMsg: 'تجميع PC Star:\n{lines}\nالمجموع {total}',
@@ -831,6 +840,9 @@ export const dict = {
     catalogDegradedSince: 'Dernière lecture réussie {ago} — les prix affichés datent de ce moment.',
     catalogDegradedStatic: "Prix et stock du catalogue d'origine (aucune lecture de la base n'a abouti depuis le démarrage).",
     storageBlockedNote: 'Stockage du navigateur bloqué : panier, langue et session ne survivront pas au rechargement de la page.',
+    sysState_online: 'API joignable : prix, stock et commandes viennent du serveur',
+    sysState_degraded: "API joignable mais base dégradée : catalogue de secours, prix et stock d'origine",
+    sysState_offline: 'API injoignable : mode local, les commandes ne sont pas synchronisées',
     budgetPicks: "Bons plans budget",
     combos: "Packs",
     guideBudgetTitle: "Budget étudiant",
@@ -860,6 +872,7 @@ export const dict = {
     masterPhotosHint: "Jusqu’à 6 images (JPG/PNG, < 2,5 Mo). Cliquez une vignette pour retirer.",
     masterEditPhotos: "Photos",
     masterPhotosSaved: "Photos enregistrées",
+    masterSavePhotos: 'Enregistrer les photos',
     masterPhotoTooBig: "Image trop lourde (max 2,5 Mo)",
     helpNoPublicDemo: "Pas de mots de passe ici. Voir docs/GUIDE-DEMO.md",
     viewCart: 'Voir le panier',
@@ -868,6 +881,7 @@ export const dict = {
     emptyCartBody: 'Ajoutez des pièces depuis la boutique ou montez un PC, puis réservez le retrait.',
     browseShop: 'Parcourir la boutique',
     addedToCart: 'Ajouté au panier',
+    cartPriceUpdated: 'Prix mis à jour depuis le catalogue : {lines}',
     itemsInCart: '{n} dans le panier',
     orderStatus_new: 'Nouveau',
     orderStatus_preparing: 'En préparation',
@@ -888,6 +902,9 @@ export const dict = {
     deskWaContact: 'Salam {name}, ici PC Star — votre commande {code} (statut : {status}) · retrait {slot} · {total}.',
     deskStatusOk: 'Statut mis à jour',
     stockShort: 'Stock insuffisant',
+    stockShortDetail: 'Stock insuffisant : {lines}',
+    stockShortLine: '{name} — {need} demandés, {left} disponibles',
+    stockShortMore: 'et {n} autres lignes',
     cartStepCart: 'Panier',
     cartStepInfo: 'Infos',
     cartStepDone: 'Confirmé',
@@ -1064,6 +1081,7 @@ export const dict = {
     needsExtra: 'Nom et prix au comptoir. Demandez si vous avez besoin d’une pièce assortie.',
     needsDz: 'Disponible au comptoir PC Star · Oran. Demandez la compatibilité.',
     waMessage: 'Salam PC Star Informatique, merci de préparer ceci pour le retrait à {address}:\n{who}{tel}{when}\n\n{items}\n\nTotal {total}',
+    waTruncated: '… message tronqué ({n} lignes retirées pour tenir dans la limite WhatsApp)',
     waName: 'Nom',
     pdpWaMsg: 'Salam, je souhaite {name} ({sku}) — {price}',
     buildCopyMsg: 'Config PC Star :\n{lines}\nTotal {total}',
@@ -1363,6 +1381,9 @@ export const dict = {
     catalogDegradedSince: 'Last successful read {ago} — the prices shown date from then.',
     catalogDegradedStatic: 'Prices and stock from the original catalog (no database read has succeeded since startup).',
     storageBlockedNote: 'Browser storage blocked: cart, language and session will not survive a page reload.',
+    sysState_online: 'API reachable: prices, stock and orders come from the server',
+    sysState_degraded: 'API reachable but database degraded: fallback catalog, original prices and stock',
+    sysState_offline: 'API unreachable: local mode, orders are not synchronized',
     budgetPicks: "Budget picks",
     combos: "Combos",
     guideBudgetTitle: "Student budget",
@@ -1392,6 +1413,7 @@ export const dict = {
     masterPhotosHint: "Up to 6 images (JPG/PNG, under 2.5 MB). Click a thumb to remove.",
     masterEditPhotos: "Photos",
     masterPhotosSaved: "Photos saved",
+    masterSavePhotos: 'Save photos',
     masterPhotoTooBig: "Image too large (max 2.5 MB)",
     helpNoPublicDemo: "No passwords shown here. See docs/GUIDE-DEMO.md",
     viewCart: 'View cart',
@@ -1400,6 +1422,7 @@ export const dict = {
     emptyCartBody: 'Add parts from the shop or build a PC, then reserve pickup.',
     browseShop: 'Browse shop',
     addedToCart: 'Added to cart',
+    cartPriceUpdated: 'Prices updated from the catalog: {lines}',
     itemsInCart: '{n} in cart',
     orderStatus_new: 'New',
     orderStatus_preparing: 'Preparing',
@@ -1420,6 +1443,9 @@ export const dict = {
     deskWaContact: 'Hi {name}, this is PC Star — your order {code} (status: {status}) · pickup {slot} · {total}.',
     deskStatusOk: 'Status updated',
     stockShort: 'Not enough stock',
+    stockShortDetail: 'Not enough stock: {lines}',
+    stockShortLine: '{name} — {need} requested, {left} available',
+    stockShortMore: 'and {n} more lines',
     cartStepCart: 'Cart',
     cartStepInfo: 'Details',
     cartStepDone: 'Done',
@@ -1596,6 +1622,7 @@ export const dict = {
     needsExtra: 'Name and price at the desk. Ask if you need a matching part.',
     needsDz: 'Available at the PC Star counter · Oran. Ask about compatibility.',
     waMessage: 'Salam PC Star Informatique, please prepare this for pickup at {address}:\n{who}{tel}{when}\n\n{items}\n\nTotal {total}',
+    waTruncated: '… message truncated ({n} lines removed to fit the WhatsApp limit)',
     waName: 'Name',
     pdpWaMsg: 'Hi, I would like {name} ({sku}) — {price}',
     buildCopyMsg: 'PC Star build:\n{lines}\nTotal {total}',
@@ -1606,13 +1633,46 @@ export const dict = {
   }
 }
 
+/**
+ * Traduit `key` dans `lang` (repli : anglais, puis la clé elle-même).
+ *
+ * LOT 5.5 (U5) : une variable `undefined`/`null` ne doit PAS être remplacée par
+ * la chaîne littérale « undefined » / « null » dans l'interface. Avant,
+ * `t('orderRateLimit', { n: undefined })` affichait « veuillez réessayer dans
+ * undefined s » — un trou de données transformé en texte visible pour
+ * l'utilisateur, et impossible à repérer puisque la phrase restait plausible.
+ * Le placeholder est laissé tel quel (`{n}`) : c'est laid, mais c'est lisible
+ * comme un défaut d'appel — en QA comme en production — au lieu d'être pris
+ * pour une traduction normale.
+ */
 export function t(lang, key, vars = {}) {
   const table = dict[lang] || dict.en
   let s = table[key] ?? dict.en[key] ?? key
   Object.entries(vars).forEach(([k, v]) => {
+    if (v === undefined || v === null) return
     s = s.replaceAll(`{${k}}`, String(v))
   })
   return s
+}
+
+/**
+ * LOT 5.6 (U6) — libellé traduit, avec repli EXPLICITE.
+ *
+ * `t(key)` renvoie la clé quand la traduction manque : affichée telle quelle,
+ * elle donne `cat_ssd` à l'utilisateur. Le motif `t(k) !== k ? t(k) : repli`
+ * était recopié à la main dans `BuilderPage` et `SearchPage`, mais pas dans
+ * `App.jsx` ni `MasterPage.jsx` (catégories) : une clé absente y fuitait donc
+ * jusqu'à l'écran. Vérifié aujourd'hui — 13 catégories × 3 langues, aucun trou —
+ * mais les catégories master (`extraProducts`) et les futures clés n'ont aucune
+ * garantie : le repli passe par le libellé brut du catalogue.
+ *
+ * @param {(key: string, vars?: object) => string} t traducteur bound
+ * @param {string} key clé i18n
+ * @param {string} [fallback] texte à défaut (défaut : la clé elle-même)
+ */
+export function labelOr(t, key, fallback) {
+  const s = t(key)
+  return s !== key ? s : fallback || key
 }
 
 export function langMeta(id) {
