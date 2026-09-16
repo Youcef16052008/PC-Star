@@ -25,8 +25,16 @@ export const UPLOAD_DIR = process.env.PCSTAR_UPLOAD_DIR
     ? path.join('/tmp', 'pcstar-uploads')
     : path.join(__dirname, '../public/photos/uploads')
 
-export const MAX_BYTES = 2.5 * 1024 * 1024
-export const MAX_PHOTOS = 6
+// LOT 8.4 (A4) + LOT 8.5 (A5) : les bornes viennent du module partagé
+// `src/limits.js` — les MÊMES valeurs pilotent la compression client, la garde
+// d'envoi de MasterPage, la borne du corps côté serveur et ce refus par photo.
+// Avant, chaque valeur était recopiée à la main (2.5 Mo ici, 6 photos ici,
+// 10 Mo dans MasterPage, 15 Mo dans server/index.js, 10 Mo annoncés dans
+// api/index.js) : cinq recopies, aucune garantie de cohérence.
+import { MAX_PHOTOS as MAX_PHOTOS_LIMIT, MAX_PHOTO_SERVER_BYTES } from '../src/limits.js'
+
+export const MAX_BYTES = MAX_PHOTO_SERVER_BYTES
+export const MAX_PHOTOS = MAX_PHOTOS_LIMIT
 export { IS_SERVERLESS }
 
 export const UPLOAD_PUBLIC_PREFIX = IS_SERVERLESS ? '/api/upload-file' : '/photos/uploads'

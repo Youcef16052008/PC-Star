@@ -19,18 +19,22 @@ d'origine ne sont pas modifiés (même règle que pour les lots précédents).
 | Sévérité | Nombre | Items | Statut |
 |---|---|---|---|
 | 🔴 Bloquant (argent / intégrité des commandes) | **2** | A1, A2 | ✅ **corrigés** le 16/09/2026 (lot 8.1 + 8.2) |
-| 🟠 Majeur (échec silencieux, production Vercel) | **4** | A3, A4, A5, A6 | ✅ A3 et A6 corrigés ; A4, A5 à corriger |
+| 🟠 Majeur (échec silencieux, production Vercel) | **4** | A3, A4, A5, A6 | ✅ **les quatre corrigés** (lots 8.3, 8.4, 8.5, 8.6) |
 | 🟡 Mineur (durabilité, cohérence, hygiène) | **4** | A7, A8, A9, A10 | à corriger |
-| **Total** | **10** | | 4 corrigés, 6 à corriger |
+| **Total** | **10** | | **6 corrigés** (A1, A2, A3, A4, A5, A6), 4 à corriger (A7 → A10) |
 
-> **Mise à jour du 16/09/2026.** A1, A2, A6 et A3 ont été corrigés et livrés sur
-> cette même branche (61 tests de non-régression, suite à 664/664, reproductions
-> en direct rejouées : 409 et 400 à la place de 201 pour A1/A2, destinataire
-> `213770650387` à la place de `0770650387` pour A6, 404 et bouton retiré pour
-> A3). Détail des correctifs,
-> décisions et neutralisations dans `docs/PLAN-CORRECTIONS.md` §9, section
-> « ✅ Fait — lot 8.1 + 8.2 ». Le corps de ce rapport reste **inchangé** : il
-> décrit l'état audité, les statuts sont ajoutés en tête de chaque item corrigé.
+> **Mise à jour du 16/09/2026.** A1, A2, A6, A3, puis **A4 et A5** ont été
+> corrigés et livrés sur cette même branche (80 tests de non-régression au
+> total, suite à **683/683**, reproductions en direct rejouées : 409 et 400 à la
+> place de 201 pour A1/A2, destinataire `213770650387` à la place de
+> `0770650387` pour A6, 404 et bouton retiré pour A3, `413
+> {"maxBytes":4194304,"platformLimit":4718592}` sur un banc `VERCEL=1` pour A4,
+> 6 photos au plafond acceptées et corps trop lourd refusé avant envoi pour A5).
+> Détail des correctifs, décisions et neutralisations dans
+> `docs/PLAN-CORRECTIONS.md` §9, sections « ✅ Fait — lot 8.1 + 8.2 »,
+> « lot 8.6 », « lot 8.3 » et « lot 8.4 + 8.5 ». Le corps de ce rapport reste
+> **inchangé** : il décrit l'état audité, les statuts sont ajoutés en tête de
+> chaque item corrigé.
 
 Les deux items bloquants concernent **le même point d'entrée** —
 `placeOrder()` (`server/catalog.js`) et la route `POST /api/orders`
@@ -291,6 +295,21 @@ bouton.
 
 ### 🟠 A4 — Sur Vercel, la limite de corps réelle est 4,5 Mo ; le code en annonce 10 Mo et 15 Mo
 
+> ✅ **CORRIGÉ (16/09/2026, lot 8.4).** `api/index.js` n'exporte plus aucune
+> `config.api.*` (convention Next.js, ignorée par `@vercel/node`) : un
+> commentaire dit la limite réelle — **4,5 Mo**, requête **et** réponse, non
+> relevable — et renvoie vers le module de budgets. `server/index.js` borne le
+> corps selon l'environnement : `MAX_BODY_BYTES = IS_SERVERLESS ? 4 Mo : 15 Mo`,
+> donc **sous** la limite plateforme en production — le refus vient de
+> l'application, avec son JSON. Le 413 annonce désormais la borne appliquée
+> (`maxBytes`) et la limite plateforme (`platformLimit`, non `null` sous
+> Vercel). Toutes les valeurs viennent d'un seul module, `src/limits.js`, et
+> `docs/DEPLOY-VERCEL.md` §7 documente la contrainte.
+>
+> Vérifié en direct sur un banc en configuration serverless (`VERCEL=1`) :
+> `MAX_BODY_BYTES=4194304` au démarrage, et un corps de **4,20 Mo** →
+> `413 {"ok":false,"error":"too_large","maxBytes":4194304,"platformLimit":4718592}`.
+
 **Affirmation.** `api/index.js` exporte `config.api.bodyParser.sizeLimit:
 '10mb'`. Cette configuration est celle des **routes API Next.js** ; sur une
 fonction Node Vercel (`@vercel/node`, ce qu'est `api/index.js`) elle n'est pas
@@ -347,6 +366,26 @@ l'écrire une fois :
 ---
 
 ### 🟠 A5 — La compression des photos est décidée sur les **dimensions**, jamais sur les octets
+
+> ✅ **CORRIGÉ (16/09/2026, lot 8.5).** La compression est pilotée par un
+> **budget d'octets** : `dataUrlBytes()` mesure le poids décodé, et une image
+> déjà ≤ 800 px mais trop lourde est **ré-encodée à dimensions constantes** au
+> lieu de repartir telle quelle. Tant que le budget n'est pas tenu, une boucle
+> **bornée** baisse la qualité (0,8 → 0,5) puis les dimensions (×0,8, plancher
+> 320 px), au plus 12 itérations. Le budget par défaut (400 Ko) vient de
+> `src/limits.js`, comme la borne serveur par blob (2,5 Mo) et le plafond de
+> photos (6).
+>
+> Le **total** est borné avant l'envoi : `payloadOverBudget()` (même module)
+> mesure le corps que produiraient les dataURL — ce sont les chaînes base64 qui
+> voyagent, pas les octets décodés — et `MasterPage` refuse la création comme
+> l'édition de photos au-delà de 4 Mo, avec un message qui cite le poids obtenu,
+> la borne et quoi faire (`masterPhotosTooHeavy`, 3 langues). La chaîne tient :
+> 6 × 400 Ko → ~3,2 Mo de base64 < 4 Mo < 4,5 Mo (plateforme).
+>
+> Vérifié en direct : 6 photos au plafond client (corps 3,13 Mo) → `200`, 6
+> photos stockées ; 7 photos → écrémées à 6 ; une photo de 3 Mo → écartée,
+> l'autre conservée.
 
 **Affirmation.** `compressDataUrl()` renvoie l'image **telle quelle** dès que son
 plus grand côté est ≤ 800 px, quelle que soit sa taille en octets. Or le serveur

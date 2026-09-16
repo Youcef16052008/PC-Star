@@ -50,6 +50,10 @@ import { normalizePhone, isDzPhone, phoneCarrier } from './phone.js'
 import { PRODUCTS, SLOTS, WILAYAS_NEAR } from '../src/data.js'
 // P19 : notification du master (WhatsApp Cloud API + socket Desk).
 import { broadcastDesk, formatOrderMessage, sendWhatsApp, whatsappConfig } from './notify.js'
+// LOT 8.4 (A4) : budgets d'octets partagés avec le client (compression, garde
+// d'envoi) et détection de l'environnement serverless.
+import { LOCAL_MAX_BODY_BYTES, MAX_UPLOAD_BODY_BYTES, VERCEL_MAX_BODY_BYTES } from '../src/limits.js'
+import { IS_SERVERLESS } from './blobStore.js'
 import { attachDeskSocket } from './deskSocket.js'
 import {
   backupStore,
@@ -124,11 +128,39 @@ function send(res, status, body, headers = {}) {
 }
 
 // P10 (P7-10) : corps de requête borné (~6 photos compressées en base64 +
-// marge). Sans limite, un corps de plusieurs centaines de Mo = OOM en local
-// (Vercel impose ses propres limites d'entrée).
-const MAX_BODY_BYTES = 15 * 1024 * 1024
+// marge). Sans limite, un corps de plusieurs centaines de Mo = OOM en local.
+//
+// LOT 8.4 (A4) : la borne était de 15 Mo **partout**, alors que sur Vercel le
+// corps d'une fonction serverless est limité par la plateforme à **4,5 Mo** —
+// refusé AVANT que le handler ne s'exécute (`FUNCTION_PAYLOAD_TOO_LARGE`), et
+// non relevable (Hobby comme Pro). Annoncer 15 Mo sur Vercel était donc une
+// valeur inaccessible : entre 4,5 et 15 Mo, ce n'est pas notre 413 JSON que le
+// maître reçoit mais une page d'erreur de la plateforme. La borne suit
+// désormais l'environnement, et reste sous la limite plateforme pour que le
+// refus vienne de l'application (avec son message) chaque fois que c'est elle
+// qui peut encore répondre.
+export const MAX_BODY_BYTES = IS_SERVERLESS ? MAX_UPLOAD_BODY_BYTES : LOCAL_MAX_BODY_BYTES
 
-function readBody(req) {
+/**
+ * LOT 8.4 (A4) — corps du 413 : la borne réellement appliquée est annoncée.
+ *
+ * Un client (ou un `curl` de diagnostic) sait alors quelle taille viser, au
+ * lieu de deviner entre les 4,5 Mo de la plateforme et les 15 Mo d'un serveur
+ * local. `platformLimit` n'est renseigné que sous Vercel : ailleurs, aucune
+ * limite extérieure ne s'applique.
+ */
+export function bodyTooLargePayload() {
+  return {
+    ok: false,
+    error: 'too_large',
+    maxBytes: MAX_BODY_BYTES,
+    platformLimit: IS_SERVERLESS ? VERCEL_MAX_BODY_BYTES : null
+  }
+}
+
+// Exportée pour les tests de borne (LOT 8.4) : refuser un corps trop gros se
+// vérifie sans pousser 15 Mo dans un socket.
+export function readBody(req) {
   return new Promise((resolve, reject) => {
     // Vercel / some adapters may already parse JSON
     if (req.body != null && typeof req.body === 'object' && !Buffer.isBuffer(req.body)) {
@@ -1301,7 +1333,10 @@ export async function handler(req, res) {
           /* déjà fermé */
         }
       })
-      return send(res, 413, { ok: false, error: 'too_large' }, { Connection: 'close' })
+      // LOT 8.4 (A4) : la borne appliquée est dite dans la réponse — un client
+      // (ou un curl de diagnostic) sait alors quelle taille viser, au lieu de
+      // deviner entre les 4,5 Mo de Vercel et les 15 Mo d'un serveur local.
+      return send(res, 413, bodyTooLargePayload(), { Connection: 'close' })
     }
     console.error(err)
     return send(res, 500, { ok: false, error: 'server', message: String(err.message || err) })

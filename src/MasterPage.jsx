@@ -7,6 +7,10 @@ import { addPanel, addProduct, deleteCustomer, hideProduct, setProductPhotos, to
 import PartThumb from './PartThumb.jsx'
 import * as api from './api.js'
 import { compressDataUrl } from './photoCompress.js'
+// LOT 8.4 (A4) + LOT 8.5 (A5) : les budgets d'octets viennent du module
+// partagé — les mêmes valeurs bornent la compression client, cette garde
+// d'envoi, la borne du corps côté serveur et le refus par photo.
+import { MAX_INPUT_BYTES, MAX_PHOTOS, MAX_UPLOAD_BODY_BYTES, payloadOverBudget, toMb } from './limits.js'
 import { labelOr } from './i18n.js'
 
 /**
@@ -56,10 +60,12 @@ export function customerDeletedMessage(t, data) {
 // P4 (B10) : compression canvas avant envoi (800 px / JPEG q0.8) → le body
 // d'upload passe de ~20 Mo max à ~2 Mo (Vercel 413 évité, latence réduite).
 // Limite d'entrée relevée à 10 Mo : la sortie compressée reste bien plus petite.
-const MAX_INPUT_BYTES = 10 * 1024 * 1024
+// LOT 8.5 (A5) : la compression est désormais aussi pilotée par un budget
+// d'octets (voir src/photoCompress.js), donc une image petite en pixels mais
+// lourde est ré-encodée au lieu de partir telle quelle.
 
 function readFilesAsDataUrls(fileList) {
-  const files = [...(fileList || [])].slice(0, 6)
+  const files = [...(fileList || [])].slice(0, MAX_PHOTOS)
   return Promise.all(
     files.map(
       (file) =>
@@ -74,6 +80,10 @@ function readFilesAsDataUrls(fileList) {
     )
   ).then((list) => list.filter(Boolean))
 }
+
+// LOT 8.5 (A5) : la garde d'envoi vit dans `src/limits.js`, à côté des budgets
+// qu'elle applique (`payloadOverBudget`) — la même fonction est testable hors
+// React, et client comme documentation parlent d'une seule borne.
 
 export default function MasterPage({ t, lang, user, users, onUsers, products, masterCatalog, meta, onMeta, basePanels, setToast, onBack, apiOnline, onStockRefresh }) {
   const [tab, setTab] = useState('products')
@@ -159,9 +169,9 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, ma
   async function onFormPhotos(e) {
     try {
       const urls = await readFilesAsDataUrls(e.target.files)
-      setForm((f) => ({ ...f, photos: [...f.photos, ...urls].slice(0, 6) }))
+      setForm((f) => ({ ...f, photos: [...f.photos, ...urls].slice(0, MAX_PHOTOS) }))
     } catch {
-      setToast(t('masterPhotoTooBig'))
+      setToast(t('masterPhotoTooBig', { mb: toMb(MAX_INPUT_BYTES) }))
     }
     e.target.value = ''
   }
@@ -169,9 +179,9 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, ma
   async function onEditPhotos(e) {
     try {
       const urls = await readFilesAsDataUrls(e.target.files)
-      setEditPhotos((prev) => [...prev, ...urls].slice(0, 6))
+      setEditPhotos((prev) => [...prev, ...urls].slice(0, MAX_PHOTOS))
     } catch {
-      setToast(t('masterPhotoTooBig'))
+      setToast(t('masterPhotoTooBig', { mb: toMb(MAX_INPUT_BYTES) }))
     }
     e.target.value = ''
   }
@@ -179,6 +189,12 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, ma
   async function submitProduct(e) {
     e.preventDefault()
     if (apiOnline) {
+      // LOT 8.5 (A5) : refus AVANT l'envoi si le corps dépasserait le budget.
+      const over = payloadOverBudget(form.photos)
+      if (over) {
+        setToast(t('masterPhotosTooHeavy', { size: toMb(over), limit: toMb(MAX_UPLOAD_BODY_BYTES) }))
+        return
+      }
       const r = await api.masterCreateProduct({
         name: form.name,
         price: Number(form.price),
@@ -238,7 +254,7 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, ma
 
   function openEdit(p) {
     setEditId(p.id)
-    setEditPhotos([...(p.photos || [])].slice(0, 6))
+    setEditPhotos([...(p.photos || [])].slice(0, MAX_PHOTOS))
   }
 
   async function saveEditPhotos() {
@@ -249,6 +265,12 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, ma
       const paths = editPhotos.filter((x) => !String(x).startsWith('data:'))
       let photos = paths
       if (dataUrls.length) {
+        // LOT 8.5 (A5) : même garde que la création.
+        const over = payloadOverBudget(dataUrls)
+        if (over) {
+          setToast(t('masterPhotosTooHeavy', { size: toMb(over), limit: toMb(MAX_UPLOAD_BODY_BYTES) }))
+          return
+        }
         const up = await api.masterPhotos(editId, dataUrls)
         if (!up.ok) {
           errToast(setToast, t, up, 'masterActionFail')

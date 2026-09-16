@@ -329,8 +329,8 @@ Les deux rapports d'origine restent **non modifiés**.
 | 8.1 ✅ | **A1** 🔴 **LIVRÉ le 16/09/2026** — Refuser une commande sur un produit **masqué** (`hiddenProductIds`) dans `placeOrder`, dans la transaction et avant tout décrément ; `409 unavailable` côté route ; message dédié **et retrait de la ligne du panier** côté client | `server/catalog.js:72-168`, `server/index.js:826-925`, `src/orderLogic.js` (`orderApiFailure`), `src/App.jsx` (`reserve`, `pricedCart`) | M | Masquer un produit puis le commander en anonyme → **409**, stock inchangé, aucune commande créée, aucune notification |
 | 8.2 ✅ | **A2** 🔴 **LIVRÉ le 16/09/2026** — Refuser une ligne dont le prix de référence est inconnu (`priceOf` → `null`) au lieu de la tarifer **0 DA** ; purger les entrées orphelines de `db.stock` et `productOverrides` dans `normalizeDb` (journalisées) | `server/catalog.js:58-90`, `server/db.js:271-340` | M | `placeOrder` sur un id inconnu présent dans `db.stock` → refus `unknown_product`, **aucune** commande à 0 DA ; après `writeDb`, la clé orpheline a disparu et les overrides valides sont conservés |
 | 8.3 ✅ | **A3** 🟠 **LIVRÉ le 16/09/2026** — Lire le drapeau `claimable` côté client : pas de bouton « Annuler » sur une commande non revendicable, mention explicite, et message d'échec distingué du 404 | `src/OrdersPage.jsx:130-140`, `src/App.jsx` (`cancelMyOrder`), `src/i18n.js` (nouvelle clé × 3) | S | Une commande `claimable: false` s'affiche **sans** bouton d'annulation ; un clic forcé (API directe) renvoie un message qui dit pourquoi |
-| 8.4 | **A4** 🟠 — Aligner la limite de corps sur la contrainte réelle de Vercel (4,5 Mo) : `MAX_BODY_BYTES` réduit en environnement serverless, configuration `bodyParser` supprimée ou commentée véridiquement, limite plateforme documentée | `api/index.js:24-31`, `server/index.js:129`, `docs/DEPLOY-VERCEL.md` §7 | S | Sur Vercel, un corps trop gros reçoit le **413 JSON de l'application** (ou un refus client expliqué), jamais la page d'erreur plateforme ; plus aucune valeur annoncée contredite par un commentaire |
-| 8.5 | **A5** 🟠 — Compression à **budget** : ré-encoder aussi quand `scale === 1` si le data URL dépasse un seuil en octets, boucle de réduction bornée, et garde de payload total avant l'envoi (constante partagée client/serveur) | `src/photoCompress.js:32-67`, `src/MasterPage.jsx:62,162,172`, module de constantes partagé | M | Un PNG 800×800 de 2 Mo part **compressé** sous le seuil ; 6 photos lourdes → refus client expliqué avant l'envoi, payload total sous la limite plateforme |
+| 8.4 ✅ | **A4** 🟠 **LIVRÉ le 16/09/2026** — Limite de corps alignée sur la contrainte réelle : nouveau module `src/limits.js` (une seule source), `MAX_BODY_BYTES = IS_SERVERLESS ? 4 Mo : 15 Mo`, `config.api.*` inerte **supprimé** d'`api/index.js` et remplacé par la vérité (4,5 Mo requête **et** réponse, non relevable), 413 qui annonce `maxBytes` + `platformLimit`, limite documentée | `src/limits.js`, `api/index.js`, `server/index.js:142`, `server/blobStore.js:36-37`, `docs/DEPLOY-VERCEL.md` §7 | S | ✅ Vérifié en direct sur un banc `VERCEL=1` : `MAX_BODY_BYTES=4194304`, corps de 4,20 Mo → `413 {"maxBytes":4194304,"platformLimit":4718592}` — le JSON de l'application, jamais la page plateforme |
+| 8.5 ✅ | **A5** 🟠 **LIVRÉ le 16/09/2026** — Compression à **budget d'octets** : `dataUrlBytes()` mesure le poids décodé, ré-encodage aussi à `scale === 1`, boucle bornée (qualité 0,8→0,5 puis dimensions ×0,8, plancher 320 px, 12 itérations max), jamais plus lourd que l'entrée à dimensions constantes ; **garde de total** `payloadOverBudget()` avant création ET édition des photos, message `masterPhotosTooHeavy` × 3 langues | `src/limits.js`, `src/photoCompress.js`, `src/MasterPage.jsx:13,193,269`, `src/i18n.js` | M | ✅ 6 photos au plafond client (400 Ko décodés → corps 3,13 Mo) → `200`, 6 stockées ; 7 → écrémées à 6 ; photo de 3 Mo écartée ; corps > 4 Mo → **aucun appel réseau**, toast chiffré |
 | 8.6 ✅ | **A6** 🟠 **LIVRÉ le 16/09/2026** — Normaliser les destinataires WhatsApp avec la règle partagée (`waNumber`/`phoneLogic`), rejeter un numéro non normalisable, signaler une configuration invalide **au démarrage** et dans `/api/health` ; exemple de la doc au format international | `server/notify.js:39-57`, `server/index.js` (démarrage + health), `docs/DEPLOY-VERCEL.md` §3 | S | `WHATSAPP_RECIPIENT=0770650387` → destinataire `213770650387` envoyé à Meta ; un numéro invalide est refusé au boot avec un message lisible, pas à la première commande |
 | 8.7 | **A7** 🟡 — Durabilité de l'écriture : `fsync` du fichier temporaire avant `rename` (+ fsync du répertoire, non bloquant) | `server/db.js:772-786` | S | Une coupure simulée entre écriture et rename ne laisse plus de `store.json` vide ; le test de non-régression vérifie la présence du fsync sur le chemin d'écriture |
 | 8.8 | **A8** 🟡 — Un seul module de formatage date/monnaie, locale dérivée de la langue (ou `fr-DZ` assumé **partout**) ; `OrdersPage` cesse d'ignorer la langue | nouveau `src/format.js`, `src/OrdersPage.jsx:119`, `src/DeskPage.jsx:76`, `src/data.js:66` | S | En mode arabe, la même commande affiche la même date au Desk et dans « Mes commandes » ; la décision (varier ou figer) est écrite dans le code |
@@ -1612,14 +1612,193 @@ fichier ne respectait pas.
 
 ---
 
-### ⏳ À faire — reste du lot 8 (A4, A5, A7 → A10)
+### ✅ Fait — lots 8.4 + 8.5, ce qui part réellement sur le réseau (16/09/2026)
 
-**A1, A2 (les 2 bloquants), A6 et A3 sont livrés** — voir ci-dessus. Restent 2
-majeurs et 4 mineurs du **lot 8** (§7), trouvés hors des deux rapports
-d'origine : **A4** limite Vercel contredite par le code, **A5** photos non
-compressées en octets, puis les mineurs **A7** fsync, **A8** dates localisées à
-moitié, **A9** 62 clés i18n mortes, **A10** `category`/`kind` libres à la
-création. Preuves et
+**A4 et A5 traités ensemble** : les deux décrivent la même chaîne — ce que le
+client comprime, ce que le corps pèse, ce que la plateforme accepte — et aucune
+des deux ne se corrige proprement sans l'autre. A4 sans A5 annonce une borne que
+le client peut encore dépasser ; A5 sans A4 comprime vers une cible contredite
+par une configuration inerte.
+
+**Le problème, en une phrase.** Trois valeurs de « taille maximale » circulaient
+(10 Mo annoncés dans `api/index.js`, 15 Mo appliqués dans `server/index.js`,
+4,5 Mo réellement imposés par Vercel), recopiées à la main dans cinq fichiers, et
+la compression des photos ne regardait **que les pixels** : une image déjà
+≤ 800 px repartait telle quelle, quel que soit son poids.
+
+#### `src/limits.js` (nouveau) — une seule source pour tous les budgets
+
+| Constante | Valeur | Rôle |
+|---|---|---|
+| `VERCEL_MAX_BODY_BYTES` | 4,5 Mo | limite **plateforme**, requête et réponse, non relevable |
+| `MAX_UPLOAD_BODY_BYTES` | 4 Mo | garde d'envoi client **et** borne du corps sous Vercel |
+| `LOCAL_MAX_BODY_BYTES` | 15 Mo | borne du corps sur un serveur dédié (local/VPS) |
+| `MAX_PHOTO_BYTES` | 400 Ko | budget **client** par photo (octets décodés) |
+| `MAX_PHOTO_SERVER_BYTES` | 2,5 Mo | borne **serveur** par blob (marge de sécurité) |
+| `MAX_PHOTOS` | 6 | plafond de photos par produit, des deux côtés |
+| `MAX_INPUT_BYTES` | 10 Mo | poids maximal du fichier choisi avant compression |
+| `COMPRESS_FLOOR` | q 0,5 / 320 px / 12 pas | planchers de la boucle de réduction |
+
+Plus les fonctions partagées : `toMb()` (messages), `payloadBytes()` et
+`payloadOverBudget()` (garde d'envoi). **La chaîne est vérifiée par test** :
+6 × 400 Ko → ~3,2 Mo de base64 ≤ 4 Mo de garde < 4,5 Mo de plateforme, et la
+borne serveur par photo (2,5 Mo) accepte toujours ce que le client produit
+(400 Ko). Sans ce test, rien n'empêcherait de remonter une valeur et de casser
+l'alignement.
+
+#### A4 — les limites annoncées sont celles appliquées
+
+**`api/index.js`** : `export const config = { api: { bodyParser: { sizeLimit:
+'10mb' }, responseLimit: '4mb' } }` **supprimé**. C'était une convention
+**Next.js** (`pages/api/*`) ; ce dépôt sert ses fonctions via `@vercel/node`
+(`vercel.json` réécrit `/api/(.*)` → `/api`), qui ignore cet export. Rien
+n'était relevé — seul le commentaire affirmait que si, et il se contredisait
+lui-même (« sizeLimit 10 mo … 4 mo reste large »). Un commentaire véridique le
+remplace : la limite réelle, l'erreur plateforme (`FUNCTION_PAYLOAD_TOO_LARGE`),
+et les trois étages qui bornent le corps.
+
+**`server/index.js`** : `MAX_BODY_BYTES` suivait 15 Mo **y compris sous Vercel**,
+une valeur inaccessible — entre 4,5 et 15 Mo, la plateforme refuse **avant**
+d'entrer dans le handler et renvoie sa page d'erreur, pas notre 413 JSON.
+Désormais `IS_SERVERLESS ? MAX_UPLOAD_BODY_BYTES : LOCAL_MAX_BODY_BYTES` : 4 Mo
+en production (sous la limite plateforme, donc c'est **l'application** qui
+refuse, avec son message), 15 Mo en local où aucun plafond extérieur ne
+s'applique. Le 413 annonce `maxBytes` (la borne réellement appliquée) et
+`platformLimit` (non `null` sous Vercel) — un `curl` de diagnostic sait quelle
+taille viser. `readBody` et `bodyTooLargePayload` sont exportés pour que la
+borne se teste **sans pousser 15 Mo dans un socket**.
+
+**`server/blobStore.js`** : `MAX_BYTES = 2.5 * 1024 * 1024` et `MAX_PHOTOS = 6`
+étaient recopiés à la main ; les deux viennent du module partagé.
+
+**`docs/DEPLOY-VERCEL.md` §7** : la contrainte de taille de corps rejoint les
+« limites honnêtes », à côté du rate-limit par instance et de l'absence de
+WebSocket.
+
+#### A5 — la compression tient un budget d'octets, et le total est borné
+
+**`src/photoCompress.js`** — deux changements :
+
+1. `dataUrlBytes()` mesure le poids **décodé** sans décoder (rapport 3/4 sur le
+   base64, rembourrage compté → très léger majorant, ce qu'on veut pour une
+   garde). La condition de sortie n'est plus « déjà à taille » mais « déjà à
+   taille **et** déjà sous le budget » : un PNG 800×800 de 2 Mo est ré-encodé **à
+   dimensions constantes** au lieu de repartir tel quel (2,7 Mo de base64).
+2. Une **boucle bornée** réduit jusqu'à tenir le budget : qualité par pas de 0,1
+   jusqu'au plancher 0,5, puis dimensions ×0,8 jusqu'au plancher 320 px, 12
+   itérations maximum. Elle rend toujours quelque chose d'envoyable — jamais de
+   boucle infinie sur une image qui ne se laisse pas comprimer.
+
+Le résultat n'est **jamais plus lourd que l'entrée à dimensions constantes** (un
+ré-encodage JPEG peut grossir une toute petite image) ; en revanche une image
+**redimensionnée** est toujours rendue, même si le JPEG pèse plus que l'original
+— revenir à l'original annulerait la réduction, et c'est bien la taille en
+pixels qui compte pour l'affichage et le stockage.
+
+**`src/MasterPage.jsx`** — la garde de **total** avant l'envoi, sur les **deux**
+chemins qui portent des dataURL (création de produit et édition des photos) :
+`payloadOverBudget()` compare la longueur des chaînes (ce qui voyage dans le
+JSON) au budget de 4 Mo, et refuse **avant** `fetch` avec
+`masterPhotosTooHeavy` — « Photos trop lourdes après compression : 4.6 Mo
+(limite 4 Mo). Retirez une photo ou choisissez des images plus légères. » Les
+bornes locales (`MAX_INPUT_BYTES`, les `.slice(0, 6)`) viennent du module
+partagé, et `masterPhotoTooBig` ne dit plus « 2,5 Mo » en dur : il cite
+`{mb}` = 10 Mo, la vraie limite d'entrée.
+
+**`src/i18n.js`** — 1 clé neuve × 3 langues + 1 clé paramétrée, blocs
+rééquilibrés (538/538/538).
+
+**Décisions**
+
+1. **4 Mo, pas 4,5 Mo.** La limite plateforme est 4,5 Mo pour le corps **et**
+   pour la réponse ; viser exactement 4,5 laisserait l'en-tête JSON, les autres
+   champs du produit et l'arrondi base64 décider de l'échec. 4 Mo laisse ~11 %
+   de marge et reste au-dessus du pire cas nominal (3,2 Mo).
+2. **Refuser côté client plutôt que laisser la plateforme répondre.** Un 413
+   applicatif est un JSON que l'App sait traduire ; `FUNCTION_PAYLOAD_TOO_LARGE`
+   est une page HTML que `api.req()` ne peut pas parser — le maître aurait vu
+   « Action impossible » sans savoir quoi changer. La garde d'envoi donne le
+   poids obtenu, la borne, et le geste à faire.
+3. **Le serveur écrême, le client explique.** `masterApi.js` tronque à
+   `MAX_PHOTOS` et écarte silencieusement un blob > 2,5 Mo (comportement
+   antérieur, conservé) : c'est la bonne posture pour un serveur — ne jamais
+   planter sur une entrée trop grande. Mais seul le client peut dire **pourquoi**
+   une photo manque ; d'où la garde et les messages côté navigateur.
+4. **Une boucle bornée, pas une recherche de qualité optimale.** Douze
+   itérations suffisent largement (mesuré : 9 sur une image qui ne cède rien) et
+   garantissent l'absence de blocage sur un canvas capricieux.
+5. **`readBody` exportée.** Tester la borne via HTTP aurait exigé d'envoyer
+   15 Mo par test ; exporter la fonction interne permet une vérification exacte
+   et instantanée, sans changer le comportement.
+
+**Vérification en direct**
+
+Banc en configuration serverless (`VERCEL=1`, handler monté sur
+`http.createServer` — `node server/index.js` n'écoute pas en serverless) :
+
+| Étape | Résultat |
+|---|---|
+| démarrage | log `MAX_BODY_BYTES=4194304` (4 Mo, pas 15) |
+| corps de **4,20 Mo** (sous 4,5 Mo plateforme, au-dessus de la garde) | `413 {"ok":false,"error":"too_large","maxBytes":4194304,"platformLimit":4718592}` — **notre JSON**, pas la page plateforme |
+
+Serveur local (stockage fichier, `MAX_BODY_BYTES` = 15 Mo) :
+
+| Étape | Résultat |
+|---|---|
+| 6 photos au plafond client (400 Ko décodés chacune → corps **3,13 Mo**) | `200`, **6 photos stockées** |
+| 7 photos du même tonneau (corps 3,65 Mo) | `200`, **6 stockées** — écrémé à `MAX_PHOTOS` |
+| 1 photo de 3 Mo décodés + 1 photo au budget | `200`, **1 stockée** — la trop grosse écartée par la borne par blob |
+| corps de 16 Mo | `413 {"maxBytes":15728640,"platformLimit":null}` — la borne locale est dite, aucune limite plateforme à annoncer |
+| restauration des photos d'origine du produit | `200` |
+
+Sur le banc serverless, l'envoi légitime (6 photos au plafond) renvoie `500`
+avec « aucun stockage durable en serverless » : c'est la garde **existante** du
+lot 4.2 (pas de `BLOB_READ_WRITE_TOKEN` → `/tmp` éphémère), pas une régression —
+et le corps, lui, est bien passé sous la borne (pas de 413).
+
+**Neutralisations** (chaque correctif retiré, les tests doivent rougir) :
+
+| # | Correctif retiré | Tests qui rougissent |
+|---|---|---|
+| N18 | compression revenue aux dimensions seules (`scale === 1` → brut, boucle supprimée) | **4** |
+| N19 | `dataUrlBytes` aveugle (renvoie toujours 0) | **5** |
+| N20 | garde d'envoi retirée de `MasterPage` | **1** |
+| N21 | `payloadOverBudget` ne borne plus rien | **2** |
+| N22 | borne du corps de nouveau 15 Mo partout (branche serverless retirée) | **1** |
+| N23 | 413 sans dire la borne appliquée | **1** |
+| N24 | `config` Next.js inerte remise dans `api/index.js` | **1** |
+| N25 | `blobStore` recopie ses bornes à la main (9 Mo / 12 photos) | **2** |
+| N26 | chaîne de budgets incohérente (garde d'envoi à 15 Mo) | **3** |
+
+**Tests** : 19 nouveaux (`src/lot8Payload.test.js`) — cohérence de la chaîne de
+budgets, bornes `blobStore` partagées, borne du corps en local **et** en
+serverless (processus fils avec `VERCEL=1`, la constante étant évaluée à
+l'import), 413 et son payload, absence de configuration inerte, `vercel.json`
+sans réglage de corps fantôme, `dataUrlBytes`, ré-encodage à dimensions
+constantes, descente de qualité, planchers et bornage de la boucle, « jamais
+plus lourd » et son contraire (image redimensionnée), budget par défaut partagé,
+maths de la garde de total, pire cas nominal envoyable, et **deux rendus réels
+de `MasterPage` dans jsdom** (photos surdimensionnées → aucun appel réseau +
+toast chiffré ; photos légères → l'envoi part et le succès est annoncé).
+Suite : **683/683** (664 avant), build propre.
+
+**Piège rencontré.** La première version de la garde « jamais plus lourd que
+l'entrée » s'appliquait aussi aux images **redimensionnées** : le test existant
+« 1600×1200 → 800×600 » échouait parce que le stub de canvas renvoie un payload
+minuscule, et le garde-fou comparait des poids sans tenir compte du fait que les
+dimensions avaient changé. La règle correcte distingue les deux cas
+(`sized.scale === 1`), ce qui est aussi la règle **métier** : le poids ne
+justifie d'écarter un ré-encodage que si rien d'autre n'a été amélioré.
+
+---
+
+### ⏳ À faire — reste du lot 8 (A7 → A10)
+
+**A1, A2 (les 2 bloquants), A6, A3, A4 et A5 sont livrés** — voir ci-dessus :
+les **6 défauts 🔴/🟠** de l'audit A→Z sont corrigés. Restent les 4 **mineurs**
+du **lot 8** (§7), trouvés hors des deux rapports d'origine : **A7** fsync,
+**A8** dates localisées à moitié, **A9** 62 clés i18n mortes, **A10**
+`category`/`kind` libres à la création. Preuves et
 reproductions **exécutées** (A1 sur l'API en direct, A2/A6/A9/A10 par appel direct
 du code du dépôt) dans `docs/VERIFICATION-RAPPORT-AUDIT-3.md`. Les deux rapports
 d'origine n'ont **pas** été modifiés.

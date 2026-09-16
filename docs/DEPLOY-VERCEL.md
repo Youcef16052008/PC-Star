@@ -130,10 +130,46 @@ Settings → Domains → ajoute `pcstar.dz` (ou autre) → DNS chez ton registra
 | Sujet | Réalité Vercel free |
 |-------|---------------------|
 | `store.json` (users, orders, stock overrides) | Fichier dans **`/tmp`** → **éphémère** (cold start peut reset) |
-| Upload master photos | `/tmp` → pas durable |
+| Upload master photos | `/tmp` → pas durable (sans `BLOB_READ_WRITE_TOKEN`) |
+| **Taille du corps d'une requête/réponse** | **4,5 Mo maximum**, imposé par la plateforme, **non relevable** (Hobby comme Pro) — voir ci-dessous |
 | Catalog 250 SKU + photos git | **Persistant** (build static) |
 
 **Pour le magasin Oran au quotidien** : le catalogue + réservation locale/localStorage marchent ; les orders API peuvent se vider après sleep.
+
+### Taille de corps : 4,5 Mo imposés par la plateforme (LOT 8.4 / A4)
+
+Vercel plafonne le corps d'une **fonction serverless** à **4,5 Mo**, en entrée
+comme en sortie, et cette limite **ne se relève pas** (ni sur Hobby, ni sur Pro,
+ni par une configuration). Au-delà, la plateforme répond elle-même
+`FUNCTION_PAYLOAD_TOO_LARGE` — une page d'erreur, **avant** d'entrer dans le
+handler : l'application ne peut donc ni répondre son JSON, ni expliquer quoi
+changer.
+
+> ⚠️ `config.api.bodyParser.sizeLimit` est une convention **Next.js**
+> (`pages/api/*`). Ce projet sert ses fonctions via `@vercel/node` (`vercel.json`
+> réécrit `/api/(.*)` → `/api`), qui **ignore** cet export : en écrire un ne
+> relève rien. C'est pourquoi `api/index.js` n'en contient plus (LOT 8.4).
+
+**Ce que fait le code pour rester du bon côté de la limite** — toutes les
+valeurs viennent d'un seul module, `src/limits.js` :
+
+| Étage | Borne | Effet |
+|---|---|---|
+| Plateforme | **4,5 Mo** (`VERCEL_MAX_BODY_BYTES`) | refus HTML avant le handler — à ne jamais atteindre |
+| Application, sous Vercel | **4 Mo** (`MAX_BODY_BYTES` = `MAX_UPLOAD_BODY_BYTES`) | **413 JSON** `{"error":"too_large","maxBytes":4194304,"platformLimit":4718592}` |
+| Application, serveur local | 15 Mo (`LOCAL_MAX_BODY_BYTES`) | 413 JSON, `platformLimit: null` (aucun plafond extérieur) |
+| Client, avant l'envoi | 4 Mo (`payloadOverBudget()`) | **aucun appel réseau**, message chiffré au maître |
+| Client, par photo | 400 Ko (`MAX_PHOTO_BYTES`) | compression à budget d'octets (qualité puis dimensions) |
+| Serveur, par blob | 2,5 Mo (`MAX_PHOTO_SERVER_BYTES`) | photo trop grosse écartée, les autres passent |
+
+Le pire cas nominal tient : **6 photos** au plafond client → ~3,2 Mo de base64 →
+sous la garde d'envoi (4 Mo) → sous la limite plateforme (4,5 Mo).
+
+**Si un jour il faut envoyer plus lourd** (galerie, vidéos) : la bonne réponse
+n'est pas de relever une limite impossible à relever, mais de faire monter les
+octets **hors du corps de la fonction** — `@vercel/blob` en upload direct depuis
+le navigateur (`upload()` côté client, puis l'URL seulement dans le JSON), ce que
+le dépôt sait déjà faire côté serveur (`BLOB_READ_WRITE_TOKEN`).
 
 ### Rate-limit : compteurs **en mémoire**, donc **par instance** (LOT 3.19 / R17)
 
