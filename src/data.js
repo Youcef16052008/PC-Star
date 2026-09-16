@@ -63,7 +63,7 @@ export const STORE_LINKS = [
 // modules importent `money` depuis `./data.js` : les appelants ne changent pas,
 // mais il n'existe plus de seconde définition à faire diverger (l'ancien
 // `money()` figeait `fr-DZ` quelle que soit la langue).
-export { money, third } from './format.js'
+export { money } from './format.js'
 
 export const SLOTS = [
   '10:30',

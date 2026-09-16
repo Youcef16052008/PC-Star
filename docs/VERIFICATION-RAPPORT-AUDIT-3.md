@@ -20,19 +20,21 @@ d'origine ne sont pas modifiés (même règle que pour les lots précédents).
 |---|---|---|---|
 | 🔴 Bloquant (argent / intégrité des commandes) | **2** | A1, A2 | ✅ **corrigés** le 16/09/2026 (lot 8.1 + 8.2) |
 | 🟠 Majeur (échec silencieux, production Vercel) | **4** | A3, A4, A5, A6 | ✅ **les quatre corrigés** (lots 8.3, 8.4, 8.5, 8.6) |
-| 🟡 Mineur (durabilité, cohérence, hygiène) | **4** | A7, A8, A9, A10 | ✅ A7 et A8 corrigés (lots 8.7, 8.8) ; A9, A10 à corriger |
-| **Total** | **10** | | **8 corrigés** (A1 → A8), 2 à corriger (A9, A10) |
+| 🟡 Mineur (durabilité, cohérence, hygiène) | **4** | A7, A8, A9, A10 | ✅ A7, A8 et A9 corrigés (lots 8.7, 8.8, 8.9) ; A10 à corriger |
+| **Total** | **10** | | **9 corrigés** (A1 → A9), 1 à corriger (A10) |
 
-> **Mise à jour du 16/09/2026.** A1, A2, A6, A3, A4, A5, A7 puis **A8** ont
-> été corrigés et livrés sur cette même branche (117 tests de non-régression au
-> total, suite à **720/720**, reproductions en direct rejouées : 409 et 400 à la
+> **Mise à jour du 16/09/2026.** A1, A2, A6, A3, A4, A5, A7, A8 puis **A9**
+> ont été corrigés et livrés sur cette même branche (121 tests de non-régression
+> au total, suite à **724/724**, reproductions en direct rejouées : 409 et 400 à la
 > place de 201 pour A1/A2, destinataire `213770650387` à la place de
 > `0770650387` pour A6, 404 et bouton retiré pour A3, `413
 > {"maxBytes":4194304,"platformLimit":4718592}` sur un banc `VERCEL=1` pour A4,
 > 6 photos au plafond acceptées et corps trop lourd refusé avant envoi pour A5,
 > commande écrite puis annulée sur disque valide sans `store.json.tmp` résiduel
-> pour A7, et pour A8 la même commande rendue `16‏/9‏/2026، 10:30:00 ص` /
-> `97.000 دج` au Desk **et** dans « Mes commandes »). Détail des correctifs, décisions et neutralisations dans
+> pour A7, pour A8 la même commande rendue `16‏/9‏/2026، 10:30:00 ص` /
+> `97.000 دج` au Desk **et** dans « Mes commandes », et pour A9 le dictionnaire
+> ramené de 538 à **476 clés** par langue avec le bundle passé de 451,02 Ko à
+> 442,75 Ko). Détail des correctifs, décisions et neutralisations dans
 > `docs/PLAN-CORRECTIONS.md` §9, sections « ✅ Fait — lot 8.1 + 8.2 »,
 > « lot 8.6 », « lot 8.3 », « lots 8.4 + 8.5 » et « lot 8.7 ». Le corps de ce
 > rapport reste **inchangé** : il décrit l'état audité, les statuts sont ajoutés
@@ -618,6 +620,41 @@ la locale suit la langue, soit elle reste `fr-DZ` **partout** (choix actuel) et
 alors DeskPage doit cesser de varier — l'incohérence est le défaut, pas le choix.
 
 ### 🟡 A9 — 62 clés de traduction mortes, embarquées dans les trois langues
+
+> ✅ **CORRIGÉ (16/09/2026, lot 8.9).** Les **62 clés** sont supprimées des trois
+> langues (188 lignes retirées — 186 chaînes plus une valeur française et une
+> anglaise qui couraient sur deux lignes), soit **186 chaînes** et ~5,1 Ko de
+> texte : le dictionnaire passe de **538 à 476 clés par langue**, blocs
+> rééquilibrés (476/476/476). Aucun groupe n'a été conservé : `docs/ROADMAP-10.md`
+> classe le paiement CCP/BaridiMob/carte (« tu as imposé **cash desk only** ») et
+> le comparateur (« rejeté / hors focus conversion ») en **hors-scope
+> volontaire**, et `docs/GUIDE-DEMO.md` liste sous « Ce qui a été retiré
+> (volontairement) » les avatars de profil, le comparateur et le SMS démo — les
+> clés décrivaient donc toutes des fonctionnalités **absentes ou refusées**, pas
+> des fonctionnalités à venir.
+>
+> Le pendant code du paiement 3× est parti avec : `third()` (`money/3`, seul
+> vestige de l'affichage « 3 × … ») supprimé de `src/format.js` et du ré-export
+> `src/data.js`. Les `tags: ['budget'|'combo'|'desk']` du catalogue **restent**
+> (données testées par `src/api.smoke.test.js`), mais rien ne les rend : les
+> trois clés `tag_*` sont donc supprimées elles aussi.
+>
+> **Le verrou demandé est en place** : `src/i18n.coverage.test.js` couvre
+> désormais le sens **inverse** — toute clé du dictionnaire doit être référencée
+> par le corpus (`src/`, `server/`, `api/`, `scripts/`, `e2e/`, `index.html`,
+> `vercel.json` ; `i18n.js`, tests, `dist/` et docs exclus) **ou** appartenir à
+> une famille dynamique déclarée dont les suffixes proviennent de données
+> vivantes (`cat_` ↔ `CATEGORIES`, `line_` ↔ `PART_LINES`, `orderStatus_` ↔
+> `ORDER_STATUSES`, `sysState_` ↔ les trois états de `App.jsx`). Trois tests
+> supplémentaires vérifient que chaque famille est **réellement construite** par
+> le code et qu'elle couvre **exactement** ses données (ni clé en trop, ni clé
+> manquante), et un quatrième nomme les groupes retirés pour qu'une réapparition
+> soit une régression explicite.
+>
+> Bundle : `451,02 Ko → 442,75 Ko` (gzip `136,42 → 134,17 Ko`), et `pay3xBadge`,
+> `compareTitle`, `authSms`, `themeLight`, `tag_budget`, `dealNoteTwSsd512` n'y
+> apparaissent plus — pendant que `orderStatus_new` et `masterPhotosTooHeavy` y
+> sont toujours.
 
 **Preuve.** Balayage du corpus (`src/`, `e2e/`, `scripts/`, `index.html`, hors
 `i18n.js` et fichiers de test), en excluant les clés construites dynamiquement

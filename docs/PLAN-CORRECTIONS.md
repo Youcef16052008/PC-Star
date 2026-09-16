@@ -334,7 +334,7 @@ Les deux rapports d'origine restent **non modifiés**.
 | 8.6 ✅ | **A6** 🟠 **LIVRÉ le 16/09/2026** — Normaliser les destinataires WhatsApp avec la règle partagée (`waNumber`/`phoneLogic`), rejeter un numéro non normalisable, signaler une configuration invalide **au démarrage** et dans `/api/health` ; exemple de la doc au format international | `server/notify.js:39-57`, `server/index.js` (démarrage + health), `docs/DEPLOY-VERCEL.md` §3 | S | `WHATSAPP_RECIPIENT=0770650387` → destinataire `213770650387` envoyé à Meta ; un numéro invalide est refusé au boot avec un message lisible, pas à la première commande |
 | 8.7 ✅ | **A7** 🟡 **LIVRÉ le 16/09/2026** — Durabilité de l'écriture : nouveau module `server/durableWrite.js` (tmp → **fsync du fichier** → rename → **fsync du répertoire**, non bloquant), `fs` injectable pour tester l'**ordre** des appels ; `writeDb()` et `ensure()` câblés, plus aucun `writeFileSync`+`renameSync` à la main | `server/durableWrite.js`, `server/db.js:11,262,846` | S | ✅ Coupure simulée entre écriture et rename : la cible garde son contenu précédent (fs factice **et** fs réel) ; l'ordre open→write→**fsync**→close→rename→fsync(dir) est vérifié par test |
 | 8.8 ✅ | **A8** 🟡 **LIVRÉ le 16/09/2026** — Un seul module de formatage (`src/format.js`) : `localeFor`/`normalizeLang`/`money(n, lang)`/`third`/`formatDateTime(value, lang)`, **décision écrite** : la locale suit la langue (dates **et** prix, suffixe `DA`/`دج` compris), français par défaut pour les chemins sans interface. `data.js` ré-exporte (plus de seconde définition), `OrdersPage`/`ProductPage`/`BuilderPage` reçoivent `lang`, `DeskPage` perd son `formatAt` maison, `notify.js` et `buildWaMessage` suivent la langue | `src/format.js`, `src/data.js:66`, `src/OrdersPage.jsx`, `src/DeskPage.jsx:74`, `src/App.jsx`, `src/orderLogic.js`, `src/notify.js` | S | ✅ En mode arabe, la même commande affiche `16‏/9‏/2026، 10:30:00 ص` et `97.000 دج` **au Desk et dans « Mes commandes »** (rendu réel jsdom) ; la chaîne de la locale du navigateur (`9/16/2026, 10:30:00 AM`) n'apparaît plus |
-| 8.9 | **A9** 🟡 — Supprimer les 62 clés i18n mortes × 3 langues (186 chaînes), sauf décision contraire explicite par groupe ; verrouiller par un test dans `i18n.coverage.test.js` (toute clé doit être référencée, directement ou par préfixe dynamique **déclaré**) | `src/i18n.js`, `src/i18n.coverage.test.js` | M | Le balayage ne remonte plus aucune clé morte ; une clé ajoutée sans usage fait **échouer** la suite |
+| 8.9 ✅ | **A9** 🟡 **LIVRÉ le 16/09/2026** — Les **62 clés mortes × 3 langues** supprimées (188 lignes, dictionnaire **538 → 476** clés/langue, blocs rééquilibrés), aucun groupe conservé (`ROADMAP-10.md` classe paiement CCP/BaridiMob et comparateur en **hors-scope volontaire**, `GUIDE-DEMO.md` liste avatars/comparateur/SMS sous « retiré volontairement ») ; `third()` supprimé avec les clés du paiement 3× ; **verrou** : balayage **inverse** dans `i18n.coverage.test.js` (4 tests — clé référencée ou famille dynamique déclarée **et réellement construite** et alignée sur ses données) | `src/i18n.js`, `src/i18n.coverage.test.js`, `src/format.js`, `src/data.js` | M | ✅ Le balayage ne remonte plus aucune clé morte (bundle `451,02 → 442,75 Ko`, gzip `136,42 → 134,17`) ; réinsérer `pay3xBadge` × 3 langues fait **échouer** la suite, comme une clé `cat_invented`, une famille déclarée vivante alors que rien ne la construit, ou un corpus réduit à `src/` |
 | 8.10 | **A10** 🟡 — Valider `category` (contre `CATEGORIES`, hors `all`) et `kind` (contre `KINDS`) à la création et au patch produit ; refus `400` explicite plutôt que correction muette | `server/masterApi.js:93-136,200-262` | S | Créer un produit avec `category: "SSD"` → **400** `category` ; un produit master créé via le formulaire apparaît bien dans le filtre de sa catégorie |
 
 **Ordre conseillé :** 8.1 et 8.2 d'abord (argent et intégrité des commandes, même
@@ -2011,12 +2011,124 @@ langue testée — c'est aussi ce que fait l'application.
 
 ---
 
-### ⏳ À faire — reste du lot 8 (A9 → A10)
+### ✅ Fait — lot 8.9, le dictionnaire ne promet plus que ce que le code fait (16/09/2026)
 
-**A1, A2 (les 2 bloquants), A6, A3, A4, A5, A7 et A8 sont livrés** — voir
-ci-dessus : les **6 défauts 🔴/🟠** de l'audit A→Z sont corrigés, et **deux des
-quatre mineurs** aussi. Restent **A9** 62 clés i18n mortes et **A10**
-`category`/`kind` libres à la création. Preuves et
+**A9** : 62 clés de traduction existaient dans les trois langues sans aucune
+occurrence dans le code — **186 chaînes**, ~5,1 Ko dans le bundle. Pire que le
+poids : une **fausse promesse**. Qui ouvrait `src/i18n.js` y lisait un
+comparateur de produits, un paiement 3×/CCP/BaridiMob, une authentification par
+code SMS, un thème clair/sombre et des avatars de profil. Rien de tout cela
+n'existe dans l'application.
+
+**Vérification préalable** (reproduite exactement) : balayage du corpus (`src/`,
+`e2e/`, `scripts/`, `index.html`, hors `i18n.js` et tests) → **62 clés mortes**,
+les mêmes que l'audit, mêmes groupes. Aucun fichier de test ne les référence
+(seule fausse piste : le mot « combos » dans un message d'assertion de
+`compat.i18n.test.js`, pas la clé).
+
+**Supprimées** (62 × 3 langues = 188 lignes ; une valeur française et une valeur
+anglais couraient sur deux lignes) :
+
+| Groupe | Clés | Pourquoi rien ne les retenait |
+|---|---|---|
+| Authentification SMS | 6 | aucun envoi de code SMS dans `AuthPanel.jsx` (e-mail + OAuth Google/Meta) ; `GUIDE-DEMO.md` liste « SMS démo » sous **retiré volontairement** |
+| Comparateur | 7 | aucune fonctionnalité ; `ROADMAP-10.md` : « Comparateur 3 produits — **rejeté** / hors focus conversion » |
+| Réservation / retrait | 8 | écrans remplacés, plus aucun rendu |
+| Paiement 3× / CCP / BaridiMob | 5 | seul mode codé : `payment: 'cash'` ; `ROADMAP-10.md` : « **cash desk only** » |
+| Thème clair/sombre | 3 | **code supprimé au lot 6.3**, clés restées derrière |
+| Divers | 33 | `advancedSearch`, `deskLogin`, `authGoogle`, `profileAvatar`/`profileAccent` (retirés), `panelsLocalOnly*`, `pricesInDa`, `demoHow*`, `path*`, `dealNote*` (6), `tag_*` (3)… |
+
+`src/i18n.js` passe de **538 à 476 clés par langue**, blocs rééquilibrés
+(476/476/476) — l'équilibre est déjà verrouillé par un test existant.
+
+**Le pendant code est parti avec** : `third()` (`money/3`), seul vestige de
+l'affichage « 3 × … », supprimé de `src/format.js` (où le lot 8.8 venait de le
+déplacer) et du ré-export de `src/data.js`. Garder une fonction sans clé ni
+appelant aurait reproduit exactement la fausse promesse qu'on supprimait.
+
+**Ce qui a été gardé, et pourquoi** : les `tags: ['budget' | 'combo' | 'desk']`
+du catalogue (`src/dzCatalog.js`) restent — ce sont des **données**, testées par
+`src/api.smoke.test.js` (« tags budget items — et plus aucun dz-hit »), pas du
+texte d'interface. Mais rien ne les **rend** : aucun `` t(`tag_${…}`) `` dans le
+code. Les trois clés `tag_budget`/`tag_combo`/`tag_desk` sont donc supprimées, et
+la famille `tag_` n'est **pas** déclarée dans le verrou — elle échouerait au test
+« réellement construite par le code ».
+
+**Le verrou** (`src/i18n.coverage.test.js`, sens **inverse** — 4 tests ajoutés) :
+
+1. **Aucune clé morte** : chaque clé du dictionnaire doit apparaître dans le
+   corpus (`src/`, `server/`, `api/`, `scripts/`, `e2e/`, `index.html`,
+   `vercel.json` ; `i18n.js`, fichiers de test, `dist/` et **docs** exclus — un
+   guide qui décrit une fonctionnalité supprimée ne la rend pas vivante) **ou**
+   appartenir à une famille dynamique dont le suffixe vient d'une donnée vivante.
+2. **Chaque famille est réellement construite** : le corpus doit contenir
+   `` `cat_${ `` / `` `line_${ `` / `` `orderStatus_${ `` / `` `sysState_${ ``.
+   Une famille dont plus rien ne construit la clé doit partir **avec** ses clés —
+   c'est précisément ce que le lot 6.3 avait oublié de faire.
+3. **Chaque famille couvre exactement ses données** : `cat_*` ↔ `CATEGORIES`
+   (13/13), `line_*` ↔ `PART_LINES` (26/26), `orderStatus_*` ↔ `ORDER_STATUSES`
+   (5/5), `sysState_*` ↔ les trois états de `App.jsx:1333` (3/3) — ni clé en
+   trop, ni clé manquante, dans les deux sens.
+4. **Les groupes retirés sont nommés** : si `authSms`, `compareTitle`,
+   `pay3xBadge`, `themeLight` ou `profileAvatar` réapparaît dans une langue, le
+   test dit **quel groupe est revenu sans sa fonctionnalité**.
+
+**Décisions**
+
+1. **Tout supprimer, aucun groupe conservé.** Le plan prévoyait une « décision
+   contraire explicite par groupe » si une fonctionnalité était prévue. Elle ne
+   l'est nulle part : la roadmap classe le paiement et le comparateur en
+   hors-scope volontaire, le guide de démo liste les avatars et le SMS comme
+   retirés. Conserver des clés « au cas où » aurait laissé la fausse promesse en
+   place — et le jour où une fonctionnalité arrive, ses clés arrivent avec elle.
+2. **Le verrou est dans le fichier existant, pas dans un nouveau.**
+   `i18n.coverage.test.js` vérifiait déjà le sens direct (toute clé appelée
+   existe) ; le sens inverse y est naturel, et les deux partagent le même corpus
+   et les mêmes familles dynamiques.
+3. **Les familles dynamiques sont déclarées avec leur source de vérité**, pas
+   devinées par préfixe : un préfixe seul (`cat_`) autoriserait n'importe quelle
+   clé `cat_inventée`. D'où le test 3, qui compare au **jeu de données réel**.
+4. **Le corpus dépasse `src/`.** Une clé (`navWarranty`) n'est référencée que par
+   `scripts/audit-crawl.mjs` : réduire le corpus à `src/` la ferait passer pour
+   morte. La neutralisation N47 vérifie exactement ça — c'est aussi ce qui
+   empêche de « nettoyer » une clé encore utilisée par un script ou le serveur.
+5. **`third()` supprimé plutôt que conservé « au cas où ».** La fonction ne
+   servait qu'au paiement 3× refusé ; la rétablir est testé comme une régression
+   (N43).
+
+**Vérification en direct**
+
+| Vérification | Résultat |
+|---|---|
+| build de production | `dist/assets/index-*.js` : **442,75 Ko** (451,02 avant), gzip **134,17 Ko** (136,42 avant) |
+| clés mortes dans le bundle | `pay3xBadge`, `compareTitle`, `authSms`, `themeLight`, `tag_budget`, `dealNoteTwSsd512` → **absentes** |
+| clés vivantes dans le bundle | `orderStatus_new`, `masterPhotosTooHeavy` → **présentes** |
+| dictionnaire | 476/476/476 clés, équilibré |
+
+**Neutralisations** (chaque correctif retiré → les tests rougissent) :
+
+| # | Correctif retiré | Tests qui rougissent |
+|---|---|---|
+| N42 | une clé morte réinsérée × 3 langues (`pay3xBadge`) | **1** |
+| N43 | `third()` rétabli (pendant code du 3×) | **2** |
+| N44 | une clé `cat_invented` ajoutée (famille désalignée de `CATEGORIES`) | **2** |
+| N45 | la famille `sysState_` retirée de la liste déclarée (clés orphelines) | **1** |
+| N46 | une famille morte déclarée vivante (`tag_`, plus rien ne la construit) | **2** |
+| N47 | corpus réduit à `src/` (`navWarranty` passe pour morte) | **1** |
+
+**Tests** : 4 nouveaux dans `src/i18n.coverage.test.js` (balayage inverse,
+familles réellement construites, familles alignées sur leurs données dans les
+deux sens, groupes retirés nommés) + 1 test réécrit dans `src/lot8Format.test.js`
+(la disparition de `third()` est désormais **vérifiée**, au lieu d'être testée
+comme une fonction vivante). Suite : **724/724** (720 avant), build propre.
+
+---
+
+### ⏳ À faire — reste du lot 8 (A10)
+
+**A1, A2 (les 2 bloquants), A6, A3, A4, A5, A7, A8 et A9 sont livrés** — voir
+ci-dessus : les **6 défauts 🔴/🟠** de l'audit A→Z sont corrigés, et **trois des
+quatre mineurs** aussi. Reste **A10** `category`/`kind` libres à la création. Preuves et
 reproductions **exécutées** (A1 sur l'API en direct, A2/A6/A9/A10 par appel direct
 du code du dépôt) dans `docs/VERIFICATION-RAPPORT-AUDIT-3.md`. Les deux rapports
 d'origine n'ont **pas** été modifiés.

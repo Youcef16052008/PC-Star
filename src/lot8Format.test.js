@@ -178,16 +178,18 @@ describe('8.8 (A8) — money() localise le nombre ET le suffixe', () => {
     assert.equal(F.money(null, 'ar'), '0 دج')
   })
 
-  it('third() suit la même locale', () => {
-    assert.equal(F.third(90000, 'ar'), '30.000 دج')
-    assert.equal(F.third(90000), F.money(30000), 'défaut français')
+  it('third() a disparu avec les clés du paiement 3× (LOT 8.9 / A9)', () => {
+    // Le « 3 × … » n'existe plus : seul le paiement `cash` est codé, et les
+    // clés `pay3xBadge`/`or3x`/`pay3xDesk` ont été supprimées. Une fonction
+    // sans clé ni appelant serait la même fausse promesse que le dictionnaire.
+    assert.equal(F.third, undefined, 'plus de `third` dans format.js')
+    assert.equal(dataMod.third, undefined, 'plus de `third` dans data.js')
   })
 
   it('src/data.js ré-exporte la MÊME fonction (pas de seconde définition)', () => {
     assert.equal(dataMod.money, F.money, 'money de data.js === money de format.js')
-    assert.equal(dataMod.third, F.third, 'third aussi')
     const src = readFileSync('src/data.js', 'utf8')
-    assert.match(src, /export \{ money, third \} from '\.\/format\.js'/, 'ré-export explicite')
+    assert.match(src, /export \{ money \} from '\.\/format\.js'/, 'ré-export explicite')
     assert.doesNotMatch(src, /toLocaleString/, 'plus de formatage local dans data.js')
   })
 })

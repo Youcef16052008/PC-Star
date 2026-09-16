@@ -104,16 +104,12 @@ export function money(n, lang = DEFAULT_LANG) {
   return `${Math.round(v).toLocaleString(localeFor(lang))} ${currencyFor(lang)}`
 }
 
-/**
- * Tiers d'un prix (affichage « 3 × … »), dans la même locale.
- *
- * @param {number|string} n
- * @param {string} [lang]
- * @returns {string}
- */
-export function third(n, lang = DEFAULT_LANG) {
-  return money(Math.round(Number(n) / 3), lang)
-}
+// LOT 8.9 (A9) : `third(n)` — le « 3 × … » d'un prix — a été supprimé avec les
+// clés i18n du paiement en 3 fois (`pay3xBadge`, `or3x`, `pay3xDesk`) : le seul
+// mode de paiement est `cash`, codé côté serveur (`payment: 'cash'`), et
+// `docs/ROADMAP-10.md` classe le paiement CCP/BaridiMob/carte et le 3× en
+// **hors-scope volontaire**. Garder la fonction sans aucune clé ni aucun
+// appelant, c'était exactement la fausse promesse que ce lot supprime.
 
 /**
  * Date et heure lisibles, dans la langue de l'interface.
