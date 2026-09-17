@@ -14,7 +14,7 @@
 - **P0 → P6 : toutes les phases code livrées** (détail par phase plus bas, cases cochées).  
 - **Score code final : ~9.5–9.7/10.** Ce qui reste vers le 10/10 absolu est **hors-code** :
   1. shoot studio top 80 SKU (photos réelles),
-  2. clés OAuth live si passage en `OAUTH_DEMO=0` (Google/Meta déjà câblés),
+  2. callbacks OAuth réels Google/Meta à implémenter avant tout passage en `OAUTH_DEMO=0`,
   3. persistance cloud (Vercel KV / Turso) pour des orders survivant aux cold starts,
   4. mesure Lighthouse en prod HTTPS (cible Perf mobile ≥ 90).
 - **Cas d’usage Oran : exploitable** — catalogue 251 SKU de base persistant, stock API multi-écrans, desk comptoir, AR/FR/EN, HTTPS sur Vercel sans VPS.
@@ -189,8 +189,8 @@ client trouve un produit → construit un PC compatible → réserve en espèces
 **Objectif :** comptes clients réels, pas seulement démo.
 
 ### 5.1 Auth
-- [x] OAuth Google/Meta UI + demo flow; réel si `OAUTH_DEMO=0` + clés env
-- [x] Meta OAuth branch (demo + prod keys)
+- [x] OAuth Google/Meta UI + flux démo explicite
+- [ ] Callbacks OAuth réels Google et Meta (phase 2 du plan de remédiation)
 - [x] Change password profil + master reset-password API
 - [ ] Token localStorage (httpOnly cookie reporté hébergeur HTTPS)
 

@@ -159,6 +159,21 @@ export async function startOAuth(provider, { userId = null, intent = 'login', re
   if (provider !== 'google' && provider !== 'meta') {
     return { ok: false, error: 'provider' }
   }
+
+  // AUDIT-2026-09-17 / phase 1 (P0) : le repli automatique vers l'écran
+  // « démo » était dangereux. Avec OAUTH_DEMO=0, un état destiné à un vrai
+  // fournisseur pouvait quand même être soumis à POST /demo, et
+  // finishIdentity() lui faisait alors confiance comme à un e-mail vérifié.
+  //
+  // La décision est donc prise AVANT de créer/persister le state :
+  //   - démo explicitement active → consentement simulé ;
+  //   - démo désactivée + fournisseur absent → refus honnête, sans state mort ;
+  //   - démo désactivée + fournisseur configuré → vrai flux OAuth.
+  const demo = oauthDemo()
+  const cfg = oauthConfig()
+  const configured = provider === 'google' ? cfg.googleConfigured : cfg.metaConfigured
+  if (!demo && !configured) return { ok: false, error: 'provider_not_configured' }
+
   const state = newToken()
   // P13 (S2) : validé à l'entrée, re-validé à la redirection.
   const safeReturn = safeReturnUrl(returnUrl)
@@ -173,8 +188,7 @@ export async function startOAuth(provider, { userId = null, intent = 'login', re
     return db
   })
 
-  const cfg = oauthConfig()
-  if (oauthDemo() || (provider === 'google' && !cfg.googleConfigured) || (provider === 'meta' && !cfg.metaConfigured)) {
+  if (demo) {
     // Relative URL so Vite proxy / browser same-origin works in preview
     return {
       ok: true,
@@ -303,6 +317,11 @@ async function finishIdentity(provider, identity, pending, stateKey) {
 }
 
 export async function completeDemo(provider, state, profile = {}) {
+  // Défense en profondeur (AUDIT-2026-09-17 / phase 1) : même si une route
+  // appelante oubliait sa garde, un formulaire démo ne doit jamais pouvoir
+  // clôturer un état créé pour un fournisseur réel.
+  if (!oauthDemo()) return { ok: false, error: 'demo_disabled' }
+
   const db = await readDbAsync()
   const pending = db.oauthPending[state]
   if (!pending || pending.provider !== provider) return { ok: false, error: 'state' }

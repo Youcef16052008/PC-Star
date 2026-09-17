@@ -73,7 +73,7 @@ La page **Guide / Help** n’apparaît et n’est accessible **que** pour le com
 
 - Boutons **« Continuer avec Google / Meta »** dans le login (`src/AuthPanel.jsx`).
 - Par défaut `OAUTH_DEMO=1` : écran de consent **simulé** par l’API, qui crée un **vrai** lien de compte + vraie session (rien à configurer).
-- En prod réel : `OAUTH_DEMO=0` + clés (`GOOGLE_CLIENT_ID/SECRET`, `META_APP_ID/SECRET`) + `OAUTH_REDIRECT_BASE` — l’UI ne change pas.
+- Le flux OAuth réel n’est pas encore activable : les callbacks Google/Meta seront livrés en phase 2 du [plan de remédiation](PLAN-REMEDIATION-AUDIT-2026-09-17.md). Garder `OAUTH_DEMO=1` jusque-là.
 - Déconnexion du provider : **Profil → unlink** (`POST /api/oauth/unlink`).
 
 ## Ce qui a été retiré (volontairement)

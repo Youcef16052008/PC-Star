@@ -30,6 +30,7 @@ import {
   configuredFrontUrl,
   demoConsentHtml,
   oauthConfig,
+  oauthDemo,
   safeReturnUrl,
   startOAuth,
   unlinkProvider
@@ -716,15 +717,19 @@ export async function handler(req, res) {
       return send(res, 200, resStart)
     }
 
-    // OAuth demo consent page
-    if (req.method === 'GET' && /^\/api\/oauth\/(google|meta)\/demo$/.test(pathname)) {
-      const provider = pathname.includes('google') ? 'google' : 'meta'
-      const state = url.searchParams.get('state')
-      return send(res, 200, demoConsentHtml(provider, state))
-    }
+    // OAuth demo consent page. AUDIT-2026-09-17 / phase 1 (P0) : les deux
+    // méthodes doivent disparaître entièrement hors démo. Une simple absence
+    // de lien dans le client ne protégeait pas la route : un attaquant pouvait
+    // démarrer un state public puis POSTer directement l'e-mail d'un client.
+    if ((req.method === 'GET' || req.method === 'POST') && /^\/api\/oauth\/(google|meta)\/demo$/.test(pathname)) {
+      if (!oauthDemo()) return send(res, 404, { ok: false, error: 'not_found' })
 
-    if (req.method === 'POST' && /^\/api\/oauth\/(google|meta)\/demo$/.test(pathname)) {
       const provider = pathname.includes('google') ? 'google' : 'meta'
+      if (req.method === 'GET') {
+        const state = url.searchParams.get('state')
+        return send(res, 200, demoConsentHtml(provider, state))
+      }
+
       const body = await readBody(req)
       const done = await completeDemo(provider, body.state, { name: body.name, email: body.email })
       if (!done.ok) {

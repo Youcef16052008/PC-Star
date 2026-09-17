@@ -61,7 +61,7 @@ Also in the app menu: **Guide**.
 
 Avatars, accent colors, product compare, 3D orbit, SMS demo.
 
-> **OAuth Google/Meta est LIVRÉ** (mode démo par défaut, réel avec clés) — voir [docs/GUIDE-DEMO.md](docs/GUIDE-DEMO.md) et `server/oauth.js`.
+> **OAuth Google/Meta en mode démo est livré** ; le consentement simulé est isolé par `OAUTH_DEMO=1`. Les callbacks OAuth réels sont planifiés en phase 2 — voir [docs/GUIDE-DEMO.md](docs/GUIDE-DEMO.md) et le [plan de remédiation](docs/PLAN-REMEDIATION-AUDIT-2026-09-17.md).
 
 ## Deploy (Vercel, HTTPS, no VPS)
 

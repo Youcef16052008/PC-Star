@@ -95,7 +95,7 @@ Un seul fichier d'entrée `server/index.js` (routeur `node:http`), modules dédi
 |---------|-----------|
 | Santé/config | `GET /api/health` · `GET /api/config` |
 | Auth | `POST /api/auth/register` · `POST /api/auth/login` (rate-limit 20/min) · `POST /api/auth/logout` · `GET /api/me` · `PUT /api/me` · `POST /api/me/password` |
-| OAuth | `POST /api/oauth/start` · `GET|POST /api/oauth/(google\|meta)/demo` (mode démo) · callbacks prod · `POST /api/oauth/unlink` |
+| OAuth | `POST /api/oauth/start` · `GET|POST /api/oauth/(google\|meta)/demo` (uniquement avec `OAUTH_DEMO=1`) · `POST /api/oauth/unlink` ; callbacks réels prévus en phase 2 |
 | Catalogue | `GET /api/catalog` (stock live) · `GET /api/stock/:id` |
 | Commandes | `GET|POST /api/orders` (rate-limit 15/min) · `PATCH /api/orders/:code` (statut) · `POST /api/orders/:code/cancel` (rollback stock) |
 | Master | `GET|POST /api/master/products` · `PUT /api/master/products/:id` · `POST …/:id/hide` · `POST …/:id/photos` (dataURL ≤2.5 Mo, ≤6) |
@@ -110,7 +110,7 @@ Un seul fichier d'entrée `server/index.js` (routeur `node:http`), modules dédi
 - **Rate limit :** buckets mémoire par IP (`server/rateLimit.js`) — login 20/min, orders 15/min.
 - **CORS :** `FRONT_ORIGIN` (défaut `*` en démo ; sur Vercel auto depuis `VERCEL_URL`).
 - **Headers :** `nosniff`, `X-Frame-Options: SAMEORIGIN`, `Referrer-Policy`, `Permissions-Policy`.
-- **OAuth :** `state` aléatoire + `oauthPending` (login | link), unlink possible, `OAUTH_DEMO=1` par défaut (consent simulé, enregistre réel) ; réel si `OAUTH_DEMO=0` + clés.
+- **OAuth :** `state` aléatoire + `oauthPending` (login | link), unlink possible. `OAUTH_DEMO=1` active uniquement le consentement simulé ; les callbacks réels sont prévus en phase 2 du plan de remédiation.
 - **Sécurité UI :** mots de passe démo jamais affichés ; page Guide master only.
 
 ### Données (`store.json`)
@@ -213,8 +213,8 @@ UI : bouton « Continuer avec Google/Meta »
   → écran de consent simulé (GET) → POST {identity}
   → server : find-or-create user, links[provider]=identity, session token
   → front : ?oauth_token=… → session active (profil, historique)
-Reel : OAUTH_DEMO=0 + GOOGLE_CLIENT_ID/SECRET, META_APP_ID/SECRET
-       → authorizeUrl Google/Facebook + callbacks /api/oauth/{p}/callback
+Réel : non activable à ce stade. `OAUTH_DEMO=0` désactive strictement les routes démo ;
+       les callbacks `/api/oauth/{p}/callback` sont à livrer en phase 2.
 ```
 
 ### 6.3 Desk (tenue de comptoir)

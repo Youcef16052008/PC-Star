@@ -106,9 +106,9 @@ Légende des domaines : **D** données & multi-appareils · **S** sécurité & a
 
 **Problème.** Un shop Oran n'a pas de Google Cloud Console ni d'app Meta. Sans clé, l'OAuth = bouton mort ; avec clé, le flow demandait un callback HTTPS.
 
-**Solution.** **Mode démo par défaut** (`OAUTH_DEMO=1`) : écran de **consent simulé** par l'API, mais qui crée de **vrais** liens `user.links[provider]` + vraie session. **Bascula réel** avec `OAUTH_DEMO=0` + `GOOGLE_CLIENT_ID/SECRET`, `META_APP_ID/SECRET` — sans toucher à l'UI (boutons Google/Meta dans le login, unlink dans le profil).
+**État actuel.** **Mode démo explicite** (`OAUTH_DEMO=1`) : écran de **consent simulé** par l’API, qui crée de vrais liens `user.links[provider]` et une session de démonstration. Avec `OAUTH_DEMO=0`, ces routes sont fermées ; les callbacks réels Google/Meta restent à implémenter en phase 2 du plan de remédiation.
 
-**Code.** `server/oauth.js` (192 L) · `server/index.js` (`/api/oauth/start`, `/demo`, `/unlink`, callbacks) · `src/AuthPanel.jsx`, `src/ProfilePage.jsx`.
+**Code.** `server/oauth.js` · `server/index.js` (`/api/oauth/start`, `/demo`, `/unlink`) · `src/AuthPanel.jsx`, `src/ProfilePage.jsx`. Les callbacks réels seront ajoutés en phase 2.
 
 **Résultat.** Démo OAuth fonctionnelle **immédiatement** ; passage réel = config env uniquement.
 
