@@ -106,11 +106,11 @@ Légende des domaines : **D** données & multi-appareils · **S** sécurité & a
 
 **Problème.** Un shop Oran n'a pas de Google Cloud Console ni d'app Meta. Sans clé, l'OAuth = bouton mort ; avec clé, le flow demandait un callback HTTPS.
 
-**État actuel.** **Mode démo explicite** (`OAUTH_DEMO=1`) : écran de **consent simulé** par l’API, qui crée de vrais liens `user.links[provider]` et une session de démonstration. Avec `OAUTH_DEMO=0`, ces routes sont fermées ; les callbacks réels Google/Meta restent à implémenter en phase 2 du plan de remédiation.
+**État actuel.** **Mode démo explicite** (`OAUTH_DEMO=1`) : écran de **consent simulé** par l’API, qui crée de vrais liens `user.links[provider]` et une session de démonstration. Avec `OAUTH_DEMO=0`, les routes démo sont fermées et les callbacks réels échangent le code serveur-à-serveur avec Google ou Meta avant de créer une session.
 
-**Code.** `server/oauth.js` · `server/index.js` (`/api/oauth/start`, `/demo`, `/unlink`) · `src/AuthPanel.jsx`, `src/ProfilePage.jsx`. Les callbacks réels seront ajoutés en phase 2.
+**Code.** `server/oauth.js` · `server/index.js` (`/api/oauth/start`, `/callback`, `/demo`, `/unlink`) · `src/AuthPanel.jsx`, `src/ProfilePage.jsx`.
 
-**Résultat.** Démo OAuth fonctionnelle **immédiatement** ; passage réel = config env uniquement.
+**Résultat.** Démo OAuth fonctionnelle **immédiatement** ; passage réel = clés env et URI HTTPS enregistrées chez les fournisseurs.
 
 ### 11. Flow OAuth sans protection CSRF/state *(S)*
 
@@ -118,7 +118,7 @@ Légende des domaines : **D** données & multi-appareils · **S** sécurité & a
 
 **Solution.** `state` aléatoire (crypto) généré au `start`, stocké dans `oauthPending` avec `intent` (`login` | `link`), `userId`, `returnUrl`, horodatage ; validé et **supprimé** au retour. `OAUTH_REDIRECT_BASE` dérivée de `VERCEL_URL` sur Vercel.
 
-**Code.** `server/oauth.js` (`startOAuth`, `completeDemo`, `finishIdentity`) · `.env.example`.
+**Code.** `server/oauth.js` (`startOAuth`, `completeOAuthCallback`, `completeDemo`, `finishIdentity`) · `server/index.js` · `.env.example`.
 
 **Résultat.** Flow conforme (state + redirect dédié), lien déconnectable depuis le profil.
 

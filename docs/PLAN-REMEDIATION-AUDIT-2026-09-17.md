@@ -40,4 +40,25 @@ Les changements sont découpés pour qu’un correctif de sécurité urgent ne s
 
 ### Limite assumée de la phase
 
-Les callbacks Google et Meta réels n’existent pas encore dans le dépôt. Ils relèvent de la phase 2 : cette phase ferme la prise de compte sans prétendre rendre le flux réel fonctionnel.
+À la clôture de la phase 1, les callbacks Google et Meta réels n’existaient pas encore dans le dépôt. Ils relevaient de la phase 2 : la phase 1 fermait la prise de compte sans prétendre rendre le flux réel fonctionnel.
+
+## Phase 2 — OAuth réel et cycle de vie des accès
+
+**Statut : implémentation et tests unitaires isolés ajoutés. La validation avec des applications Google/Meta de production reste une action de déploiement, car elle exige leurs identifiants et des URI de redirection enregistrées.**
+
+### Changements livrés
+
+- `GET /api/oauth/google/callback` et `GET /api/oauth/meta/callback` échangent le `code` côté serveur avec un délai borné de 10 secondes, puis demandent le profil à l’endpoint officiel. Aucun code, access token ou détail de réponse fournisseur n’est renvoyé au navigateur ou écrit dans les logs applicatifs.
+- Google exige `email_verified: true`; Meta exige un e-mail reçu du profil et utilise Graph API `v26.0` (override validé `META_GRAPH_VERSION` pour une future montée de version). Un refus ou une erreur fournisseur consomme aussi le `state`, afin qu’il ne puisse pas être rejoué.
+- Le `state` est relu, vérifié contre son fournisseur et supprimé **dans** `updateDbAsync`. Le verrou de ligne Neon rend donc la création de session et la consommation atomiques face à deux callbacks concurrents.
+- `findSession()` applique désormais le TTL de sept jours à chaque authentification, indépendamment de la prochaine purge persistée. `normalizeDb()` applique les mêmes TTL lors des lectures/mutations Neon; les scripts d’import et migration normalisent également l’état enregistré.
+- Le maître ne peut ni initier ni terminer ni modifier un lien OAuth. Les liens historiques Google/Meta de ce compte sont purgés. Une identité fournisseur déjà associée à un autre utilisateur est refusée.
+- La normalisation vérifie désormais le mot de passe maître configuré même lorsque son hash a été migré en scrypt. Une rotation de `MASTER_EMAIL` ou `MASTER_PASSWORD` aligne le compte et révoque exclusivement ses sessions.
+
+### Action de déploiement requise
+
+1. Configurer `OAUTH_DEMO=0`, `OAUTH_REDIRECT_BASE=https://<domaine-api-public>`, et les paires `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`, `META_APP_ID` / `META_APP_SECRET` dans l’environnement serveur — jamais côté Vite/client.
+2. Enregistrer exactement les URI suivantes chez les fournisseurs, avec le même domaine et le même schéma HTTPS :
+   - `https://<domaine-api-public>/api/oauth/google/callback`
+   - `https://<domaine-api-public>/api/oauth/meta/callback`
+3. Exécuter un consentement réel par fournisseur après déploiement, puis retirer/révoquer les sessions émises avant le correctif si l’instance a été exposée. La rotation de `MASTER_PASSWORD` révoque automatiquement les sessions maître; la révocation globale des sessions historiques reste une opération d’administration séparée.

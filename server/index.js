@@ -27,6 +27,7 @@ import {
 } from './db.js'
 import {
   completeDemo,
+  completeOAuthCallback,
   configuredFrontUrl,
   demoConsentHtml,
   oauthConfig,
@@ -126,6 +127,53 @@ function send(res, status, body, headers = {}) {
     ...headers
   })
   res.end(payload)
+}
+
+/** Réponse HTML sans détail fournisseur ni secret pour les retours OAuth. */
+function sendOAuthFailure(res, error) {
+  const messages = {
+    // Les trois refus suivants ne distinguent ni le rôle ni l'existence d'un
+    // compte local : un callback ne doit pas devenir un oracle d'identités.
+    master_email: 'Cette connexion ne peut pas être associée à ce compte.',
+    master_oauth_forbidden: 'Cette connexion ne peut pas être associée à ce compte.',
+    identity_linked: 'Cette connexion ne peut pas être associée à ce compte.',
+    demo_email: 'Mode démo : seuls les comptes de démonstration peuvent être ouverts par OAuth.',
+    provider_cancelled: 'La connexion a été annulée chez le fournisseur.',
+    oauth_provider: 'Le fournisseur n’a pas pu confirmer votre identité. Recommencez la connexion.',
+    no_email: 'Le fournisseur n’a pas transmis l’e-mail requis pour cette connexion.',
+    provider_not_configured: 'Ce fournisseur de connexion n’est pas configuré.',
+    demo_enabled: 'La connexion réelle est désactivée tant que le mode démo est actif.'
+  }
+  const message = messages[error] || 'Session de consentement expirée ou invalide.'
+  const status = error === 'state' ? 400 : error === 'oauth_provider' ? 502 : 403
+  return send(
+    res,
+    status,
+    `<!doctype html><html lang="fr"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>Connexion refusée · PC Star</title></head><body style="font-family:system-ui,sans-serif;background:#0b1220;color:#f1c0c0;display:grid;place-items:center;min-height:100vh;margin:0"><div style="background:#151d2e;border:1px solid #4c2a36;border-radius:16px;padding:24px;max-width:420px;width:92%"><h1 style="font-size:18px;margin:0 0 8px;color:#f8fafc">Connexion refusée</h1><p style="color:#cbd5e1;font-size:14px;line-height:1.5;margin:0">${message}</p></div></body></html>`
+  )
+}
+
+/** Retourne la session OAuth par fragment afin qu'elle ne circule pas dans les logs/Referer. */
+function redirectOAuthSuccess(res, done, provider) {
+  // P13 (S2) : re-validation au moment de la redirection (défense en
+  // profondeur) — jamais de token envoyé vers une origine tierce.
+  const front = safeReturnUrl(done.returnUrl) || configuredFrontUrl()
+  const tok = encodeURIComponent(done.token)
+  const prov = encodeURIComponent(provider)
+  let redir
+  try {
+    const u = new URL(String(front))
+    u.search = ''
+    u.hash = `#oauth_token=${tok}&oauth_provider=${prov}`
+    redir = u.toString()
+  } catch {
+    // `configuredFrontUrl()` est normalement absolue. Ce dernier repli conserve
+    // néanmoins le fragment (jamais un paramètre de requête) si une ancienne
+    // configuration locale est invalide.
+    redir = `${String(front).replace(/\/$/, '')}/#oauth_token=${tok}&oauth_provider=${prov}`
+  }
+  res.writeHead(302, { Location: redir, ...corsHeaders() })
+  return res.end()
 }
 
 // P10 (P7-10) : corps de requête borné (~6 photos compressées en base64 +
@@ -717,6 +765,20 @@ export async function handler(req, res) {
       return send(res, 200, resStart)
     }
 
+    // OAuth réel : seul le fournisseur appelle ce callback avec le code. Le
+    // code reste côté serveur et `completeOAuthCallback` vérifie/consomme le
+    // state sous verrou avant toute session.
+    if (req.method === 'GET' && /^\/api\/oauth\/(google|meta)\/callback$/.test(pathname)) {
+      const provider = pathname.includes('google') ? 'google' : 'meta'
+      const done = await completeOAuthCallback(provider, {
+        code: url.searchParams.get('code'),
+        state: url.searchParams.get('state'),
+        error: url.searchParams.get('error')
+      })
+      if (!done.ok) return sendOAuthFailure(res, done.error)
+      return redirectOAuthSuccess(res, done, provider)
+    }
+
     // OAuth demo consent page. AUDIT-2026-09-17 / phase 1 (P0) : les deux
     // méthodes doivent disparaître entièrement hors démo. Une simple absence
     // de lien dans le client ne protégeait pas la route : un attaquant pouvait
@@ -732,52 +794,8 @@ export async function handler(req, res) {
 
       const body = await readBody(req)
       const done = await completeDemo(provider, body.state, { name: body.name, email: body.email })
-      if (!done.ok) {
-        // P13 (S1/S2) : refus explicite — l'écran de consentement est un
-        // formulaire HTML, on répond en HTML lisible (pas un blob JSON).
-        const msg =
-          done.error === 'master_email'
-            ? 'Cet e-mail est le compte du magasin : il se connecte uniquement par mot de passe.'
-            : done.error === 'demo_email'
-              ? 'Mode démo : seuls les comptes de démonstration peuvent être ouverts par OAuth.'
-              : 'Session de consentement expirée ou invalide.'
-        return send(
-          res,
-          done.error === 'state' ? 400 : 403,
-          `<!doctype html><html lang="fr"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>Connexion refusée · PC Star</title></head><body style="font-family:system-ui,sans-serif;background:#0b1220;color:#f1c0c0;display:grid;place-items:center;min-height:100vh;margin:0"><div style="background:#151d2e;border:1px solid #4c2a36;border-radius:16px;padding:24px;max-width:420px;width:92%"><h1 style="font-size:18px;margin:0 0 8px;color:#f8fafc">Connexion refusée</h1><p style="color:#cbd5e1;font-size:14px;line-height:1.5;margin:0">${msg}</p></div></body></html>`
-        )
-      }
-      // P13 (S2) : re-validation au moment de la redirection (défense en
-      // profondeur) — jamais de token envoyé vers une origine tierce.
-      // LOT 1.13 : `safeReturnUrl` valide soigneusement le `returnUrl` fourni
-      // par le CLIENT, mais le repli concaténait `process.env.FRONT_URL` brut
-      // dans un `Location` porteur d'un token de session. Une variable
-      // d'environnement mal configurée (sans schéma, par exemple) produisait
-      // donc une redirection non validée. Le repli passe désormais par
-      // `configuredFrontUrl()`, qui valide et journalise.
-      const front = safeReturnUrl(done.returnUrl) || configuredFrontUrl()
-      // LOT 3.18 (R14) : le token revient par FRAGMENT (`#oauth_token=…`) et non
-      // plus en query. Un fragment n'est jamais renvoyé au serveur : il ne finit
-      // donc ni dans les journaux d'accès du front, ni dans le `Referer` des
-      // requêtes suivantes, ni dans l'historique d'un proxy. Le client le lit au
-      // montage puis nettoie l'URL (`history.replaceState`).
-      const tok = encodeURIComponent(done.token)
-      const prov = encodeURIComponent(provider)
-      let redir
-      try {
-        const u = new URL(String(front))
-        u.search = ''
-        u.hash = `#oauth_token=${tok}&oauth_provider=${prov}`
-        redir = u.toString()
-      } catch {
-        // `configuredFrontUrl()` peut renvoyer une base non-URL si
-        // OAUTH_REDIRECT_BASE est mal renseigné : on retombe sur la concaténation
-        // (le token ne part de toute façon pas vers une origine tierce, il est
-        // re-validé juste au-dessus).
-        redir = `${String(front).replace(/\/$/, '')}/#oauth_token=${tok}&oauth_provider=${prov}`
-      }
-      res.writeHead(302, { Location: redir, ...corsHeaders() })
-      return res.end()
+      if (!done.ok) return sendOAuthFailure(res, done.error)
+      return redirectOAuthSuccess(res, done, provider)
     }
 
     if (req.method === 'POST' && pathname === '/api/oauth/unlink') {

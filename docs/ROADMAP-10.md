@@ -14,7 +14,7 @@
 - **P0 → P6 : toutes les phases code livrées** (détail par phase plus bas, cases cochées).  
 - **Score code final : ~9.5–9.7/10.** Ce qui reste vers le 10/10 absolu est **hors-code** :
   1. shoot studio top 80 SKU (photos réelles),
-  2. callbacks OAuth réels Google/Meta à implémenter avant tout passage en `OAUTH_DEMO=0`,
+  2. clés Google/Meta, URI de callback et recette fournisseur avant tout passage en `OAUTH_DEMO=0`,
   3. persistance cloud (Vercel KV / Turso) pour des orders survivant aux cold starts,
   4. mesure Lighthouse en prod HTTPS (cible Perf mobile ≥ 90).
 - **Cas d’usage Oran : exploitable** — catalogue 251 SKU de base persistant, stock API multi-écrans, desk comptoir, AR/FR/EN, HTTPS sur Vercel sans VPS.
@@ -190,7 +190,7 @@ client trouve un produit → construit un PC compatible → réserve en espèces
 
 ### 5.1 Auth
 - [x] OAuth Google/Meta UI + flux démo explicite
-- [ ] Callbacks OAuth réels Google et Meta (phase 2 du plan de remédiation)
+- [x] Callbacks OAuth réels Google et Meta (phase 2 du plan de remédiation ; clés et URI HTTPS restent à configurer)
 - [x] Change password profil + master reset-password API
 - [ ] Token localStorage (httpOnly cookie reporté hébergeur HTTPS)
 
@@ -286,7 +286,7 @@ pendant que Phase 1–2 se codent, tu lances le **shoot top 80 SKUs** (Phase 3 h
 | Toi | Agent |
 |-----|--------|
 | Photos réelles / packshots | Pipeline, srcset, UI |
-| Clés Google OAuth + domaine | Wiring `oauth.js`, callbacks |
+| Clés Google/Meta + domaine + URI enregistrées | Callbacks serveur `oauth.js`, tests et documentation |
 | VPS / hébergeur + nom de domaine | Config serveur, HTTPS doc |
 | RC / texte garantie magasin | Pages légales i18n |
 | Décisions stock/prix réels | CRUD, import CSV |

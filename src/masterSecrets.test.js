@@ -369,6 +369,66 @@ describe('LOT 1.1 — le compte maître vient de l’environnement', () => {
     assert.ok(!out.onDisk.includes(compromisedEmail), 'l’ancien e-mail maître reste sur disque')
     assert.ok(!out.onDisk.includes(TEST_MASTER_PASSWORD), 'mot de passe en clair écrit sur disque')
   })
+
+  it('une rotation au redéploiement aligne le hash maître et révoque seulement ses sessions', () => {
+    // Deux processus sont indispensables : un déploiement recharge db.js et
+    // ses variables d'environnement, alors qu'un simple changement de process.env
+    // dans cette suite ne prouverait pas le comportement de production.
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pcstar-master-rotate-'))
+    const oldEmail = 'master-before@test.pcstar.local'
+    const nextEmail = 'master-after@test.pcstar.local'
+    const oldPassword = 'rotation-before-secret'
+    const nextPassword = 'rotation-after-secret'
+    const dbPath = path.join(ROOT, 'server', 'db.js')
+    const seed = `
+      const db = await import(${JSON.stringify(dbPath)})
+      const state = db.emptyDb()
+      const master = state.users.find((user) => user.role === 'master')
+      master.passwordHash = await db.hashPass(${JSON.stringify(oldPassword)})
+      const client = { id: 'rotation-client', role: 'customer', email: 'client@rotation.test', name: 'Client', links: { google: null, meta: null } }
+      state.users.push(client)
+      db.createSession(state, master.id)
+      db.createSession(state, client.id)
+      db.writeDb(state)
+    `
+    const seeded = spawnSync(process.execPath, ['--input-type=module', '-e', seed], {
+      env: { ...process.env, PCSTAR_DATA_DIR: dir, MASTER_EMAIL: oldEmail, MASTER_PASSWORD: oldPassword },
+      encoding: 'utf8',
+      timeout: 30000
+    })
+    assert.equal(seeded.status, 0, `seed : ${seeded.stderr}`)
+
+    const inspect = `
+      const db = await import(${JSON.stringify(dbPath)})
+      const state = db.readDb()
+      const master = state.users.find((user) => user.role === 'master')
+      console.log(JSON.stringify({
+        email: master.email,
+        oldPasswordStillWorks: db.verifyPass(${JSON.stringify(oldPassword)}, master.passwordHash),
+        nextPasswordWorks: db.verifyPass(${JSON.stringify(nextPassword)}, master.passwordHash),
+        masterSessions: Object.values(state.sessions).filter((session) => session.userId === master.id).length,
+        clientSessions: Object.values(state.sessions).filter((session) => session.userId === 'rotation-client').length,
+        serialized: JSON.stringify(state)
+      }))
+    `
+    const rotated = spawnSync(process.execPath, ['--input-type=module', '-e', inspect], {
+      env: { ...process.env, PCSTAR_DATA_DIR: dir, MASTER_EMAIL: nextEmail, MASTER_PASSWORD: nextPassword },
+      encoding: 'utf8',
+      timeout: 30000
+    })
+    try {
+      assert.equal(rotated.status, 0, `rotation : ${rotated.stderr}`)
+      const out = JSON.parse(rotated.stdout.trim().split('\n').pop())
+      assert.equal(out.email, nextEmail)
+      assert.equal(out.oldPasswordStillWorks, false, 'l’ancien secret reste accepté après rotation')
+      assert.equal(out.nextPasswordWorks, true, 'le nouveau secret ne correspond pas au hash persisté')
+      assert.equal(out.masterSessions, 0, 'une session maître a survécu à la rotation')
+      assert.equal(out.clientSessions, 1, 'la rotation maître a révoqué une session client')
+      assert.equal(out.serialized.includes(nextPassword), false, 'le nouveau secret a été écrit en clair')
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true })
+    }
+  })
 })
 
 describe('LOT 1.2 + 1.19 — aucun identifiant publié dans le dépôt', () => {

@@ -95,7 +95,7 @@ Un seul fichier d'entrée `server/index.js` (routeur `node:http`), modules dédi
 |---------|-----------|
 | Santé/config | `GET /api/health` · `GET /api/config` |
 | Auth | `POST /api/auth/register` · `POST /api/auth/login` (rate-limit 20/min) · `POST /api/auth/logout` · `GET /api/me` · `PUT /api/me` · `POST /api/me/password` |
-| OAuth | `POST /api/oauth/start` · `GET|POST /api/oauth/(google\|meta)/demo` (uniquement avec `OAUTH_DEMO=1`) · `POST /api/oauth/unlink` ; callbacks réels prévus en phase 2 |
+| OAuth | `POST /api/oauth/start` · `GET /api/oauth/(google\|meta)/callback` (réel, `OAUTH_DEMO=0`) · `GET|POST /api/oauth/(google\|meta)/demo` (uniquement avec `OAUTH_DEMO=1`) · `POST /api/oauth/unlink` |
 | Catalogue | `GET /api/catalog` (stock live) · `GET /api/stock/:id` |
 | Commandes | `GET|POST /api/orders` (rate-limit 15/min) · `PATCH /api/orders/:code` (statut) · `POST /api/orders/:code/cancel` (rollback stock) |
 | Master | `GET|POST /api/master/products` · `PUT /api/master/products/:id` · `POST …/:id/hide` · `POST …/:id/photos` (dataURL ≤2.5 Mo, ≤6) |
@@ -110,7 +110,7 @@ Un seul fichier d'entrée `server/index.js` (routeur `node:http`), modules dédi
 - **Rate limit :** buckets mémoire par IP (`server/rateLimit.js`) — login 20/min, orders 15/min.
 - **CORS :** `FRONT_ORIGIN` (défaut `*` en démo ; sur Vercel auto depuis `VERCEL_URL`).
 - **Headers :** `nosniff`, `X-Frame-Options: SAMEORIGIN`, `Referrer-Policy`, `Permissions-Policy`.
-- **OAuth :** `state` aléatoire + `oauthPending` (login | link), unlink possible. `OAUTH_DEMO=1` active uniquement le consentement simulé ; les callbacks réels sont prévus en phase 2 du plan de remédiation.
+- **OAuth :** `state` aléatoire, expirant et consommé atomiquement dans `oauthPending` (login | link) ; session TTL appliqué à la lecture. `OAUTH_DEMO=1` active uniquement le consentement simulé ; `OAUTH_DEMO=0` échange le code Google/Meta côté serveur. Le maître ne peut pas lier OAuth.
 - **Sécurité UI :** mots de passe démo jamais affichés ; page Guide master only.
 
 ### Données (`store.json`)
@@ -178,8 +178,11 @@ Ajout de photos pro (futur) : `public/photos/sku/{id}-1.jpg…-3.jpg` → `npm r
 |-----|------|
 | `FRONT_ORIGIN` | CORS (=`https://TON.app`) |
 | `FRONT_URL` | liens sortants (WA, OG) |
-| `OAUTH_REDIRECT_BASE` | redirect OAuth |
+| `OAUTH_REDIRECT_BASE` | origine HTTPS du callback OAuth |
 | `OAUTH_DEMO` | `1` par défaut (démo) · `0` + clés = réel |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | application Google OAuth, serveur uniquement |
+| `META_APP_ID` / `META_APP_SECRET` | application Meta Login, serveur uniquement |
+| `META_GRAPH_VERSION` | optionnel, `v26.0` par défaut pour Meta Login |
 
 **Limites honnêtes (Hobby, sans base cloud)** : `store.json` et uploads vivent dans **`/tmp`** → reset possible au cold start. Le **catalogue + photos (statiques) sont persistants**. Échappement prévu : Vercel KV / Turso / Blob — branchable via `server/db.js` sans toucher au reste. Détails : [DEPLOY-VERCEL.md](DEPLOY-VERCEL.md).
 
@@ -204,18 +207,19 @@ Client (téléphone)                          Magasin (PC comptoir)
   │                                           │  → picked (stock déjà décrémenté)
 ```
 
-### 6.2 OAuth (mode démo, défaut)
+### 6.2 OAuth (démo par défaut, réel activable)
 
 ```
 UI : bouton « Continuer avec Google/Meta »
   → POST /api/oauth/start {provider, intent}
-  → { authorizeUrl: /api/oauth/google/demo?state=… }
-  → écran de consent simulé (GET) → POST {identity}
-  → server : find-or-create user, links[provider]=identity, session token
-  → front : ?oauth_token=… → session active (profil, historique)
-Réel : non activable à ce stade. `OAUTH_DEMO=0` désactive strictement les routes démo ;
-       les callbacks `/api/oauth/{p}/callback` sont à livrer en phase 2.
+  → démo (`OAUTH_DEMO=1`) : /api/oauth/{p}/demo?state=… → consent simulé → POST {identity}
+  → réel (`OAUTH_DEMO=0`) : authorizeUrl fournisseur → GET /api/oauth/{p}/callback?code&state
+  → serveur : vérifie/consomme state sous verrou, échange le code HTTPS,
+              lit le profil vérifié, lie/crée le client, crée la session
+  → redirection front : #oauth_token=… → session active (profil, historique)
 ```
+
+Le callback réel exige les clés serveur et l'URI HTTPS exacte enregistrée chez chaque fournisseur. Le maître ne passe jamais par OAuth; les états et sessions expirés sont refusés même sur Neon.
 
 ### 6.3 Desk (tenue de comptoir)
 

@@ -144,6 +144,11 @@ export function masterAccount() {
 }
 
 const MASTER = masterAccount()
+// `normalizeDb()` tourne aussi sur les lectures. Un hash scrypt ne doit pas
+// monopoliser le CPU à chaque requête : on ne le revérifie que si le secret
+// configuré, l'e-mail maître ou le hash persistant a changé. Un redéploiement
+// repart avec ce cache vide, donc détecte bien toute rotation d'environnement.
+let masterCredentialVerificationKey = null
 
 export function verifyPass(password, stored) {
   if (!stored) return false
@@ -323,8 +328,12 @@ function ensure() {
  */
 export function normalizeDb(db) {
   let changed = false
+  // Lire la configuration ici (plutôt que réutiliser seulement la constante de
+  // démarrage) garde la fonction déterministe dans les outils de migration et
+  // permet de détecter une rotation sans réimporter le module.
+  const configuredMaster = masterAccount()
   if (!Array.isArray(db.users)) {
-    db.users = [MASTER, ...demoAccounts()]
+    db.users = [configuredMaster, ...demoAccounts()]
     changed = true
   }
   // LOT 1.1 — le maître suit l'environnement.
@@ -335,29 +344,72 @@ export function normalizeDb(db) {
   // livrés dans le bundle public — restait donc **indéfiniment** en place :
   // poser MASTER_EMAIL / MASTER_PASSWORD n'aurait rien changé pour lui.
   //
-  // On aligne l'e-mail sur l'environnement, et le hash **seulement s'il n'est
-  // pas déjà en scrypt**. Cette restriction est essentielle : la migration P22
-  // (item 1, dans la route login) re-sel en scrypt au premier accès réussi.
-  // Sans elle, chaque lecture remettrait le hash legacy et provoquerait un
-  // `writeDb` — donc un re-hash scrypt — à chaque connexion.
+  // On aligne l'e-mail sur l'environnement et on vérifie que le hash courant
+  // accepte encore MASTER_PASSWORD, quel que soit son format. La route login
+  // re-sel le hash legacy en scrypt après une connexion réussie ; une rotation
+  // de secret reste néanmoins détectable au redéploiement.
   const masterIdx = (db.users || []).findIndex((u) => u && u.role === 'master')
   if (masterIdx < 0) {
-    db.users = [MASTER, ...(db.users || [])]
+    db.users = [configuredMaster, ...(db.users || [])]
+    // Réintroduire l'identité maître après une base incomplète ne doit pas
+    // ressusciter une ancienne session portant son id fixe.
+    if (db.sessions && typeof db.sessions === 'object') {
+      for (const [key, session] of Object.entries(db.sessions)) {
+        if (session?.userId === configuredMaster.id) delete db.sessions[key]
+      }
+    }
     changed = true
   } else {
     const cur = db.users[masterIdx]
-    if (cur.email !== MASTER.email) {
-      cur.email = MASTER.email
+    const priorMasterId = cur.id
+    let revokeMasterSessions = false
+    if (cur.id !== configuredMaster.id) {
+      cur.id = configuredMaster.id
+      revokeMasterSessions = true
       changed = true
     }
-    // `changed` ne doit être vrai que si la valeur BOUGE : sans cette seconde
-    // condition, un maître encore en empreinte legacy se voyait réassigner la
-    // MÊME valeur à chaque lecture et `normalizeDb` renvoyait toujours `true`.
-    // Or ce drapeau pilote désormais la persistance (LOT 3.2, B2/B3) : un faux
-    // positif remet une écriture au démarrage là où rien n'a changé.
-    if (!String(cur.passwordHash || '').startsWith('scrypt$') && cur.passwordHash !== MASTER.passwordHash) {
-      cur.passwordHash = MASTER.passwordHash
+    if (cur.email !== configuredMaster.email) {
+      cur.email = configuredMaster.email
+      revokeMasterSessions = true
       changed = true
+    }
+    // Le maître est exclusivement un compte à mot de passe. Purger les liens
+    // hérités ferme définitivement une ancienne surface OAuth ; `finishIdentity`
+    // les refuse également pour les états qui auraient été créés avant ce
+    // déploiement.
+    if (cur.links?.google || cur.links?.meta) {
+      cur.links = { ...cur.links, google: null, meta: null }
+      changed = true
+    }
+    // AUDIT-2026-09-17 / phase 2 : ne pas se fier au préfixe du hash pour
+    // décider si le secret maître doit suivre l'environnement. Après le premier
+    // login, le hash est correctement migré en scrypt ; l'ancien code cessait
+    // alors toute synchronisation, même après une rotation de
+    // MASTER_PASSWORD au redéploiement. Le nouveau mot de passe échouait et
+    // l'ancien restait valable.
+    //
+    // Vérifier le secret configuré contre le hash courant couvre les formats
+    // legacy et scrypt sans jamais écrire le mot de passe dans la base. En cas
+    // d'écart, on repart de l'empreinte du secret configuré ; le prochain login
+    // le remigrera en scrypt. Les sessions maître sont aussi révoquées : une
+    // rotation ne doit pas laisser un ancien navigateur privilégié ouvert.
+    const verificationKey = `${configuredMaster.email}\u0000${configuredMaster.passwordHash}\u0000${String(cur.passwordHash || '')}`
+    if (masterCredentialVerificationKey !== verificationKey) {
+      if (!verifyPass(String(process.env.MASTER_PASSWORD || ''), cur.passwordHash)) {
+        cur.passwordHash = configuredMaster.passwordHash
+        revokeMasterSessions = true
+        changed = true
+      }
+      // Le hash peut avoir été remplacé juste au-dessus : mémoriser l'état
+      // final, pas seulement celui qui a été lu, pour ne pas revérifier au GET
+      // suivant. Une migration scrypt de login modifiera le suffixe et forcera
+      // naturellement une nouvelle vérification, une seule fois.
+      masterCredentialVerificationKey = `${configuredMaster.email}\u0000${configuredMaster.passwordHash}\u0000${String(cur.passwordHash || '')}`
+    }
+    if (revokeMasterSessions && db.sessions && typeof db.sessions === 'object') {
+      for (const [key, session] of Object.entries(db.sessions)) {
+        if (session?.userId === cur.id || session?.userId === priorMasterId) delete db.sessions[key]
+      }
     }
   }
   if (!Array.isArray(db.orders)) {
@@ -666,6 +718,25 @@ export function purgeOrphanCatalogRefs(db) {
   return { purged, skipped: false }
 }
 
+/** Durées appliquées à la lecture comme à la purge persistée. */
+export const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000
+export const PENDING_TTL_MS = 15 * 60 * 1000
+
+/**
+ * Une session malformée ou plus vieille que le TTL ne doit jamais authentifier
+ * une requête. Cette vérification est volontairement utilisable sans mutation :
+ * le chemin Neon peut ainsi refuser un ancien jeton dès sa première lecture,
+ * avant que la prochaine écriture ne purge l'entrée JSONB.
+ */
+export function isSessionExpired(session, now = Date.now()) {
+  return !session || !Number.isFinite(session.at) || now - session.at > SESSION_TTL_MS
+}
+
+/** Même règle pour un état OAuth abandonné. */
+export function isOAuthPendingExpired(pending, now = Date.now()) {
+  return !pending || !Number.isFinite(pending.createdAt) || now - pending.createdAt > PENDING_TTL_MS
+}
+
 /**
  * P5 (B11) : purge les sessions expirées (> 7 jours) et les entrées
  * `oauthPending` orphelines (consentement abandonné, > 15 min).
@@ -675,22 +746,19 @@ export function purgeExpired(db) {
   const now = Date.now()
   let changed = false
   for (const [key, s] of Object.entries(db.sessions || {})) {
-    if (!s || typeof s.at !== 'number' || now - s.at > SESSION_TTL_MS) {
+    if (isSessionExpired(s, now)) {
       delete db.sessions[key]
       changed = true
     }
   }
   for (const [st, p] of Object.entries(db.oauthPending || {})) {
-    if (!p || typeof p.createdAt !== 'number' || now - p.createdAt > PENDING_TTL_MS) {
+    if (isOAuthPendingExpired(p, now)) {
       delete db.oauthPending[st]
       changed = true
     }
   }
   return changed
 }
-
-const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000
-const PENDING_TTL_MS = 15 * 60 * 1000
 
 /** Déplace un store.json illisible sous .corrupt-<stamp> (garde les MAX derniers). */
 function quarantineDb() {
@@ -714,8 +782,18 @@ function quarantineDb() {
 
 export async function readDbAsync() {
   if (!process.env.DATABASE_URL) return readDb()
-  const { readNeonState } = await import('./neonStore.js')
-  return readNeonState(emptyDb)
+  const { readNeonState, updateNeonState } = await import('./neonStore.js')
+  const db = await readNeonState(emptyDb)
+  // Le driver Neon ne passe pas par `readDbFromDisk()`. Si sa lecture révèle
+  // une expiration, une rotation maître ou une structure héritée, persister la
+  // normalisation tout de suite SOUS le verrou de ligne. Il faut relire dans le
+  // verrou (et non écrire `db` tel quel), sinon une mutation concurrente entre
+  // SELECT et UPDATE pourrait être écrasée par cette lecture de maintenance.
+  if (!normalizeDb(db)) return db
+  return updateNeonState((current) => {
+    normalizeDb(current)
+    return current
+  }, emptyDb)
 }
 
 /**
@@ -739,8 +817,10 @@ export async function readDbSafe() {
   const driver = process.env.DATABASE_URL ? 'neon' : 'file'
   try {
     if (driver === 'neon') {
-      const { readNeonState } = await import('./neonStore.js')
-      const db = await readNeonState(emptyDb)
+      // Reprend le chemin qui normalise ET persiste l'état expiré sous verrou.
+      // Une lecture de secours ne doit pas offrir un cycle de vie moins strict
+      // que l'authentification ou le callback OAuth.
+      const db = await readDbAsync()
       lastGood.at = Date.now()
       lastGood.db = db
       return { db, ok: true, driver, error: null, asOf: lastGood.at, source: 'db' }
@@ -817,7 +897,14 @@ export function dbUrlDiagnostics(rawUrl = process.env.DATABASE_URL) {
 export async function updateDbAsync(mutator) {
   if (!process.env.DATABASE_URL) return updateDb(mutator)
   const { updateNeonState } = await import('./neonStore.js')
-  return updateNeonState(mutator, emptyDb)
+  // Même invariant que `updateDb()` fichier : le mutateur reçoit toujours un
+  // état normalisé. Sous Neon, cette passe s'exécute DANS le verrou de ligne et
+  // est donc persistée avec la mutation, y compris les sessions/états OAuth
+  // expirés qui auraient survécu à une ancienne version.
+  return updateNeonState((db) => {
+    normalizeDb(db)
+    return mutator(db) || db
+  }, emptyDb)
 }
 
 /** Dort `ms` sans boucle active (le verrou est tenu quelques millisecondes). */
@@ -1021,10 +1108,18 @@ export function createSession(db, userId, extra = {}) {
   return token
 }
 
-/** Session d'un jeton présenté par un client, ou `null`. */
+/**
+ * Session d'un jeton présenté par un client, ou `null`.
+ *
+ * AUDIT-2026-09-17 / phase 2 : ne pas déléguer l'expiration à une purge de
+ * démarrage. Neon sert l'état JSONB sans passer par le cycle fichier ; sans ce
+ * garde, un jeton ancien restait authentifiant indéfiniment. La suppression
+ * persistée reste faite par `purgeExpired()` lors de la prochaine écriture.
+ */
 export function findSession(db, token) {
   if (!db || !token) return null
-  return db.sessions?.[hashToken(token)] || null
+  const session = db.sessions?.[hashToken(token)] || null
+  return isSessionExpired(session) ? null : session
 }
 
 /** Déconnexion : retire la session du jeton. @returns {boolean} vrai si retirée. */
