@@ -53,7 +53,11 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          # LOT 1.20 (17/09/2026) : jsdom 30 (via undici embarqué) exige Node 22 —
+          # sous Node 20 la moitié de la suite (tout ce qui rend du JSX) crashe en
+          # `webidl.util.markAsUncloneable is not a function`. La suite est
+          # développée et validée sous Node 22.
+          node-version: 22
           cache: npm
       - name: Install dependencies
         run: npm ci
