@@ -2577,6 +2577,77 @@ pré-rendu pour l'exploration ; le scanner du dépôt couvre ses sources.
 
 ---
 
+### ✅ Fait — lot 1.20, les scripts de base importent server/db.js sans compte maître (17/09/2026)
+
+**Déclencheur.** Le job CI Neon échouait sur **tous** les runs (12+ sur 8 h) à
+l'étape `Run Neon schema migrations` (`npm run db:migrate:neon`), alors que
+`Create Neon Branch` réussissait. Cause mesurée : `server/db.js` résolvait le
+compte maître **au chargement du module** (`const MASTER = masterAccount()`),
+donc tout importeur héritait de l'exigence `MASTER_EMAIL`/`MASTER_PASSWORD` —
+y compris les quatre scripts de base qui n'ont rien à faire des identifiants
+(migration, concurrence, doctor, import). La CI ne pose que `DATABASE_URL` :
+l'échec était **certain**, et les trois étapes suivantes ne s'exécutaient
+**jamais** (étapes séquentielles d'un même job).
+
+**État mesuré avant.** Les quatre commandes échouaient dès l'import avec
+`Error: [pcstar] compte maître non configuré — MASTER_EMAIL et
+MASTER_PASSWORD sont obligatoires` — avant même leur propre contrôle de
+`DATABASE_URL`. La commande documentée (`docs/NEON-MIGRATION.md` :
+`DATABASE_URL='…' npm run db:migrate:neon`) était cassée pour la même raison.
+
+**Correctif.** Un seul fichier applicatif, `server/db.js` :
+- `masterAccountOrNull()` : accesseur **paresseux**, renvoie le compte ou
+  `null` sans configuration ;
+- `const MASTER` **supprimé** (aucun consommateur — vérifié par grep) ;
+- `emptyDb()` / `normalizeDb()` passent par cet accesseur : sans
+  configuration, elles ne sèment pas de maître et ne le synchronisent pas,
+  mais **ne retirent jamais** un maître déjà présent en base ;
+- `masterAccount()` **lève toujours** sans les variables, et le serveur
+  refuse toujours de démarrer sans elles (`assertMasterConfigured`) — le
+  verrou du LOT 1.1 est intact, seul le moment de la résolution a changé.
+
+**Régressions trouvées en l'écrivant.** Quatre défauts ESM Windows
+**préexistants** (invisibles en CI Linux) dans les sondes des tests :
+chemins Windows nus (`C:\…`) dans `import()` dynamique et `--import` CLI
+→ `ERR_UNSUPPORTED_ESM_URL_SCHEME`. Corrigés partout via `pathToFileURL`
+(`masterSecrets`, `serverFixes`, `lot4Server`, `lot6Quality`).
+
+**Pièges mesurés.** `src/lot3Server.test.js` §3.17 (B21) vérifiait l'ordre
+de déclaration `hashPassLegacy` **avant l'objet `MASTER`** : l'objet
+n'existant plus, le repère devient `masterAccount()` — l'invariant réel
+(« l'empreinte est produite par une fonction déclarée avant elle ») est
+conservé. jsdom 30 (via undici) exige Node ≥ 22 : la CI était épinglée à
+Node 20, la moitié de la suite plantait — corrigé par `ac9f474` (Node 22).
+
+**Vérification exécutée (chiffres).**
+- Sondes réelles sans `MASTER_*` : les quatre commandes démarrent sans
+  `MASTER_*` et sortent avec **leur** message (`DATABASE_URL is required` /
+  `DATABASE_URL absente`), jamais avec celui du compte maître ;
+  `masterAccount()` continue de lever (verrou LOT 1.1).
+- **Suite complète** (`npm test`) : **816 tests, 0 échec, 0 annulé**
+  (807 avant le lot — +9).
+- Clone neuf du commit final (`npm ci`) : **22/22** sur `lot1BaseScripts` +
+  `masterSecrets`.
+- CI Neon PR #7 : run `35250974397` — **4/4 étapes vertes** (migrations,
+  concurrence [**première fois jamais exécutée**], reset, suite complète).
+
+**Tableau de neutralisations.** Pas de neutralisation ajoutée (N72+) : le
+lot ne modifie aucune règle de détection ni aucun comportement couvert par
+un test existant — il **déplace** le moment de la résolution du compte
+maître (chargement → appel), sans changer ce qui est vérifié. Le verrou du
+lot est le nouveau fichier `src/lot1BaseScripts.test.js` lui-même (9 tests,
+dont 4 sur les scripts réels en processus enfant).
+
+**Limites assumées.**
+- Sans configuration, `emptyDb()` / `normalizeDb()` ne sèment pas de maître
+  : un import sur une base neuve sans `MASTER_*` produit une base sans
+  maître — le serveur refusera de démarrer dessus (comportement voulu).
+- La CI Neon ne pose toujours que `DATABASE_URL` : aucun `MASTER_*` n'est
+  ajouté aux secrets du workflow (ce serait publier le secret de
+  production — lot 0).
+
+---
+
 ### ⚠️ Reste à faire par l'exploitant (lot 0 — reporté à la fin, à la demande)
 
 **Rappel du risque tant que ce lot n'est pas fait :** le code est propre, mais
