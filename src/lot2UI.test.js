@@ -15,7 +15,8 @@ import { JSDOM } from 'jsdom'
 //             en rupture pouvait être dupliqué
 //  2.7 (F11)  `submitPanel` ignorait le meta renvoyé par le serveur (troncature
 //             à 12 invisible côté client)
-//  2.8 (F12)  les commandes guest de l'appareil disparaissaient à la connexion
+//  2.8 (F12)  complété phase 3 : les commandes guest restent sur l'appareil
+//             hors session et ne sont jamais affichées dans un compte
 // ---------------------------------------------------------------------------
 
 const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', {
@@ -580,9 +581,9 @@ describe('LOT 2.7 (F11 + B20) — panneaux : l’état client suit la réponse s
 })
 
 // ---------------------------------------------------------------------------
-// 2.8 (F12) — les commandes guest de l'appareil survivent à la connexion
+// Phase 3 — les commandes guest ne deviennent jamais celles d'un compte
 // ---------------------------------------------------------------------------
-describe('LOT 2.8 (F12) — commandes guest de l’appareil visibles une fois connecté', () => {
+describe('Phase 3 — commandes guest séparées de la session connectée', () => {
   const USER = { id: 'demo-karim', name: 'Karim B.', role: 'customer' }
 
   function seedOrders() {
@@ -609,35 +610,29 @@ describe('LOT 2.8 (F12) — commandes guest de l’appareil visibles une fois co
     )
   }
 
-  it('connecté : ses commandes ET celles passées sans compte depuis cet appareil', async () => {
+  it('connecté : seules les commandes explicitement liées à son compte sont listées', async () => {
     window.localStorage.clear()
     seedOrders()
     const m = await mountOrders(USER)
     try {
       const text = m.text()
       assert.ok(text.includes('PS-20260915-0001'), 'la commande du compte est listée')
-      // AVANT : `user ? all.filter(o => o.userId === user.id)` — la commande
-      // guest de cet appareil disparaissait dès la connexion, y compris celle
-      // qui venait d'être faite (le client se connecte souvent APRÈS avoir
-      // réservé).
-      assert.ok(text.includes('PS-20260915-0002'), 'la commande guest du même appareil reste visible')
+      assert.ok(!text.includes('PS-20260915-0002'), 'une guest du navigateur a basculé dans le compte')
       assert.ok(!text.includes('PS-20260915-0003'), 'la commande d’un AUTRE compte ne fuit pas')
     } finally {
       await m.unmount()
     }
   })
 
-  it('la commande sans compte est marquée comme telle', async () => {
+  it('une commande guest locale n’est pas affichée sous une session connectée', async () => {
     window.localStorage.clear()
     seedOrders()
     const m = await mountOrders(USER)
     try {
       const cards = [...m.host.querySelectorAll('article')]
-      assert.equal(cards.length, 2, 'deux cartes')
-      const guest = cards.find((c) => clean(c).includes('PS-20260915-0002'))
-      const own = cards.find((c) => clean(c).includes('PS-20260915-0001'))
-      assert.ok(clean(guest).includes(t('orderGuestBadge')), 'badge « passée sans compte » sur la guest')
-      assert.ok(!clean(own).includes(t('orderGuestBadge')), 'pas de badge sur la commande du compte')
+      assert.equal(cards.length, 1, 'la seule carte doit appartenir au compte')
+      assert.ok(clean(cards[0]).includes('PS-20260915-0001'))
+      assert.ok(!clean(cards[0]).includes(t('orderGuestBadge')))
     } finally {
       await m.unmount()
     }

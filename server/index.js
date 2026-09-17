@@ -38,7 +38,9 @@ import {
 } from './oauth.js'
 import {
   cancelOrder,
+  cancelOwnOrder,
   liveStockOf,
+  ordersForUser,
   placeOrder,
   publicCatalog,
   purgeUser,
@@ -313,19 +315,10 @@ async function savePhotoDataUrlsSafe(productId, dataUrls) {
   }
 }
 
-/**
- * LOT 4.4 (R20) — une commande GUEST appartient-elle à ce compte ?
- *
- * Trois conditions : pas de propriétaire (`userId == null`), un numéro de
- * compte non vide, et le même numéro. La quatrième est nouvelle : la commande
- * doit être **revendicable**. `claimable: false` est posé par `placeOrder`
- * quand le numéro appartient à un compte existant et que l'acheteur n'est pas
- * ce compte (et par la migration `normalizeDb` pour les lignes déjà en base) :
- * un tiers ne peut plus déposer une commande dans l'historique d'autrui.
- */
-function isClaimableGuest(order, phone) {
-  return Boolean(order && order.userId == null && phone && order.phone === phone && order.claimable !== false)
-}
+// AUDIT-2026-09-17 / phase 3 — aucune correspondance téléphone → compte.
+// Sans OTP/SMS effectivement livré et vérifié, le numéro déclaré au checkout
+// n'est pas une preuve de possession. Les routes client ne servent donc que les
+// commandes dont `userId` est déjà celui de la session.
 // LOT 6.2 (Q2) : `phoneCarrier` vient de `server/phone.js` (implémentation
 // partagée avec le front dans `src/phoneLogic.js`) — plus de copie serveur.
 
@@ -579,48 +572,34 @@ export async function handler(req, res) {
       return send(res, 200, { ok: true, user: publicUser(user) })
     }
 
-    // Customer own orders
+    // Customer own orders. Une session n'accède qu'aux lignes explicitement
+    // rattachées à son userId : un numéro de téléphone n'est jamais une preuve.
     if (req.method === 'GET' && pathname === '/api/me/orders') {
       const auth = await userFromReq(req)
       if (!auth) return send(res, 401, { ok: false, error: 'auth' })
       const db = await readDbAsync()
-      const uid = auth.user.id
-      const phone = auth.user.phone || ''
-      // P10 (P7-15) : le match par téléphone ne s'applique qu'aux commandes
-      // GUEST (userId null) — avant, deux comptes au même numéro voyaient (et
-      // annulaient) les commandes de l'autre.
-      // LOT 4.4 (R20) : et seulement si la commande est revendicable. Une
-      // commande guest déposée au numéro d'un compte existant par UN TIERS
-      // (`claimable: false`, posé à la création ou par la migration) ne doit pas
-      // apparaître dans SON historique — sinon un inconnu peut garnir le compte
-      // d'autrui, et le titulaire annule une commande qu'il n'a jamais passée.
-      const orders = (db.orders || []).filter((o) => o.userId === uid || isClaimableGuest(o, phone))
-      return send(res, 200, { ok: true, orders })
+      return send(res, 200, { ok: true, orders: ordersForUser(db, auth.user.id) })
     }
 
-    // Customer cancels ONE of his own orders (new/pending only) → restock.
+    // Customer cancels one of HIS OWN new orders. L'autorisation ET l'état
+    // annulable sont relus dans updateDbAsync : une lecture préalable seule
+    // permettait un TOCTOU avec une suppression ou un changement de statut.
     if (req.method === 'POST' && pathname.startsWith('/api/me/orders/') && pathname.endsWith('/cancel')) {
       const auth = await userFromReq(req)
       if (!auth) return send(res, 401, { ok: false, error: 'auth' })
       const code = decodeURIComponent(pathname.split('/').slice(-2, -1)[0])
-      const db0 = await readDbAsync()
       const uid = auth.user.id
-      const phone = auth.user.phone || ''
-      // P10 (P7-15) : même règle que GET — guest (userId null) ou propriétaire.
-      // LOT 4.4 (R20) : `isClaimableGuest` écarte les commandes non
-      // revendicables — un tiers ne peut pas les annuler via le compte du
-      // titulaire du numéro.
-      const mine = (db0.orders || []).find((o) => o.code === code && (o.userId === uid || isClaimableGuest(o, phone)))
-      if (!mine) return send(res, 404, { ok: false, error: 'not_found' })
-      if (mine.status !== 'new' && mine.status !== 'pending') {
-        return send(res, 409, { ok: false, error: 'status' })
-      }
       let result = null
       await updateDbAsync((db) => {
-        result = cancelOrder(db, code)
+        // Revalidation métier dans la même mutation que le restock : le
+        // callback ne peut jamais annuler une commande devenue preparing/ready.
+        result = cancelOwnOrder(db, code, uid)
         return db
       })
-      if (!result?.ok) return send(res, 400, { ok: false, error: result?.error })
+      if (!result?.ok) {
+        const status = result?.error === 'not_found' ? 404 : result?.error === 'status' ? 409 : 400
+        return send(res, status, { ok: false, error: result?.error || 'not_found' })
+      }
       return send(res, 200, { ok: true, order: result.order })
     }
 
@@ -959,20 +938,11 @@ export async function handler(req, res) {
       const orderPhone = normalizePhone(body.phone)
       let result = null
       await updateDbAsync((db) => {
-        // LOT 4.4 (R20) : le numéro saisi appartient-il à un compte existant ?
-        // Si oui et que l'acheteur n'est PAS ce compte (commande guest, ou un
-        // autre utilisateur connecté qui livre chez ce numéro), la commande est
-        // marquée non revendicable : elle reste visible au comptoir, mais elle
-        // n'entre pas dans l'historique du titulaire du numéro et il ne peut pas
-        // l'annuler. La commande n'est PAS refusée — commander au numéro d'un
-        // proche reste un usage légitime.
-        // Le test se fait DANS la transaction : il porte sur l'état qui sera
-        // persisté, pas sur une lecture antérieure.
-        const owner = (db.users || []).find(
-          (u) => u && u.role !== 'master' && normalizePhone(u.phone || '') === orderPhone
-        )
+        // Le téléphone reste l'information de retrait du comptoir, pas une
+        // preuve d'identité web. Seule une session présente au checkout attache
+        // la ligne à un compte; une commande guest n'est pas récupérable par
+        // simple ajout de ce numéro dans un profil ultérieur.
         const requesterId = auth?.user?.id || null
-        const unclaimable = Boolean(owner) && owner.id !== requesterId
         result = placeOrder(
           db,
           {
@@ -984,10 +954,13 @@ export async function handler(req, res) {
             day: body.day || '',
             payment: 'cash',
             slot: rawSlot,
+            // Clé opaque créée par le navigateur avant l'envoi; sa validation et
+            // son empreinte sont faites dans placeOrder sous le verrou DB.
+            idempotencyKey: body.idempotencyKey,
             items: body.items,
             total: body.total
           },
-          { userId: requesterId, unclaimable }
+          { userId: requesterId }
         )
         return db
       })
@@ -1004,6 +977,7 @@ export async function handler(req, res) {
         // était tarifée 0 DA et la commande acceptée en 201.
         if (result?.error === 'unknown_product')
           return send(res, 400, { ok: false, error: 'unknown_product', unknown: result.unknown })
+        if (result?.error === 'idempotency_conflict') return send(res, 409, { ok: false, error: 'idempotency_conflict' })
         return send(res, 400, { ok: false, error: result?.error || 'order' })
       }
       // P19 — notifier le master. Jamais bloquant : une panne WhatsApp ou un

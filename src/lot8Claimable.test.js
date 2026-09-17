@@ -4,20 +4,14 @@ import { JSDOM } from 'jsdom'
 import { readFileSync } from 'node:fs'
 
 // ---------------------------------------------------------------------------
-// LOT 8.3 (A3) — le drapeau `claimable` était reçu, stocké… et jamais lu.
-//
-// Depuis le lot 4.4 (R20), une commande guest déposée au numéro d'un compte
-// existant est marquée `claimable: false` : le serveur l'écarte de
-// `GET /api/me/orders` et répond **404** à son annulation. Le client recevait le
-// drapeau (la copie locale est un spread de la réponse serveur), le persistait,
-// puis l'ignorait : la page « Commandes » affichait un bouton « Annuler » qui
-// échouait à tous les coups, avec un message générique qui ne disait ni pourquoi
-// ni quoi faire. Zéro occurrence de `claimable` dans tout `src/` à l'audit.
+// LOT 8.3 (A3), adapté en phase 3 — une guest ne peut plus être reprise via
+// téléphone. Une session masque donc toute copie guest locale; hors connexion,
+// l'appareil guest peut seulement annuler sa propre copie locale neuve.
 //
 // Trois niveaux vérifiés ici :
 //  · la règle pure (`canCancelHere`) — une seule définition pour le bouton et la
 //    garde locale de `cancelMyOrder` ;
-//  · le rendu réel de `OrdersPage` — absence du bouton, mention explicite ;
+//  · le rendu réel de `OrdersPage` — séparation stricte session/guest ;
 //  · `App` connecté en mode API — un 404 du serveur n'est plus annoncé comme une
 //    panne (« Annulation impossible ») mais comme ce qu'il est.
 // ---------------------------------------------------------------------------
@@ -155,7 +149,7 @@ after(async () => {
   window.fetch = realFetch
 })
 
-describe('LOT 8.3 (A3) — OrdersPage : pas de bouton « Annuler » sur une commande non revendicable', () => {
+describe('Phase 3 — OrdersPage : frontière stricte entre session et guest', () => {
   async function mountOrders(over = {}) {
     return mount(
       React.createElement(OrdersPage, {
@@ -170,54 +164,34 @@ describe('LOT 8.3 (A3) — OrdersPage : pas de bouton « Annuler » sur une comm
     )
   }
 
-  it('la commande claimable:false est visible, SANS bouton, avec la mention « au comptoir »', async () => {
+  it('une session connectée ne voit aucune commande guest locale', async () => {
     window.localStorage.clear()
     seedOrders()
     const m = await mountOrders()
     try {
       const cards = [...m.host.querySelectorAll('article')]
-      assert.equal(cards.length, 3, 'les trois commandes sont listées')
+      assert.equal(cards.length, 2, 'seules les commandes du compte sont listées')
       const byCode = (code) => cards.find((c) => clean(c).includes(code))
+      assert.equal(byCode('PS-20260916-0001'), undefined, 'une guest a été exposée à la session')
 
-      // 1. la ligne non revendicable reste affichée (elle est réelle) — seule
-      //    l'ACTION disparaît.
-      const notMine = byCode('PS-20260916-0001')
-      assert.ok(notMine, 'la commande non revendicable est toujours visible')
-      // Jamais `assert.equal(nœud, null)` : en cas d'échec, Node inspecte la
-      // valeur « réelle » — un nœud jsdom remonte vers `window` et le document
-      // entier, et la génération du message d'erreur sature la mémoire (mesuré :
-      // processus de test tué par l'OOM killer à 3,7 Go au lieu d'un échec net).
-      assert.ok(
-        !notMine.querySelector('button.btn-outline-danger'),
-        'AVANT le correctif : un bouton « Annuler » était rendu ici'
-      )
-      // 2. et l'utilisateur sait quoi faire
-      assert.ok(clean(notMine).includes(t('orderNotClaimable')), 'la mention « annulation au comptoir » est affichée')
-
-      // 3. non-régression : la commande neuve revendicable garde son bouton
       const normal = byCode('PS-20260916-0002')
-      assert.ok(normal.querySelector('button.btn-outline-danger'), 'bouton présent pour une commande neuve normale')
-      assert.ok(!clean(normal).includes(t('orderNotClaimable')), 'pas de mention sur une commande revendicable')
-
-      // 4. non-régression : la commande déjà en préparation n'a jamais eu de bouton
+      assert.ok(normal.querySelector('button.btn-outline-danger'), 'bouton présent pour une commande neuve propre')
       assert.ok(!byCode('PS-20260916-0003').querySelector('button.btn-outline-danger'))
-
-      // Un seul bouton d'annulation au total sur les trois lignes.
       assert.equal(m.host.querySelectorAll('button.btn-outline-danger').length, 1)
     } finally {
       await m.unmount()
     }
   })
 
-  it('guest (sans compte) : même règle — le bouton ne dépend pas de la connexion', async () => {
+  it('guest (sans compte) : l’appareil peut annuler sa copie locale neuve', async () => {
     window.localStorage.clear()
     seedOrders()
     const m = await mountOrders({ user: null })
     try {
       const cards = [...m.host.querySelectorAll('article')]
-      const notMine = cards.find((c) => clean(c).includes('PS-20260916-0001'))
-      assert.ok(!notMine.querySelector('button.btn-outline-danger'))
-      assert.ok(clean(notMine).includes(t('orderNotClaimable')))
+      const guest = cards.find((c) => clean(c).includes('PS-20260916-0001'))
+      assert.ok(guest.querySelector('button.btn-outline-danger'), 'le guest garde son action locale')
+      assert.ok(!clean(guest).includes(t('orderNotClaimable')))
     } finally {
       await m.unmount()
     }
@@ -264,10 +238,9 @@ describe('LOT 8.3 (A3) — App connecté : un 404 du serveur n’est plus annonc
     window.localStorage.clear()
     window.localStorage.setItem('pcstar-lang', 'fr')
     window.localStorage.setItem('pcstar-api-token', 'token-de-test')
-    // Copie locale d'une commande neuve SANS drapeau claimable : le bouton est
-    // rendu, mais le serveur ne la reconnaît pas (supprimée par le maître,
-    // numéro qui ne correspond plus, ou commande non revendicable dont la copie
-    // locale précède le marquage).
+    // Copie locale d'une commande liée à la session : le bouton est rendu,
+    // mais le serveur ne la reconnaît plus (supprimée par le maître, par exemple).
+    // Une guest ne serait pas affichée dans une session connectée.
     window.localStorage.setItem(
       'pcstar-orders',
       JSON.stringify([
@@ -276,7 +249,7 @@ describe('LOT 8.3 (A3) — App connecté : un 404 du serveur n’est plus annonc
           status: 'new',
           name: 'Karim B.',
           total: 7500,
-          userId: null,
+          userId: 'demo-karim',
           at: AT,
           items: [{ id: 'mousepad', name: 'Tapis G640', qty: 1 }]
         }
@@ -317,7 +290,7 @@ describe('LOT 8.3 (A3) — App connecté : un 404 du serveur n’est plus annonc
     window.localStorage.setItem(
       'pcstar-orders',
       JSON.stringify([
-        { code: 'PS-20260916-0008', status: 'new', name: 'Karim B.', total: 7500, userId: null, at: AT, items: [] }
+        { code: 'PS-20260916-0008', status: 'new', name: 'Karim B.', total: 7500, userId: 'demo-karim', at: AT, items: [] }
       ])
     )
     stubApi([
@@ -358,10 +331,11 @@ describe('LOT 8.3 (A3) — canCancelHere : une seule règle pour le bouton et la
     assert.equal(canCancelHere({ code: 'PS-X' }), true)
   })
 
-  it('claimable: false → non annulable ici, quel que soit le statut', () => {
+  it('claimable: false → non annulable depuis un compte, mais annulable localement en guest', () => {
     assert.equal(canCancelHere({ status: 'new', claimable: false }), false)
     assert.equal(canCancelHere({ status: 'pending', claimable: false }), false)
     assert.equal(canCancelHere({ claimable: false }), false)
+    assert.equal(canCancelHere({ status: 'new', claimable: false }, { allowGuest: true }), true)
   })
 
   it('claimable absent ou vrai → comportement habituel (commandes antérieures à R20)', () => {
@@ -402,8 +376,7 @@ describe('LOT 8.3 (A3) — la garde locale de `cancelMyOrder` partage la même r
     const start = src.indexOf('async function cancelMyOrder(code) {')
     assert.ok(start > 0, 'fonction cancelMyOrder trouvée')
     const body = src.slice(start, start + 2600)
-    assert.ok(body.includes('canCancelHere(target)'), 'la garde locale appelle la règle partagée')
-    assert.ok(body.includes('orderNotClaimable'), 'le message « au comptoir » est prévu pour claimable:false')
+    assert.ok(body.includes('canCancelHere(target, { allowGuest: !user })'), 'la garde locale appelle la règle partagée avec l’exception guest locale')
     assert.ok(body.includes('orderOnlyNew'), 'le message statut existant est conservé')
     // Et l'ancien test « à la main » sur le statut a bien disparu (une seule règle).
     assert.ok(

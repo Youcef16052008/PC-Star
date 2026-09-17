@@ -139,6 +139,19 @@ function timeAgo(ts, lang) {
 /** Cart is stored PER ACCOUNT (guest = 'guest'), so switching account = own cart. */
 const cartKeyFor = (uid) => `pcstar-cart-${uid || 'guest'}`
 
+/** Clé opaque conservée pendant les tentatives d'une même réservation. */
+function newReservationKey() {
+  if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID()
+  const bytes = new Uint8Array(16)
+  if (globalThis.crypto?.getRandomValues) {
+    globalThis.crypto.getRandomValues(bytes)
+    return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('')
+  }
+  // Navigateurs modernes ont Web Crypto; ce dernier recours garde seulement la
+  // compatibilité de démo/tests et respecte la forme opaque attendue par l'API.
+  return `${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}_${Math.random().toString(36).slice(2)}`
+}
+
 function loadCartFor(st, uid) {
   try {
     const raw = st?.getItem?.(cartKeyFor(uid))
@@ -299,6 +312,14 @@ export default function App() {
   const [cartStep, setCartStep] = useState(0) // 0 cart, 1 info (when items)
   const cartElRef = useRef(null)
   const cartOcRef = useRef(null)
+  // Même clé pendant un double clic ou une réponse perdue : le serveur répond
+  // alors avec la réservation déjà créée, sans réserver le stock une seconde fois.
+  const reservationKeyRef = useRef(null)
+  // Toute modification de panier représente une nouvelle intention de commande.
+  // Une même intention conserve sa clé entre les tentatives réseau.
+  useEffect(() => {
+    reservationKeyRef.current = null
+  }, [cart])
   const prevOrderCount = useRef(0)
   // P19 : codes déjà vus — la détection par longueur ratait une commande
   // arrivée en même temps qu'une suppression.
@@ -762,11 +783,9 @@ export default function App() {
         setToast(t('orderCancelled'))
         return true
       }
-      // LOT 8.3 (A3) : le 404 de R20 n'est pas une panne. Il dit « cette
-      // commande n'est pas à vous » (guest non revendicable déposée au numéro
-      // du compte, commande supprimée par le maître, numéro qui ne correspond
-      // plus) — le message générique « Annulation impossible » laissait le
-      // client réessayer indéfiniment sans comprendre.
+      // Le 404 n'est pas une panne : la commande n'est pas explicitement liée
+      // à cette session (guest, supprimée par le maître ou autre compte). La
+      // phase 3 interdit toute appropriation par simple numéro de téléphone.
       if (r?.status === 404 || r?.data?.error === 'not_found') {
         setToast(t('orderCancelNotMine'))
         return false
@@ -779,11 +798,11 @@ export default function App() {
       setToast(t('orderOnlyNew'))
       return false
     }
-    // LOT 8.3 (A3) : même règle que le bouton de la page « Commandes »
-    // (`canCancelHere`) — une commande non revendicable n'est pas annulable ici
-    // non plus, et le message dit quoi faire (au comptoir).
-    if (!canCancelHere(target)) {
-      setToast(target.claimable === false ? t('orderNotClaimable') : t('orderOnlyNew'))
+    // Même règle que le bouton de la page « Commandes ». Hors session, elle
+    // permet l'annulation de la copie guest locale; une route API ne reçoit
+    // jamais cette exception.
+    if (!canCancelHere(target, { allowGuest: !user })) {
+      setToast(t('orderOnlyNew'))
       return false
     }
     commitReservations((prev) =>
@@ -1166,8 +1185,11 @@ export default function App() {
       return
     }
     setPhoneErr('')
+    const idempotencyKey = reservationKeyRef.current || newReservationKey()
+    reservationKeyRef.current = idempotencyKey
     const base = {
       name: pickup.name.trim(),
+      idempotencyKey,
       phone: normalizePhone(pickup.phone),
       carrier: phoneCarrier(pickup.phone),
       wilaya: pickup.wilaya,
@@ -1185,8 +1207,7 @@ export default function App() {
         qty: i.qty,
         price: i.price
       })),
-      total,
-      userId: user?.id || null
+      total
     }
 
     if (apiOnline) {
@@ -1200,6 +1221,7 @@ export default function App() {
         // cette copie avec le serveur.
         commitReservations((prev) => [order, ...prev.filter((o) => o.code !== order.code)])
         setReserved(order)
+        reservationKeyRef.current = null
         setCart([])
         setCartStep(0)
         setToast(t('ordersSynced'))
@@ -1236,6 +1258,14 @@ export default function App() {
         // de laisser un formulaire de retrait face à un panier vide.
         if (!kept.length) setCartStep(0)
         await refreshStock()
+        return
+      }
+      // La même clé a été présentée avec une intention différente. Cette
+      // réponse protège le stock; on l'oublie ici pour que la prochaine action
+      // utilisateur reçoive une nouvelle clé, sans la faire passer pour rupture.
+      if (fail.kind === 'idempotency') {
+        reservationKeyRef.current = null
+        setToast(t('orderRetryConflict'))
         return
       }
       if (fail.kind === 'rate') {
@@ -1283,12 +1313,18 @@ export default function App() {
     // périmée et produisaient le MÊME code local. Le miroir est mis à jour dès
     // la création, donc la seconde réservation voit le code de la première.
     const currentOrders = reservationsRef.current
+    // Cette clé ne sert qu'au protocole avec le serveur. Ne pas la conserver
+    // dans la copie locale d'un repli hors-ligne (ni dans localStorage).
+    const { idempotencyKey: _idempotencyKey, ...localOrderBase } = base
     const order = {
       // P8 (P7-2) : séquence = max des codes locaux du jour + 1 (jamais
       // `reservations.length + 1`) → plus de collision si la liste client est
       // partielle.
       code: nextLocalOrderCode(currentOrders.map((o) => o.code)),
-      ...base,
+      ...localOrderBase,
+      // Le rattachement de la copie locale reflète uniquement la session qui
+      // l'a créée; l'API détermine indépendamment son userId depuis le token.
+      userId: user?.id || null,
       status: 'new',
       at: new Date().toISOString(),
       // LOT 2.3 (F5) : marqueur de commande JAMAIS envoyée au serveur. Sans
@@ -1300,6 +1336,7 @@ export default function App() {
     }
     commitReservations([order, ...currentOrders])
     setReserved(order)
+    reservationKeyRef.current = null
     setCart([])
     setCartStep(0)
     // On n'arrive ici QUE si la commande n'a pas été acceptée par l'API

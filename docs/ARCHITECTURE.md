@@ -97,7 +97,7 @@ Un seul fichier d'entrée `server/index.js` (routeur `node:http`), modules dédi
 | Auth | `POST /api/auth/register` · `POST /api/auth/login` (rate-limit 20/min) · `POST /api/auth/logout` · `GET /api/me` · `PUT /api/me` · `POST /api/me/password` |
 | OAuth | `POST /api/oauth/start` · `GET /api/oauth/(google\|meta)/callback` (réel, `OAUTH_DEMO=0`) · `GET|POST /api/oauth/(google\|meta)/demo` (uniquement avec `OAUTH_DEMO=1`) · `POST /api/oauth/unlink` |
 | Catalogue | `GET /api/catalog` (stock live) · `GET /api/stock/:id` |
-| Commandes | `GET|POST /api/orders` (rate-limit 15/min) · `PATCH /api/orders/:code` (statut) · `POST /api/orders/:code/cancel` (rollback stock) |
+| Commandes | `POST /api/orders` (rate-limit 15/min, clé d’idempotence) · `GET /api/me/orders` · `POST /api/me/orders/:code/cancel` (client, propriétaire exact) · `GET /api/orders`, `PATCH /api/orders/:code`, `POST /api/orders/:code/cancel` (master) |
 | Master | `GET|POST /api/master/products` · `PUT /api/master/products/:id` · `POST …/:id/hide` · `POST …/:id/photos` (dataURL ≤2.5 Mo, ≤6) |
 | Export/ops | `GET /api/orders/export.csv?day=` · `POST /api/master/backup` |
 | Clients | `GET /api/customers` · `DELETE /api/customers/:id` · `POST /api/master/customers/:id/reset-password` |
@@ -111,6 +111,8 @@ Un seul fichier d'entrée `server/index.js` (routeur `node:http`), modules dédi
 - **CORS :** `FRONT_ORIGIN` (défaut `*` en démo ; sur Vercel auto depuis `VERCEL_URL`).
 - **Headers :** `nosniff`, `X-Frame-Options: SAMEORIGIN`, `Referrer-Policy`, `Permissions-Policy`.
 - **OAuth :** `state` aléatoire, expirant et consommé atomiquement dans `oauthPending` (login | link) ; session TTL appliqué à la lecture. `OAUTH_DEMO=1` active uniquement le consentement simulé ; `OAUTH_DEMO=0` échange le code Google/Meta côté serveur. Le maître ne peut pas lier OAuth.
+- **Commandes client :** le téléphone de retrait n’est pas une identité. Une session n’accède et n’annule que les commandes associées à son `userId`; une commande guest est explicitement non revendicable. La reprise guest sur un autre appareil attend une vérification OTP réellement délivrée.
+- **Idempotence et stock :** le client transmet une clé opaque par intention de réservation; seules ses empreintes SHA-256 (clé et intention) sont stockées. Une répétition identique ne réserve qu’une fois; la même clé avec un autre panier est refusée. Les quantités sont consolidées et le plafond de commandes est contrôlé avant toute mutation de stock.
 - **Sécurité UI :** mots de passe démo jamais affichés ; page Guide master only.
 
 ### Données (`store.json`)
@@ -121,7 +123,8 @@ Un seul fichier d'entrée `server/index.js` (routeur `node:http`), modules dédi
   "sessions": { token: {userId, at} },
   "oauthPending": { state: {...} },
   "stock":    { "sku-…": 12 },  // overrides au-dessus du base (src/data.js)
-  "orders":   [ {code "PS-20260910-0001", items, total, status, …} ], // cap 500
+  "orders":   [ {code "PS-20260910-0001", userId|null, items, total, status,
+                 idempotencyKeyHash?, idempotencyRequestHash?, …} ], // cap 500; jamais la clé brute
   "meta":     { extraProducts, hiddenProductIds, extraPanels, … }
 }
 ```
@@ -190,22 +193,22 @@ Ajout de photos pro (futur) : `public/photos/sku/{id}-1.jpg…-3.jpg` → `npm r
 
 ## 6. Flows clés
 
-### 6.1 Réservation (multi-appareils)
+### 6.1 Réservation
 
 ```
-Client (téléphone)                          Magasin (PC comptoir)
-  │  panier → infos (05/06/07)                │
-  │  POST /api/orders ───────────────►        │
-  │  server : atomic placeOrder               │
-  │    (toutes les lignes dispo ? sinon 409)  │
-  │    stock -= qty · code PS-YYYYMMDD-XXXX   │
-  │  ◄── { ok, order } ──────────────         │
-  │  écran succès (code + maps + cash)        │  DeskPage : poll 20 s
-  │                                           │  GET /api/orders → nouvelle résa
-  │                                           │  beep + toast → statut →
-  │  retrait au comptoir, espèces             │  PATCH /api/orders/:code (ready)
-  │                                           │  → picked (stock déjà décrémenté)
+Client                                           Magasin
+  panier + idempotencyKey
+  POST /api/orders ----------------------------> serveur
+                                                   agrège les SKU
+                                                   valide stock + capacité
+                                                   écrit commande et stock sous transaction
+                                                   retry identique = même commande
+  <----------------------------- { ok, order }
+  session : GET /api/me/orders (userId exact)      Desk : poll + mise à jour de statut
+  guest : copie locale sur cet appareil seulement
 ```
+
+Une commande guest ne peut pas être retrouvée, rattachée ou annulée depuis un autre appareil avec son seul numéro de téléphone. Un futur parcours de reprise devra ajouter une preuve de possession (OTP réel), sans assouplir la règle `userId`.
 
 ### 6.2 OAuth (démo par défaut, réel activable)
 

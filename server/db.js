@@ -499,18 +499,21 @@ export function normalizeDb(db) {
   // supprimé (voir la route) et les lignes legacy sont migrées ici, une fois
   // pour toutes — après quoi `pending` n'existe plus nulle part en base.
   //
-  // LOT 4.4 (R20), migration volontairement ABSENTE : marquer rétroactivement
-  // `claimable: false` toute commande guest au numéro d'un compte existant
-  // masquerait aussi les commandes passées par ce client AVANT son
-  // inscription — le cas légitime que la règle à la création préserve. Rien ne
-  // permet de les distinguer (les comptes ne portent pas de date de création,
-  // et les lignes legacy non plus) : on ne réécrit donc pas l'historique. La
-  // règle s'applique à la création (`placeOrder`, route `POST /api/orders`) ;
-  // les lignes antérieures au correctif gardent le comportement d'alors.
+  // AUDIT-2026-09-17 / phase 3 : l'ancienne reprise automatique des commandes
+  // guest par égalité de téléphone n'était pas une vérification de possession.
+  // Pour fermer aussi la fenêtre sur les lignes historiques, aucune commande
+  // sans userId ne reste revendicable. Elles demeurent au comptoir et dans le
+  // stockage local de l'appareil qui les a créées; leur rattachement inter-
+  // appareil doit attendre un vrai canal OTP/SMS, jamais une valeur de profil.
   if (Array.isArray(db.orders) && db.orders.length) {
     for (const o of db.orders) {
-      if (o && o.status === 'pending') {
+      if (!o) continue
+      if (o.status === 'pending') {
         o.status = 'new'
+        changed = true
+      }
+      if (o.userId == null && o.claimable !== false) {
+        o.claimable = false
         changed = true
       }
     }

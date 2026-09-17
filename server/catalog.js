@@ -1,6 +1,7 @@
 /**
  * Catalog stock helpers — base stock from src/data.js + server overrides.
  */
+import crypto from 'node:crypto'
 import { PRODUCTS } from '../src/data.js'
 // P22 (bug G) : table des transitions partagée avec le client.
 // LOT 2.2 (F3 + F4) : algorithme du code de commande partagé lui aussi.
@@ -12,6 +13,35 @@ export const ORDER_STATUSES = ['new', 'preparing', 'ready', 'picked', 'cancelled
 // duquel une nouvelle commande est refusée plutôt que de silently écraser.
 export const MAX_ORDERS = 500
 export const MAX_ORDERS_HARD = 2000
+
+// Un identifiant de réservation est opaque, aléatoire côté client et borné. On
+// ne conserve que son empreinte afin qu'une fuite de store/backup ne donne pas
+// de clé de rejeu. UUID v4 ou 192 bits hex produits par le front sont admis.
+const IDEMPOTENCY_KEY_RE = /^[A-Za-z0-9_-]{16,128}$/
+
+function hashReservationValue(value) {
+  return crypto.createHash('sha256').update(String(value)).digest('hex')
+}
+
+function reservationIdentity(userId, idempotencyKey, body) {
+  if (!idempotencyKey) return null
+  if (!IDEMPOTENCY_KEY_RE.test(idempotencyKey)) return { error: 'idempotency' }
+  const scope = userId ? `user:${userId}` : 'guest'
+  // Inclure le contenu métier dans la signature : réutiliser accidentellement
+  // une même clé pour un panier différent renvoie un conflit, jamais l'ancienne
+  // commande silencieusement. Les prix client n'en font pas partie (ils sont
+  // volontairement recalculés côté serveur).
+  const payload = JSON.stringify({
+    scope,
+    name: String(body.name || '').trim(),
+    phone: String(body.phone || ''),
+    wilaya: String(body.wilaya || ''),
+    slot: String(body.slot || ''),
+    day: String(body.day || ''),
+    items: (Array.isArray(body.items) ? body.items : []).map((item) => ({ id: String(item?.id || ''), qty: item?.qty }))
+  })
+  return { scope, keyHash: hashReservationValue(idempotencyKey), requestHash: hashReservationValue(payload) }
+}
 
 export function baseCatalog() {
   return PRODUCTS.map((p) => ({
@@ -80,12 +110,27 @@ export function priceOf(db, productId) {
  * Try to reserve items atomically. Returns { ok, order?, error?, shortages? }.
  * Decrements stock only when every line is available.
  */
-export function placeOrder(db, body, { userId = null, unclaimable = false } = {}) {
+export function placeOrder(db, body, { userId = null } = {}) {
   ensureStock(db)
   if (!db.orders) db.orders = []
 
   const items = Array.isArray(body.items) ? body.items : []
   if (!items.length) return { ok: false, error: 'order' }
+
+  // Idempotence de réservation : une perte de réponse ou un double clic avec
+  // la même clé ne peut ni créer une deuxième commande ni décrémenter le stock
+  // une deuxième fois. Ce test précède tous les contrôles/effets de bord.
+  const reservation = reservationIdentity(userId, String(body.idempotencyKey || ''), body)
+  if (reservation?.error) return { ok: false, error: reservation.error }
+  if (reservation) {
+    const existing = (db.orders || []).find(
+      (order) => order?.idempotencyScope === reservation.scope && order?.idempotencyKeyHash === reservation.keyHash
+    )
+    if (existing) {
+      if (existing.idempotencyRequestHash !== reservation.requestHash) return { ok: false, error: 'idempotency_conflict' }
+      return { ok: true, order: existing, trimmed: [], idempotent: true }
+    }
+  }
 
   // Prix recalculés côté serveur depuis le catalogue (le prix/total envoyé
   // par le client n'est jamais fait confiance).
@@ -106,17 +151,23 @@ export function placeOrder(db, body, { userId = null, unclaimable = false } = {}
   //   visant son id (reproduit en direct → HTTP 201). Le masquage est une
   //   décision du maître, elle doit valoir aussi à la commande.
   const hidden = new Set(Array.isArray(db.meta?.hiddenProductIds) ? db.meta.hiddenProductIds : [])
-  const normalized = []
+  // Une commande peut contenir le même SKU plusieurs fois (fusion de panier,
+  // double clic, client malveillant). Les quantités doivent être consolidées
+  // AVANT le contrôle de stock : vérifier deux fois « reste 1 » puis décrémenter
+  // deux lignes donnait deux articles pour une seule unité réservée.
+  const byProductId = new Map()
   const unknown = []
   const unavailable = []
   for (const i of items) {
     const id = String(i.id || '')
     const price = priceOf(db, id)
+    const rawQty = Number(i.qty)
+    const qty = Number.isFinite(rawQty) ? Math.max(1, Math.floor(rawQty)) : 1
     const line = {
       id,
       sku: String(i.sku || ''),
       name: String(i.name || ''),
-      qty: Math.max(1, Math.floor(Number(i.qty) || 1)),
+      qty,
       price: price == null ? 0 : price
     }
     // Ligne sans id ou id inconnu du serveur : jamais tarifée 0 DA (A2).
@@ -129,8 +180,14 @@ export function placeOrder(db, body, { userId = null, unclaimable = false } = {}
       unavailable.push({ id, name: line.name })
       continue
     }
-    normalized.push(line)
+    const existing = byProductId.get(id)
+    if (existing) {
+      existing.qty += line.qty
+    } else {
+      byProductId.set(id, line)
+    }
   }
+  const normalized = [...byProductId.values()]
   // Rien n'est décrémenté tant qu'un refus est levé — et une seule ligne
   // douteuse suffit à refuser TOUTE la commande (atomicité déjà exigée par le
   // contrôle de stock ci-dessous).
@@ -147,12 +204,6 @@ export function placeOrder(db, body, { userId = null, unclaimable = false } = {}
     if (left < line.qty) shortages.push({ id: line.id, name: line.name, need: line.qty, left })
   }
   if (shortages.length) return { ok: false, error: 'stock', shortages }
-
-  // Commit stock
-  for (const line of normalized) {
-    const left = liveStockOf(db, line.id)
-    setStock(db, line.id, left - line.qty)
-  }
 
   const total = normalized.reduce((s, i) => s + i.qty * i.price, 0)
 
@@ -176,23 +227,22 @@ export function placeOrder(db, body, { userId = null, unclaimable = false } = {}
     at: new Date().toISOString(),
     status: 'new'
   }
-  // LOT 4.4 (R20) : commande passée SANS compte au numéro d'un compte existant.
-  // Elle reste visible au comptoir (c'est une vraie commande) mais n'est pas
-  // « revendicable » : `GET /api/me/orders` et l'annulation client ignorent le
-  // match par téléphone pour elle. Sans ce marquage, n'importe qui pouvait
-  // déposer une commande au numéro d'un tiers — elle apparaissait dans SON
-  // historique, et il pouvait l'annuler.
-  // Absent (= non marqué) veut dire revendicable : les commandes existantes et
-  // celles dont le numéro n'appartient à personne gardent le comportement
-  // habituel (un client qui commande en guest puis crée un compte au même
-  // numéro retrouve bien sa commande).
-  if (unclaimable) order.claimable = false
-  // P16 (#20) : `.slice(0, 500)` jetait en silence la commande la plus
-  // ancienne — de l'historique de comptoir définitivement perdu, sans log ni
-  // retour. On ne retire désormais QUE des commandes terminées
-  // (picked/cancelled), les plus anciennes d'abord, et on remonte la liste.
-  // Au-delà du plafond dur (que des commandes actives), on refuse au lieu de
-  // perdre des données.
+  if (reservation) {
+    order.idempotencyScope = reservation.scope
+    order.idempotencyKeyHash = reservation.keyHash
+    order.idempotencyRequestHash = reservation.requestHash
+  }
+  // AUDIT-2026-09-17 / phase 3 : un numéro simplement déclaré ne prouve pas
+  // qu'un compte le contrôle. En l'absence d'un canal OTP/SMS vérifié, les
+  // commandes guest restent accessibles sur l'appareil qui les a créées mais
+  // ne sont JAMAIS récupérées par correspondance de téléphone sur le serveur.
+  // Cela vaut aussi pour les numéros encore « libres » au moment de l'achat.
+  if (!userId) order.claimable = false
+
+  // Préparer l'historique AVANT toute écriture de stock. L'ancien code refusait
+  // `orders_full` après les décréments : la commande n'était pas enregistrée,
+  // mais les pièces restaient indisponibles. `next` reste local tant que la
+  // capacité n'est pas validée.
   const next = [order, ...(db.orders || [])]
   const trimmed = []
   while (next.length > MAX_ORDERS) {
@@ -207,6 +257,13 @@ export function placeOrder(db, body, { userId = null, unclaimable = false } = {}
     trimmed.push(next.splice(victim, 1)[0].code)
   }
   if (next.length > MAX_ORDERS_HARD) return { ok: false, error: 'orders_full' }
+
+  // Commit final : uniquement après validation agrégée du stock ET de la
+  // capacité. Sous `updateDbAsync`, stock et commande sont écrits ensemble.
+  for (const line of normalized) {
+    const left = liveStockOf(db, line.id)
+    setStock(db, line.id, left - line.qty)
+  }
   db.orders = next
   if (trimmed.length) {
     console.warn(`[pcstar-orders] historique borné à ${MAX_ORDERS} — commandes terminées retirées : ${trimmed.join(', ')}`)
@@ -255,6 +312,26 @@ export function cancelOrder(db, code) {
   order.status = 'cancelled'
   order.cancelledAt = new Date().toISOString()
   return { ok: true, order }
+}
+
+/** Commandes auxquelles une session client a explicitement droit. */
+export function ordersForUser(db, userId) {
+  if (!userId) return []
+  // Le numéro de retrait n'est pas un identifiant d'accès : une ligne guest ne
+  // revient donc jamais simplement parce qu'un profil a saisi le même numéro.
+  return (db.orders || []).filter((order) => order?.userId === userId)
+}
+
+/**
+ * Annulation client atomique : propriété et état sont vérifiés dans le même
+ * mutateur que `cancelOrder`, qui effectue le restock. À appeler sous
+ * updateDb/updateDbAsync, jamais après une prélecture indépendante.
+ */
+export function cancelOwnOrder(db, code, userId) {
+  const current = (db.orders || []).find((order) => order?.code === code)
+  if (!current || !userId || current.userId !== userId) return { ok: false, error: 'not_found' }
+  if (current.status !== 'new' && current.status !== 'pending') return { ok: false, error: 'status' }
+  return cancelOrder(db, code)
 }
 
 // P16 (#19) : avant, seul le statut `cancelled` était gardé — on pouvait

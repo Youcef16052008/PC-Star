@@ -15,7 +15,7 @@ Les changements sont découpés pour qu’un correctif de sécurité urgent ne s
 |---|---:|---|---|
 | 1 — Confinement OAuth | P0 | Désactiver réellement le consentement démo quand `OAUTH_DEMO=0`; ne plus rediriger vers une démo lorsqu’un fournisseur réel n’est pas configuré; tests de non-régression. | Un état OAuth de production ne peut jamais être clôturé par `/demo`; un fournisseur non configuré répond proprement sans créer d’état. |
 | 2 — OAuth réel et cycle de vie des accès | P1 | Ajouter les callbacks Google/Meta réels, échange de code et validation d’identité; expiration effective des sessions et états OAuth sous Neon; empêcher tout lien OAuth du maître; corriger la rotation maître. | OAuth réel aboutit avec un fournisseur de test; états consommés une seule fois et expirés; rotation maître vérifiée après redémarrage. |
-| 3 — Propriété du compte et intégrité des commandes | P1 | Vérifier la possession du téléphone avant la reprise des commandes guest; agrégation des lignes; contrôle de capacité avant décrément; idempotence de réservation; revalidation transactionnelle d’annulation. | Aucun compte ne récupère une commande par simple possession déclarée du numéro; stock et commande restent atomiques dans tous les cas de refus/rejeu. |
+| 3 — Propriété du compte et intégrité des commandes | P1 | Bloquer la reprise guest jusqu’à une preuve OTP réellement disponible; agrégation des lignes; contrôle de capacité avant décrément; idempotence de réservation; revalidation transactionnelle d’annulation. | Aucun compte ne récupère une commande par simple possession déclarée du numéro; stock et commande restent atomiques dans tous les cas de refus/rejeu. |
 | 4 — Catalogue et médias Master | P1/P2 | Corriger le remplacement de galerie, la suppression des anciens fichiers, la résolution Blob et la CSP; valider nombres finis et SKU sur création/patch. | Ajout/retrait de photos ne perd rien et ne laisse pas d’objet géré orphelin; une photo Blob s’affiche sur Vercel; aucune fiche invalide/doublon ne peut être enregistrée. |
 | 5 — Fiabilité production et sauvegardes | P1/P2 | Sauvegarde/export Neon durable, CI réellement exécutée contre Neon, scripts non destructifs ou isolés. | Une restauration Neon est testée; la CI échoue si Neon échoue; les scripts de contrôle ne polluent pas une base partagée. |
 | 6 — Cohérence produit et interface | P2/P3 | Compatibilité mATX/boîtier, noms/SKU de commandes canonisés, date serveur, contrat des panneaux. | Le configurateur n’offre plus de combinaisons impossibles et les vues/exportations restent cohérents. |
@@ -62,3 +62,19 @@ Les changements sont découpés pour qu’un correctif de sécurité urgent ne s
    - `https://<domaine-api-public>/api/oauth/google/callback`
    - `https://<domaine-api-public>/api/oauth/meta/callback`
 3. Exécuter un consentement réel par fournisseur après déploiement, puis retirer/révoquer les sessions émises avant le correctif si l’instance a été exposée. La rotation de `MASTER_PASSWORD` révoque automatiquement les sessions maître; la révocation globale des sessions historiques reste une opération d’administration séparée.
+
+## Phase 3 — Propriété du compte et intégrité des commandes
+
+**Statut : implémentation et tests unitaires ajoutés.**
+
+### Changements livrés
+
+- Le numéro communiqué pour le retrait n’est plus jamais utilisé comme preuve de propriété : `GET /api/me/orders` et l’annulation client ne servent que les commandes dont `userId` correspond déjà à la session. Toutes les commandes guest, y compris l’historique normalisé, portent `claimable: false`.
+- Aucun service OTP/SMS réellement configuré n’existe dans le projet. Plutôt que de simuler une vérification de téléphone, la récupération inter-appareil d’une commande guest est volontairement indisponible. Elle reste visible dans le stockage local de l’appareil guest avant connexion; un futur rattachement devra exiger une preuve OTP effectivement délivrée.
+- Les lignes du même produit sont agrégées avant le contrôle de stock; une quantité totale insuffisante refuse l’intégralité de la réservation sans décrément.
+- Une clé d’idempotence opaque est générée par le client pour chaque intention de réservation. Le serveur ne persiste que ses empreintes, renvoie la commande initiale lors d’un retry identique et refuse une réutilisation de clé pour un panier différent.
+- La capacité maximale de commandes est vérifiée avant toute mutation de stock. L’annulation client revalide maintenant dans la même transaction la propriété de la commande et son statut `new`/`pending` avant le restock.
+
+### Critère de sortie atteint
+
+Un compte ne récupère ni n’annule une commande guest par simple déclaration de numéro; un retry de réservation ne double pas le stock; une commande refusée parce que l’historique est plein ne change pas le stock.
