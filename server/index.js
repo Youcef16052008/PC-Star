@@ -52,7 +52,8 @@ import { rateLimit, clientKey } from './rateLimit.js'
 import { normalizePhone, isDzPhone, phoneCarrier } from './phone.js'
 // P10 (P7-18) : liste connue des wilayas servies par le shop (source partagée
 // src/data.js, déjà importée côté master via PRODUCTS).
-import { PRODUCTS, SLOTS, WILAYAS_NEAR } from '../src/data.js'
+import { BASE_PANELS, PRODUCTS, SLOTS, WILAYAS_NEAR } from '../src/data.js'
+import { normalizeCustomPanels, normalizeHiddenPanelIds } from '../src/panelContract.js'
 // P19 : notification du master (WhatsApp Cloud API + socket Desk).
 import { broadcastDesk, formatOrderMessage, sendWhatsApp, whatsappConfig } from './notify.js'
 // LOT 8.4 (A4) : budgets d'octets partagés avec le client (compression, garde
@@ -1009,8 +1010,8 @@ export async function handler(req, res) {
             phone: orderPhone,
             carrier: phoneCarrier(orderPhone),
             wilaya: orderWilaya,
-            // P9 (P7-4) : « journée » locale du client (validée dans placeOrder)
-            day: body.day || '',
+            // La journée et le code viennent de l'horloge serveur (fuseau du
+            // magasin); `body.day` n'est volontairement jamais transmis.
             payment: 'cash',
             slot: rawSlot,
             // Clé opaque créée par le navigateur avant l'envoi; sa validation et
@@ -1263,22 +1264,22 @@ export async function handler(req, res) {
       let out = null
       await updateDbAsync((db) => {
         if (body.hiddenPanelIds != null) {
-          if (!Array.isArray(body.hiddenPanelIds) || body.hiddenPanelIds.some((x) => typeof x !== 'string')) {
+          const hiddenPanelIds = normalizeHiddenPanelIds(body.hiddenPanelIds, BASE_PANELS)
+          if (!hiddenPanelIds) {
             error = 'panels'
             return db
           }
-          db.meta.hiddenPanelIds = [...new Set(body.hiddenPanelIds)]
+          db.meta.hiddenPanelIds = hiddenPanelIds
         }
         if (body.extraPanels != null) {
-          const okPanels = Array.isArray(body.extraPanels) &&
-            body.extraPanels.every((p) => p && typeof p.id === 'string' && p.id &&
-              p.titles && typeof p.titles === 'object' &&
-              Array.isArray(p.categories) && p.categories.every((c) => typeof c === 'string'))
-          if (!okPanels) {
+          const extraPanels = normalizeCustomPanels(body.extraPanels)
+          if (!extraPanels) {
             error = 'panels'
             return db
           }
-          db.meta.extraPanels = body.extraPanels.slice(0, 12)
+          // Liste canonique : titres nettoyés, catégories existantes, ids
+          // uniques. Aucun 13e panneau n'est tronqué silencieusement.
+          db.meta.extraPanels = extraPanels
         }
         out = { hiddenPanelIds: db.meta.hiddenPanelIds || [], extraPanels: db.meta.extraPanels || [] }
         return db

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Offcanvas } from 'bootstrap'
 import {
+  BASE_PANELS,
   BRANDS_DZ_PRIORITY,
   CATEGORIES,
   PART_LINES,
@@ -39,7 +40,6 @@ import {
   buildWaMessage,
   canCancelHere,
   dropCartLines,
-  localDay,
   mergeServerOrders,
   nextLocalOrderCode,
   orderApiFailure,
@@ -174,17 +174,8 @@ const PICKUP_DEFAULTS = {
 
 // Les rayons de recherche sont délibérément orientés client : les imprimantes,
 // produits reconditionnés, réseau/UPS et mobilier ne sont plus cachés derrière
-// « accessoires » ou « USB ».
-const BASE_PANELS = [
-  { id: 'catalog', titleKey: 'panelCatalog' },
-  { id: 'machines', titleKey: 'panelMachines' },
-  { id: 'printing', titleKey: 'panelPrinting' },
-  { id: 'parts', titleKey: 'panelParts' },
-  { id: 'peripherals', titleKey: 'panelPeripherals' },
-  { id: 'networking', titleKey: 'panelNetworking' },
-  { id: 'lifestyle', titleKey: 'panelLifestyle' },
-  { id: 'deals', titleKey: 'panelDeals' }
-]
+// « accessoires » ou « USB ». `BASE_PANELS` vient de data.js afin que son
+// contrat (et les identifiants masquables côté API) reste unique.
 
 // P9 (P7-6) : UN SEUL AudioContext partagé (créé à la demande), réutilisé à
 // chaque bipe. Avant : `new AudioContext()` par commande — Chrome plafonne à
@@ -1193,9 +1184,8 @@ export default function App() {
       phone: normalizePhone(pickup.phone),
       carrier: phoneCarrier(pickup.phone),
       wilaya: pickup.wilaya,
-      // P9 (P7-4) : « journée » = date LOCALE du client (Oran) — le serveur
-      // l'intègre au code de commande et à l'export CSV (plus de décalage UTC).
-      day: localDay(new Date()),
+      // La date et le code des commandes API sont fixés par le serveur au
+      // fuseau du magasin. Le repli local calcule son propre code hors-ligne.
       payment: 'cash',
       slot: pickup.slot,
       // LOT 5.4 (U4) : `pricedCart`, pas `cart` — le récapitulatif local (repli

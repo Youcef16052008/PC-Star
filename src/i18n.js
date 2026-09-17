@@ -168,6 +168,7 @@ export const dict = {
     masterCreateFail: 'تعذّر إضافة المنتج',
     masterSkuTaken: 'رقم المنتج (SKU) موجود مسبقًا. اختر رقمًا آخر.',
     masterCategoryInvalid: 'الفئة غير معروفة. اختر فئة من القائمة المعروضة.',
+    masterPanelLimit: 'وصلت إلى الحد الأقصى: 12 لوحة مخصصة.',
     masterKindInvalid: 'نوع المنتج غير معروف. اختر نوعًا من القائمة المعروضة.',
     masterActionFail: 'فشلت العملية، أعد المحاولة',
     masterCannotDelete: 'لا يمكن حذف الحساب الرئيسي',
@@ -537,6 +538,7 @@ export const dict = {
     compatCaseOverheat: '{gpu} داخل {box} سيسخن. يلزم علبة ATX شبكية.',
     compatCaseAirflow: '{gpu} سيحصل على تيار هواء ضعيف داخل {box}. خطر السخونة.',
     compatCaseTight: '{gpu} بطاقة سميكة. {box} ضيقة عليها.',
+    compatCaseFormMismatch: '{board} ({boardForm}) لا تدخل في {box} ({boxForm}). اختر صندوقاً أكبر.',
     compatTotalLoad: 'المعالج + البطاقة ≈ {load} واط. هذه التهيئة قد تسخن. علبة شبكية + رادير مزدوج أو ماء 240.',
     compatSocketShort: '{cpu} هو {cpuSocket}. بينما {board} هو {boardSocket}.',
     // ——— P3 i18n : محتوى المتجر ———
@@ -777,6 +779,7 @@ export const dict = {
       'Photo non enregistrée : aucun stockage durable côté serveur (BLOB_READ_WRITE_TOKEN manquant sous Vercel)',
     masterSkuTaken: 'Ce numéro de produit (SKU) existe déjà. Choisissez-en un autre.',
     masterCategoryInvalid: 'Catégorie inconnue. Choisissez une catégorie de la liste.',
+    masterPanelLimit: 'Limite atteinte : 12 panneaux personnalisés maximum.',
     masterKindInvalid: 'Type de produit inconnu. Choisissez un type de la liste.',
     masterCreateFail: 'Échec de la création du produit',
     masterActionFail: 'Action échouée, réessayez',
@@ -1147,6 +1150,7 @@ export const dict = {
     compatCaseOverheat: '{gpu} dans {box} va surchauffer. Il faut un boîtier ATX mesh.',
     compatCaseAirflow: '{gpu} a peu de circulation d’air dans {box}. Risque de surchauffe.',
     compatCaseTight: '{gpu} est une carte épaisse. {box} est trop juste.',
+    compatCaseFormMismatch: '{board} ({boardForm}) ne rentre pas dans {box} ({boxForm}). Choisissez un boîtier plus grand.',
     compatTotalLoad: 'CPU+GPU ~{load} W. Cette config peut surchauffer. Boîtier mesh + double tour ou AIO 240.',
     compatSocketShort: '{cpu} est {cpuSocket}. {board} est {boardSocket}.',
     // ——— P3 i18n : contenu du magasin ———
@@ -1378,6 +1382,7 @@ export const dict = {
     masterSkuPh: 'optional — e.g. HDMI-15M',
     masterSkuTaken: 'This product number (SKU) already exists. Pick another one.',
     masterCategoryInvalid: 'Unknown category. Pick one from the list shown.',
+    masterPanelLimit: 'Limit reached: at most 12 custom panels.',
     masterKindInvalid: 'Unknown product type. Pick one from the list shown.',
     masterCustomerGone: 'Customer deleted',
     // LOT 4.3 (F16) : deleting an account reports what it entailed.
@@ -1753,6 +1758,7 @@ export const dict = {
     compatCaseOverheat: '{gpu} in {box} will overheat. Need a mesh ATX case.',
     compatCaseAirflow: '{gpu} has little airflow in {box}. Risk of overheat.',
     compatCaseTight: '{gpu} is a thick card. {box} is too tight.',
+    compatCaseFormMismatch: '{board} ({boardForm}) does not fit in {box} ({boxForm}). Choose a larger case.',
     compatTotalLoad: 'CPU+GPU ~{load}W. This setup can overheat. Mesh case + dual-tower or 240 AIO.',
     compatSocketShort: '{cpu} is {cpuSocket}. {board} is {boardSocket}.',
     // ——— P3 i18n: store content ———

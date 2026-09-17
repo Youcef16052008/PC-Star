@@ -18,6 +18,21 @@ export const COMPAT_SOCKETS = ['AM4', 'AM5', 'LGA1700', 'LGA1851']
 export const COMPAT_MEMORY = ['DDR3', 'DDR4', 'DDR5']
 export const COMPAT_FORMS = ['ATX', 'mATX', 'Mini-ITX']
 
+// Un boîtier d'un format donné accepte ce format et les cartes plus petites.
+// Le champ `compat.form` est partagé par les cartes mères et boîtiers : cette
+// table rend la direction explicite au lieu de comparer deux chaînes égales.
+const CASE_SUPPORTED_BOARD_FORMS = {
+  ATX: ['ATX', 'mATX', 'Mini-ITX'],
+  mATX: ['mATX', 'Mini-ITX'],
+  'Mini-ITX': ['Mini-ITX']
+}
+
+/** Le boîtier peut-il physiquement accueillir le format de la carte mère ? */
+export function caseFitsMotherboard(caseForm, motherboardForm) {
+  if (!caseForm || !motherboardForm) return true
+  return Boolean(CASE_SUPPORTED_BOARD_FORMS[String(caseForm)]?.includes(String(motherboardForm)))
+}
+
 export function cleanProductText(value, limit) {
   return String(value ?? '').trim().slice(0, limit)
 }

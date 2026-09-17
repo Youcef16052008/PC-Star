@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { BUILDER_SLOTS, STORE, checkCompatibility, money, socketsMatch, specOf, splitWarnings } from './data'
 import { BUILD_PRESETS, applyPreset, buildPowerRecap } from './orderLogic.js'
+import { caseFitsMotherboard } from './productMeta.js'
 import { stockLabel } from './stockLabel.js'
 import PartThumb from './PartThumb.jsx'
 import ContactButton from './ContactPicker.jsx'
@@ -55,11 +56,9 @@ export default function BuilderPage({ t, lang = 'fr', products, build, setBuild,
       list = list.filter((p) => !p.compat?.socket || !board.compat?.socket || socketsMatch(p.compat.socket, board.compat.socket))
     }
     if (slot.key === 'case' && board) {
-      list = list.filter((p) => {
-        if (!board.compat?.form) return true
-        if (board.compat.form === 'mATX') return true
-        return p.compat?.form === 'ATX' || p.compat?.form === board.compat.form
-      })
+      // Un boîtier ATX accepte aussi mATX/Mini-ITX; l'inverse non. La règle
+      // directionnelle partagée évite de proposer un Mini-ITX pour une mATX.
+      list = list.filter((p) => caseFitsMotherboard(p.compat?.form, board.compat?.form))
     }
     if (slot.key === 'gpu') {
       list = list.map((p) => {
@@ -93,9 +92,11 @@ export default function BuilderPage({ t, lang = 'fr', products, build, setBuild,
       const next = { ...prev, [slot.key]: product }
       if (slot.key === 'motherboard') {
         const cpuP = next.cpu
-        if (cpuP && product && cpuP.compat?.socket !== product.compat?.socket) next.cpu = null
+        if (cpuP && product && cpuP.compat?.socket && product.compat?.socket && !socketsMatch(cpuP.compat.socket, product.compat.socket)) next.cpu = null
         const ramP = next.ram
         if (ramP && product && product.compat?.memory && ramP.compat?.memory !== product.compat.memory) next.ram = null
+        const caseP = next.case
+        if (caseP && product && !caseFitsMotherboard(caseP.compat?.form, product.compat?.form)) next.case = null
       }
       const gpuP = next.gpu
       if (gpuP && (slot.key === 'motherboard' || slot.key === 'cpu')) {

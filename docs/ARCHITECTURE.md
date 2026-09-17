@@ -190,6 +190,7 @@ Les galeries master sont des remplacements explicites : les chemins conservés e
 | `BLOB_READ_WRITE_TOKEN` | requis pour tout upload master sur Vercel; les images sont stockées durablement dans Vercel Blob |
 | `DATABASE_URL` | chaîne Neon **pooled**; source de vérité production pour users, commandes, stock et catalogue Master |
 | `CRON_SECRET` | secret Vercel Cron qui autorise le snapshot quotidien `/api/internal/backup` |
+| `PCSTAR_TIME_ZONE` | optionnel; fuseau IANA de la journée opérationnelle (`Africa/Algiers` par défaut) |
 
 **Limites honnêtes :** sans `DATABASE_URL`, l'état local (`store.json`, ou `/tmp` sous Vercel) peut disparaître au cold start; ce mode n'est donc pas un déploiement de production durable. Avec Neon, l'état métier et les snapshots bornés vivent dans Postgres. Les photos master ne tombent jamais dans le repli éphémère : en serverless, l’upload est refusé sans `BLOB_READ_WRITE_TOKEN`; avec ce token, l’objet est durable dans Blob. Le catalogue statique reste disponible même quand la base est injoignable. Détails : [NEON-MIGRATION.md](NEON-MIGRATION.md).
 

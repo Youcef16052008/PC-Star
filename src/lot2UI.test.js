@@ -451,8 +451,9 @@ describe('LOT 2.7 (F11 + B20) — panneaux : l’état client suit la réponse s
 
   /**
    * API simulée, ÉTATFUL comme server/index.js PUT /api/master/panels :
-   * `hiddenPanelIds` dédoublonné, `extraPanels` tronqué à 12, et la réponse
-   * ne porte QUE ces deux champs (d'où la fusion côté client).
+   * le contrat valide/dédoublonne la liste et la réponse ne porte QUE ces deux
+   * champs (d'où la fusion côté client). La limite de 12 est désormais refusée
+   * avant envoi par le client, jamais tronquée silencieusement.
    */
   function stubApi(dbMeta = { hiddenPanelIds: [], extraPanels: twelvePanels.slice() }) {
     const calls = []
@@ -478,7 +479,7 @@ describe('LOT 2.7 (F11 + B20) — panneaux : l’état client suit la réponse s
     return calls
   }
 
-  async function mountMasterApi(meta, onMeta) {
+  async function mountMasterApi(meta, onMeta, setToast = noop) {
     return mount(
       React.createElement(MasterPage, {
         t,
@@ -491,17 +492,18 @@ describe('LOT 2.7 (F11 + B20) — panneaux : l’état client suit la réponse s
         meta,
         onMeta,
         basePanels: BASE_PANELS,
-        setToast: noop,
+        setToast,
         onBack: noop,
         apiOnline: true
       })
     )
   }
 
-  it('13ᵉ panneau : l’état client reflète la troncature serveur (12)', async () => {
+  it('13ᵉ panneau : le client refuse avant l’envoi au lieu d’être tronqué silencieusement', async () => {
     const calls = stubApi()
     const received = []
-    const m = await mountMasterApi(metaWith12(), (x) => received.push(x))
+    const toasts = []
+    const m = await mountMasterApi(metaWith12(), (x) => received.push(x), (message) => toasts.push(message))
     try {
       await click(m.byText('button', t('masterPanels')))
       const form = [...m.host.querySelectorAll('form')].find((f) => clean(f).includes(t('masterPanels')))
@@ -510,20 +512,9 @@ describe('LOT 2.7 (F11 + B20) — panneaux : l’état client suit la réponse s
       await submit(form)
 
       const put = calls.find((c) => c.method === 'PUT' && c.path.endsWith('/api/master/panels'))
-      assert.ok(put, 'PUT /api/master/panels envoyé')
-      assert.equal(put.body.extraPanels.length, 13, 'le client propose bien un 13ᵉ')
-
-      // AVANT : `onMeta(res.meta)` — le meta calculé LOCALEMENT par `addPanel`,
-      // qui contient 13 panneaux. Le comptoir en affichait 13 alors que la base
-      // n'en gardait que 12 : le 13ᵉ disparaissait au rechargement suivant, sans
-      // aucun message.
-      assert.equal(received.length, 1, 'onMeta appelé une fois')
-      assert.equal(received[0].extraPanels.length, 12, 'l’état client doit suivre la troncature serveur')
-      assert.deepEqual(
-        received[0].extraPanels.map((p) => p.id),
-        twelvePanels.map((p) => p.id),
-        'ce sont les 12 panneaux conservés par le serveur'
-      )
+      assert.equal(put, undefined, 'aucun PUT : le 13ᵉ panneau est refusé localement')
+      assert.equal(received.length, 0, 'le meta ne change pas sur un refus local')
+      assert.ok(toasts.includes(t('masterPanelLimit')), 'la limite est expliquée au master')
     } finally {
       await m.unmount()
       globalThis.fetch = offlineFetch

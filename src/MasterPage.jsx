@@ -416,7 +416,10 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, ma
   async function submitPanel(e) {
     e.preventDefault()
     const res = addPanel(meta, { titles: panelTitle, categories: [panelCat] })
-    if (!res.ok) return
+    if (!res.ok) {
+      setToast(t(res.error === 'panel_limit' ? 'masterPanelLimit' : 'masterActionFail'))
+      return
+    }
     if (apiOnline) {
       const r = await api.putPanels({ extraPanels: [...(meta.extraPanels || []), res.panel] })
       if (!r.ok) {

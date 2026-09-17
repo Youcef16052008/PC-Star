@@ -121,3 +121,22 @@ Le remplacement d’une galerie ne laisse pas de fichier local géré orphelin; 
 ### Critère de sortie atteint côté code
 
 Le chemin de sauvegarde suit le driver réellement actif; les scripts mutateurs exigent une intention explicite ou une branche de test marquée isolée; le workflow contient un test réel snapshot → mutation → restauration qui fait échouer la CI si Neon échoue.
+
+## Phase 6 — Cohérence produit et interface
+
+**Statut : implémentation et tests de logique ajoutés. Les tests DOM/HTTP complets restent conditionnés aux dépendances `jsdom`/`ws` absentes de cet environnement.**
+
+### Changements livrés
+
+- La relation boîtier → carte mère est désormais directionnelle et unique : un boîtier ATX accepte ATX/mATX/Mini-ITX, un mATX accepte mATX/Mini-ITX, et un Mini-ITX n’accepte que Mini-ITX. Le Builder ne propose plus un Mini-ITX pour une carte mATX et retire un boîtier devenu incompatible après changement de carte mère.
+- Les lignes de commande sont construites depuis l’id catalogue : SKU, nom et prix viennent du produit/override Master, jamais des libellés falsifiables envoyés par le navigateur. La normalisation répare les noms/SKU historiques lorsque l’id existe encore, sans modifier leurs prix historiques.
+- La date opérationnelle est produite côté serveur dans le fuseau `Africa/Algiers` (override `PCSTAR_TIME_ZONE` possible). `body.day` ne peut plus créer un code futur ou antidaté; les commandes existantes conservent leur jour déjà enregistré pour les exports historiques.
+- Les panneaux ont un contrat partagé API/local : ids `panel-*` sûrs et uniques, trois titres non vides bornés, une à quatre catégories connues, maximum 12 panneaux. Un treizième est refusé avec un message plutôt que tronqué. La migration garde les entrées historiques valides et purge seulement les panneaux/masques fantômes.
+
+### Action de déploiement requise
+
+Déployer le serveur et le client ensemble. Au premier démarrage, la normalisation persistera le nettoyage des métadonnées de panneaux et des libellés de lignes encore rattachés à un produit catalogue; vérifier ce diff sur une sauvegarde Neon/staging avant la production.
+
+### Critère de sortie atteint côté code
+
+Le configurateur bloque les formats boîtier/carte mère impossibles; le code de commande est daté par le serveur du magasin; les tickets, CSV et notifications utilisent des noms/SKU catalogue et les panneaux rendus par les appareils suivent le même contrat.

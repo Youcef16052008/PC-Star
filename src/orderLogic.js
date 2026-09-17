@@ -150,9 +150,10 @@ export function waNumber(phone) {
 }
 
 /**
- * P9 (P7-4) : date LOCALE (YYYY-MM-DD) de `date` — unique référence de la
- * « journée » du shop (création de commande + export CSV). Avant : le client
- * envoyait la date UTC (toISOString) → décalage d'une heure par jour en Oran.
+ * Date locale (YYYY-MM-DD) du navigateur, uniquement pour le code du repli
+ * hors-ligne et le filtre « aujourd'hui » du Desk. Les commandes API utilisent
+ * désormais `serverDay()` (fuseau du magasin) : le navigateur ne peut pas
+ * imposer la date d'une commande persistée.
  */
 export function localDay(date = new Date()) {
   const y = date.getFullYear()

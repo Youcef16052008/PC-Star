@@ -430,18 +430,16 @@ opérationnelle · 🟡 = robustesse · ⚪ = cosmétique / contrainte document�
 - **Solution** : dans le même effet, `if (!user) { setPickup({ name: '', phone: '',
   wilaya: 'Oran', slot: '' }); return }`.
 
-### 🟠 P7-4. Export CSV « aujourd'hui » : date UTC vs date locale (1 h par jour en Oran) ✅ corrigé (P9)
-- **Où** : `src/DeskPage.jsx:115` vs `server/catalog.js` (`makeOrderCode`).
-- **Mécanisme** : le client envoie `day = new Date().toISOString().slice(0,10)`
-  (**UTC**), alors que le code de commande est daté à la date **locale du
-  serveur**. Depuis Oran (UTC+1), entre **00:00 et 01:00** la « journée » UTC ne
-  correspond pas à la journée locale : les commandes de cette heure portent le
-  code du jour précédent et **disparaissent de l'export « aujourd'hui »**.
-- **Solution** : source de vérité unique — à la création, stocker le champ
-  `order.day` (= date intégrée au code) et filtrer le CSV dessus
-  (`ordersToCsv` compare `o.day`) ; le client envoie `day=today` et le serveur
-  résout « today » dans **sa** locale (ou rien = export complet). Filtre client
-  et code partagent alors la même date par construction.
+### 🟠 P7-4. Export CSV « aujourd'hui » : date UTC vs date locale (1 h par jour en Oran) ✅ corrigé (P9, renforcé phase 6)
+- **Où** : `src/DeskPage.jsx` vs `server/catalog.js` (`serverDay`, `makeOrderCode`).
+- **Mécanisme historique** : le navigateur pouvait envoyer une date UTC, puis
+  toute date `YYYY-MM-DD` était acceptée à la création. Entre minuit et 01:00 à
+  Oran, la journée UTC diffère; pire, un client pouvait futuriser ou antidater
+  un code.
+- **Solution actuelle** : `order.day` et le code sont produits exclusivement
+  par le serveur au fuseau `Africa/Algiers` (`PCSTAR_TIME_ZONE` configurable),
+  puis le CSV filtre sur ce champ. La date demandée par le navigateur n'est plus
+  transmise à `placeOrder`; les lignes historiques gardent leur `day` enregistré.
 
 ### 🟠 P7-5. `GET /api/meta` publique — fuite des produits masqués ✅ corrigé (P9)
 - **Où** : `server/index.js:624`.
@@ -651,21 +649,16 @@ avec leur solution, non implémentés).
 
 ## P9 — Correction des 5 bugs opérationnels (P7-4 → P7-8)
 
-### P7-4 — La « journée » du shop = date locale du client, unique référence
-- Nouveau helper pur `localDay()` (`src/orderLogic.js`) — date locale
-  `YYYY-MM-DD`, jamais UTC.
-- `reserve()` (`App.jsx`) envoie `day: localDay()` avec la commande ; la route
-  `POST /api/orders` (`server/index.js`) la transmet à `placeOrder` qui la
-  **valide** (`/^\d{4}-\d{2}-\d{2}$/`, repli date locale serveur sinon) et :
-  - la stocke sur la commande (`order.day`) ;
-  - l'intègre au **code** : `makeOrderCode(db, dayStr)` → `PS-<journée>-NNNN`
-    (la séquence continue sur cette journée).
-- `ordersToCsv` filtre sur `o.day` (repli `o.at` pour les commandes legacy).
-- `DeskPage` exporte avec `localDay()` (avant : `toISOString()` = UTC).
-- **Vérifié en live** : commande `day: 2027-01-05` → code `PS-20270105-0001`,
-  présente dans l'export `?day=2027-01-05`, absente de l'export du jour courant.
-- Tests : 5 cas (localDay, placeOrder day valide/invalide, séquence par
-  journée, CSV Oran 00h30 vs legacy).
+### P7-4 — La « journée » du shop = date opérationnelle serveur, unique référence *(renforcé phase 6)*
+- `serverDay()` (`server/catalog.js`) rend `YYYY-MM-DD` dans
+  `Africa/Algiers`, même si le runtime Vercel est en UTC. `PCSTAR_TIME_ZONE`
+  permet l'installation dans une autre ville.
+- `reserve()` ne transmet plus `day`; `placeOrder` écrit la valeur serveur et
+  l'intègre au **code** `PS-<journée>-NNNN`. Un `body.day` futur, historique ou
+  malformé ne change donc rien.
+- `ordersToCsv` filtre toujours sur `o.day` (repli `o.at` pour les commandes
+  legacy) et `DeskPage` demande le jour local pour son bouton « aujourd'hui ».
+- Tests : passage UTC→Oran, date client ignorée, séquence et CSV legacy.
 
 ### P7-5 — `GET /api/meta` publique réduite aux panneaux
 - La route publique ne renvoie plus que `{ extraPanels, hiddenPanelIds }`

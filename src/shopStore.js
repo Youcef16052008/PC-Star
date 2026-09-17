@@ -32,6 +32,7 @@ const MAX_SAVED_SEARCHES = 10
 // (cookies tiers refusés, navigation privée, quota dépassé), ils levaient un
 // `SecurityError` pendant le rendu.
 import { asSafeStorage, safeStorage } from './safeStorage.js'
+import { normalizeCustomPanel, normalizeCustomPanels, normalizeHiddenPanelIds } from './panelContract.js'
 
 export function hashPass(password) {
   let h = 2166136261
@@ -476,23 +477,25 @@ export function setProductPhotos(meta, id, photos) {
 }
 
 export function addPanel(meta, { titles, categories } = {}) {
-  const cats = (categories || []).filter(Boolean)
-  if (!cats.length) return { ok: false, error: 'panel' }
-  const titlesSafe = {
-    ar: String(titles?.ar || titles?.fr || titles?.en || 'لوحة').trim(),
-    fr: String(titles?.fr || titles?.en || titles?.ar || 'Panneau').trim(),
-    en: String(titles?.en || titles?.fr || titles?.ar || 'Panel').trim()
-  }
-  const panel = {
+  // Les traductions absentes reprennent une valeur renseignée, comme avant;
+  // le contrat partagé impose ensuite des titres non vides et bornés, une
+  // catégorie catalogue connue et un identifiant de panneau sûr.
+  const panel = normalizeCustomPanel({
     id: nowId('panel'),
-    titles: titlesSafe,
-    categories: cats,
-    custom: true
-  }
+    titles: {
+      ar: String(titles?.ar || titles?.fr || titles?.en || 'لوحة').trim(),
+      fr: String(titles?.fr || titles?.en || titles?.ar || 'Panneau').trim(),
+      en: String(titles?.en || titles?.fr || titles?.ar || 'Panel').trim()
+    },
+    categories
+  })
+  if (!panel) return { ok: false, error: 'panel' }
+  const extraPanels = normalizeCustomPanels([...(meta.extraPanels || []), panel])
+  if (!extraPanels) return { ok: false, error: 'panel_limit' }
   return {
     ok: true,
     panel,
-    meta: { ...meta, extraPanels: [...(meta.extraPanels || []), panel] }
+    meta: { ...meta, extraPanels }
   }
 }
 
@@ -517,8 +520,12 @@ export function buildShopView(baseProducts, baseLines, basePanels, meta) {
     ...baseProducts.filter((p) => !hiddenIds.has(p.id)).map(withPhotos),
     ...(meta.extraProducts || []).filter((p) => !hiddenIds.has(p.id)).map(withPhotos)
   ]
-  const hiddenPanels = new Set(meta.hiddenPanelIds || [])
-  const extraLines = (meta.extraPanels || []).flatMap((panel) =>
+  // Les données historiques ou récupérées hors API sont traitées comme non
+  // fiables avant de construire les callbacks `match`. Une mauvaise catégorie
+  // ne peut ainsi plus créer un panneau ou une ligne fantôme côté vitrine.
+  const hiddenPanels = new Set(normalizeHiddenPanelIds(meta.hiddenPanelIds || [], basePanels) || [])
+  const customPanels = normalizeCustomPanels(meta.extraPanels || []) || []
+  const extraLines = customPanels.flatMap((panel) =>
     panel.categories.map((cat) => ({
       id: `${panel.id}-${cat}`,
       label: cat,
@@ -526,7 +533,7 @@ export function buildShopView(baseProducts, baseLines, basePanels, meta) {
       match: (p) => p.category === cat
     }))
   )
-  const extraPanels = (meta.extraPanels || []).map((panel) => ({
+  const extraPanels = customPanels.map((panel) => ({
     id: panel.id,
     titleKey: null,
     titles: panel.titles,

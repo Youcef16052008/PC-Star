@@ -2,6 +2,7 @@ import { EXTRA } from './extraCatalog.js'
 import { DZ_EXTRA, DZ_GUIDES, WILAYAS_NEAR, DZ_BRANDS } from './dzCatalog.js'
 import { CATALOG_EXTENSIONS } from './catalogExtensions.js'
 import { ensureProductPhotos } from './productPhotos.js'
+import { caseFitsMotherboard } from './productMeta.js'
 
 export { DZ_GUIDES, WILAYAS_NEAR, DZ_BRANDS }
 
@@ -65,6 +66,19 @@ export const STORE_LINKS = [
 // mais il n'existe plus de seconde définition à faire diverger (l'ancien
 // `money()` figeait `fr-DZ` quelle que soit la langue).
 export { money } from './format.js'
+
+// Contrat des panneaux de navigation de base. Il est partagé avec le serveur
+// pour que `hiddenPanelIds` ne puisse pas contenir des identifiants fantômes.
+export const BASE_PANELS = [
+  { id: 'catalog', titleKey: 'panelCatalog' },
+  { id: 'machines', titleKey: 'panelMachines' },
+  { id: 'printing', titleKey: 'panelPrinting' },
+  { id: 'parts', titleKey: 'panelParts' },
+  { id: 'peripherals', titleKey: 'panelPeripherals' },
+  { id: 'networking', titleKey: 'panelNetworking' },
+  { id: 'lifestyle', titleKey: 'panelLifestyle' },
+  { id: 'deals', titleKey: 'panelDeals' }
+]
 
 export const SLOTS = [
   '10:30',
@@ -919,6 +933,19 @@ export function checkCompatibility(items) {
       rams.forEach((ram) => {
         if (board.compat.memory && ram.compat.memory && board.compat.memory !== ram.compat.memory) {
           W('compatRamMismatch', { ram: ram.name, ramMem: ram.compat.memory, board: board.name, boardMem: board.compat.memory }, true)
+        }
+      })
+    })
+  }
+
+  // Une carte mère mATX entre dans un boîtier ATX ou mATX, jamais dans un
+  // Mini-ITX. L'ancien filtre retournait `true` dès que la carte était mATX,
+  // donc il proposait précisément ce montage physiquement impossible.
+  if (boards.length && cases.length) {
+    boards.forEach((board) => {
+      cases.forEach((box) => {
+        if (!caseFitsMotherboard(box.compat?.form, board.compat?.form)) {
+          W('compatCaseFormMismatch', { board: board.name, boardForm: board.compat?.form, box: box.name, boxForm: box.compat?.form }, true)
         }
       })
     })

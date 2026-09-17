@@ -17,7 +17,7 @@ import {
   pickupForUser,
   BUILD_PRESETS
 } from './orderLogic.js'
-import { makeOrderCode as makeServerOrderCode, placeOrder, cancelOrder, liveStockOf, priceOf, purgeUser, setOrderStatus } from '../server/catalog.js'
+import { makeOrderCode as makeServerOrderCode, placeOrder, cancelOrder, liveStockOf, priceOf, purgeUser, serverDay, setOrderStatus } from '../server/catalog.js'
 import { ordersToCsv } from '../server/masterApi.js'
 import { PRODUCTS } from './data.js'
 
@@ -295,33 +295,33 @@ describe('P8 (P7-3) — pickupForUser : reset au logout, reprise au login', () =
   })
 })
 
-describe('P9 (P7-4) — la « journée » = date locale du client, partagée code+CSV', () => {
-  it('localDay : date locale YYYY-MM-DD (jamais UTC)', () => {
-    // 2026-09-11T23:30 UTC = 2026-09-12T00:30 à Oran (UTC+1) :
-    // le client oranaise DOIT produire 2026-09-12 (sa journée), pas 2026-09-11
+describe('Phase 6 — journée de commande côté serveur, code+CSV cohérents', () => {
+  it('localDay reste utile au repli local, mais serverDay est calé sur le fuseau du magasin', () => {
     assert.equal(localDay(new Date(2026, 8, 12, 0, 30)), '2026-09-12')
-    assert.equal(localDay(new Date(2026, 8, 1, 23, 59)), '2026-09-01')
+    // 23:30 UTC appartient au lendemain en Afrique/Alger.
+    assert.equal(serverDay(new Date('2026-09-11T23:30:00.000Z')), '2026-09-12')
   })
 
-  it('placeOrder : body.day valide → stocké + intégré au code', () => {
+  it('placeOrder ignore body.day : seul le jour du serveur date le code', () => {
     const id = PRODUCTS[0].id
     const db = { orders: [], stock: { [id]: 2 }, meta: {} }
+    const expectedDay = serverDay()
     const ok = placeOrder(
       db,
       {
         name: 'T',
         phone: '0550123456',
-        day: '2026-12-25',
+        day: '2099-12-25',
         items: [{ id, sku: 'X', name: 'P', qty: 1, price: 1000 }]
       },
       {}
     )
     assert.equal(ok.ok, true)
-    assert.equal(ok.order.day, '2026-12-25')
-    assert.equal(ok.order.code, 'PS-20261225-0001')
+    assert.equal(ok.order.day, expectedDay)
+    assert.equal(ok.order.code, `PS-${expectedDay.replaceAll('-', '')}-0001`)
   })
 
-  it('placeOrder : day invalide/absent → repli date locale serveur (jamais crash)', () => {
+  it('placeOrder : day invalide/absent → toujours la date serveur (jamais crash)', () => {
     const id = PRODUCTS[0].id
     const db = { orders: [], stock: { [id]: 2 }, meta: {} }
     const ok = placeOrder(

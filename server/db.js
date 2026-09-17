@@ -4,7 +4,9 @@ import { fileURLToPath } from 'node:url'
 import crypto from 'node:crypto'
 // LOT 8.2 (A2) : liste des ids connus du catalogue de base — sert à repérer les
 // entrées orphelines de `db.stock` / `productOverrides` (voir `purgeOrphanCatalogRefs`).
-import { PRODUCTS } from '../src/data.js'
+import { BASE_PANELS, PRODUCTS } from '../src/data.js'
+import { sanitizeLegacyCustomPanels, sanitizeLegacyHiddenPanelIds } from '../src/panelContract.js'
+import { productForOrder } from './catalog.js'
 // LOT 8.7 (A7) : écriture atomique **et durable** (fsync avant rename, puis
 // fsync du répertoire). Le couple tmp+rename seul ne garantissait que
 // l'atomicité : après coupure, `store.json` pouvait être vide ou tronqué.
@@ -424,6 +426,20 @@ export function normalizeDb(db) {
     db.meta = emptyDb().meta
     changed = true
   }
+  // Phase 6 : les panneaux ont un contrat partagé avec la vitrine. Une base
+  // héritée pouvait contenir une catégorie absente, un id dupliqué ou un masque
+  // sans panneau correspondant — le front finissait alors avec des filtres
+  // fantômes. La migration garde les entrées valides et purge le reste une fois.
+  const panels = sanitizeLegacyCustomPanels(db.meta.extraPanels)
+  if (JSON.stringify(db.meta.extraPanels || []) !== JSON.stringify(panels)) {
+    db.meta.extraPanels = panels
+    changed = true
+  }
+  const hiddenPanels = sanitizeLegacyHiddenPanelIds(db.meta.hiddenPanelIds, BASE_PANELS)
+  if (JSON.stringify(db.meta.hiddenPanelIds || []) !== JSON.stringify(hiddenPanels)) {
+    db.meta.hiddenPanelIds = hiddenPanels
+    changed = true
+  }
   // P16 (#8) : les démos sont injectées UNE fois, au premier démarrage, puis
   // marquées. Avant, ce `forEach` tournait à chaque lecture : un
   // `DELETE /api/customers/demo-karim` renvoyait 200 et le compte revenait à la
@@ -515,6 +531,26 @@ export function normalizeDb(db) {
       if (o.userId == null && o.claimable !== false) {
         o.claimable = false
         changed = true
+      }
+      // Les tickets historiques portaient le nom/SKU soumis par le navigateur.
+      // Quand l'id existe toujours au catalogue, on répare ces libellés sans
+      // toucher au prix réellement convenu ni aux anciennes références retirées.
+      if (Array.isArray(o.items)) {
+        for (const item of o.items) {
+          if (!item || typeof item !== 'object') continue
+          const product = productForOrder(db, item.id)
+          if (!product) continue
+          const sku = String(product.sku || item.id || '')
+          const name = String(product.name || item.id || '')
+          if (item.sku !== sku) {
+            item.sku = sku
+            changed = true
+          }
+          if (item.name !== name) {
+            item.name = name
+            changed = true
+          }
+        }
       }
     }
   }

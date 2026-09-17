@@ -320,25 +320,28 @@ describe('P9 — bugs opérationnels (P7-4 / P7-5 / P7-8)', () => {
     assert.equal(putAnon.status, 404)
   })
 
-  it('P7-4 : commande avec « journée » locale → code daté à cette journée + CSV cohérent', async () => {
+  it('Phase 6 : body.day ne peut pas antidater/futuriser le code de commande', async () => {
     const master = await call('POST', '/api/auth/login', {
       body: { email: TEST_MASTER_EMAIL, password: TEST_MASTER_PASSWORD }
     })
-    // journée future fixe : le code DOIT porter cette date (pas la date serveur)
-    const day = '2027-01-05'
+    const forgedDay = '2099-01-05'
     const ok = await call('POST', '/api/orders', {
       body: {
         name: 'Jour Test',
         phone: '0550999888',
-        day,
+        day: forgedDay,
         wilaya: 'Oran',
         slot: '14:00',
-        items: [{ id: 'ssd-1t', sku: 'ssd-1t', name: 'SSD 1 To', qty: 1, price: 9900 }]
+        items: [{ id: 'ssd-1t', sku: 'faux-sku', name: 'Faux nom', qty: 1, price: 9900 }]
       }
     })
     assert.equal(ok.status, 201)
-    assert.equal(ok.data.order.day, day)
-    assert.ok(ok.data.order.code.startsWith('PS-20270105-'), `code = ${ok.data.order.code}`)
+    assert.notEqual(ok.data.order.day, forgedDay)
+    assert.ok(ok.data.order.code.startsWith(`PS-${ok.data.order.day.replaceAll('-', '')}-`), `code = ${ok.data.order.code}`)
+    // SKU et nom sont le référentiel catalogue, pas les libellés du navigateur.
+    const product = PRODUCTS.find((p) => p.id === 'ssd-1t')
+    assert.equal(ok.data.order.items[0].sku, product.sku)
+    assert.equal(ok.data.order.items[0].name, product.name)
     // annulée pour ne pas polluer le stock
     const cancel = await call('POST', `/api/orders/${ok.data.order.code}/cancel`, { token: master.data.token })
     assert.equal(cancel.status, 200)

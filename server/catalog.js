@@ -37,7 +37,6 @@ function reservationIdentity(userId, idempotencyKey, body) {
     phone: String(body.phone || ''),
     wilaya: String(body.wilaya || ''),
     slot: String(body.slot || ''),
-    day: String(body.day || ''),
     items: (Array.isArray(body.items) ? body.items : []).map((item) => ({ id: String(item?.id || ''), qty: item?.qty }))
   })
   return { scope, keyHash: hashReservationValue(idempotencyKey), requestHash: hashReservationValue(payload) }
@@ -92,18 +91,24 @@ export function setStock(db, productId, qty) {
 }
 
 /**
- * Prix de référence d'un produit, côté serveur uniquement :
- * override master (productOverrides) > produit master (extraProducts) > catalogue de base.
- * Retourne null si l'id est inconnu.
+ * Référence catalogue canonique pour une ligne de commande : l'identifiant,
+ * SKU et nom envoyés par un navigateur ne sont jamais une source de vérité.
+ * Les overrides Master s'appliquent aux produits de base, comme dans la vue
+ * publique; un produit ajouté porte déjà son propre libellé à jour.
  */
+export function productForOrder(db, productId) {
+  const id = String(productId || '')
+  const extra = (db.meta?.extraProducts || []).find((product) => product?.id === id)
+  if (extra) return extra
+  const base = PRODUCTS.find((product) => product.id === id)
+  if (!base) return null
+  return { ...base, ...(db.meta?.productOverrides?.[id] || {}) }
+}
+
+/** Prix de référence d'un produit, côté serveur uniquement. */
 export function priceOf(db, productId) {
-  const ov = db.meta?.productOverrides?.[productId]
-  if (ov && ov.price != null) return Math.max(0, Number(ov.price) || 0)
-  const extra = (db.meta?.extraProducts || []).find((p) => p.id === productId)
-  if (extra) return Math.max(0, Number(extra.price) || 0)
-  const base = PRODUCTS.find((p) => p.id === productId)
-  if (base) return Math.max(0, Number(base.price) || 0)
-  return null
+  const product = productForOrder(db, productId)
+  return product ? Math.max(0, Number(product.price) || 0) : null
 }
 
 /**
@@ -160,19 +165,25 @@ export function placeOrder(db, body, { userId = null } = {}) {
   const unavailable = []
   for (const i of items) {
     const id = String(i.id || '')
-    const price = priceOf(db, id)
+    const product = productForOrder(db, id)
+    const price = product ? Math.max(0, Number(product.price) || 0) : null
     const rawQty = Number(i.qty)
     const qty = Number.isFinite(rawQty) ? Math.max(1, Math.floor(rawQty)) : 1
+    // Le client ne choisit que l'id et la quantité. Conserver son `name`/`sku`
+    // rendait le ticket, le CSV et WhatsApp falsifiables (« RTX 4090 » pour une
+    // souris) et incohérents après un renommage Master.
     const line = {
       id,
-      sku: String(i.sku || ''),
-      name: String(i.name || ''),
+      sku: String(product?.sku || id),
+      name: String(product?.name || id),
       qty,
       price: price == null ? 0 : price
     }
     // Ligne sans id ou id inconnu du serveur : jamais tarifée 0 DA (A2).
     if (!id || price == null) {
-      unknown.push({ id, name: line.name })
+      // Ce nom ne sert qu'au message de refus (la ligne ne sera jamais
+      // persistée); le garder rend l'erreur compréhensible au client.
+      unknown.push({ id, name: String(i?.name || id) })
       continue
     }
     // Produit retiré de la vente par le maître : pas commandable (A1).
@@ -207,10 +218,11 @@ export function placeOrder(db, body, { userId = null } = {}) {
 
   const total = normalized.reduce((s, i) => s + i.qty * i.price, 0)
 
-  // P9 (P7-4) : « journée » = date LOCALE du client (Oran), validée côté
-  // serveur ; le code de commande et l'export CSV partagent cette date
-  // (avant : date locale du serveur = UTC sur Vercel → décalage 1 h).
-  const day = /^\d{4}-\d{2}-\d{2}$/.test(String(body.day || '')) ? String(body.day) : localDayOf(new Date())
+  // La journée d'une commande est une donnée serveur, pas un champ du panier.
+  // Un client pouvait auparavant choisir n'importe quel YYYY-MM-DD (2099,
+  // historique, ou une journée déjà exportée) et fausser les codes/exports.
+  // Le fuseau du magasin est explicite, car Vercel tourne généralement en UTC.
+  const day = serverDay()
 
   const order = {
     code: makeOrderCode(db, day),
@@ -271,18 +283,31 @@ export function placeOrder(db, body, { userId = null } = {}) {
   return { ok: true, order, trimmed }
 }
 
-/** Date locale (YYYY-MM-DD) d'un Date — équivalent serveur de `localDay`. */
-function localDayOf(d) {
-  const y = d.getFullYear()
-  const m = String(d.getMonth() + 1).padStart(2, '0')
-  const day = String(d.getDate()).padStart(2, '0')
-  return `${y}-${m}-${day}`
+/**
+ * Journée opérationnelle du magasin au fuseau d'Oran. `Date#getDate()` suit
+ * le fuseau du processus (UTC sur Vercel), donc ne doit pas servir aux codes
+ * de commande. PCSTAR_TIME_ZONE permet une installation dans une autre ville,
+ * sans accepter qu'un navigateur impose sa date.
+ */
+export function serverDay(date = new Date(), timeZone = process.env.PCSTAR_TIME_ZONE || 'Africa/Algiers') {
+  try {
+    const parts = new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(date)
+    const fields = Object.fromEntries(parts.filter((part) => part.type !== 'literal').map((part) => [part.type, part.value]))
+    return `${fields.year}-${fields.month}-${fields.day}`
+  } catch {
+    // Une valeur PCSTAR_TIME_ZONE mal configurée ne rend pas la réservation
+    // impossible : le repli reste la date du SERVEUR, jamais body.day.
+    const year = date.getUTCFullYear()
+    const month = String(date.getUTCMonth() + 1).padStart(2, '0')
+    const day = String(date.getUTCDate()).padStart(2, '0')
+    return `${year}-${month}-${day}`
+  }
 }
 
 /**
  * P9 (P7-4) : code PS-YYYYMMDD-NNNN daté à la « journée » de la commande
- * (date locale du client transmise par `placeOrder`, sinon date locale du
- * serveur). `dayStr` : 'YYYY-MM-DD' valide.
+ * (date opérationnelle du serveur, fuseau du magasin). `dayStr` :
+ * 'YYYY-MM-DD' valide.
  *
  * LOT 2.2 (F3 + F4) : la séquence n'est plus `sameDay.length + 1` mais le
  * **max** des séquences du jour + 1, via `nextOrderCode` — la fonction partagée

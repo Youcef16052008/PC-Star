@@ -6,7 +6,8 @@ import {
   placeOrder,
   deleteOrder,
   cancelOrder,
-  liveStockOf
+  liveStockOf,
+  serverDay
 } from '../server/catalog.js'
 import {
   createProduct,
@@ -16,7 +17,7 @@ import {
   sanitizeProductPatch,
   updateProduct
 } from '../server/masterApi.js'
-import { mergeServerOrders, nextLocalOrderCode, nextOrderCode } from './orderLogic.js'
+import { mergeServerOrders, nextOrderCode } from './orderLogic.js'
 import { PRODUCTS } from './data.js'
 
 // ---------------------------------------------------------------------------
@@ -48,7 +49,10 @@ function emptyDb() {
   }
 }
 
-const DAY = '2026-09-15'
+// Les commandes serveur portent la journée opérationnelle réelle. La constante
+// reste stable à l'intérieur du processus de test tout en ne permettant plus
+// de présumer qu'un body.day imposera une date historique.
+const DAY = serverDay()
 
 function place(db, over = {}) {
   return placeOrder(db, {
@@ -102,16 +106,17 @@ describe('LOT 2.2 (F3 + F4) — code de commande : séquence par MAX, algorithme
     assert.ok(all.includes(b.order.code), 'la commande annulée reste dans l’historique')
   })
 
-  it('le serveur et le repli local dérivent du MÊME algorithme', () => {
-    // F4 : `nextLocalOrderCode` (max + 1) côté client, `makeOrderCode`
-    // (count + 1) côté serveur — deux vérités pour un même code.
+  it('le serveur et le repli local utilisent le même algorithme pour une même journée', () => {
+    // Le serveur choisit maintenant lui-même sa journée; le repli local garde
+    // sa date navigateur uniquement hors ligne. À journée égale, tous deux
+    // délèguent bien à `nextOrderCode` (max + 1, et non longueur + 1).
     const db = emptyDb()
     place(db)
     place(db)
     deleteOrder(db, `PS-${DAY.replace(/-/g, '')}-0001`)
 
     const serverCode = makeOrderCode(db, DAY)
-    const localCode = nextLocalOrderCode(db.orders.map((o) => o.code), new Date(2026, 8, 15, 12))
+    const localCode = nextOrderCode(db.orders.map((o) => o.code), DAY)
     const sharedCode = nextOrderCode(db.orders.map((o) => o.code), DAY)
     assert.equal(serverCode, localCode, 'serveur et client divergent encore')
     assert.equal(serverCode, sharedCode)
