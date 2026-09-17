@@ -57,11 +57,14 @@ import { broadcastDesk, formatOrderMessage, sendWhatsApp, whatsappConfig } from 
 // LOT 8.4 (A4) : budgets d'octets partagés avec le client (compression, garde
 // d'envoi) et détection de l'environnement serverless.
 import { LOCAL_MAX_BODY_BYTES, MAX_UPLOAD_BODY_BYTES, VERCEL_MAX_BODY_BYTES } from '../src/limits.js'
-import { IS_SERVERLESS } from './blobStore.js'
+import { IS_SERVERLESS, safeUploadName } from './blobStore.js'
 import { attachDeskSocket } from './deskSocket.js'
 import {
   backupStore,
+  cleanupUnreferencedUploads,
   createProduct,
+  currentProductPhotos,
+  mergeProductPhotos,
   hideProductMaster,
   listMasterProducts,
   ordersToCsv,
@@ -124,7 +127,10 @@ function send(res, status, body, headers = {}) {
     // protection XSS. La CSP de l'application elle-même est dans vercel.json.
     'Content-Security-Policy':
       "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'self'; " +
-      "script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; " +
+      // La redirection /api/upload-file vers le CDN Blob est elle aussi évaluée
+      // par img-src : l'autoriser strictement évite les photos cassées après un
+      // cold start tout en ne permettant aucun autre hôte d'images.
+      "script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://*.public.blob.vercel-storage.com; " +
       "connect-src 'self'; form-action 'self'",
     ...headers
   })
@@ -313,6 +319,12 @@ async function savePhotoDataUrlsSafe(productId, dataUrls) {
     console.error('[pcstar] échec upload photo :', String((err && err.message) || err))
     return { paths: [], error: 'server', status: 500 }
   }
+}
+
+/** Journalise une suppression différée sans défaire la fiche déjà persistée. */
+async function cleanupProductUploads(before, after, uploaded = []) {
+  const remaining = await cleanupUnreferencedUploads(before, after, uploaded)
+  for (const photo of remaining) console.warn(`[pcstar] suppression photo différée : ${photo}`)
 }
 
 // AUDIT-2026-09-17 / phase 3 — aucune correspondance téléphone → compte.
@@ -789,8 +801,12 @@ export async function handler(req, res) {
     // Serve uploads: filesystem (local / Vercel /tmp fallback) or redirect to
     // Vercel Blob CDN when the file was uploaded there.
     if (req.method === 'GET' && pathname === '/api/upload-file') {
-      const name = path.basename(String(url.searchParams.get('name') || ''))
-      if (!name || name.includes('..')) return send(res, 400, { ok: false, error: 'name' })
+      const suppliedName = String(url.searchParams.get('name') || '')
+      const name = safeUploadName(suppliedName)
+      // Ne jamais normaliser silencieusement une tentative de traversée en un
+      // nom de fichier valide (`../../x` → `x`) : le chemin doit être exactement
+      // celui qui a été émis par l'upload.
+      if (!name || name !== suppliedName) return send(res, 400, { ok: false, error: 'name' })
       const dir = process.env.VERCEL
         ? path.join('/tmp', 'pcstar-uploads')
         : path.join(__dirname, '../public/photos/uploads')
@@ -1070,9 +1086,15 @@ export async function handler(req, res) {
       const photoSave = hasDataUrls ? await savePhotoDataUrlsSafe(newProductId, body.photoDataUrls) : { paths: [] }
       if (photoSave.error) return send(res, photoSave.status, { ok: false, error: photoSave.error })
       const saved = photoSave.paths
+      // Une galerie qui contient des data URLs mais dont aucune n'est une image
+      // valide ne doit pas produire un 201 silencieux sans photo.
+      if (hasDataUrls && !saved.length) return send(res, 400, { ok: false, error: 'photos' })
       try {
         await updateDbAsync((db) => {
-          if (saved.length) body.photos = [...(body.photos || []), ...saved].slice(0, 6)
+          // Les chemins reçus sont la galerie voulue; les nouveaux uploads y
+          // sont ajoutés sans jamais dépasser la capacité. Les uploads écartés
+          // par la borne seront supprimés après la création réussie.
+          if (saved.length) body.photos = mergeProductPhotos([], Array.isArray(body.photos) ? body.photos : [], saved)
           result = createProduct(db, body, newProductId)
           return db
         })
@@ -1087,6 +1109,7 @@ export async function handler(req, res) {
         if (saved.length) for (const p of saved) await unlinkUpload(p)
         return send(res, 400, { ok: false, error: result?.error || 'invalid' })
       }
+      await cleanupProductUploads([], result.product?.photos, saved)
       return send(res, 201, { ok: true, product: result.product })
     }
 
@@ -1095,16 +1118,25 @@ export async function handler(req, res) {
       if (!auth || auth.user.role !== 'master') return send(res, 403, { ok: false, error: 'forbidden' })
       const id = decodeURIComponent(pathname.split('/').pop())
       const body = await readBody(req)
-      const putSave =
-        Array.isArray(body.photoDataUrls) && body.photoDataUrls.length
-          ? await savePhotoDataUrlsSafe(id, body.photoDataUrls)
-          : { paths: [] }
+      const hasDataUrls = Array.isArray(body.photoDataUrls) && body.photoDataUrls.length > 0
+      const putSave = hasDataUrls ? await savePhotoDataUrlsSafe(id, body.photoDataUrls) : { paths: [] }
       if (putSave.error) return send(res, putSave.status, { ok: false, error: putSave.error })
       const newPaths = putSave.paths
+      if (hasDataUrls && !newPaths.length) return send(res, 400, { ok: false, error: 'photos' })
+      const photoPatch = newPaths.length > 0 || Array.isArray(body.photos)
+      const suppliedPaths = Array.isArray(body.photos) ? body.photos : null
+      let previousPhotos = []
       let result = null
       try {
         await updateDbAsync((db) => {
-          if (newPaths.length) body.photos = [...(body.photos || []), ...newPaths].slice(0, 6)
+          if (photoPatch) {
+            previousPhotos = currentProductPhotos(db, id) || []
+            // `photos` représente toujours la galerie finale. Si un ancien
+            // client n'envoie que photoDataUrls, conserver l'existant plutôt
+            // que le remplacer accidentellement; une liste vide explicite
+            // permet en revanche de repartir de zéro.
+            body.photos = mergeProductPhotos(previousPhotos, suppliedPaths, newPaths)
+          }
           result = updateProduct(db, id, body)
           return db
         })
@@ -1114,6 +1146,7 @@ export async function handler(req, res) {
         return send(res, 500, { ok: false, error: 'server' })
       }
       if (!result?.ok) return send(res, result?.error === 'not_found' ? 404 : 400, { ok: false, error: result?.error })
+      if (photoPatch) await cleanupProductUploads(previousPhotos, result.product?.photos, newPaths)
       return send(res, 200, { ok: true, product: result.product })
     }
 
@@ -1138,14 +1171,28 @@ export async function handler(req, res) {
       const parts = pathname.split('/')
       const id = decodeURIComponent(parts[parts.length - 2])
       const body = await readBody(req)
-      const photoOnly = await savePhotoDataUrlsSafe(id, body.photoDataUrls || body.photos || [])
+      // Compatibilité : l'ancienne API acceptait les data URLs dans `photos`;
+      // la liste de chemins (hors data:) est désormais la galerie à conserver.
+      const uploadSource = Array.isArray(body.photoDataUrls)
+        ? body.photoDataUrls
+        : Array.isArray(body.photos)
+          ? body.photos.filter((photo) => String(photo).startsWith('data:'))
+          : []
+      const photoOnly = await savePhotoDataUrlsSafe(id, uploadSource)
       if (photoOnly.error) return send(res, photoOnly.status, { ok: false, error: photoOnly.error })
       const paths = photoOnly.paths
-      if (!paths.length && !Array.isArray(body.photos)) return send(res, 400, { ok: false, error: 'photos' })
+      const hasDesiredPaths = Array.isArray(body.photos)
+      if (uploadSource.length && !paths.length) return send(res, 400, { ok: false, error: 'photos' })
+      if (!paths.length && !hasDesiredPaths) return send(res, 400, { ok: false, error: 'photos' })
+      let previousPhotos = []
       let result = null
       try {
         await updateDbAsync((db) => {
-          const photos = paths.length ? paths : body.photos
+          previousPhotos = currentProductPhotos(db, id) || []
+          const retainedPaths = hasDesiredPaths
+            ? body.photos.filter((photo) => !String(photo).startsWith('data:'))
+            : null
+          const photos = mergeProductPhotos(previousPhotos, retainedPaths, paths)
           result = updateProduct(db, id, { photos })
           return db
         })
@@ -1156,8 +1203,9 @@ export async function handler(req, res) {
       }
       if (!result?.ok) {
         if (paths.length) for (const p of paths) await unlinkUpload(p)
-        return send(res, 400, { ok: false, error: result?.error })
+        return send(res, result?.error === 'not_found' ? 404 : 400, { ok: false, error: result?.error })
       }
+      await cleanupProductUploads(previousPhotos, result.product?.photos, paths)
       return send(res, 200, { ok: true, product: result.product })
     }
 

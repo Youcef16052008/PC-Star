@@ -608,14 +608,17 @@ describe('LOT 1.11 — aucune URL CDN brute stockée pour les photos', () => {
     assert.ok(start > 0)
     const body = src.slice(start, start + 1600)
     assert.ok(body.includes('isBlobUrl(raw)'), 'les anciennes URL CDN restent supprimables')
-    assert.ok(body.includes('blob.del(resolveBlobUrl(name))'), 'le chemin relatif est résolu puis supprimé')
+    assert.ok(body.includes('managedUploadName(raw)'), 'seuls les chemins d’upload gérés sont supprimables')
+    assert.ok(body.includes('blob.del(blobPathname(name))'), 'le pathname Blob exact est supprimé, jamais une Promise')
   })
 
-  it('CSP : img-src reste same-origin (le 302 vers le CDN ne l’exige pas)', () => {
+  it('CSP : img-src autorise strictement le CDN Blob après la redirection', () => {
     const src = fs.readFileSync(path.join(ROOT, 'server', 'index.js'), 'utf8')
+    const vercel = fs.readFileSync(path.join(ROOT, 'vercel.json'), 'utf8')
     const csp = src.match(/img-src ([^;"]+)/)?.[1] || ''
     assert.ok(csp.includes("'self'"), `img-src : ${csp}`)
-    assert.ok(!csp.includes('vercel-storage'), 'aucun domaine CDN ajouté : il n’est plus nécessaire')
+    assert.ok(csp.includes('https://*.public.blob.vercel-storage.com'), `CDN Blob absent : ${csp}`)
+    assert.ok(vercel.includes('https://*.public.blob.vercel-storage.com'), 'CSP Vercel non alignée')
   })
 })
 

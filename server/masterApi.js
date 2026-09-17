@@ -19,9 +19,22 @@ import {
   normalizeProductDetails,
   normalizeProductTags
 } from '../src/productMeta.js'
-import { uploadBlob, deleteBlob, MAX_BYTES, MAX_PHOTOS } from './blobStore.js'
+import { uploadBlob, deleteBlob, isManagedUploadUrl, MAX_BYTES, MAX_PHOTOS } from './blobStore.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
+
+// SKU imprimable et borné : une référence sert aussi à l'étiquette, l'export
+// et aux recherches. La même règle vaut à la création et à chaque patch.
+const SKU_RE = /^[\w .\-/]{1,40}$/
+
+function isValidSku(value) {
+  return SKU_RE.test(value)
+}
+
+function skuTaken(db, sku, exceptId = null) {
+  const known = [...PRODUCTS, ...(db?.meta?.extraProducts || [])]
+  return known.some((product) => product && product.id !== exceptId && String(product.sku || '').trim() === sku)
+}
 
 /**
  * LOT 2.6 (F10) — `needs` normalisé en **tableau de chaînes**.
@@ -97,6 +110,38 @@ export function listMasterProducts(db) {
   return [...base, ...extras]
 }
 
+/** Photos effectives avant un remplacement, sans construire toute la vue master. */
+export function currentProductPhotos(db, id) {
+  const extra = (db?.meta?.extraProducts || []).find((product) => product?.id === id)
+  if (extra) return Array.isArray(extra.photos) ? [...extra.photos] : []
+  const base = PRODUCTS.find((product) => product.id === id)
+  if (!base) return null
+  const overridden = db?.meta?.productOverrides?.[id]?.photos
+  return Array.isArray(overridden) ? [...overridden] : Array.isArray(base.photos) ? [...base.photos] : []
+}
+
+/**
+ * Supprime après persistance les uploads sortis de la galerie (ou uploadés mais
+ * écartés par la limite). Retourne les chemins dont le provider n'a pas confirmé
+ * la suppression; l'appelant peut les journaliser sans invalider la fiche.
+ */
+export async function cleanupUnreferencedUploads(before, after, uploaded = []) {
+  const retained = new Set(Array.isArray(after) ? after.map(String) : [])
+  const candidates = [...new Set([...(before || []), ...(uploaded || [])].map(String))]
+  const stale = candidates.filter((photo) => !retained.has(photo) && isManagedUploadUrl(photo))
+  const outcomes = await Promise.allSettled(stale.map((photo) => unlinkUpload(photo)))
+  return outcomes
+    .map((result, index) => ({ result, photo: stale[index] }))
+    .filter(({ result }) => result.status === 'rejected' || result.value !== true)
+    .map(({ photo }) => photo)
+}
+
+/** La liste explicite remplace la galerie; son absence conserve l'existant. */
+export function mergeProductPhotos(current, desired, uploaded = []) {
+  const retained = Array.isArray(desired) ? desired : Array.isArray(current) ? current : []
+  return [...new Set([...retained, ...(Array.isArray(uploaded) ? uploaded : [])].map(String))].slice(0, MAX_PHOTOS)
+}
+
 /**
  * @param {string} [id] P5 (B12) : id pré-généré — permet de sauver les photos
  * directement sous le vrai id avant la création (plus de fichiers `tmp-*`).
@@ -107,8 +152,14 @@ export function createProduct(db, body, id) {
   if (!Array.isArray(db.meta.extraProducts)) db.meta.extraProducts = []
 
   const name = String(body.name || '').trim()
-  const price = Math.max(0, Number(body.price) || 0)
-  if (!name || price <= 0) return { ok: false, error: 'invalid' }
+  const price = Number(body.price)
+  if (!name) return { ok: false, error: 'invalid' }
+  // `Math.max(0, Number(value) || 0)` laissait passer Infinity à la création,
+  // contrairement aux patches. Une valeur non finie finirait sérialisée en
+  // `null` et rendrait une fiche impossible à vendre; on refuse avant écriture.
+  if (!Number.isFinite(price) || price <= 0) return { ok: false, error: 'price' }
+  const stock = body.stock == null || body.stock === '' ? 0 : Number(body.stock)
+  if (!Number.isFinite(stock) || stock < 0) return { ok: false, error: 'stock' }
   if (id && db.meta.extraProducts.some((p) => p.id === id)) return { ok: false, error: 'invalid' }
 
   // LOT 8.10 (A10) : `category` et `kind` étaient acceptés **libres**. Le nom,
@@ -168,19 +219,23 @@ export function createProduct(db, body, id) {
   if (tags == null) return { ok: false, error: 'tags' }
   const compat = normalizeProductCompat(body.compat)
   if (compat == null) return { ok: false, error: 'compat' }
+  // La création suit la même forme de galerie que le patch : pas de tableau
+  // libre, pas de doublon, et jamais plus de MAX_PHOTOS références.
+  const photoPatch = sanitizeProductPatch({ photos: body.photos == null ? [] : body.photos })
+  if (!photoPatch.ok) return { ok: false, error: photoPatch.error }
+  const photos = photoPatch.patch.photos
 
   const finalId = id || newId('sku')
-  const sku = String(body.sku || finalId).trim()
+  const suppliedSku = body.sku == null ? '' : String(body.sku).trim()
+  const sku = suppliedSku || finalId
   // P22 (bug H) : le SKU saisi n'était confronté à rien. Un master pouvait
   // créer plusieurs produits portant le SKU d'une référence du catalogue de
   // base — mesuré en direct : trois produits se sont retrouvés avec
   // `100-100000910WOF` (celui de `cpu-7800x3d`). Le SKU est ce qui identifie
   // une référence sur l'étiquette, dans l'export CSV et dans le dossier de
   // photos : un doublon rend la fiche ambiguë. On refuse.
-  const taken = new Set(
-    [...PRODUCTS, ...db.meta.extraProducts].map((x) => String(x.sku || '').trim()).filter(Boolean)
-  )
-  if (taken.has(sku)) return { ok: false, error: 'sku_taken' }
+  if (!isValidSku(sku)) return { ok: false, error: 'sku' }
+  if (skuTaken(db, sku)) return { ok: false, error: 'sku_taken' }
   const product = {
     id: finalId,
     sku,
@@ -189,11 +244,11 @@ export function createProduct(db, body, id) {
     kind,
     category,
     price,
-    stock: Math.max(0, Math.floor(Number(body.stock) || 0)),
+    stock: Math.floor(stock),
     rating: 0,
     reviews: 0,
     related: [],
-    photos: Array.isArray(body.photos) ? body.photos.slice(0, MAX_PHOTOS) : [],
+    photos,
     short: String(body.short || '').trim(),
     model,
     barcode,
@@ -315,15 +370,18 @@ export function sanitizeProductPatch(patch = {}) {
   if (patch.short != null) out.short = String(patch.short).slice(0, 200)
   if (patch.sku != null) {
     const sku = String(patch.sku).trim()
-    if (sku.length > 40 || !/^[\w .\-/]*$/.test(sku)) return { ok: false, error: 'sku' }
+    if (!isValidSku(sku)) return { ok: false, error: 'sku' }
     out.sku = sku
   }
   if (patch.photos != null) {
     if (!Array.isArray(patch.photos)) return { ok: false, error: 'photos' }
-    out.photos = patch.photos
-      .map((u) => String(u).trim())
-      .filter((u) => u.startsWith('/') || /^https?:\/\//.test(u))
-      .slice(0, MAX_PHOTOS)
+    out.photos = [
+      ...new Set(
+        patch.photos
+          .map((u) => String(u).trim())
+          .filter((u) => u.startsWith('/') || /^https?:\/\//.test(u))
+      )
+    ].slice(0, MAX_PHOTOS)
   }
   if (patch.needs != null) {
     // LOT 2.6 (F10) : chaîne OU tableau, normalisé en tableau. Le refus pur et
@@ -375,7 +433,10 @@ export function updateProduct(db, id, rawPatch) {
     if (patch.compat != null) cur.compat = patch.compat
     if (patch.short != null) cur.short = String(patch.short)
     if (Number(cur.compareAtPrice) > 0 && Number(cur.compareAtPrice) < Number(cur.price)) return { ok: false, error: 'compare_at_price' }
-    if (patch.sku != null) cur.sku = String(patch.sku)
+    if (patch.sku != null) {
+      if (skuTaken(db, patch.sku, id)) return { ok: false, error: 'sku_taken' }
+      cur.sku = String(patch.sku)
+    }
     if (patch.photos != null && Array.isArray(patch.photos)) {
       cur.photos = patch.photos.slice(0, MAX_PHOTOS)
       if (cur.photoMode === 'category' && cur.photos.length) cur.photoMode = 'custom'
@@ -406,6 +467,7 @@ export function updateProduct(db, id, rawPatch) {
   if (!db.meta.productOverrides) db.meta.productOverrides = {}
   const base = PRODUCTS.find((p) => p.id === id)
   if (!base) return { ok: false, error: 'not_found' }
+  if (patch.sku != null && skuTaken(db, patch.sku, id)) return { ok: false, error: 'sku_taken' }
   const prev = db.meta.productOverrides[id] || {}
   const next = { ...prev }
   // LOT 8.10 (A10) : `kind` ajouté à la liste — sans quoi un patch validé
@@ -484,7 +546,7 @@ export async function savePhotoDataUrls(productId, dataUrls = []) {
 
 /** P5 (B12) : supprime un fichier d'upload à partir de son URL publique ou Blob CDN. */
 export async function unlinkUpload(publicPath) {
-  await deleteBlob(publicPath)
+  return deleteBlob(publicPath)
 }
 
 export function ordersToCsv(orders, { day = null } = {}) {

@@ -138,7 +138,7 @@ Un seul fichier d'entrée `server/index.js` (routeur `node:http`), modules dédi
 | `lib/` | 105 | shots famille (cpu-1..3, gpu-local-1..2, kb-1..3, …) — attribués aux 251 SKU de base / 249 publics quand speakers est en rupture |
 | `sku/` | 753 | shots par SKU (`{id}-1…3.jpg`) pour les produits prioritaires |
 | legacy racine | 56 | `.jpg`/`.png` historiques (case, chair, cooler, …) |
-| `uploads/` | — | photos master upload (dataURL) |
+| `uploads/` | — | photos master upload (dataURL) en local; sur Vercel, objets Vercel Blob via le proxy `/api/upload-file` |
 
 **Pipeline** :
 
@@ -152,6 +152,8 @@ vercel.json                   /photos/* Cache-Control max-age=86400
 ```
 
 Ajout de photos pro (futur) : `public/photos/sku/{id}-1.jpg…-3.jpg` → `npm run photos:check` → push → rebuild. Aucune base ni VPS.
+
+Les galeries master sont des remplacements explicites : les chemins conservés et les nouvelles images sont envoyés ensemble, puis les uploads devenus non référencés sont supprimés après la persistance. Les URL Blob restent masquées derrière `/api/upload-file`; le proxy retrouve l’URL CDN publique exacte après un cold start et la CSP n’autorise que `https://*.public.blob.vercel-storage.com` pour la redirection image.
 
 ---
 
@@ -186,8 +188,9 @@ Ajout de photos pro (futur) : `public/photos/sku/{id}-1.jpg…-3.jpg` → `npm r
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | application Google OAuth, serveur uniquement |
 | `META_APP_ID` / `META_APP_SECRET` | application Meta Login, serveur uniquement |
 | `META_GRAPH_VERSION` | optionnel, `v26.0` par défaut pour Meta Login |
+| `BLOB_READ_WRITE_TOKEN` | requis pour tout upload master sur Vercel; les images sont stockées durablement dans Vercel Blob |
 
-**Limites honnêtes (Hobby, sans base cloud)** : `store.json` et uploads vivent dans **`/tmp`** → reset possible au cold start. Le **catalogue + photos (statiques) sont persistants**. Échappement prévu : Vercel KV / Turso / Blob — branchable via `server/db.js` sans toucher au reste. Détails : [DEPLOY-VERCEL.md](DEPLOY-VERCEL.md).
+**Limites honnêtes (Hobby, sans base cloud)** : `store.json` reste dans **`/tmp`** sans base cloud → reset possible au cold start. Les photos master ne tombent plus dans ce repli éphémère : en serverless, l’upload est refusé sans `BLOB_READ_WRITE_TOKEN`; avec ce token, l’objet est durable dans Blob. Le **catalogue statique** est persistant. Échappement prévu pour les données métier : Vercel KV / Turso / Neon via `server/db.js`. Détails : [DEPLOY-VERCEL.md](DEPLOY-VERCEL.md).
 
 ---
 

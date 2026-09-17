@@ -311,7 +311,7 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, ma
           setToast(t('masterPhotosTooHeavy', { size: toMb(over), limit: toMb(MAX_UPLOAD_BODY_BYTES) }))
           return
         }
-        const up = await api.masterPhotos(editId, dataUrls)
+        const up = await api.masterPhotos(editId, dataUrls, paths)
         if (!up.ok) {
           errToast(setToast, t, up, 'masterActionFail')
           return

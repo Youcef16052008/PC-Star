@@ -78,3 +78,23 @@ Les changements sont découpés pour qu’un correctif de sécurité urgent ne s
 ### Critère de sortie atteint
 
 Un compte ne récupère ni n’annule une commande guest par simple déclaration de numéro; un retry de réservation ne double pas le stock; une commande refusée parce que l’historique est plein ne change pas le stock.
+
+## Phase 4 — Catalogue et médias Master
+
+**Statut : implémentation et tests unitaires isolés ajoutés.**
+
+### Changements livrés
+
+- La galerie reçue par les routes Master est maintenant une liste finale explicite : les chemins conservés sont combinés avec les nouvelles data URLs, puis bornés. Un ancien client qui ne transmet que de nouvelles images conserve la galerie existante au lieu de l’écraser.
+- Après une écriture catalogue réussie, les uploads qui ne sont plus référencés — y compris une nouvelle image écartée par la limite de galerie — sont supprimés. Les photos statiques et les URL qui ne sont pas gérées par PC Star ne sont jamais candidates à cette suppression.
+- Les photos Vercel Blob restent référencées en base par le chemin relatif du proxy. Après un cold start, le serveur retrouve l’objet par son `pathname` exact avec `blob.list()` et redirige vers son URL publique. La suppression Blob cible le pathname, sans passer une promesse ou un faux lien de téléchargement au SDK.
+- Les CSP de l’API et de Vercel autorisent étroitement le CDN public Vercel Blob, nécessaire à la destination de redirection d’une image, sans ouvrir `img-src` à tous les hôtes.
+- La création et le patch produit refusent désormais les prix/stocks non finis, les SKU vides ou hors format, et les collisions de SKU lors d’un renommage. Les listes de photos sont dédoublonnées avant persistance.
+
+### Action de déploiement requise
+
+Configurer `BLOB_READ_WRITE_TOKEN` sur Vercel avant de permettre les uploads Master. En environnement serverless sans ce token, le refus explicite `upload_storage` est conservé : aucune URL éphémère de `/tmp` n’est enregistrée. Une recette de déploiement doit charger une photo, redémarrer/froidir la fonction puis vérifier son affichage et sa suppression.
+
+### Critère de sortie atteint côté code
+
+Le remplacement d’une galerie ne laisse pas de fichier local géré orphelin; une résolution Blob ne tente plus de convertir un simple pathname avec `getDownloadUrl`; aucune fiche produit ne peut être enregistrée avec un nombre non fini ou un SKU déjà employé.
