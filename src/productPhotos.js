@@ -151,6 +151,11 @@ export function photosForProduct(product) {
   // catégorie, clair et honnête, jusqu'à ce qu'une vraie photo soit ajoutée.
   if (product?.photoMode === 'mark') return []
   const existing = Array.isArray(product.photos) ? product.photos.filter(Boolean) : []
+  // Les visuels de famille générés pour les nouveaux rayons sont une vraie
+  // illustration de rayon (pas un faux packshot SKU). On les conserve seuls :
+  // ajouter les trois chemins /photos/sku/ inexistants causerait des 404 et
+  // ferait croire que le magasin a fourni trois photos du même article.
+  if (product?.photoMode === 'category') return existing.slice(0, 1)
   const sku = skuPhotoPaths(product.id)
 
   // Master / runtime overrides: keep non-catalog paths (data URLs, /uploads/, http…)

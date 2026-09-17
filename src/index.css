@@ -627,3 +627,41 @@ html[data-theme='light'] .text-secondary {
 .skip-link:focus {
   outline: 3px solid #fff;
 }
+
+/* Fiche master — les sections courtes évitent le long formulaire indistinct et
+   rendent visibles les informations commercialement importantes. */
+.master-product-form {
+  max-height: calc(100vh - 2rem);
+  overflow: auto;
+  position: sticky;
+  top: 1rem;
+}
+.master-form-section {
+  min-inline-size: 0;
+  border: 1px solid var(--line);
+  border-radius: 0.55rem;
+  padding: 0.75rem;
+  margin: 0 0 0.85rem;
+  background: color-mix(in srgb, var(--soft) 48%, transparent);
+}
+.master-form-section legend {
+  float: none;
+  width: auto;
+  padding: 0 0.35rem;
+  margin: 0;
+  color: var(--ink);
+  font-size: 0.86rem;
+  font-weight: 700;
+}
+.master-form-section .form-label {
+  font-weight: 600;
+}
+@media (max-width: 991.98px) {
+  .master-product-form {
+    max-height: none;
+    position: static;
+  }
+}
+.product-description {
+  white-space: pre-line;
+}

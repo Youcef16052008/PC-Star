@@ -1,6 +1,10 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import fs from 'node:fs'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { CATALOG_EXTENSIONS } from './catalogExtensions.js'
+import { photosForProduct } from './productPhotos.js'
 import { CATEGORIES, PART_LINES, PRODUCTS, conditionOf, usesOf } from './data.js'
 
 /**
@@ -43,4 +47,20 @@ test('catalogue étendu : occasion et usages sont des métadonnées filtrables',
   assert.ok(PRODUCTS.some(pcUsed.match), 'un raccourci PC occasion retourne des produits')
   assert.ok(PRODUCTS.some(printer.match), 'un raccourci imprimante laser retourne des produits')
   assert.ok(PRODUCTS.some(pos.match), 'un raccourci POS retourne des produits')
+})
+
+test('catalogue étendu : ses illustrations de rayon sont livrées et ne prétendent pas être des photos SKU', () => {
+  const publicDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../public')
+  const groups = new Set()
+  for (const product of CATALOG_EXTENSIONS) {
+    assert.equal(product.photoMode, 'category', `${product.id} déclare une illustration de catégorie`)
+    assert.equal(product.photos.length, 1, `${product.id} garde une seule illustration honnête`)
+    const src = product.photos[0]
+    assert.match(src, /^\/catalog\/[a-z-]+\.jpg$/, `${product.id} ne demande pas un faux chemin SKU`)
+    assert.deepEqual(photosForProduct(product), [src], `${product.id} ne déclenche pas les variantes /photos/sku`)
+    groups.add(src.slice('/catalog/'.length))
+  }
+  for (const file of groups) {
+    assert.ok(fs.existsSync(path.join(publicDir, 'catalog', file)), `visuel généré livré : ${file}`)
+  }
 })

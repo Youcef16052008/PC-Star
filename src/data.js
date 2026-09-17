@@ -339,7 +339,7 @@ export const BRANDS = [
   'Xigmatek', 'Tenda', '1st Player', 'Ares', 'Hybrok', 'Antec', 'GameNote', 'Ugreen'
 ]
 
-export const SOCKETS = ['AM5', 'LGA1700', 'LGA1851']
+export const SOCKETS = ['AM4', 'AM5', 'LGA1700', 'LGA1851']
 
 export const PRICE_PRESETS = [
   { id: 'any', label: 'Any price', min: 0, max: 999999 },

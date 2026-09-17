@@ -69,7 +69,12 @@ function CategoryMark({ product, label }) {
  * affiche un badge lisible au lieu d'une image cassée/invisible.
  */
 export default function PartThumb({ product, alt, eager = false, className = '' }) {
-  const label = alt ?? product?.name ?? ''
+  // Les visuels IA des nouveaux rayons restent explicitement des illustrations
+  // de famille dans l'alternative aussi : ne pas les annoncer comme le packshot
+  // exact de la référence à un utilisateur de lecteur d'écran.
+  const label = alt ?? (product?.photoMode === 'category'
+    ? `Illustration de catégorie — ${product?.name || ''}`
+    : product?.name ?? '')
   const src = product?.photos && product.photos[0]
   const cands = src ? photoCandidates(src) : []
   const [attempt, setAttempt] = useState(0)

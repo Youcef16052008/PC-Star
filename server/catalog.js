@@ -23,10 +23,18 @@ export function baseCatalog() {
     price: p.price,
     stock: Number(p.stock) || 0,
     photos: p.photos || [],
+    photoMode: p.photoMode,
     short: p.short,
+    model: p.model || '',
+    barcode: p.barcode || '',
+    description: p.description || '',
     condition: p.condition || 'new',
+    conditionNote: p.conditionNote || '',
     uses: p.uses || [],
     warrantyMonths: Number(p.warrantyMonths) || 0,
+    compareAtPrice: Number(p.compareAtPrice) || 0,
+    lowStockAt: Number(p.lowStockAt) || 0,
+    details: Array.isArray(p.details) ? p.details : [],
     compat: p.compat || {},
     tags: p.tags || []
   }))

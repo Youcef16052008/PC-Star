@@ -21,6 +21,8 @@ export function specRows(product, t) {
   }
   push(t('specBrand'), product.brand)
   push(t('specSku'), product.sku)
+  push(t('specModel'), product.model)
+  push(t('specBarcode'), product.barcode)
   push(t('specCategory'), t(`cat_${product.category}`) !== `cat_${product.category}` ? t(`cat_${product.category}`) : product.category)
   push(t('specCondition'), t(conditionKey))
   if (Number(product.warrantyMonths) > 0) push(t('specWarranty'), t('warrantyMonths', { n: product.warrantyMonths }))
@@ -36,6 +38,9 @@ export function specRows(product, t) {
   if (s.cool) push(t('specCool'), `${s.cool} W`)
   if (s.pcie) push('PCIe', `x${s.pcie}`)
   if (s.slots) push(t('specSlots'), String(s.slots))
+  for (const detail of Array.isArray(product.details) ? product.details : []) {
+    if (detail?.label && detail?.value) push(detail.label, detail.value)
+  }
   if (product.tags?.length) push(t('specTags'), product.tags.join(', '))
   return rows
 }

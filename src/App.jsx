@@ -21,6 +21,7 @@ import * as api from './api.js'
 import { createDeskStream } from './deskStream.js'
 import { notifyNewOrder, requestNotificationPermission } from './notify.js'
 import { ensureProductPhotos } from './productPhotos.js'
+import { discountPercent, hasSale } from './productMeta.js'
 import SearchPage from './SearchPage.jsx'
 import BuilderPage from './BuilderPage.jsx'
 import PartThumb from './PartThumb.jsx'
@@ -1628,6 +1629,7 @@ export default function App() {
                         <span className={`badge position-absolute top-0 start-0 m-2 ${st.cls}`}>
                           {st.text}
                         </span>
+                        {p.photoMode === 'category' && <span className="badge text-bg-light border position-absolute top-0 end-0 m-2">{t('categoryIllustrationBadge')}</span>}
                       </button>
                       {/* Corps de carte photocopié sur la maquette :
                           marque → titre → specs → ligne prix / + panier. */}
@@ -1642,7 +1644,10 @@ export default function App() {
                           ))}
                         </div>
                         <div className="card-row mt-auto d-flex justify-content-between align-items-center gap-2">
-                          <span className="price text-success">{money(p.price, lang)}</span>
+                          <span className="d-flex flex-column">
+                            <span className="price text-success">{money(p.price, lang)}</span>
+                            {hasSale(p) && <small className="text-danger"><del>{money(p.compareAtPrice, lang)}</del> · −{discountPercent(p)}%</small>}
+                          </span>
                           <button className="btn btn-sm btn-success" type="button" disabled={left <= 0} onClick={() => add(p)}>
                             {left <= 0 ? t('soldOut') : t('add')}
                           </button>

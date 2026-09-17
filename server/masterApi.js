@@ -8,6 +8,17 @@ import { fileURLToPath } from 'node:url'
 import { newId } from './db.js'
 import { ensureStock, setStock, liveStockOf } from './catalog.js'
 import { PRODUCTS, isKnownCategory, isKnownCondition, isKnownKind, isKnownUse, kindForCategory } from '../src/data.js'
+import {
+  BARCODE_LIMIT,
+  CONDITION_NOTE_LIMIT,
+  DESCRIPTION_LIMIT,
+  MODEL_LIMIT,
+  cleanProductText,
+  isValidBarcode,
+  normalizeProductCompat,
+  normalizeProductDetails,
+  normalizeProductTags
+} from '../src/productMeta.js'
 import { uploadBlob, deleteBlob, MAX_BYTES, MAX_PHOTOS } from './blobStore.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -138,6 +149,26 @@ export function createProduct(db, body, id) {
   const warrantyMonths = body.warrantyMonths == null ? 0 : Number(body.warrantyMonths)
   if (!Number.isFinite(warrantyMonths) || warrantyMonths < 0 || warrantyMonths > 60) return { ok: false, error: 'warranty' }
 
+  // Fiche produit professionnelle : modèle, référence code-barres, description
+  // longue, note d'état, prix barré, seuil bas, détails libres et compatibilité.
+  // Les champs restent bornés afin qu'une fiche admin ne casse ni la vitrine ni
+  // le CSV/les sauvegardes.
+  const model = cleanProductText(body.model, MODEL_LIMIT)
+  const barcode = cleanProductText(body.barcode, BARCODE_LIMIT)
+  if (!isValidBarcode(barcode)) return { ok: false, error: 'barcode' }
+  const description = cleanProductText(body.description, DESCRIPTION_LIMIT)
+  const conditionNote = cleanProductText(body.conditionNote, CONDITION_NOTE_LIMIT)
+  const compareAtPrice = body.compareAtPrice == null || body.compareAtPrice === '' ? 0 : Number(body.compareAtPrice)
+  if (!Number.isFinite(compareAtPrice) || compareAtPrice < 0 || (compareAtPrice > 0 && compareAtPrice < price)) return { ok: false, error: 'compare_at_price' }
+  const lowStockAt = body.lowStockAt == null || body.lowStockAt === '' ? 0 : Number(body.lowStockAt)
+  if (!Number.isFinite(lowStockAt) || lowStockAt < 0 || lowStockAt > 9999) return { ok: false, error: 'low_stock' }
+  const details = normalizeProductDetails(body.details)
+  if (details == null) return { ok: false, error: 'details' }
+  const tags = normalizeProductTags(body.tags)
+  if (tags == null) return { ok: false, error: 'tags' }
+  const compat = normalizeProductCompat(body.compat)
+  if (compat == null) return { ok: false, error: 'compat' }
+
   const finalId = id || newId('sku')
   const sku = String(body.sku || finalId).trim()
   // P22 (bug H) : le SKU saisi n'était confronté à rien. Un master pouvait
@@ -164,14 +195,21 @@ export function createProduct(db, body, id) {
     related: [],
     photos: Array.isArray(body.photos) ? body.photos.slice(0, MAX_PHOTOS) : [],
     short: String(body.short || '').trim(),
+    model,
+    barcode,
+    description,
     condition,
+    conditionNote,
     uses,
     warrantyMonths: Math.floor(warrantyMonths),
+    compareAtPrice: Math.round(compareAtPrice),
+    lowStockAt: Math.floor(lowStockAt),
+    details,
     // LOT 2.6 (F10) : tableau, comme au patch — plus de produit qu'on ne peut
     // pas éditer sur ce champ.
     needs: normalizeNeeds(body.needs),
-    compat: body.compat && typeof body.compat === 'object' ? body.compat : {},
-    tags: Array.isArray(body.tags) ? body.tags : []
+    compat,
+    tags
   }
   db.meta.extraProducts = [product, ...db.meta.extraProducts]
   setStock(db, finalId, product.stock)
@@ -241,6 +279,39 @@ export function sanitizeProductPatch(patch = {}) {
     if (!Number.isFinite(months) || months < 0 || months > 60) return { ok: false, error: 'warranty' }
     out.warrantyMonths = Math.floor(months)
   }
+  if (patch.model != null) out.model = cleanProductText(patch.model, MODEL_LIMIT)
+  if (patch.barcode != null) {
+    const barcode = cleanProductText(patch.barcode, BARCODE_LIMIT)
+    if (!isValidBarcode(barcode)) return { ok: false, error: 'barcode' }
+    out.barcode = barcode
+  }
+  if (patch.description != null) out.description = cleanProductText(patch.description, DESCRIPTION_LIMIT)
+  if (patch.conditionNote != null) out.conditionNote = cleanProductText(patch.conditionNote, CONDITION_NOTE_LIMIT)
+  if (patch.compareAtPrice != null) {
+    const price = Number(patch.compareAtPrice)
+    if (!Number.isFinite(price) || price < 0) return { ok: false, error: 'compare_at_price' }
+    out.compareAtPrice = Math.round(price)
+  }
+  if (patch.lowStockAt != null) {
+    const lowStockAt = Number(patch.lowStockAt)
+    if (!Number.isFinite(lowStockAt) || lowStockAt < 0 || lowStockAt > 9999) return { ok: false, error: 'low_stock' }
+    out.lowStockAt = Math.floor(lowStockAt)
+  }
+  if (patch.details != null) {
+    const details = normalizeProductDetails(patch.details)
+    if (details == null) return { ok: false, error: 'details' }
+    out.details = details
+  }
+  if (patch.tags != null) {
+    const tags = normalizeProductTags(patch.tags)
+    if (tags == null) return { ok: false, error: 'tags' }
+    out.tags = tags
+  }
+  if (patch.compat != null) {
+    const compat = normalizeProductCompat(patch.compat)
+    if (compat == null) return { ok: false, error: 'compat' }
+    out.compat = compat
+  }
   if (patch.short != null) out.short = String(patch.short).slice(0, 200)
   if (patch.sku != null) {
     const sku = String(patch.sku).trim()
@@ -293,9 +364,22 @@ export function updateProduct(db, id, rawPatch) {
     if (patch.condition != null) cur.condition = String(patch.condition)
     if (patch.uses != null) cur.uses = patch.uses
     if (patch.warrantyMonths != null) cur.warrantyMonths = patch.warrantyMonths
+    if (patch.model != null) cur.model = patch.model
+    if (patch.barcode != null) cur.barcode = patch.barcode
+    if (patch.description != null) cur.description = patch.description
+    if (patch.conditionNote != null) cur.conditionNote = patch.conditionNote
+    if (patch.compareAtPrice != null) cur.compareAtPrice = patch.compareAtPrice
+    if (patch.lowStockAt != null) cur.lowStockAt = patch.lowStockAt
+    if (patch.details != null) cur.details = patch.details
+    if (patch.tags != null) cur.tags = patch.tags
+    if (patch.compat != null) cur.compat = patch.compat
     if (patch.short != null) cur.short = String(patch.short)
+    if (Number(cur.compareAtPrice) > 0 && Number(cur.compareAtPrice) < Number(cur.price)) return { ok: false, error: 'compare_at_price' }
     if (patch.sku != null) cur.sku = String(patch.sku)
-    if (patch.photos != null && Array.isArray(patch.photos)) cur.photos = patch.photos.slice(0, MAX_PHOTOS)
+    if (patch.photos != null && Array.isArray(patch.photos)) {
+      cur.photos = patch.photos.slice(0, MAX_PHOTOS)
+      if (cur.photoMode === 'category' && cur.photos.length) cur.photoMode = 'custom'
+    }
     // LOT 2.6 (F10), second volet : `needs` n'était repris que dans la branche
     // « override du catalogue de base » ci-dessous. Pour un produit CRÉÉ par le
     // maître (`extraProducts`), le champ était validé par
@@ -326,9 +410,12 @@ export function updateProduct(db, id, rawPatch) {
   const next = { ...prev }
   // LOT 8.10 (A10) : `kind` ajouté à la liste — sans quoi un patch validé
   // n'était pas appliqué au produit du catalogue de base non plus.
-  for (const k of ['name', 'price', 'brand', 'category', 'short', 'sku', 'photos', 'needs', 'kind', 'condition', 'uses', 'warrantyMonths']) {
+  for (const k of ['name', 'price', 'brand', 'category', 'short', 'sku', 'photos', 'needs', 'kind', 'condition', 'uses', 'warrantyMonths', 'model', 'barcode', 'description', 'conditionNote', 'compareAtPrice', 'lowStockAt', 'details', 'tags', 'compat']) {
     if (patch[k] != null) next[k] = patch[k]
   }
+  const effectivePrice = Number(next.price ?? base.price)
+  if (Number(next.compareAtPrice) > 0 && Number(next.compareAtPrice) < effectivePrice) return { ok: false, error: 'compare_at_price' }
+  if (patch.photos != null && base.photoMode === 'category') next.photoMode = patch.photos.length ? 'custom' : 'category'
   if (patch.stock != null) {
     setStock(db, id, Math.max(0, Math.floor(Number(patch.stock) || 0)))
   }

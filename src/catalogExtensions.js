@@ -11,7 +11,33 @@
  * référence qui n'a pas encore reçu sa vraie photo : la vignette montre le
  * repère lisible de sa famille jusqu'à l'ajout des photos du magasin.
  */
+const PHOTO_GROUP_BY_CATEGORY = {
+  printer: 'printer-studio',
+  scanner: 'printer-studio',
+  consumables: 'printer-studio',
+  pos: 'pos-studio',
+  desktop: 'desktop-studio',
+  allinone: 'desktop-studio',
+  server: 'desktop-studio',
+  laptop: 'laptop-studio',
+  network: 'network-studio',
+  power: 'network-studio',
+  laptop_accessories: 'laptop-accessories-studio',
+  multimedia: 'multimedia-studio',
+  furniture: 'furniture-studio',
+  tablet: 'mobile-studio',
+  phone: 'mobile-studio',
+  cpu: 'components-studio',
+  gpu: 'components-studio',
+  motherboard: 'components-studio',
+  memory: 'components-studio',
+  case: 'components-studio',
+  cooling: 'components-studio',
+  accessories: 'components-studio'
+}
+
 function p(id, sku, name, brand, kind, category, price, stock, short, extra = {}) {
+  const photoGroup = extra.photoGroup || PHOTO_GROUP_BY_CATEGORY[category]
   return {
     id,
     sku,
@@ -24,8 +50,11 @@ function p(id, sku, name, brand, kind, category, price, stock, short, extra = {}
     rating: extra.rating ?? 4.3,
     reviews: extra.reviews ?? 12,
     related: [],
-    photos: [],
-    photoMode: 'mark',
+    // Visuels de rayon générés spécialement pour PC Star. Il s'agit d'une
+    // illustration de famille (pas de la promesse d'une photo exacte du SKU),
+    // remplaçable par les vraies photos reçues au comptoir.
+    photos: photoGroup ? [`/catalog/${photoGroup}.jpg`] : [],
+    photoMode: photoGroup ? 'category' : 'mark',
     short,
     condition: extra.condition || 'new',
     uses: extra.uses || [],

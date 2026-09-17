@@ -3,6 +3,7 @@ import { PRICE_PRESETS, PRODUCT_CONDITIONS, PRODUCT_USES, SOCKETS, STORE, condit
 import { loadSavedSearches, saveSavedSearches } from './shopStore.js'
 import { stockLabel } from './stockLabel.js'
 import PartThumb from './PartThumb.jsx'
+import { discountPercent, hasSale } from './productMeta.js'
 
 // LOT 6.1 (Q1) : `stockLabel` vient de `src/stockLabel.js` — une seule définition,
 // une seule famille de classes (la classe Bootstrap complète, rien à traduire).
@@ -99,7 +100,11 @@ export default function SearchPage({ t, products, lines, panels, lang, liveStock
       if (p.price < preset.min || p.price > preset.max) return false
       if (filters.inStock && left <= 0) return false
       if (q) {
-        const hay = `${p.name} ${p.sku} ${p.short} ${p.brand}`.toLowerCase()
+        // Les champs enrichis par le maître font partie de l'index : un mot-clé,
+        // une référence fabricant ou une caractéristique doit réellement aider
+        // le client à retrouver la bonne fiche.
+        const details = Array.isArray(p.details) ? p.details.map((d) => `${d?.label || ''} ${d?.value || ''}`).join(' ') : ''
+        const hay = `${p.name} ${p.sku} ${p.short} ${p.brand} ${p.model || ''} ${p.barcode || ''} ${p.description || ''} ${p.conditionNote || ''} ${(p.tags || []).join(' ')} ${details}`.toLowerCase()
         if (!hay.includes(q)) return false
       }
       return true
@@ -178,6 +183,7 @@ export default function SearchPage({ t, products, lines, panels, lang, liveStock
             <PartThumb product={p} />
           </div>
           <span className={`badge position-absolute top-0 end-0 m-2 ${st.cls}`}>{st.text}</span>
+          {p.photoMode === 'category' && <span className="badge text-bg-light border position-absolute top-0 start-0 m-2">{t('categoryIllustrationBadge')}</span>}
         </button>
         <div className="card-body d-flex flex-column">
           <div className="small text-secondary">
@@ -195,7 +201,10 @@ export default function SearchPage({ t, products, lines, panels, lang, liveStock
           ) : null}
           <p className="small text-secondary flex-grow-1">{p.short}</p>
           <div className="d-flex justify-content-between align-items-center gap-2 mt-auto">
-            <span className="fw-bold text-success">{money(p.price, lang)}</span>
+            <span className="d-flex flex-column">
+              <span className="fw-bold text-success">{money(p.price, lang)}</span>
+              {hasSale(p) && <small className="text-danger"><del>{money(p.compareAtPrice, lang)}</del> · −{discountPercent(p)}%</small>}
+            </span>
             <button type="button" className="btn btn-sm btn-success" disabled={left <= 0} onClick={() => onAdd(p)}>
               {left <= 0 ? t('soldOut') : t('add')}
             </button>
@@ -437,11 +446,15 @@ export default function SearchPage({ t, products, lines, panels, lang, liveStock
                           {p.name}
                         </button>
                         <div className="small text-secondary">{p.short}</div>
-                        <span className={`badge ${st.cls}`}>{st.text}</span>
+                        <div className="d-flex flex-wrap gap-1 mt-1">
+                          <span className={`badge ${st.cls}`}>{st.text}</span>
+                          {p.photoMode === 'category' && <span className="badge text-bg-light border">{t('categoryIllustrationBadge')}</span>}
+                        </div>
                       </div>
                       <div className="text-end">
-                        <div className="fw-bold text-success mb-2">{money(p.price, lang)}</div>
-                        <button type="button" className="btn btn-sm btn-success" disabled={left <= 0} onClick={() => onAdd(p)}>
+                        <div className="fw-bold text-success">{money(p.price, lang)}</div>
+                        {hasSale(p) && <small className="d-block text-danger mb-2"><del>{money(p.compareAtPrice, lang)}</del> · −{discountPercent(p)}%</small>}
+                        <button type="button" className="btn btn-sm btn-success mt-2" disabled={left <= 0} onClick={() => onAdd(p)}>
                           {left <= 0 ? t('soldOut') : t('add')}
                         </button>
                       </div>
