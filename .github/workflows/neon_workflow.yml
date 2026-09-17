@@ -57,6 +57,12 @@ jobs:
           cache: npm
       - name: Install dependencies
         run: npm ci
+      # LOT 1.20 — ces étapes n'ont PAS besoin de MASTER_EMAIL / MASTER_PASSWORD,
+      # et le workflow ne les pose donc pas : elles créent un schéma, vérifient un
+      # verrou de concurrence et lancent la suite — aucune n'ouvre de session. Le
+      # secret maître de production n'a rien à faire dans un dépôt public (R1/R12).
+      # C'est `server/db.js` qui ne doit plus exiger ces variables à l'import :
+      # voir docs/NEON-MIGRATION.md et docs/PLAN-CORRECTIONS.md §9 « chantier 1.B ».
       - name: Run Neon schema migrations
         env:
           DATABASE_URL: ${{ steps.create_neon_branch.outputs.db_url_pooled }}

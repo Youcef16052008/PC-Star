@@ -15,6 +15,38 @@ DATABASE_URL='postgresql://...' npm run db:migrate:neon
 
 La migration crée `pcstar_state`, une ligne JSON versionnée par `updated_at`. Cette forme conserve temporairement le modèle actuel et réduit le risque de migration destructive.
 
+## CI (GitHub Actions) — `.github/workflows/neon_workflow.yml`
+
+Le job « Create Neon Branch » enchaîne, sur la branche d'aperçu créée pour la
+PR : **migration**, test de **concurrence**, remise à zéro (`--reset`), puis la
+**suite complète** — les quatre avec `DATABASE_URL` seule.
+
+C'est possible parce que `server/db.js` **ne résout plus le compte maître au
+chargement** (LOT 1.20) : `masterAccountOrNull()` le résout à la demande, et les
+scripts de base (migration, import, diagnostic, concurrence) n'ont donc besoin
+d'aucun `MASTER_*` pour travailler sur le schéma et l'état. Avant ce correctif,
+la première étape échouait **dès l'import** en `Error: [pcstar] compte maître non
+configuré — MASTER_EMAIL et MASTER_PASSWORD sont obligatoires` — avant même son
+propre contrôle de `DATABASE_URL` — et les trois étapes suivantes ne
+s'exécutaient **jamais** (`needs` ne lie que les jobs ; les étapes d'un même job
+s'enchaînent jusqu'à la première qui échoue). La commande documentée ci-dessus,
+`DATABASE_URL='…' npm run db:migrate:neon`, était cassée pour la même raison.
+
+Deux conséquences à garder en tête :
+
+1. **Ne pas** ajouter `MASTER_EMAIL` / `MASTER_PASSWORD` aux secrets de ce
+   workflow pour « faire passer » la migration : ces étapes n'ouvrent aucune
+   session, et poser un secret de production dans la CI d'une PR est exactement
+   ce que le lot 0 doit éviter. Un import de `server/db.js` sans configuration
+   maître est désormais un cas **supporté**.
+2. La dernière étape (`npm test`) fournit elle-même sa configuration maître de
+   test via `scripts/test-env.mjs` (posée avant le chargement du `.env`) : la CI
+   n'a rien à fournir.
+
+Non-régression : `src/lot1BaseScripts.test.js` — les quatre commandes de scripts
+démarrent sans `MASTER_*` et sortent avec **leur** message, jamais avec celui du
+compte maître ; `masterAccount()` continue de lever (verrou LOT 1.1).
+
 ## Importer les données locales
 
 Après avoir créé la table sur la branche de production, importer une base locale explicitement :

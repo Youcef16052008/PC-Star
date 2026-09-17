@@ -1651,3 +1651,88 @@ Compte des alertes pour une commande : **3** — 1 notification navigateur
   bundle, 0 ref jsdelivr.
 - `npm run smoke` (e2e live) → OK.
 - Render jsdom ar/fr/en → 0 erreur, 0 résidu anglais.
+---
+
+## LOT 1.20 — CI Neon : les scripts de base importaient le compte maître
+
+Chantier **1.B** du plan (`docs/PLAN-CORRECTIONS.md`). Constat **reproduit** sur
+la CI du dépôt, et non déduit : job « Create Neon Branch » du workflow
+`.github/workflows/neon_workflow.yml`, run du 16/09/2026 15:39:37 UTC, étape
+**« Run Neon schema migrations »** (`npm run db:migrate:neon`) en échec :
+
+```
+Error: [pcstar] compte maître non configuré — MASTER_EMAIL et MASTER_PASSWORD sont obligatoires.
+```
+
+### Mécanisme (et pourquoi il était invisible en local)
+
+`server/db.js` terminait sa déclaration par un **objet résolu au chargement du
+module** :
+
+```js
+const MASTER = masterAccount()   // ← exige MASTER_EMAIL / MASTER_PASSWORD à l'import
+```
+
+Tout importeur du module héritait donc de cette exigence, y compris des scripts
+qui n'ont **rien à faire** du compte maître :
+
+| Importeur | Ce qu'il fait | Besoin réel du maître |
+|---|---|---|
+| `scripts/neon-migrate.mjs` (`db:migrate:neon`, `…:reset`) | crée le schéma, écrit `emptyDb()` | **aucun** |
+| `scripts/import-neon.mjs` (`db:import:neon`) | importe un `store.json` | aucun |
+| `scripts/neon-doctor.mjs` (`db:doctor`) | diagnostic de connexion/schéma | aucun |
+| `scripts/test-neon-concurrency.mjs` (`test:neon:concurrency`) | réserve concurrente, lit/écrit l'état | aucun |
+
+La CI ne pose que `DATABASE_URL` : l'échec était **certain**, pas intermittent.
+En local il ne se voyait pas parce que le `.env` du développeur contient
+`MASTER_*` — et la documentation elle-même décrit la commande sans ces
+variables (`docs/NEON-MIGRATION.md:13`) :
+
+```bash
+DATABASE_URL='postgresql://...' npm run db:migrate:neon
+```
+
+Coût réel de la panne : les **quatre** étapes de migration/validation du job sont
+les étapes d'un **même job**, donc la migration qui échoue rend impossibles
+l'étape de concurrence, le `--reset` **et** la suite complète sur une PR. La
+protection anti-réservation concurrente (lot 3) n'était jamais vérifiée sur une
+branche de PR.
+
+### Correction
+
+`server/db.js` ne résout plus le compte maître au chargement :
+
+- l'objet `const MASTER` est **supprimé** (il n'avait aucun consommateur : seul
+  `server/index.js` l'exportait pour `/api/health`, retiré au lot 1.10) ;
+- un accesseur paresseux `masterAccountOrNull()` renvoie le compte, ou `null` si
+  l'environnement ne le configure pas ;
+- `emptyDb()` et `normalizeDb()` passent par cet accesseur : sans configuration
+  ils ne sèment pas de maître et ne le synchronisent pas, mais **ne suppriment
+  jamais** un maître déjà présent en base (la synchronisation est l'action d'un
+  serveur configuré) ;
+- `masterAccount()` **lève toujours** sans les variables, et le serveur continue
+  de refuser de démarrer (`assertMasterConfigured()` dans `server/index.js`) : le
+  verrou du LOT 1.1 n'est pas affaibli, seul le moment de la résolution change.
+
+Corollaire : la CI n'a plus besoin de `MASTER_*` sur ces étapes, et la commande
+documentée de `docs/NEON-MIGRATION.md` redevient exacte.
+
+### Verrou de non-régression
+
+`src/lot1BaseScripts.test.js` — 9 tests, dont 4 qui exécutent les scripts réels
+(`neon-migrate.mjs` avec et sans `--reset`, `test-neon-concurrency.mjs`,
+`neon-doctor.mjs`) en **processus enfant**, avec `MASTER_EMAIL` /
+`MASTER_PASSWORD` posés à blanc. Chacun exige que le script démarre et échoue
+avec **son** message (`DATABASE_URL is required`, `DATABASE_URL absente`), et
+jamais avec celui du compte maître. Les cinq autres verrouillent la mécanique
+interne : `masterAccount()` lève encore ; `masterAccountOrNull()` vaut `null`
+sans configuration et l'objet avec ; `emptyDb()` ne sème aucun maître sans
+configuration ; `normalizeDb()` ne supprime jamais un maître déjà en base ; le
+module n'expose plus d'objet `MASTER` et le garde-fou serveur
+(`assertMasterConfigured`) demeure.
+
+`src/lot3Server.test.js` (3.17 / B21) vérifiait l'ordre de déclaration
+`hashPassLegacy` **avant l'objet `MASTER`** : l'objet n'existant plus, le repère
+devient `masterAccount()` — l'invariant réel (« l'empreinte est produite par une
+fonction déclarée avant elle », plus de dépendance au hoisting) est conservé.
+
