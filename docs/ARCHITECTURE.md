@@ -41,17 +41,16 @@ Vue d'ensemble du système : **front SPA React** / **API Node (serverless-ready)
         │                ▼                          │
         │  ┌───────────────────────────────┐        │
         │  │ PERSISTENCE                   │        │
-        │  │ local  : server/data/store.json│        │
-        │  │ vercel : /tmp/pcstar-data/     │        │
-        │  │          (éphémère — cold      │        │
-        │  │           start peut reset)    │        │
-        │  │ backups : au boot + 6 h +      │        │
-        │  │          npm run backup + UI   │        │
+        │  │ local : server/data/store.json│        │
+        │  │ prod  : Neon pcstar_state     │        │
+        │  │         (verrou transaction)  │        │
+        │  │ backups : fichier local OU    │        │
+        │  │ Neon snapshots + export ops   │        │
         │  └───────────────────────────────┘        │
         └──────────────────────────────────────────┘
 ```
 
-**Principe directeur :** le catalogue est **statique** (251 SKU de base / 249 publics quand speakers est en rupture dans `src/data.js`, images dans le repo) → persiste sur Vercel sans base. La **donnée volatile** (users, orders, overrides stock, produits ajoutés) vit dans `store.json` → éphémère sur Vercel Hobby, durable en local. Le code est découpé pour brancher KV/Turso/Blob sans réécrire (`server/db.js` isole le fichier).
+**Principe directeur :** le catalogue est **statique** (251 SKU de base / 249 publics quand speakers est en rupture dans `src/data.js`, images dans le repo) → persiste sur Vercel sans base. Les données mutables (users, orders, overrides stock, produits ajoutés) utilisent `store.json` en local et **Neon** dès que `DATABASE_URL` est configurée; aucun état métier n'est alors confié au `/tmp` éphémère de Vercel. Les snapshots opérateur sont bornés dans `pcstar_backups`; un export régulier hors du projet Neon reste requis pour une reprise après incident fournisseur. Voir [NEON-MIGRATION.md](./NEON-MIGRATION.md).
 
 ---
 
@@ -189,8 +188,10 @@ Les galeries master sont des remplacements explicites : les chemins conservés e
 | `META_APP_ID` / `META_APP_SECRET` | application Meta Login, serveur uniquement |
 | `META_GRAPH_VERSION` | optionnel, `v26.0` par défaut pour Meta Login |
 | `BLOB_READ_WRITE_TOKEN` | requis pour tout upload master sur Vercel; les images sont stockées durablement dans Vercel Blob |
+| `DATABASE_URL` | chaîne Neon **pooled**; source de vérité production pour users, commandes, stock et catalogue Master |
+| `CRON_SECRET` | secret Vercel Cron qui autorise le snapshot quotidien `/api/internal/backup` |
 
-**Limites honnêtes (Hobby, sans base cloud)** : `store.json` reste dans **`/tmp`** sans base cloud → reset possible au cold start. Les photos master ne tombent plus dans ce repli éphémère : en serverless, l’upload est refusé sans `BLOB_READ_WRITE_TOKEN`; avec ce token, l’objet est durable dans Blob. Le **catalogue statique** est persistant. Échappement prévu pour les données métier : Vercel KV / Turso / Neon via `server/db.js`. Détails : [DEPLOY-VERCEL.md](DEPLOY-VERCEL.md).
+**Limites honnêtes :** sans `DATABASE_URL`, l'état local (`store.json`, ou `/tmp` sous Vercel) peut disparaître au cold start; ce mode n'est donc pas un déploiement de production durable. Avec Neon, l'état métier et les snapshots bornés vivent dans Postgres. Les photos master ne tombent jamais dans le repli éphémère : en serverless, l’upload est refusé sans `BLOB_READ_WRITE_TOKEN`; avec ce token, l’objet est durable dans Blob. Le catalogue statique reste disponible même quand la base est injoignable. Détails : [NEON-MIGRATION.md](NEON-MIGRATION.md).
 
 ---
 
@@ -249,7 +250,8 @@ npm run dev          # vite → :5173 (proxy /api)
 npm test             # node --test → 34 tests (store, orders, master, auth, crypto, API)
 npm run smoke        # scripts/smoke-e2e.mjs : e2e complet de l'API (fetch)
 npm run build        # bundle → dist/ (chunks react / bootstrap séparés)
-npm run backup       # copie store.json → server/data/backups/
+npm run backup       # copie locale bornée, ou snapshot Neon si DATABASE_URL est posée
+# Pour Neon : voir docs/NEON-MIGRATION.md (export hors site et restauration confirmée).
 ```
 
 En dev, `FRONT_ORIGIN` par défaut = `*` (démo). En prod Vercel : `FRONT_ORIGIN=https://TON.app`.

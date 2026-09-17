@@ -32,11 +32,11 @@ Légende des domaines : **D** données & multi-appareils · **S** sécurité & a
 
 **Problème.** L'API tournait en mémoire : un `Ctrl+C` (ou un reboot du PC du magasin) = commandes du jour disparues.
 
-**Solution.** Persistance JSON (`store.json`) + **backup automatique** au boot, toutes les **6 h**, via `npm run backup`, et bouton « Backup » dans l'UI master (copie horodatée dans `server/data/backups/`). Cap de 500 commandes (rotation).
+**Solution.** Persistance JSON (`store.json`) en local, ou **Neon** en production dès que `DATABASE_URL` est configurée. Le backup automatique au boot/toutes les **6 h**, `npm run backup` et le bouton Master créent une copie fichier en local ou un snapshot transactionnel Neon (`pcstar_backups`) en production. Un export CLI hors Neon complète ces snapshots pour la reprise après incident fournisseur.
 
-**Code.** `server/db.js` (`readDb`/`updateDb`) · `server/index.js` (`setInterval` 6 h, `/api/master/backup`) · `scripts/backupDb.mjs`.
+**Code.** `server/db.js` (`readDbAsync`/`updateDbAsync`) · `server/neonStore.js` (verrou + snapshots) · `server/index.js` (`setInterval` 6 h, `/api/master/backup`) · `scripts/backupDb.mjs`.
 
-**Résultat.** Redémarrage = zéro perte de commandes ; historique récupérable même si le fichier principal est corrompu.
+**Résultat.** Redémarrage = zéro perte de commandes avec Neon ; rollback opérateur par snapshot et export indépendant restaurable. Le mode sans `DATABASE_URL` reste seulement un mode local éphémère sur Vercel.
 
 ### 4. Le master touchait au code pour gérer le catalogue *(D)*
 

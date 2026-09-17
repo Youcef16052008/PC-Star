@@ -98,3 +98,26 @@ Configurer `BLOB_READ_WRITE_TOKEN` sur Vercel avant de permettre les uploads Mas
 ### Critère de sortie atteint côté code
 
 Le remplacement d’une galerie ne laisse pas de fichier local géré orphelin; une résolution Blob ne tente plus de convertir un simple pathname avec `getDownloadUrl`; aucune fiche produit ne peut être enregistrée avec un nombre non fini ou un SKU déjà employé.
+
+## Phase 5 — Fiabilité production et sauvegardes
+
+**Statut : implémentation et gate CI Neon ajoutés. L’exécution de la branche Neon réelle reste conditionnée aux secrets GitHub du projet.**
+
+### Changements livrés
+
+- Une sauvegarde ne copie plus silencieusement `store.json` lorsque `DATABASE_URL` sélectionne Neon : le bouton Master, le démarrage et `npm run backup` créent un snapshot transactionnel dans `pcstar_backups`, borné aux 30 plus récents.
+- Une restauration est disponible uniquement par CLI, avec UUID de snapshot et `--confirm-restore`; aucune route HTTP destructrice n’est exposée. `db:export:neon` produit aussi un JSON à permissions `0600`, réimportable et destiné à être stocké hors du projet Neon.
+- `db:migrate:neon --reset` et `db:import:neon --force` refusent désormais de s’exécuter sans leur confirmation explicite. Les scripts d’intégration Neon refusent une base non marquée `PCSTAR_NEON_TEST_ISOLATED=1`.
+- La CI de PR crée une branche Neon isolée, vérifie migration, concurrence, snapshot puis restauration, et n’exécute les mutations de test qu’avec cet opt-in. La suite unitaire conserve ses fixtures fichier : elle ne prétend plus être une suite Neon.
+- `db:doctor` vérifie également la table et l’âge des snapshots.
+
+### Action de déploiement requise
+
+1. Renseigner `NEON_PROJECT_ID` (variable de dépôt) et `NEON_API_KEY` (secret Actions), puis ouvrir une PR pour vérifier le workflow Neon.
+2. Configurer `DATABASE_URL` pooled et un `CRON_SECRET` aléatoire sur Vercel, puis lancer `npm run db:migrate:neon` avant le déploiement applicatif. Le secret autorise le Cron quotidien déclaré dans `vercel.json`.
+3. Planifier un `db:export:neon` régulier vers un stockage chiffré hors Neon : les snapshots Neon facilitent un rollback, mais ne remplacent pas une sauvegarde indépendante du fournisseur.
+4. Répéter sur une branche Neon le scénario de restauration avant de l’utiliser en production.
+
+### Critère de sortie atteint côté code
+
+Le chemin de sauvegarde suit le driver réellement actif; les scripts mutateurs exigent une intention explicite ou une branche de test marquée isolée; le workflow contient un test réel snapshot → mutation → restauration qui fait échouer la CI si Neon échoue.

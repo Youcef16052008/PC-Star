@@ -1,14 +1,26 @@
 #!/usr/bin/env node
 import fs from 'node:fs/promises'
-import { neon } from '@neondatabase/serverless'
-import { normalizeDb } from '../server/db.js'
 
 if (!process.env.DATABASE_URL) {
   console.error('DATABASE_URL is required')
   process.exit(2)
 }
-const source = process.argv[2] || 'server/data/store.json'
-const force = process.argv.includes('--force')
+const args = process.argv.slice(2)
+const sources = args.filter((arg) => !arg.startsWith('--'))
+if (sources.length > 1) {
+  console.error('Usage: npm run db:import:neon -- [store.json] [--force --confirm-overwrite]')
+  process.exit(2)
+}
+const source = sources[0] || 'server/data/store.json'
+const force = args.includes('--force')
+if (force && !args.includes('--confirm-overwrite')) {
+  console.error('Refusing destructive --force without --confirm-overwrite. Export a backup first.')
+  process.exit(2)
+}
+
+// Gardes ci-dessus avant les imports serveur : une commande de confirmation
+// oubliée n'a besoin ni de réseau ni de secrets maître pour échouer proprement.
+const [{ neon }, { normalizeDb }] = await Promise.all([import('@neondatabase/serverless'), import('../server/db.js')])
 const data = JSON.parse(await fs.readFile(source, 'utf8'))
 if (!data || !Array.isArray(data.users) || !Array.isArray(data.orders) || !data.meta) {
   throw new Error('Invalid PC Star store shape')

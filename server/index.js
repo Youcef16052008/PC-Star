@@ -2,6 +2,7 @@
 // process.env au chargement (PORT, DATABASE_URL, FRONT_ORIGIN, TRUST_PROXY…).
 import './env.js'
 import http from 'node:http'
+import crypto from 'node:crypto'
 import { URL } from 'node:url'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -280,6 +281,16 @@ function bearer(req) {
   return m ? m[1].trim() : null
 }
 
+/** Vérifie le secret Cron sans révéler une différence de préfixe à distance. */
+function isAuthorizedCron(req) {
+  const configured = String(process.env.CRON_SECRET || '')
+  const received = String(bearer(req) || '')
+  if (!configured || !received) return false
+  const expected = Buffer.from(configured)
+  const actual = Buffer.from(received)
+  return expected.length === actual.length && crypto.timingSafeEqual(expected, actual)
+}
+
 async function userFromReq(req) {
   const token = bearer(req)
   if (!token) return null
@@ -327,6 +338,24 @@ async function cleanupProductUploads(before, after, uploaded = []) {
   for (const photo of remaining) console.warn(`[pcstar] suppression photo différée : ${photo}`)
 }
 
+/**
+ * Sauvegarde suivant le driver réellement utilisé. Une copie de `store.json`
+ * n'est pas une sauvegarde lorsque DATABASE_URL sélectionne Neon : en Vercel,
+ * ce fichier n'est même pas l'état courant. Le driver Neon crée donc un
+ * snapshot transactionnel persistant dans `pcstar_backups`.
+ */
+async function backupCurrentState(source = 'manual') {
+  if (process.env.DATABASE_URL) {
+    const { createNeonBackup } = await import('./neonStore.js')
+    const backup = await createNeonBackup(source)
+    return { driver: 'neon', ...backup }
+  }
+  const { dbFile, dataDir } = dbPaths()
+  const dest = backupStore(dbFile, path.join(dataDir, 'backups'))
+  if (!dest) throw new Error('local database file is unavailable')
+  return { driver: 'file', file: path.basename(dest) }
+}
+
 // AUDIT-2026-09-17 / phase 3 — aucune correspondance téléphone → compte.
 // Sans OTP/SMS effectivement livré et vérifié, le numéro déclaré au checkout
 // n'est pas une preuve de possession. Les routes client ne servent donc que les
@@ -341,6 +370,20 @@ export async function handler(req, res) {
   if (req.method === 'OPTIONS') return send(res, 204, '')
 
   try {
+    // Vercel Cron appelle cette URL une fois par jour. Aucune session navigateur
+    // n'est acceptée : seul le Bearer CRON_SECRET peut déclencher une écriture.
+    if (req.method === 'GET' && pathname === '/api/internal/backup') {
+      if (!isAuthorizedCron(req)) return send(res, 401, { ok: false, error: 'auth' })
+      if (!process.env.DATABASE_URL) return send(res, 503, { ok: false, error: 'backup_database_required' })
+      try {
+        const backup = await backupCurrentState('vercel-cron')
+        return send(res, 200, { ok: true, backup: { driver: backup.driver, id: backup.id, createdAt: backup.createdAt } })
+      } catch (error) {
+        console.error('[pcstar-backup] cron échoué :', String((error && error.message) || error))
+        return send(res, 503, { ok: false, error: 'backup_failed' })
+      }
+    }
+
     // health
     if (req.method === 'GET' && pathname === '/api/health') {
       // P12 (B25) : health reste sans sonde DB (il doit répondre même base
@@ -1302,12 +1345,15 @@ export async function handler(req, res) {
     if (req.method === 'POST' && pathname === '/api/master/backup') {
       const auth = await userFromReq(req)
       if (!auth || auth.user.role !== 'master') return send(res, 403, { ok: false, error: 'forbidden' })
-      // P16 : le chemin était figé sur `server/data/…`, donc avec
-      // PCSTAR_DATA_DIR (tests, conteneur, instance locale) on sauvegardait un
-      // fichier qui n'est PAS la base en cours.
-      const { dbFile, dataDir } = dbPaths()
-      const dest = backupStore(dbFile, path.join(dataDir, 'backups'))
-      return send(res, 200, { ok: true, file: dest ? path.basename(dest) : null })
+      try {
+        const backup = await backupCurrentState('master-manual')
+        // Le snapshot ne quitte jamais le serveur : l'identifiant est seulement
+        // une référence opérateur, sans données clients ni chaîne DATABASE_URL.
+        return send(res, 200, { ok: true, backup })
+      } catch (error) {
+        console.error('[pcstar-backup] sauvegarde manuelle échouée :', String((error && error.message) || error))
+        return send(res, 503, { ok: false, error: 'backup_failed' })
+      }
     }
 
     // Catalog meta — P9 (P7-5) : route PUBLIQUE réduite aux seuls champs que
@@ -1467,22 +1513,19 @@ function startLocalServer() {
       }
     }
     console.log('OAuth:', oauthConfig())
-    // P16 : mêmes chemins que le reste de l'API (dbPaths respecte
-    // PCSTAR_DATA_DIR) — sinon le backup local copiait un fichier qui n'est
-    // pas la base en cours.
-    const { dbFile, dataDir } = dbPaths()
-    try {
-      const dest = backupStore(dbFile, path.join(dataDir, 'backups'))
-      if (dest) console.log('Backup:', dest)
-    } catch (e) {
-      console.warn('Backup skipped', e.message)
-    }
-    setInterval(() => {
+    // Même driver que les écritures métier : avec Neon, un backup est un
+    // snapshot JSONB durable et non une copie inutile de /tmp/store.json.
+    const scheduledBackup = async () => {
       try {
-        backupStore(dbFile, path.join(dataDir, 'backups'))
-      } catch {
-        /* ignore */
+        const backup = await backupCurrentState('scheduled')
+        console.log('Backup:', backup.driver === 'neon' ? backup.id : backup.file)
+      } catch (error) {
+        console.warn('Backup skipped', String((error && error.message) || error))
       }
+    }
+    void scheduledBackup()
+    setInterval(() => {
+      void scheduledBackup()
     }, 6 * 60 * 60 * 1000).unref?.()
   })
   return server
