@@ -19,7 +19,8 @@ import { TEST_MASTER_EMAIL, TEST_MASTER_PASSWORD } from '../scripts/test-env.mjs
 //             au lieu d'être figés à l'import du module
 //  3.14 (B4)  `productOverrides[id]` effacé quand l'override redevient vide
 //  3.15 (B5)  deux backups dans la même seconde → deux fichiers distincts
-//  3.17 (B21) `hashPassLegacy` déclaré AVANT l'objet `MASTER` (plus de hoisting)
+//  3.17 (B21) `hashPassLegacy` déclaré AVANT `masterAccount()` (plus de hoisting ;
+//             LOT 1.20 : le repère n'est plus l'objet `MASTER`, supprimé)
 //  3.18 (R14) WebSocket : authentification par PREMIER message, plus de token
 //             dans l'URL d'upgrade
 //
@@ -428,13 +429,16 @@ describe('LOT 3.15 (B5) — noms de backup uniques', () => {
 /* ------------------------------------------------------------------ 3.17 */
 
 describe('LOT 3.17 (B21) — plus de dépendance au hoisting', () => {
-  it('hashPassLegacy est déclaré AVANT l’objet MASTER dans server/db.js', () => {
+  it('hashPassLegacy est déclaré AVANT `masterAccount()` dans server/db.js', () => {
     const src = fs.readFileSync(path.join(process.cwd(), 'server', 'db.js'), 'utf8')
     const decl = src.search(/function hashPassLegacy\s*\(/)
-    const master = src.search(/^(export )?const MASTER\s*=/m)
+    // LOT 1.20 : l'objet `MASTER` (résolu au chargement) n'existe plus. Le
+    // repère devient la fonction qu'il appelait pour produire l'empreinte —
+    // c'est elle, et elle seule, que le compte maître doit suivre.
+    const master = src.search(/^export function masterAccount\s*\(/m)
     assert.ok(decl > 0, 'hashPassLegacy introuvable')
-    assert.ok(master > 0, 'objet MASTER introuvable')
-    assert.ok(decl < master, `hashPassLegacy (offset ${decl}) doit précéder MASTER (offset ${master})`)
+    assert.ok(master > 0, 'masterAccount introuvable')
+    assert.ok(decl < master, `hashPassLegacy (offset ${decl}) doit précéder masterAccount (offset ${master})`)
   })
 
   it('le compte maître est bien haché avec cette fonction (aucun mot de passe en clair)', async () => {

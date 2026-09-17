@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
 import path from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { JSDOM } from 'jsdom'
 
 // ---------------------------------------------------------------------------
@@ -481,10 +482,10 @@ describe('6.8 (Q8) — un seul jeu d’en-têtes CORS', () => {
     // elle-même, avant l'import — `server/index.js` la lit au chargement.
     const probe = `
       process.env.FRONT_ORIGIN = 'https://shop.example'
-      const { corsHeaders } = await import(${JSON.stringify(path.join(ROOT, 'server', 'index.js'))})
+      const { corsHeaders } = await import(${JSON.stringify(String(pathToFileURL(path.join(ROOT, 'server', 'index.js'))))})
       console.log(JSON.stringify(corsHeaders()))
     `
-    const res = spawnSync(process.execPath, ['--import', path.join(ROOT, 'scripts', 'test-env.mjs'), '--input-type=module', '-e', probe], {
+    const res = spawnSync(process.execPath, ['--import', String(pathToFileURL(path.join(ROOT, 'scripts', 'test-env.mjs'))), '--input-type=module', '-e', probe], {
       env: { ...process.env, PCSTAR_DATA_DIR: path.join(ROOT, '.tmp-q8') },
       encoding: 'utf8',
       timeout: 60000
@@ -499,10 +500,10 @@ describe('6.8 (Q8) — un seul jeu d’en-têtes CORS', () => {
 
   it('sans origine déclarée : aucun en-tête CORS, et surtout pas un Allow-Origin vide', () => {
     const probe = `
-      const { corsHeaders } = await import(${JSON.stringify(path.join(ROOT, 'server', 'index.js'))})
+      const { corsHeaders } = await import(${JSON.stringify(String(pathToFileURL(path.join(ROOT, 'server', 'index.js'))))})
       console.log(JSON.stringify(corsHeaders()))
     `
-    const res = spawnSync(process.execPath, ['--import', path.join(ROOT, 'scripts', 'test-env.mjs'), '--input-type=module', '-e', probe], {
+    const res = spawnSync(process.execPath, ['--import', String(pathToFileURL(path.join(ROOT, 'scripts', 'test-env.mjs'))), '--input-type=module', '-e', probe], {
       env: { ...process.env, FRONT_ORIGIN: '', FRONT_URL: '', VERCEL_URL: '', PCSTAR_DATA_DIR: path.join(ROOT, '.tmp-q8b') },
       encoding: 'utf8',
       timeout: 60000

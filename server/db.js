@@ -74,8 +74,11 @@ function hashPass(password) {
  * authentification et, avant le lot 1.6, sans rate-limit — c'était un vecteur
  * de déni de service à coût nul pour l'attaquant.
  *
- * `hashPass` (synchrone) reste utilisé là où il n'y a pas le choix : le seed du
- * compte maître, évalué au chargement du module.
+ * `hashPass` (synchrone) n'est plus appelé par ce module pour son propre
+ * compte : `masterAccount()` et `demoAccounts()` produisent leurs empreintes
+ * avec `hashPassLegacy` (sha256, non bloquant), et le seed du maître n'est plus
+ * évalué au chargement (LOT 1.20). Il reste exporté pour les tests et pour tout
+ * chemin hors requête HTTP.
  */
 export function hashPassAsync(password) {
   return new Promise((resolve, reject) => {
@@ -111,9 +114,12 @@ function hashPassLegacy(password) {
  * L'`id` reste fixe (`master-pcstar`) : il n'est pas secret, et le rendre
  * variable casserait les références existantes en base.
  *
- * Déclaration placée APRÈS `hashPassLegacy` : l'objet `MASTER` est évalué au
- * chargement du module et n'a donc plus à compter sur le hoisting des
- * déclarations de fonction (rapport d'audit, item #55/W).
+ * Déclaration placée APRÈS `hashPassLegacy` (rapport d'audit, item #55/W) :
+ * c'est la fonction qu'elle appelle pour produire l'empreinte.
+ *
+ * LOT 1.20 — cette fonction est le SEUL point du module qui exige les deux
+ * variables d'environnement : le module ne l'appelle plus au chargement (voir
+ * `masterAccountOrNull` ci-dessous).
  */
 export function masterAccount() {
   const email = String(process.env.MASTER_EMAIL || '').trim().toLowerCase()
@@ -143,7 +149,52 @@ export function masterAccount() {
   }
 }
 
-const MASTER = masterAccount()
+/**
+ * LOT 1.20 (chantier CI 1.B) — compte maître **facultatif** à l'import.
+ *
+ * Constat (CI Neon, job « Create Neon Branch ») : ce module évaluait le compte
+ * maître au chargement (`const MASTER = masterAccount()`). Tout importeur de ce
+ * fichier exigeait donc `MASTER_EMAIL` / `MASTER_PASSWORD` — y compris ceux qui
+ * n'ont rien à faire du compte maître :
+ * `scripts/neon-migrate.mjs` (`npm run db:migrate:neon`, `…:reset`), qui ne crée
+ * que le schéma et écrit `emptyDb()` ; `scripts/import-neon.mjs` ;
+ * `scripts/neon-doctor.mjs` ; `scripts/test-neon-concurrency.mjs`. Conséquence
+ * mesurée : l'étape « Run Neon schema migrations » du workflow
+ * `.github/workflows/neon_workflow.yml` échouait en
+ * `Error: [pcstar] compte maître non configuré` — et les trois étapes suivantes
+ * (concurrence, `--reset`, suite complète) ne s'exécutaient **jamais** sur une
+ * PR. La commande documentée de `docs/NEON-MIGRATION.md`
+ * (`DATABASE_URL='…' npm run db:migrate:neon`) était cassée pour la même raison.
+ *
+ * Ce que la résolution paresseuse NE change PAS :
+ *  · `masterAccount()` continue de **lever** sans les variables — le verrou du
+ *    LOT 1.1 et ses tests (`src/masterSecrets.test.js`) sont intacts ;
+ *  · le serveur refuse toujours de démarrer sans elles :
+ *    `assertMasterConfigured()` (`server/index.js`) le vérifie explicitement
+ *    avant `listen()`, donc l'échec reste bruyant là où il doit l'être.
+ *
+ * Ce que `null` signifie ici : un processus **sans** configuration maître n'a
+ * aucun maître à semer ni à synchroniser, donc `emptyDb()` et `normalizeDb()`
+ * sautent simplement ces deux étapes. Aucun maître déjà présent en base n'est
+ * supprimé : la synchronisation est l'action d'un serveur configuré. C'est ce
+ * qui permet à un script de base (migration, diagnostic, concurrence) de
+ * travailler sur l'état sans jamais manipuler d'identifiants.
+ *
+ * Pas de mémoïsation, volontairement : `masterAccount()` ne coûte qu'un sha256
+ * (`hashPassLegacy`) et reste, comme `demoAccounts()`, sensible à
+ * l'environnement — une variable posée ou retirée en cours de processus est vue
+ * à l'appel suivant, ce dont dépendent les tests.
+ *
+ * @returns {object|null} le compte maître, ou `null` si l'environnement ne le
+ *   configure pas.
+ */
+export function masterAccountOrNull() {
+  try {
+    return masterAccount()
+  } catch {
+    return null
+  }
+}
 
 export function verifyPass(password, stored) {
   if (!stored) return false
@@ -281,8 +332,14 @@ export function demoAccounts() {
 }
 
 export function emptyDb() {
+  // LOT 1.20 : `masterAccountOrNull()` vaut `null` lorsque l'environnement ne
+  // configure pas de compte maître — le cas des scripts de base (migration
+  // Neon, import, diagnostic, concurrence). `masterAccount()` continue de
+  // lever, et c'est ce contrôle-là que vérifie `src/masterSecrets.test.js` ;
+  // une base VIDE, elle, n'a aucune raison d'exiger des identifiants.
+  const master = masterAccountOrNull()
   return {
-    users: [MASTER, ...demoAccounts()],
+    users: [...(master ? [master] : []), ...demoAccounts()],
     orders: [],
     stock: {},
     meta: {
@@ -323,8 +380,12 @@ function ensure() {
  */
 export function normalizeDb(db) {
   let changed = false
+  // LOT 1.20 : résolu UNE fois par normalisation (sha256 bon marché, donc pas
+  // de mémoïsation — voir `masterAccountOrNull`). Les trois usages ci-dessous
+  // sont désactivés ensemble quand l'environnement ne configure pas de maître.
+  const master = masterAccountOrNull()
   if (!Array.isArray(db.users)) {
-    db.users = [MASTER, ...demoAccounts()]
+    db.users = [...(master ? [master] : []), ...demoAccounts()]
     changed = true
   }
   // LOT 1.1 — le maître suit l'environnement.
@@ -340,24 +401,34 @@ export function normalizeDb(db) {
   // (item 1, dans la route login) re-sel en scrypt au premier accès réussi.
   // Sans elle, chaque lecture remettrait le hash legacy et provoquerait un
   // `writeDb` — donc un re-hash scrypt — à chaque connexion.
-  const masterIdx = (db.users || []).findIndex((u) => u && u.role === 'master')
-  if (masterIdx < 0) {
-    db.users = [MASTER, ...(db.users || [])]
-    changed = true
-  } else {
-    const cur = db.users[masterIdx]
-    if (cur.email !== MASTER.email) {
-      cur.email = MASTER.email
+  // LOT 1.20 : sans configuration maître (scripts de base), il n'y a rien à
+  // synchroniser — et surtout rien à RÉINJECTER. Le maître éventuellement
+  // présent en base est laissé tel quel : le retirer serait destructeur, et
+  // c'est au serveur configuré de faire respecter la configuration
+  // (`assertMasterConfigured()`, server/index.js, échoue avant `listen()`).
+  //
+  // Le bloc est indenté sous ce `if` plutôt qu'extrait dans une fonction : il
+  // mute `changed`, et l'ordre des mutations de `normalizeDb` est observable.
+  if (master) {
+    const masterIdx = (db.users || []).findIndex((u) => u && u.role === 'master')
+    if (masterIdx < 0) {
+      db.users = [master, ...(db.users || [])]
       changed = true
-    }
-    // `changed` ne doit être vrai que si la valeur BOUGE : sans cette seconde
-    // condition, un maître encore en empreinte legacy se voyait réassigner la
-    // MÊME valeur à chaque lecture et `normalizeDb` renvoyait toujours `true`.
-    // Or ce drapeau pilote désormais la persistance (LOT 3.2, B2/B3) : un faux
-    // positif remet une écriture au démarrage là où rien n'a changé.
-    if (!String(cur.passwordHash || '').startsWith('scrypt$') && cur.passwordHash !== MASTER.passwordHash) {
-      cur.passwordHash = MASTER.passwordHash
-      changed = true
+    } else {
+      const cur = db.users[masterIdx]
+      if (cur.email !== master.email) {
+        cur.email = master.email
+        changed = true
+      }
+      // `changed` ne doit être vrai que si la valeur BOUGE : sans cette seconde
+      // condition, un maître encore en empreinte legacy se voyait réassigner la
+      // MÊME valeur à chaque lecture et `normalizeDb` renvoyait toujours `true`.
+      // Or ce drapeau pilote désormais la persistance (LOT 3.2, B2/B3) : un faux
+      // positif remet une écriture au démarrage là où rien n'a changé.
+      if (!String(cur.passwordHash || '').startsWith('scrypt$') && cur.passwordHash !== master.passwordHash) {
+        cur.passwordHash = master.passwordHash
+        changed = true
+      }
     }
   }
   if (!Array.isArray(db.orders)) {
@@ -957,7 +1028,20 @@ export function dbPaths() {
   return { dbFile: DB_FILE, dataDir: DATA_DIR }
 }
 
-export { hashPass, hashPassLegacy, MASTER }
+/**
+ * LOT 1.20 — plus d'`export { …, MASTER }`.
+ *
+ * L'objet `MASTER` (compte maître **résolu à l'import**) n'avait plus aucun
+ * consommateur : le serveur a cessé de l'importer au LOT 1.10 (il a été remplacé
+ * par `assertMasterConfigured()`, appelé avant `listen()`), et le seul autre
+ * import historique (`server/index.js:8`) avait disparu avec lui. Le réexporter
+ * obligeait le module à résoudre le compte maître au chargement — donc à exiger
+ * `MASTER_EMAIL` / `MASTER_PASSWORD` de tout importeur, y compris les scripts de
+ * base (voir `masterAccountOrNull`). Le retirer est ce qui rend la résolution
+ * paresseuse possible ; `masterAccount()` / `masterAccountOrNull()` restent les
+ * deux points d'entrée explicites.
+ */
+export { hashPass, hashPassLegacy }
 
 export function newId(prefix) {
   return `${prefix}-${Date.now().toString(36)}-${crypto.randomBytes(3).toString('hex')}`

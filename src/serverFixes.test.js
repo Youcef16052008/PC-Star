@@ -4,7 +4,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { spawn } from 'node:child_process'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 
 import { TEST_MASTER_EMAIL, TEST_MASTER_PASSWORD, TEST_DEMO_PASSWORD } from '../scripts/test-env.mjs'
 import { ordersToCsv, sanitizeProductPatch, updateProduct } from '../server/masterApi.js'
@@ -48,10 +48,10 @@ async function startServer() {
     [
       '--input-type=module',
       '-e',
-      `import ${JSON.stringify(path.join(ROOT, 'scripts', 'test-env.mjs'))}\n` +
+      `import ${JSON.stringify(String(pathToFileURL(path.join(ROOT, 'scripts', 'test-env.mjs'))))}\n` +
         `import http from 'node:http'\n` +
         `import fs from 'node:fs'\n` +
-        `const { handler } = await import(${JSON.stringify(path.join(ROOT, 'server', 'index.js'))})\n` +
+        `const { handler } = await import(${JSON.stringify(String(pathToFileURL(path.join(ROOT, 'server', 'index.js'))))})\n` +
         `const srv = http.createServer(handler)\n` +
         `srv.listen(0, '127.0.0.1', () => {\n` +
         `  fs.writeFileSync(${JSON.stringify(portFile)}, String(srv.address().port))\n` +
@@ -835,7 +835,7 @@ describe('LOT 1.13 / 1.18 — FRONT_URL malformé : averti, ignoré, jamais inje
     // (LOT 7.1, isolation de la suite) et écraserait donc les valeurs testées.
     // server/db.js exige en revanche le compte maître → fourni explicitement.
     const probe =
-      `const m = await import(${JSON.stringify(path.join(ROOT, 'server', 'oauth.js'))})\n` +
+      `const m = await import(${JSON.stringify(String(pathToFileURL(path.join(ROOT, 'server', 'oauth.js'))))})\n` +
       `process.stdout.write(JSON.stringify({ url: m.configuredFrontUrl(), ok: m.safeReturnUrl('https://pcstar.dz/desk') }))\n`
     return new Promise((resolve, reject) => {
       const child = spawn(process.execPath, ['--input-type=module', '-e', probe], {
@@ -946,7 +946,7 @@ describe('LOT 1.13 / 1.18 — FRONT_URL malformé : averti, ignoré, jamais inje
 
   it('l’avertissement n’est émis qu’une fois par valeur', async () => {
     const probe =
-      `const m = await import(${JSON.stringify(path.join(ROOT, 'server', 'oauth.js'))})\n` +
+      `const m = await import(${JSON.stringify(String(pathToFileURL(path.join(ROOT, 'server', 'oauth.js'))))})\n` +
       `for (let i = 0; i < 25; i += 1) m.configuredFrontUrl()\n` +
       `process.stdout.write('done')\n`
     const err = await new Promise((resolve) => {

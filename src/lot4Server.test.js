@@ -5,7 +5,7 @@ import os from 'node:os'
 import path from 'node:path'
 import http from 'node:http'
 import { spawnSync } from 'node:child_process'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { TEST_MASTER_EMAIL, TEST_MASTER_PASSWORD } from '../scripts/test-env.mjs'
 
 // ---------------------------------------------------------------------------
@@ -174,7 +174,9 @@ describe('4.2 (F15) — pas d’upload éphémère sous Vercel', () => {
   const runChild = (env) => {
     const script = `
       const { uploadBlob } = await import(${JSON.stringify(
-        path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../server/blobStore.js')
+        String(pathToFileURL(
+          path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../server/blobStore.js')
+        ))
       )})
       const fs = await import('node:fs')
       try {

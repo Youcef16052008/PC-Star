@@ -23,7 +23,7 @@ import os from 'node:os'
 import path from 'node:path'
 import crypto from 'node:crypto'
 import { spawnSync } from 'node:child_process'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 
 import { TEST_MASTER_EMAIL, TEST_MASTER_PASSWORD } from '../scripts/test-env.mjs'
 const { masterAccount } = await import('../server/db.js')
@@ -340,11 +340,11 @@ describe('LOT 1.1 — le compte maître vient de l’environnement', () => {
     )
 
     const probe = `
-      const { readDb } = await import(${JSON.stringify(path.join(ROOT, 'server', 'db.js'))})
+      const dbUrl = ${JSON.stringify(String(pathToFileURL(path.join(ROOT, 'server', 'db.js'))))}
+      const { readDb, verifyPass } = await import(dbUrl)
       const db = readDb()
       const m = db.users.find((u) => u.role === 'master')
-      const legacyStillValid = (await import(${JSON.stringify(path.join(ROOT, 'server', 'db.js'))}))
-        .verifyPass(${JSON.stringify(legacySecret)}, m.passwordHash)
+      const legacyStillValid = verifyPass(${JSON.stringify(legacySecret)}, m.passwordHash)
       console.log(JSON.stringify({
         email: m.email,
         isScrypt: String(m.passwordHash).startsWith('scrypt$'),

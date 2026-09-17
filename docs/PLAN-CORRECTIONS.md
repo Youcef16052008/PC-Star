@@ -162,8 +162,11 @@ la suite est aujourd'hui aveugle à ces chemins (voir §10).
 > | **Lot 7.2/7.3** (tests de non-régression) | ✅ **Fait** | 7.2 : chaque correctif des lots 1 à 8 a son test, vérifié **régressif** par neutralisation (N1→N71, tableaux au §9) — `src/masterSecrets.test.js` (13), `src/serverFixes.test.js` (49), `src/clientFixes.test.js` (11), `src/lot1DemoSecrets.test.js` (25) et les fichiers dédiés de chaque lot. 7.3 : le contrôle du **bundle** n'est plus manuel — `scripts/check-bundle.mjs` (16 tests) est enchaîné par `npm run build` et fait **échouer** le build si un secret apparaît dans `dist/`. Détail §9 « lot 7.3 ». |
 > | Lots 2, 3, 4, 5, 6 | ✅ **Fait** | Voir §9 : lot 2 (bloquants fonctionnels), lot 3 (robustesse & concurrence), lot 4 (multi-appareil & données), lots 5+6 (honnêteté de l'UI, qualité du code). |
 > | **Lot 8** (audit A→Z, items A1→A10) | ✅ **Fait** | Voir §9 « Lot 8 clos » : les 6 défauts 🔴/🟠 et les 4 mineurs 🟡 sont corrigés, 761 tests. |
+> | **Lot 1.20** (chantier CI 1.B — scripts de base sans compte maître) | ✅ **Fait** | `server/db.js` ne résout plus le compte maître **au chargement** : `masterAccountOrNull()` le résout à la demande ; `emptyDb()`/`normalizeDb()` sautent seed et synchronisation sans configuration, sans jamais retirer un maître existant. `db:migrate:neon`, `…:reset`, `test:neon:concurrency` et `db:doctor` démarrent sans `MASTER_*` — l'étape CI « Run Neon schema migrations » est débloquée, la commande de `docs/NEON-MIGRATION.md` redevient exacte. Verrou : `src/lot1BaseScripts.test.js` (9 tests, dont 4 sur les scripts réels en processus enfant). |
+> | **Chantier 1.B** (CI Neon) | ✅ **Fait** | `masterAccountOrNull()` : importer `server/db.js` n'exige plus `MASTER_EMAIL`/`MASTER_PASSWORD`. Les 4 étapes du workflow Neon s'arrêtaient **à la première** ; `npm run db:migrate:neon` meurt désormais sur son propre contrôle (`DATABASE_URL is required`), plus sur le compte maître. Aucun `MASTER_*` n'est posé en CI — ce serait publier le secret de production (R1/R12). Détail §9 « chantier 1.B ». |
 >
-> **Suite de tests : 315 → 325 → 384 → 761 → 791**, tous verts (**218** suites).
+> **Suite de tests : 315 → 325 → 384 → 761 → 791 → 807 → 816**, tous verts
+> (**223** suites ; le skip unique est volontaire et préexistant).
 
 Sept lots, ordonnés par risque décroissant. Les lots 1 et 2 sont les seuls
 **bloquants** ; les lots 3 à 7 peuvent être menés en parallèle ensuite.
@@ -2624,6 +2627,65 @@ déjà public laisse la faille ouverte. Le mot de passe `star31` est dans le
 bundle **et** dans cinq fichiers de documentation.
 
 ---
+### ✅ Fait — chantier 1.B, la CI Neon ne dépend plus du compte maître (16/09/2026)
+
+**Constat (reproduit).** Job « Create Neon Branch » du workflow
+`.github/workflows/neon_workflow.yml`, étape **« Run Neon schema migrations »**
+(`npm run db:migrate:neon`) : échec. Cause réelle : `server/db.js` résolvait le
+compte maître **au chargement** (`const MASTER = masterAccount()`), donc tout
+importeur du module exigeait `MASTER_EMAIL` / `MASTER_PASSWORD` — y compris les
+quatre commandes qui n'en ont aucun besoin :
+
+| Commande | Étape du workflow | Ce qu'elle fait |
+|---|---|---|
+| `npm run db:migrate:neon` | Run Neon schema migrations | crée le schéma, écrit `emptyDb()` |
+| `npm run test:neon:concurrency` | Verify Neon concurrent reservation protection | verrou de réservation concurrente |
+| `npm run db:migrate:neon:reset` | Reset Neon state before full suite | repart d'une base vide |
+| `npm test` | Run full test suite against Neon | suite complète |
+
+Ces quatre commandes sont des **étapes d'un même job** : l'échec de la première
+empêchait les trois suivantes — donc **toute la suite de tests** — de s'exécuter
+sur une PR. La commande documentée (`docs/NEON-MIGRATION.md` :
+`DATABASE_URL='…' npm run db:migrate:neon`) était cassée pour la même raison,
+sans CI du tout.
+
+**Correction.** Un seul fichier applicatif, `server/db.js` :
+
+- `export function masterAccountOrNull()` — résout le compte maître **à la
+  demande**, `null` si l'environnement ne le configure pas ;
+- `emptyDb()` et `normalizeDb()` passent par cet accesseur : sans configuration
+  aucun maître n'est semé ni synchronisé, et un maître **déjà présent en base
+  n'est jamais supprimé** ;
+- l'export `MASTER` et son évaluation au chargement sont **supprimés**.
+
+`masterAccount()` continue de **lever** sans les variables, et le serveur continue
+de refuser de démarrer (`assertMasterConfigured()`, `server/index.js`) : le verrou
+du LOT 1.1 n'est pas affaibli, l'échec est simplement déplacé là où il a un sens
+— un processus qui sert des requêtes, pas un script qui crée une table.
+
+**Preuves (mesurées, `MASTER_EMAIL` / `MASTER_PASSWORD` / `DATABASE_URL` vides).**
+
+| Commande | Avant (`db.js` d'origine) | Après |
+|---|---|---|
+| `npm run db:migrate:neon` | exit **1**, `Error: [pcstar] compte maître non configuré` (`server/db.js:124`) | exit **2**, `DATABASE_URL is required` |
+| `npm run db:migrate:neon:reset` | idem | exit **2**, `DATABASE_URL is required` |
+| `npm run test:neon:concurrency` | idem | exit **2**, `DATABASE_URL is required` |
+| `npm run db:doctor` | idem | exit **0**, verdict `DATABASE_URL absente` |
+
+**Ce que la CI ne fait PAS.** Aucun `MASTER_EMAIL` / `MASTER_PASSWORD` n'est posé
+sur ces étapes : la migration crée un schéma, elle n'ouvre pas de session. Les y
+ajouter aurait recopié le secret de production dans un dépôt public — soit le
+défaut R1/R12 que le lot 1 ferme. `docs/NEON-MIGRATION.md` le dit explicitement.
+
+**Tests.** `src/lot1BaseScripts.test.js` (nouveau, 5 cas, inscrit au script
+`test`) : les quatre commandes démarrent sans `MASTER_*` et échouent avec **leur**
+message ; une sonde en processus enfant vérifie que `masterAccountOrNull()` vaut
+`null`, que `masterAccount()` **lève toujours**, qu'aucun maître n'est semé et que
+le module n'expose plus d'objet `MASTER`. `src/lot3Server.test.js` (§3.17) est mis
+à jour : le repère de l'ordre de déclaration n'est plus l'objet `MASTER`
+(supprimé) mais `masterAccount()`.
+
+
 
 ## 10. Note sur la couverture de tests
 
