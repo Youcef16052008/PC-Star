@@ -158,11 +158,18 @@ const PICKUP_DEFAULTS = {
   payment: 'cash'
 }
 
+// Les rayons de recherche sont délibérément orientés client : les imprimantes,
+// produits reconditionnés, réseau/UPS et mobilier ne sont plus cachés derrière
+// « accessoires » ou « USB ».
 const BASE_PANELS = [
-  { id: 'parts', titleKey: 'panelParts' },
+  { id: 'catalog', titleKey: 'panelCatalog' },
   { id: 'machines', titleKey: 'panelMachines' },
-  { id: 'desk', titleKey: 'panelDesk' },
-  { id: 'accessories', titleKey: 'panelAccessories' }
+  { id: 'printing', titleKey: 'panelPrinting' },
+  { id: 'parts', titleKey: 'panelParts' },
+  { id: 'peripherals', titleKey: 'panelPeripherals' },
+  { id: 'networking', titleKey: 'panelNetworking' },
+  { id: 'lifestyle', titleKey: 'panelLifestyle' },
+  { id: 'deals', titleKey: 'panelDeals' }
 ]
 
 // P9 (P7-6) : UN SEUL AudioContext partagé (créé à la demande), réutilisé à

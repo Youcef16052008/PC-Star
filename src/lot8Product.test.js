@@ -244,15 +244,17 @@ describe('LOT 8.10 (A10) — création : `kind` validé contre KINDS, déduit si
     assert.deepEqual(KIND_IDS, ['part', 'accessory', 'machine', 'service'])
   })
 
-  it('`kind` absent → déduit de la catégorie (repair→service, laptop/ready→machine, accessories→accessory, sinon part)', () => {
+  it('`kind` absent → déduit de la catégorie étendue (machine, accessoire, service ou pièce)', () => {
     const cas = [
       ['repair', 'service'],
       ['laptop', 'machine'],
-      ['ready', 'machine'],
+      ['desktop', 'machine'],
+      ['printer', 'accessory'],
+      ['network', 'accessory'],
+      ['console', 'accessory'],
       ['accessories', 'accessory'],
       ['cpu', 'part'],
-      ['memory', 'part'],
-      ['console', 'part']
+      ['memory', 'part']
     ]
     for (const [category, attendu] of cas) {
       const r = createProduct(fakeDb(), { ...BASE_PRODUCT, name: `Dérivé ${category}`, category })
@@ -391,7 +393,9 @@ describe('LOT 8.10 (A10) — conséquence métier : un produit accepté est joig
     // Contre-épreuve : le produit que le correctif refuse est exactement celui
     // qui disparaissait de toute navigation.
     const fantome = { ...BASE_PRODUCT, id: 'x-1', category: 'ssd', compat: {} }
-    assert.equal(PART_LINES.some((l) => l.match(fantome)), false, 'aucune ligne PART_LINES')
+    // La ligne universelle « all » sert précisément à explorer le catalogue ;
+    // elle ne rend pas une catégorie libre joignable par navigation dédiée.
+    assert.equal(PART_LINES.filter((l) => l.id !== 'all').some((l) => l.match(fantome)), false, 'aucune ligne PART_LINES dédiée')
     for (const c of CATEGORIES) {
       if (c.id === 'all') continue
       assert.equal(fantome.category === c.id, false, `filtre vitrine ${c.id}`)

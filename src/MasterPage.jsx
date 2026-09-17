@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 // LOT 2.5 (F9) : `PRODUCTS` est le catalogue de base COMPLET — non filtré par
 // stock ni par masquage. C'est la seule source qui contient les SKU des
 // références en rupture ou masquées.
-import { CATEGORIES, PRODUCTS, money } from './data.js'
+import { CATEGORIES, PRODUCTS, PRODUCT_CONDITIONS, PRODUCT_USES, money } from './data.js'
 import { addPanel, addProduct, deleteCustomer, hideProduct, setProductPhotos, togglePanel } from './shopStore.js'
 import PartThumb from './PartThumb.jsx'
 import * as api from './api.js'
@@ -106,6 +106,9 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, ma
     category: 'accessories',
     brand: 'PC Star',
     short: '',
+    condition: 'new',
+    use: 'office',
+    warrantyMonths: '12',
     sku: '',
     photos: []
   })
@@ -214,6 +217,9 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, ma
         category: form.category,
         brand: form.brand,
         short: form.short,
+        condition: form.condition,
+        uses: form.use === 'all' ? [] : [form.use],
+        warrantyMonths: Number(form.warrantyMonths),
         sku: form.sku || undefined,
         photoDataUrls: form.photos
       })
@@ -224,7 +230,7 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, ma
         else errToast(setToast, t, r, 'masterCreateFail')
         return
       }
-      setForm({ name: '', price: '', stock: '1', category: form.category, brand: 'PC Star', short: '', sku: '', photos: [] })
+      setForm({ name: '', price: '', stock: '1', category: form.category, brand: 'PC Star', short: '', condition: 'new', use: 'office', warrantyMonths: '12', sku: '', photos: [] })
       setToast(t('masterAdded'))
       setApiTick((x) => x + 1)
       onStockRefresh?.()
@@ -239,6 +245,9 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, ma
         category: form.category,
         brand: form.brand,
         short: form.short,
+        condition: form.condition,
+        uses: form.use === 'all' ? [] : [form.use],
+        warrantyMonths: Number(form.warrantyMonths),
         sku: form.sku || undefined,
         photos: form.photos
       },
@@ -267,7 +276,7 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, ma
       return
     }
     onMeta(res.meta)
-    setForm({ name: '', price: '', stock: '1', category: form.category, brand: 'PC Star', short: '', sku: '', photos: [] })
+    setForm({ name: '', price: '', stock: '1', category: form.category, brand: 'PC Star', short: '', condition: 'new', use: 'office', warrantyMonths: '12', sku: '', photos: [] })
     setToast(t('masterAdded'))
   }
 
@@ -490,6 +499,24 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, ma
                 <div className="mb-2">
                   <label className="form-label small">{t('masterShort')}</label>
                   <input className="form-control" value={form.short} onChange={(e) => setForm({ ...form, short: e.target.value })} />
+                </div>
+                <div className="row g-2 mb-2">
+                  <div className="col-md-6">
+                    <label className="form-label small">{t('masterCondition')}</label>
+                    <select className="form-select" value={form.condition} onChange={(e) => setForm({ ...form, condition: e.target.value })}>
+                      {PRODUCT_CONDITIONS.map((condition) => <option key={condition.id} value={condition.id}>{t(condition.labelKey)}</option>)}
+                    </select>
+                  </div>
+                  <div className="col-md-6">
+                    <label className="form-label small">{t('masterUse')}</label>
+                    <select className="form-select" value={form.use} onChange={(e) => setForm({ ...form, use: e.target.value })}>
+                      {PRODUCT_USES.map((use) => <option key={use.id} value={use.id}>{t(use.labelKey)}</option>)}
+                    </select>
+                  </div>
+                  <div className="col-md-6">
+                    <label className="form-label small">{t('masterWarranty')}</label>
+                    <input className="form-control" type="number" min="0" max="60" value={form.warrantyMonths} onChange={(e) => setForm({ ...form, warrantyMonths: e.target.value })} />
+                  </div>
                 </div>
                 <div className="mb-2">
                   <label className="form-label small">{t('masterPhotos')}</label>

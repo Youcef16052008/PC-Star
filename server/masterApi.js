@@ -7,7 +7,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { newId } from './db.js'
 import { ensureStock, setStock, liveStockOf } from './catalog.js'
-import { PRODUCTS, isKnownCategory, isKnownKind, kindForCategory } from '../src/data.js'
+import { PRODUCTS, isKnownCategory, isKnownCondition, isKnownKind, isKnownUse, kindForCategory } from '../src/data.js'
 import { uploadBlob, deleteBlob, MAX_BYTES, MAX_PHOTOS } from './blobStore.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -128,6 +128,16 @@ export function createProduct(db, body, id) {
   if (kindProvided != null && !isKnownKind(kindProvided)) return { ok: false, error: 'kind' }
   const kind = kindProvided || kindForCategory(category)
 
+  // Métadonnées de vente visibles dans les nouveaux filtres. Elles sont
+  // validées côté serveur comme la catégorie : un produit « occasion » ne doit
+  // pas redevenir invisible après un rechargement de l'API.
+  const condition = body.condition == null ? 'new' : String(body.condition)
+  if (!isKnownCondition(condition)) return { ok: false, error: 'condition' }
+  const uses = body.uses == null ? [] : Array.isArray(body.uses) ? [...new Set(body.uses.map((u) => String(u)))] : null
+  if (!uses || uses.length > 6 || uses.some((use) => !isKnownUse(use))) return { ok: false, error: 'uses' }
+  const warrantyMonths = body.warrantyMonths == null ? 0 : Number(body.warrantyMonths)
+  if (!Number.isFinite(warrantyMonths) || warrantyMonths < 0 || warrantyMonths > 60) return { ok: false, error: 'warranty' }
+
   const finalId = id || newId('sku')
   const sku = String(body.sku || finalId).trim()
   // P22 (bug H) : le SKU saisi n'était confronté à rien. Un master pouvait
@@ -154,6 +164,9 @@ export function createProduct(db, body, id) {
     related: [],
     photos: Array.isArray(body.photos) ? body.photos.slice(0, MAX_PHOTOS) : [],
     short: String(body.short || '').trim(),
+    condition,
+    uses,
+    warrantyMonths: Math.floor(warrantyMonths),
     // LOT 2.6 (F10) : tableau, comme au patch — plus de produit qu'on ne peut
     // pas éditer sur ce champ.
     needs: normalizeNeeds(body.needs),
@@ -212,6 +225,22 @@ export function sanitizeProductPatch(patch = {}) {
     if (!isKnownKind(kind)) return { ok: false, error: 'kind' }
     out.kind = kind
   }
+  if (patch.condition != null) {
+    const condition = String(patch.condition)
+    if (!isKnownCondition(condition)) return { ok: false, error: 'condition' }
+    out.condition = condition
+  }
+  if (patch.uses != null) {
+    if (!Array.isArray(patch.uses)) return { ok: false, error: 'uses' }
+    const uses = [...new Set(patch.uses.map((use) => String(use)))]
+    if (uses.length > 6 || uses.some((use) => !isKnownUse(use))) return { ok: false, error: 'uses' }
+    out.uses = uses
+  }
+  if (patch.warrantyMonths != null) {
+    const months = Number(patch.warrantyMonths)
+    if (!Number.isFinite(months) || months < 0 || months > 60) return { ok: false, error: 'warranty' }
+    out.warrantyMonths = Math.floor(months)
+  }
   if (patch.short != null) out.short = String(patch.short).slice(0, 200)
   if (patch.sku != null) {
     const sku = String(patch.sku).trim()
@@ -261,6 +290,9 @@ export function updateProduct(db, id, rawPatch) {
     // LOT 8.10 (A10) : `kind` validé par `sanitizeProductPatch` était jeté ici —
     // la route répondait 200 avec une fiche inchangée.
     if (patch.kind != null) cur.kind = String(patch.kind)
+    if (patch.condition != null) cur.condition = String(patch.condition)
+    if (patch.uses != null) cur.uses = patch.uses
+    if (patch.warrantyMonths != null) cur.warrantyMonths = patch.warrantyMonths
     if (patch.short != null) cur.short = String(patch.short)
     if (patch.sku != null) cur.sku = String(patch.sku)
     if (patch.photos != null && Array.isArray(patch.photos)) cur.photos = patch.photos.slice(0, MAX_PHOTOS)
@@ -294,7 +326,7 @@ export function updateProduct(db, id, rawPatch) {
   const next = { ...prev }
   // LOT 8.10 (A10) : `kind` ajouté à la liste — sans quoi un patch validé
   // n'était pas appliqué au produit du catalogue de base non plus.
-  for (const k of ['name', 'price', 'brand', 'category', 'short', 'sku', 'photos', 'needs', 'kind']) {
+  for (const k of ['name', 'price', 'brand', 'category', 'short', 'sku', 'photos', 'needs', 'kind', 'condition', 'uses', 'warrantyMonths']) {
     if (patch[k] != null) next[k] = patch[k]
   }
   if (patch.stock != null) {

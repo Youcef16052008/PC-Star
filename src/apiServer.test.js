@@ -5,6 +5,7 @@ import os from 'node:os'
 import path from 'node:path'
 import http from 'node:http'
 import { TEST_MASTER_EMAIL, TEST_MASTER_PASSWORD } from '../scripts/test-env.mjs'
+import { PRODUCTS } from './data.js'
 
 // Base temporaire isolée — ne touche jamais server/data/store.json.
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pcstar-api-'))
@@ -50,10 +51,11 @@ describe('routes (P2) — handler HTTP réel', () => {
     const { status, data } = await call('GET', '/api/catalog')
     assert.equal(status, 200)
     assert.ok(data.ok)
-    // P21 : 223 SKUs de base, dont `speakers` en rupture (stock 0) filtrée
-    // (P6) → 222 visibles.
-    assert.ok(data.products.length >= 222)
-    assert.ok(data.products.length < 224)
+    // Le catalogue est volontairement extensible. Le catalogue public masque
+    // seulement les références en rupture, donc il reste positif et ne peut
+    // jamais dépasser le catalogue de base tant qu'aucun extra n'est créé.
+    assert.ok(data.products.length > 0)
+    assert.ok(data.products.length <= PRODUCTS.length)
     const cpu = data.products.find((p) => p.id === 'cpu-7800x3d')
     assert.ok(cpu, 'cpu-7800x3d présent')
     assert.equal(cpu.compat.socket, 'AM5')
@@ -174,7 +176,7 @@ describe('routes (P2) — handler HTTP réel', () => {
     assert.equal(meta.data.meta.extraPanels.length, 1)
     // les clés produit du meta ne sont PAS écrasées par cet endpoint
     const products = await call('GET', '/api/master/products', { token: tok })
-    assert.ok(products.data.products.length >= 223)
+    assert.ok(products.data.products.length >= PRODUCTS.length)
   })
 
   it('GET /api/customers : 403 sans master, 200 avec master', async () => {
@@ -467,7 +469,7 @@ describe('P12 (B25) — GET /api/db/status (sonde de base, master)', () => {
     assert.equal(r.data.db.reachable, true)
     assert.equal(r.data.db.configured, false)
     assert.equal(typeof r.data.db.ms, 'number')
-    assert.equal(r.data.counts.baseProducts, 223) // P21 : 27 « dz-hit » retirées
+    assert.equal(r.data.counts.baseProducts, PRODUCTS.length)
     // Compteurs cohérents — les tests précédents ont pu créer produits/commandes,
     // donc on vérifie des relations, pas des valeurs figées.
     assert.ok(r.data.counts.publicProducts > 210, `publicProducts=${r.data.counts.publicProducts}`)

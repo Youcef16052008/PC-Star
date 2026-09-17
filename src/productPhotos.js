@@ -146,6 +146,10 @@ function isCatalogDefaultPhoto(path) {
 }
 
 export function photosForProduct(product) {
+  // Rayons ajoutés sans photo fournie par le comptoir : ne jamais inventer une
+  // illustration d'une autre référence. PartThumb affichera alors le repère de
+  // catégorie, clair et honnête, jusqu'à ce qu'une vraie photo soit ajoutée.
+  if (product?.photoMode === 'mark') return []
   const existing = Array.isArray(product.photos) ? product.photos.filter(Boolean) : []
   const sku = skuPhotoPaths(product.id)
 

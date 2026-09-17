@@ -72,7 +72,7 @@ export { normalizePhone, isDzPhone, phoneCarrier }
 // (une ternaire inline) mais ne validait PAS la catégorie : hors ligne, un
 // produit `category: "SSD"` était enregistré et disparaissait de tous les
 // filtres, exactement comme avant le correctif côté API.
-import { isKnownCategory, kindForCategory } from './data.js'
+import { isKnownCategory, isKnownCondition, isKnownUse, kindForCategory } from './data.js'
 
 export function createMemoryStorage(seed = {}) {
   const map = { ...seed }
@@ -358,7 +358,7 @@ function skuSlug(title) {
  *   liste, un SKU saisi à la main pouvait doubler une référence existante
  *   (le serveur refuse désormais aussi, voir server/masterApi.js).
  */
-export function addProduct(meta, { name, price, category, brand, stock, short, photos, sku } = {}, knownSkus = []) {
+export function addProduct(meta, { name, price, category, brand, stock, short, photos, sku, condition, uses, warrantyMonths } = {}, knownSkus = []) {
   const title = String(name || '').trim()
   const n = Number(price)
   if (!title || !Number.isFinite(n) || n < 0) return { ok: false, error: 'product' }
@@ -369,6 +369,12 @@ export function addProduct(meta, { name, price, category, brand, stock, short, p
   // `CATEGORIES` (hors `all`). Sans cela, le mode local enregistrait un produit
   // invisible dans tous les filtres de la vitrine et dans le Builder.
   if (!isKnownCategory(cat)) return { ok: false, error: 'category' }
+  const productCondition = condition == null ? 'new' : String(condition)
+  if (!isKnownCondition(productCondition)) return { ok: false, error: 'condition' }
+  const productUses = uses == null ? [] : Array.isArray(uses) ? [...new Set(uses.map((use) => String(use)))] : null
+  if (!productUses || productUses.length > 6 || productUses.some((use) => !isKnownUse(use))) return { ok: false, error: 'uses' }
+  const months = warrantyMonths == null ? 0 : Number(warrantyMonths)
+  if (!Number.isFinite(months) || months < 0 || months > 60) return { ok: false, error: 'warranty' }
   // P22 (bug H) : un SKU saisi doit être libre — dans les produits du master
   // comme dans le catalogue de base.
   const manualSku = String(sku || '').trim()
@@ -392,6 +398,9 @@ export function addProduct(meta, { name, price, category, brand, stock, short, p
     short: String(short || title),
     brand: String(brand || 'PC Star'),
     category: cat,
+    condition: productCondition,
+    uses: productUses,
+    warrantyMonths: Math.floor(months),
     // LOT 8.10 (A10) : la règle inline (repair→service, laptop/ready→machine,
     // accessories→accessory, sinon part) est maintenant partagée avec le
     // serveur via `kindForCategory` — un produit créé via l'API et le même créé

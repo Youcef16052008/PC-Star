@@ -24,6 +24,9 @@ export function baseCatalog() {
     stock: Number(p.stock) || 0,
     photos: p.photos || [],
     short: p.short,
+    condition: p.condition || 'new',
+    uses: p.uses || [],
+    warrantyMonths: Number(p.warrantyMonths) || 0,
     compat: p.compat || {},
     tags: p.tags || []
   }))
