@@ -46,3 +46,26 @@ Commit : `7295181` (branche `arena/01a0b133-pc-star`). Tout ce qui est listé ci
 ## 5. État des serveurs de prévisualisation
 
 - API :8787 et Vite :5173 **relancés sur le dernier commit** — santé OK, nouvelles photos servies (200), proxy `/api` OK.
+
+---
+
+## 6. P1 + P2 + P3 — exécutés (même jour, accord utilisateur)
+
+### P1 — Photos faibles & liens « À propos »
+- Les **10 visuels les plus faibles** repris avec de nouvelles sources ≥ 300 px (AOC, EliteDesk, LS1008G, T2U, B450M, DCP-1610W, MacBook Air, SmartTank 515, Z2 G4, Voyager 1250g) ; `ingestSkuPhotos` : **329 complets, 0 incomplet, 0 minuscule**.
+- Audit étendu : les **9 liens** de la page « À propos » (mailto, wa.me, Maps) cliqués × 2 langues — 0 erreur JS.
+
+### P2 — Audit sans plafond + formulaires invalides
+- Plafond de 45 clics porté à **150/page** (~2 680 clics au total) : toujours 0 erreur JS.
+- Nouveaux scénarios « rempli INVALIDE » → erreur visible exigée, vérifiés × 2 langues :
+  - réservation avec **téléphone non-DZ** (123) → refus affiché ;
+  - fiche produit master avec **prix négatif** (−5) → refus affiché.
+- 2 pièges corrigés dans l'audit lui-même : le bouton panier porte un **compteur collé** (« Panier1 »), et le checkout n'affiche ses champs qu'après focus du formulaire (multi-étapes).
+
+### P3 — Garde-fous permanents
+- `bundleSecrets` : plus de skip silencieux **hors CI** (échec avec message « lancez `npm run build` ») ; skip conservé en CI où le workflow Neon ne construit pas le front (le scan y est couvert par le nouveau workflow UI).
+- Nouveau workflow **`.github/workflows/ui-audit.yml`** : à chaque PR → `npm ci` → `npm run build` (scan anti-secret) → `build:crawl` → `jsdom-crawl` (2×13 pages) → `audit-buttons` (32 vérifications). Fixtures d'identifiants uniquement, jamais les secrets de production.
+
+### Résultats consolidés
+- Suite complète : **857/857**, 0 échec, 0 skip (dist/ présent, scan secret réel exécuté).
+- Audit boutons final : **AUDIT OK — 32 vérifications** (2 langues × [10 pages cliquées + liens À propos + 5 scénarios vides/invalides]).

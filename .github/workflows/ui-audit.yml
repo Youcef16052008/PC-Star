@@ -1,0 +1,48 @@
+name: UI audit (crawl + boutons)
+
+# P3 — porte de validation interface : le bundle public est scanné (aucun
+# secret), les 26 pages sont rendues sans UNE erreur JavaScript, puis TOUS les
+# boutons des pages clés sont cliqués et les formulaires vides/invalides doivent
+# afficher une erreur visible. Complète le workflow Neon (API + régression).
+on:
+  pull_request:
+    types:
+      - opened
+      - reopened
+      - synchronize
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  ui_audit:
+    name: Crawl 2×13 pages + clic de tous les boutons
+    runs-on: ubuntu-latest
+    # Identifiants de fixture, valables seulement pour l'API locale éphémère que
+    # les deux scripts démarrent eux-mêmes (jamais ceux de production).
+    env:
+      MASTER_EMAIL: master-ci@test.pcstar.local
+      MASTER_PASSWORD: ci-master-password-not-for-production
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          # Même contrainte que le workflow Neon : la suite jsdom exige Node 22.
+          node-version: 22
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Build production (inclut le scan anti-secret du bundle)
+        run: npm run build
+      - name: Build du bundle de crawl
+        run: npm run build:crawl
+      - name: Crawl jsdom — 13 pages × 2 langues, 0 erreur JavaScript
+        run: node scripts/jsdom-crawl.mjs
+      - name: Audit boutons — clics sûrs + vide/invalide → erreur affichée
+        run: node scripts/audit-buttons.mjs

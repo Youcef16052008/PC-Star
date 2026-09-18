@@ -39,6 +39,14 @@ async function waitFor(fn, label, timeout = 25000) {
 }
 const buttonByText = (doc, text) =>
   [...doc.querySelectorAll('button')].find((b) => b.textContent.trim() === text)
+// Le libellé d'une entrée de nav peut porter un badge (« Panier (12) ») dès que
+// le panier n'est plus vide : on accepte le préfixe.
+const navButton = (doc, label) =>
+  [...doc.querySelectorAll('.shop-navbar button')].find((b) => {
+    const t = b.textContent.trim()
+    // « Panier1 » : le compteur est collé au libellé (sans espace ni parenthèse).
+    return t === label || t.replace(/[\d\s()]+$/, '') === label
+  })
 
 /* ── serveurs (même teardown que jsdom-crawl) ── */
 const procs = []
@@ -82,8 +90,10 @@ process.on('unhandledRejection', (e) => {
   failures.push('rejection non gérée : ' + msg)
 })
 
-/** Erreur JS = échec ; « not implemented » (alert/confirm/print) ignoré. */
-const isSoft = (m) => /not implemented/i.test(m)
+/** Erreur JS = échec ; « not implemented » (alert/confirm/print) ignoré, ainsi
+ * que les ressources EXTERNES injoignables (Google Fonts en sandbox/CI) — le
+ * rendu DOM n'en dépend pas, même filtrage que scripts/jsdom-crawl.mjs. */
+const isSoft = (m) => /not implemented/i.test(m) || /Could not load (link|iframe)/i.test(m)
 
 function openSession(lang, token) {
   return (async () => {
@@ -118,7 +128,7 @@ function openSession(lang, token) {
 }
 
 /** Clique TOUS les boutons du contenu principal, en ré-évaluant à chaque tour. */
-async function clickAllButtons(session, label, maxClicks = 45) {
+async function clickAllButtons(session, label, maxClicks = 150) {
   const { doc, errors } = session
   const main = () =>
     doc.querySelector('main') || doc.querySelector('.shop-navbar')?.parentElement || doc.body
@@ -133,7 +143,7 @@ async function clickAllButtons(session, label, maxClicks = 45) {
     const name = (b.textContent || '').trim().slice(0, 40) || b.getAttribute('aria-label') || 'bouton'
     clicked.add(b)
     b.click()
-    await sleep(260)
+    await sleep(140)
     clicks++
     const newErrs = errors.slice(before)
     if (newErrs.length) {
@@ -141,6 +151,17 @@ async function clickAllButtons(session, label, maxClicks = 45) {
     }
   }
   results.push(`OK    ${label} — ${clicks} bouton(s) cliqué(s), 0 erreur JS`)
+}
+
+/** Saisir une valeur dans un champ contrôlé React (setter natif + input/change). */
+function typeValue(w, el, value) {
+  const proto = el.tagName === 'SELECT' ? w.HTMLSelectElement.prototype
+    : el.tagName === 'TEXTAREA' ? w.HTMLTextAreaElement.prototype
+    : w.HTMLInputElement.prototype
+  const setter = Object.getOwnPropertyDescriptor(proto, 'value').set
+  setter.call(el, value)
+  el.dispatchEvent(new w.Event('input', { bubbles: true }))
+  el.dispatchEvent(new w.Event('change', { bubbles: true }))
 }
 
 /** Un retour visible après soumission vide ? (toast / alert / invalid) */
@@ -175,6 +196,95 @@ for (const lang of LANGS) {
       await sleep(420)
       await clickAllButtons(s, `${lang}/${page}`)
     }
+    // ── P1 : TOUS les liens de la page « À propos » (mailto, wa.me, Maps) ──
+    // openExternal preventDefault + window.open (no-op jsdom) : zéro erreur exigé.
+    const aboutNav = await waitFor(() => buttonByText(s.doc, d.navAbout), "nav about (" + lang + ")", 6000).catch(() => null)
+    if (aboutNav) {
+      aboutNav.click()
+      await sleep(420)
+      const links = [...(s.doc.querySelector('main') || s.doc.body).querySelectorAll('a[href]')]
+      let n = 0
+      for (const a of links.slice(0, 40)) {
+        const b4 = s.errors.length
+        a.click()
+        await sleep(50)
+        n++
+        const ne = s.errors.slice(b4)
+        if (ne.length) failures.push(lang + '/about · lien « ' + ((a.textContent || '').trim().slice(0, 30) || a.getAttribute('href')) + ' » → ' + ne.join(' | '))
+      }
+      results.push('OK    ' + lang + '/about — ' + n + ' lien(s) cliqué(s), 0 erreur JS')
+    }
+
+    // ── P2 : formulaires REMPLIS INVALIDES → erreur visible, jamais d’enregistrement ──
+    // 1) Réservation avec téléphone non-DZ : le panier doit d’abord recevoir un article.
+    const shopNav = await waitFor(() => buttonByText(s.doc, d.navShop), "nav shop 2 (" + lang + ")", 6000).catch(() => null)
+    if (shopNav) {
+      shopNav.click()
+      await sleep(420)
+      // Les vignettes produit libellent le bouton « Ajouter » (court) — le
+      // libellé long existe ailleurs ; on accepte les deux, SANS maillon
+      // silencieux : chaque échec de préparation devient un failure nommé.
+      const addLabels = new Set([d.addToCart, 'Ajouter', 'Add'])
+      const add = [...(s.doc.querySelector('main') || s.doc.body).querySelectorAll('button')]
+        .find((b) => !b.disabled && addLabels.has((b.textContent || '').trim()))
+      if (!add) failures.push(lang + '/réservation téléphone invalide : bouton « Ajouter » introuvable sur la boutique')
+      if (add) {
+        add.click()
+        await sleep(320)
+        const cartNav = navButton(s.doc, d.navCart)
+        if (!cartNav) {
+          failures.push(lang + '/réservation téléphone invalide : bouton panier introuvable')
+          throw new Error('panier inaccessible — fin anticipée du bloc réservation')
+        }
+        cartNav.click()
+        await sleep(420)
+        let name = s.doc.querySelector('form #name')
+        // Le checkout est multi-étapes : le form complet n'apparaît qu'après
+        // le focus (onFocus → setCartStep(1)). On émule l'entrée dans le form.
+        if (!name) {
+          const f = s.doc.querySelector('main form')
+          if (f) {
+            f.dispatchEvent(new s.w.Event('focusin', { bubbles: true }))
+            await sleep(300)
+            name = s.doc.querySelector('form #name')
+          }
+        }
+        if (!name) failures.push(lang + '/réservation téléphone invalide : formulaire checkout non atteint (panier vide ?)')
+        const phone = s.doc.querySelector('form #phone')
+        if (name && phone) {
+          typeValue(s.w, name, 'Audit P2')
+          typeValue(s.w, phone, '123') // invalide : pas un mobile DZ 05/06/07
+          const sub = s.doc.querySelector('form button[type="submit"]')
+          sub.click()
+          await sleep(420)
+          if (!feedbackVisible(s.doc)) failures.push(lang + '/réservation téléphone invalide : AUCUN retour visible')
+          else results.push('OK    ' + lang + '/réservation téléphone invalide → erreur affichée')
+        }
+      }
+    }
+
+    // 2) Fiche produit master : prix NÉGATIF → refus visible.
+    const masterNav = [...s.doc.querySelectorAll('.shop-navbar button')]
+      .find((b) => b.textContent.trim() === d.navMaster)
+    if (masterNav) {
+      masterNav.click()
+      await sleep(420)
+      const name = s.doc.querySelector('#master-product-name')
+      const price = s.doc.querySelector('#master-product-price')
+      const sub = [...(s.doc.querySelector('main') || s.doc.body).querySelectorAll('form button[type="submit"]')]
+        .find((b) => !b.disabled)
+      if (name && price && sub) {
+        typeValue(s.w, name, 'Audit P2 prix négatif')
+        typeValue(s.w, price, '-5')
+        sub.click()
+        await sleep(420)
+        if (!feedbackVisible(s.doc)) failures.push(lang + '/master prix négatif : AUCUN retour visible')
+        else results.push('OK    ' + lang + '/master prix négatif → erreur affichée')
+      } else {
+        results.push('NOTE  ' + lang + '/master : formulaire création non exposé (workflow multi-étapes) — couvert par les tests API')
+      }
+    }
+
     // Soumission VIDE du premier formulaire master encore vierge : une erreur
     // visible doit apparaître (jamais d'enregistrement silencieux).
     const mSubmit = [...s.doc.querySelectorAll('main form button[type="submit"], form button[type="submit"]')]
@@ -216,9 +326,10 @@ for (const lang of LANGS) {
     else results.push(`OK    ${lang}/connexion vide → erreur affichée`)
 
     // 2) panier vide → soumission réservation
-    const cartBtn = [...g.doc.querySelectorAll('.shop-navbar button')]
-      .find((b) => b.textContent.trim() === d.navCart) || buttonByText(g.doc, d.navCart)
-    cartBtn.click()
+    const cartBtn = navButton(g.doc, d.navCart) || buttonByText(g.doc, d.navCart)
+    if (!cartBtn) {
+      failures.push(lang + ' (invité) : bouton panier introuvable')
+    } else cartBtn.click()
     await sleep(420)
     const submit = g.doc.querySelector('form button[type="submit"]')
     if (!submit) {
