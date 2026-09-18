@@ -9,7 +9,7 @@ Vue d'ensemble du système : **front SPA React** / **API Node (serverless-ready)
 ```
                          ┌─────────────────────────────────────────────────────┐
                          │                    NAVIGATEUR (mobile first)         │
-                         │  React 19 + Bootstrap 5.3 (CDN) + i18n AR/FR/EN      │
+                         │  React 19 + Bootstrap 5.3 (CDN) + i18n FR/EN      │
                          │                                                     │
                          │  Pages (state-based, pas de router) :               │
                          │  shop · product · search · builder · about          │
@@ -41,17 +41,16 @@ Vue d'ensemble du système : **front SPA React** / **API Node (serverless-ready)
         │                ▼                          │
         │  ┌───────────────────────────────┐        │
         │  │ PERSISTENCE                   │        │
-        │  │ local  : server/data/store.json│        │
-        │  │ vercel : /tmp/pcstar-data/     │        │
-        │  │          (éphémère — cold      │        │
-        │  │           start peut reset)    │        │
-        │  │ backups : au boot + 6 h +      │        │
-        │  │          npm run backup + UI   │        │
+        │  │ local : server/data/store.json│        │
+        │  │ prod  : Neon pcstar_state     │        │
+        │  │         (verrou transaction)  │        │
+        │  │ backups : fichier local OU    │        │
+        │  │ Neon snapshots + export ops   │        │
         │  └───────────────────────────────┘        │
         └──────────────────────────────────────────┘
 ```
 
-**Principe directeur :** le catalogue est **statique** (251 SKU de base / 249 publics quand speakers est en rupture dans `src/data.js`, images dans le repo) → persiste sur Vercel sans base. La **donnée volatile** (users, orders, overrides stock, produits ajoutés) vit dans `store.json` → éphémère sur Vercel Hobby, durable en local. Le code est découpé pour brancher KV/Turso/Blob sans réécrire (`server/db.js` isole le fichier).
+**Principe directeur :** le catalogue est **statique** (251 SKU de base / 249 publics quand speakers est en rupture dans `src/data.js`, images dans le repo) → persiste sur Vercel sans base. Les données mutables (users, orders, overrides stock, produits ajoutés) utilisent `store.json` en local et **Neon** dès que `DATABASE_URL` est configurée; aucun état métier n'est alors confié au `/tmp` éphémère de Vercel. Les snapshots opérateur sont bornés dans `pcstar_backups`; un export régulier hors du projet Neon reste requis pour une reprise après incident fournisseur. Voir [NEON-MIGRATION.md](./NEON-MIGRATION.md).
 
 ---
 
@@ -95,9 +94,9 @@ Un seul fichier d'entrée `server/index.js` (routeur `node:http`), modules dédi
 |---------|-----------|
 | Santé/config | `GET /api/health` · `GET /api/config` |
 | Auth | `POST /api/auth/register` · `POST /api/auth/login` (rate-limit 20/min) · `POST /api/auth/logout` · `GET /api/me` · `PUT /api/me` · `POST /api/me/password` |
-| OAuth | `POST /api/oauth/start` · `GET|POST /api/oauth/(google\|meta)/demo` (mode démo) · callbacks prod · `POST /api/oauth/unlink` |
+| OAuth | `POST /api/oauth/start` · `GET /api/oauth/(google\|meta)/callback` (réel, `OAUTH_DEMO=0`) · `GET|POST /api/oauth/(google\|meta)/demo` (uniquement avec `OAUTH_DEMO=1`) · `POST /api/oauth/unlink` |
 | Catalogue | `GET /api/catalog` (stock live) · `GET /api/stock/:id` |
-| Commandes | `GET|POST /api/orders` (rate-limit 15/min) · `PATCH /api/orders/:code` (statut) · `POST /api/orders/:code/cancel` (rollback stock) |
+| Commandes | `POST /api/orders` (rate-limit 15/min, clé d’idempotence) · `GET /api/me/orders` · `POST /api/me/orders/:code/cancel` (client, propriétaire exact) · `GET /api/orders`, `PATCH /api/orders/:code`, `POST /api/orders/:code/cancel` (master) |
 | Master | `GET|POST /api/master/products` · `PUT /api/master/products/:id` · `POST …/:id/hide` · `POST …/:id/photos` (dataURL ≤2.5 Mo, ≤6) |
 | Export/ops | `GET /api/orders/export.csv?day=` · `POST /api/master/backup` |
 | Clients | `GET /api/customers` · `DELETE /api/customers/:id` · `POST /api/master/customers/:id/reset-password` |
@@ -110,7 +109,9 @@ Un seul fichier d'entrée `server/index.js` (routeur `node:http`), modules dédi
 - **Rate limit :** buckets mémoire par IP (`server/rateLimit.js`) — login 20/min, orders 15/min.
 - **CORS :** `FRONT_ORIGIN` (défaut `*` en démo ; sur Vercel auto depuis `VERCEL_URL`).
 - **Headers :** `nosniff`, `X-Frame-Options: SAMEORIGIN`, `Referrer-Policy`, `Permissions-Policy`.
-- **OAuth :** `state` aléatoire + `oauthPending` (login | link), unlink possible, `OAUTH_DEMO=1` par défaut (consent simulé, enregistre réel) ; réel si `OAUTH_DEMO=0` + clés.
+- **OAuth :** `state` aléatoire, expirant et consommé atomiquement dans `oauthPending` (login | link) ; session TTL appliqué à la lecture. `OAUTH_DEMO=1` active uniquement le consentement simulé ; `OAUTH_DEMO=0` échange le code Google/Meta côté serveur. Le maître ne peut pas lier OAuth.
+- **Commandes client :** le téléphone de retrait n’est pas une identité. Une session n’accède et n’annule que les commandes associées à son `userId`; une commande guest est explicitement non revendicable. La reprise guest sur un autre appareil attend une vérification OTP réellement délivrée.
+- **Idempotence et stock :** le client transmet une clé opaque par intention de réservation; seules ses empreintes SHA-256 (clé et intention) sont stockées. Une répétition identique ne réserve qu’une fois; la même clé avec un autre panier est refusée. Les quantités sont consolidées et le plafond de commandes est contrôlé avant toute mutation de stock.
 - **Sécurité UI :** mots de passe démo jamais affichés ; page Guide master only.
 
 ### Données (`store.json`)
@@ -121,7 +122,8 @@ Un seul fichier d'entrée `server/index.js` (routeur `node:http`), modules dédi
   "sessions": { token: {userId, at} },
   "oauthPending": { state: {...} },
   "stock":    { "sku-…": 12 },  // overrides au-dessus du base (src/data.js)
-  "orders":   [ {code "PS-20260910-0001", items, total, status, …} ], // cap 500
+  "orders":   [ {code "PS-20260910-0001", userId|null, items, total, status,
+                 idempotencyKeyHash?, idempotencyRequestHash?, …} ], // cap 500; jamais la clé brute
   "meta":     { extraProducts, hiddenProductIds, extraPanels, … }
 }
 ```
@@ -135,7 +137,7 @@ Un seul fichier d'entrée `server/index.js` (routeur `node:http`), modules dédi
 | `lib/` | 105 | shots famille (cpu-1..3, gpu-local-1..2, kb-1..3, …) — attribués aux 251 SKU de base / 249 publics quand speakers est en rupture |
 | `sku/` | 753 | shots par SKU (`{id}-1…3.jpg`) pour les produits prioritaires |
 | legacy racine | 56 | `.jpg`/`.png` historiques (case, chair, cooler, …) |
-| `uploads/` | — | photos master upload (dataURL) |
+| `uploads/` | — | photos master upload (dataURL) en local; sur Vercel, objets Vercel Blob via le proxy `/api/upload-file` |
 
 **Pipeline** :
 
@@ -149,6 +151,8 @@ vercel.json                   /photos/* Cache-Control max-age=86400
 ```
 
 Ajout de photos pro (futur) : `public/photos/sku/{id}-1.jpg…-3.jpg` → `npm run photos:check` → push → rebuild. Aucune base ni VPS.
+
+Les galeries master sont des remplacements explicites : les chemins conservés et les nouvelles images sont envoyés ensemble, puis les uploads devenus non référencés sont supprimés après la persistance. Les URL Blob restent masquées derrière `/api/upload-file`; le proxy retrouve l’URL CDN publique exacte après un cold start et la CSP n’autorise que `https://*.public.blob.vercel-storage.com` pour la redirection image.
 
 ---
 
@@ -178,44 +182,50 @@ Ajout de photos pro (futur) : `public/photos/sku/{id}-1.jpg…-3.jpg` → `npm r
 |-----|------|
 | `FRONT_ORIGIN` | CORS (=`https://TON.app`) |
 | `FRONT_URL` | liens sortants (WA, OG) |
-| `OAUTH_REDIRECT_BASE` | redirect OAuth |
+| `OAUTH_REDIRECT_BASE` | origine HTTPS du callback OAuth |
 | `OAUTH_DEMO` | `1` par défaut (démo) · `0` + clés = réel |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | application Google OAuth, serveur uniquement |
+| `META_APP_ID` / `META_APP_SECRET` | application Meta Login, serveur uniquement |
+| `META_GRAPH_VERSION` | optionnel, `v26.0` par défaut pour Meta Login |
+| `BLOB_READ_WRITE_TOKEN` | requis pour tout upload master sur Vercel; les images sont stockées durablement dans Vercel Blob |
+| `DATABASE_URL` | chaîne Neon **pooled**; source de vérité production pour users, commandes, stock et catalogue Master |
 
-**Limites honnêtes (Hobby, sans base cloud)** : `store.json` et uploads vivent dans **`/tmp`** → reset possible au cold start. Le **catalogue + photos (statiques) sont persistants**. Échappement prévu : Vercel KV / Turso / Blob — branchable via `server/db.js` sans toucher au reste. Détails : [DEPLOY-VERCEL.md](DEPLOY-VERCEL.md).
+**Limites honnêtes :** sans `DATABASE_URL`, l'état local (`store.json`, ou `/tmp` sous Vercel) peut disparaître au cold start; ce mode n'est donc pas un déploiement de production durable. Avec Neon, l'état métier et les snapshots bornés vivent dans Postgres. Les photos master ne tombent jamais dans le repli éphémère : en serverless, l’upload est refusé sans `BLOB_READ_WRITE_TOKEN`; avec ce token, l’objet est durable dans Blob. Le catalogue statique reste disponible même quand la base est injoignable. Détails : [NEON-MIGRATION.md](NEON-MIGRATION.md).
 
 ---
 
 ## 6. Flows clés
 
-### 6.1 Réservation (multi-appareils)
+### 6.1 Réservation
 
 ```
-Client (téléphone)                          Magasin (PC comptoir)
-  │  panier → infos (05/06/07)                │
-  │  POST /api/orders ───────────────►        │
-  │  server : atomic placeOrder               │
-  │    (toutes les lignes dispo ? sinon 409)  │
-  │    stock -= qty · code PS-YYYYMMDD-XXXX   │
-  │  ◄── { ok, order } ──────────────         │
-  │  écran succès (code + maps + cash)        │  DeskPage : poll 20 s
-  │                                           │  GET /api/orders → nouvelle résa
-  │                                           │  beep + toast → statut →
-  │  retrait au comptoir, espèces             │  PATCH /api/orders/:code (ready)
-  │                                           │  → picked (stock déjà décrémenté)
+Client                                           Magasin
+  panier + idempotencyKey
+  POST /api/orders ----------------------------> serveur
+                                                   agrège les SKU
+                                                   valide stock + capacité
+                                                   écrit commande et stock sous transaction
+                                                   retry identique = même commande
+  <----------------------------- { ok, order }
+  session : GET /api/me/orders (userId exact)      Desk : poll + mise à jour de statut
+  guest : copie locale sur cet appareil seulement
 ```
 
-### 6.2 OAuth (mode démo, défaut)
+Une commande guest ne peut pas être retrouvée, rattachée ou annulée depuis un autre appareil avec son seul numéro de téléphone. Un futur parcours de reprise devra ajouter une preuve de possession (OTP réel), sans assouplir la règle `userId`.
+
+### 6.2 OAuth (démo par défaut, réel activable)
 
 ```
 UI : bouton « Continuer avec Google/Meta »
   → POST /api/oauth/start {provider, intent}
-  → { authorizeUrl: /api/oauth/google/demo?state=… }
-  → écran de consent simulé (GET) → POST {identity}
-  → server : find-or-create user, links[provider]=identity, session token
-  → front : ?oauth_token=… → session active (profil, historique)
-Reel : OAUTH_DEMO=0 + GOOGLE_CLIENT_ID/SECRET, META_APP_ID/SECRET
-       → authorizeUrl Google/Facebook + callbacks /api/oauth/{p}/callback
+  → démo (`OAUTH_DEMO=1`) : /api/oauth/{p}/demo?state=… → consent simulé → POST {identity}
+  → réel (`OAUTH_DEMO=0`) : authorizeUrl fournisseur → GET /api/oauth/{p}/callback?code&state
+  → serveur : vérifie/consomme state sous verrou, échange le code HTTPS,
+              lit le profil vérifié, lie/crée le client, crée la session
+  → redirection front : #oauth_token=… → session active (profil, historique)
 ```
+
+Le callback réel exige les clés serveur et l'URI HTTPS exacte enregistrée chez chaque fournisseur. Le maître ne passe jamais par OAuth; les états et sessions expirés sont refusés même sur Neon.
 
 ### 6.3 Desk (tenue de comptoir)
 
@@ -239,7 +249,8 @@ npm run dev          # vite → :5173 (proxy /api)
 npm test             # node --test → 34 tests (store, orders, master, auth, crypto, API)
 npm run smoke        # scripts/smoke-e2e.mjs : e2e complet de l'API (fetch)
 npm run build        # bundle → dist/ (chunks react / bootstrap séparés)
-npm run backup       # copie store.json → server/data/backups/
+npm run backup       # copie locale bornée, ou snapshot Neon si DATABASE_URL est posée
+# Pour Neon : voir docs/NEON-MIGRATION.md (export hors site et restauration confirmée).
 ```
 
 En dev, `FRONT_ORIGIN` par défaut = `*` (démo). En prod Vercel : `FRONT_ORIGIN=https://TON.app`.

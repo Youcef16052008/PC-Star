@@ -145,7 +145,7 @@ describe('4.2 (F15) — errToast nomme la cause', () => {
   })
 
   it('les trois langues portent la clé', () => {
-    for (const lang of ['fr', 'en', 'ar']) {
+    for (const lang of ['fr', 'en']) {
       assert.ok(dict[lang].masterPhotoNoStorage, `masterPhotoNoStorage absent de ${lang}`)
       assert.ok(dict[lang].masterCustomerGoneOrders, `masterCustomerGoneOrders absent de ${lang}`)
     }

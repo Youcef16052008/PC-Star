@@ -108,7 +108,9 @@ describe('P14 (#3) — DeskPage rend des liens wa.me valides', () => {
   it('chaque lien WhatsApp est en E.164, sans 0 initial', () => {
     const host = mount()
     const hrefs = [...host.querySelectorAll('a[href^="https://wa.me/"]')].map((a) => a.getAttribute('href'))
-    assert.equal(hrefs.length, 2, `2 réservations ont un téléphone exploitable, liens trouvés : ${hrefs.join(' ')}`)
+    // 2 contacts + 1 « Rappeler » (PC-1002 est en préparation, téléphone OK ;
+    // PC-1003 n'a pas de téléphone → pas de lien de rappel non plus).
+    assert.equal(hrefs.length, 3, `2 contacts + 1 rappel attendus, liens trouvés : ${hrefs.join(' ')}`)
     for (const h of hrefs) {
       const num = h.replace('https://wa.me/', '').split('?')[0]
       assert.match(num, /^[1-9]\d{8,14}$/, `numéro wa.me invalide : ${h}`)
@@ -118,12 +120,20 @@ describe('P14 (#3) — DeskPage rend des liens wa.me valides', () => {
       hrefs.some((h) => h.startsWith('https://wa.me/213550123456?text=')),
       `lien attendu pour 0550123456 absent : ${hrefs.join(' ')}`
     )
+    // La date de retrait : le bouton « Rappeler » pointe vers le même format
+    // wa.me/E.164, message dédié (préparation bientôt terminée).
+    assert.ok(
+      hrefs.some((h) => h.startsWith('https://wa.me/213669174617?text=deskRemindMsg')),
+      `lien « Rappeler » attendu pour 0669174617 absent : ${hrefs.join(' ')}`
+    )
   })
 
   it('une réservation sans téléphone n’a pas de lien WhatsApp', () => {
     const host = mount()
     const cards = [...host.querySelectorAll('a[href^="https://wa.me/"]')]
-    assert.equal(cards.length, 2, 'la réservation sans téléphone ne doit pas produire de lien')
+    // 2 contacts ; PC-1002 (préparation) ajoute un « Rappeler » — mais la
+    // réservation SANS téléphone (PC-1003) n'en produit aucun, rappel inclus.
+    assert.equal(cards.length, 3, 'la réservation sans téléphone ne doit pas produire de lien')
   })
 })
 

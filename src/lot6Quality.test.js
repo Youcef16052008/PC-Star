@@ -274,12 +274,13 @@ describe('6.4 (Q4) — theme-color : une seule teinte', () => {
     assert.equal(window.document.documentElement.dir, 'ltr')
   })
 
-  it('la langue et le sens de lecture sont toujours appliqués (RTL arabe)', () => {
-    applyDocumentChrome({ lang: 'ar', dir: 'rtl', theme: 'light' })
-    assert.equal(window.document.documentElement.dir, 'rtl')
-    assert.equal(window.document.documentElement.lang, 'ar')
+  it('la langue et le sens de lecture sont toujours appliqués (LTR fr/en)', () => {
+    applyDocumentChrome({ lang: 'en', dir: 'ltr', theme: 'light' })
+    assert.equal(window.document.documentElement.dir, 'ltr')
+    assert.equal(window.document.documentElement.lang, 'en')
     assert.equal(window.document.documentElement.style.colorScheme, 'light')
     applyDocumentChrome({ lang: 'fr', dir: 'ltr', theme: 'light' })
+    assert.equal(window.document.documentElement.lang, 'fr')
   })
 })
 

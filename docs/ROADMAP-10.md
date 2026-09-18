@@ -14,10 +14,10 @@
 - **P0 → P6 : toutes les phases code livrées** (détail par phase plus bas, cases cochées).  
 - **Score code final : ~9.5–9.7/10.** Ce qui reste vers le 10/10 absolu est **hors-code** :
   1. shoot studio top 80 SKU (photos réelles),
-  2. clés OAuth live si passage en `OAUTH_DEMO=0` (Google/Meta déjà câblés),
+  2. clés Google/Meta, URI de callback et recette fournisseur avant tout passage en `OAUTH_DEMO=0`,
   3. persistance cloud (Vercel KV / Turso) pour des orders survivant aux cold starts,
   4. mesure Lighthouse en prod HTTPS (cible Perf mobile ≥ 90).
-- **Cas d’usage Oran : exploitable** — catalogue 251 SKU de base persistant, stock API multi-écrans, desk comptoir, AR/FR/EN, HTTPS sur Vercel sans VPS.
+- **Cas d’usage Oran : exploitable** — catalogue 251 SKU de base persistant, stock API multi-écrans, desk comptoir, FR/EN (arabe retiré sur demande), HTTPS sur Vercel sans VPS.
 - Lire aussi : [PORTFOLIO.md](PORTFOLIO.md) · [PROBLEMS-SOLUTIONS.md](PROBLEMS-SOLUTIONS.md) · [ARCHITECTURE.md](ARCHITECTURE.md) · [README.md](README.md) (index doc).
 
 ---
@@ -35,7 +35,7 @@
 | 6 | Perf, SEO, a11y, QA | **10.0 shop Oran** | 3–5 j |
 
 **Définition du 10/10 ici :**  
-client trouve un produit → construit un PC compatible → réserve en espèces → reçoit un code PS → master prépare au comptoir El Makari — **sans friction**, sur mobile, AR/FR/EN, stock cohérent, photos crédibles, panne serveur gérée.
+client trouve un produit → construit un PC compatible → réserve en espèces → reçoit un code PS → master prépare au comptoir El Makari — **sans friction**, sur mobile, FR/EN, stock cohérent, photos crédibles, panne serveur gérée.
 
 ---
 
@@ -45,7 +45,7 @@ client trouve un produit → construit un PC compatible → réserve en espèces
 - [x] Cash-only pickup Oran
 - [x] Builder + compat
 - [x] Comptes + master desk
-- [x] AR / FR / EN
+- [x] FR / EN (l’arabe a été retiré de l’interface et du dictionnaire)
 - [x] Shell Bootstrap + Offcanvas/Modal API
 - [x] Design tokens unifiés
 - [x] Guide master-only
@@ -125,6 +125,7 @@ client trouve un produit → construit un PC compatible → réserve en espèces
 
 ### 3.1 Photos (hors-code — toi / photographe)
 - [ ] Shoot ou packshots fournisseurs : **fond neutre, 1:1, ≥ 1200px**, 3 angles/SKU prioritaires (top 80 ventes)
+- [x] **Visuels de rayon générés** (`public/catalog/*-studio.jpg`, 36 groupes — chaque référence a SA photo de rayon) — remplacement feuille par feuille (`photoGroup`) — voir [RECETTE-PHOTOS-MASTER.md](RECETTE-PHOTOS-MASTER.md)
 - [ ] Remplacer d’abord : CPU, GPU, MB, SoG, Havit, combos
 - [ ] Charte : fond `#0f172a` ou blanc studio, ombre douce, pas de watermark
 
@@ -142,7 +143,7 @@ client trouve un produit → construit un PC compatible → réserve en espèces
 **Exit Phase 3**
 - Top 80 SKUs : vraies photos ≥ 1200px
 - Lighthouse « images » plus de plainte oversized sans srcset
-- PDP specs lisibles AR/FR/EN
+- PDP specs lisibles FR/EN
 
 **Note estimée : 9.0 code media (sans shoot studio réel reste plafond ~8.5–9.0 photos)**
 
@@ -166,7 +167,7 @@ client trouve un produit → construit un PC compatible → réserve en espèces
 
 ### 4.3 Ops
 - [x] `FRONT_ORIGIN` env (défaut `*` démo) + `.env.example`
-- [ ] HTTPS — doc hébergeur (hors sandbox)
+- [x] HTTPS — doc hébergeur : [HEBERGEMENT-HTTPS.md](HEBERGEMENT-HTTPS.md) (Vercel ou VPS + Let's Encrypt)
 - [x] `.env.example`
 - [x] `/api/health` enrichi (cors, payments)
 
@@ -189,8 +190,8 @@ client trouve un produit → construit un PC compatible → réserve en espèces
 **Objectif :** comptes clients réels, pas seulement démo.
 
 ### 5.1 Auth
-- [x] OAuth Google/Meta UI + demo flow; réel si `OAUTH_DEMO=0` + clés env
-- [x] Meta OAuth branch (demo + prod keys)
+- [x] OAuth Google/Meta UI + flux démo explicite
+- [x] Callbacks OAuth réels Google et Meta (phase 2 du plan de remédiation ; clés et URI HTTPS restent à configurer)
 - [x] Change password profil + master reset-password API
 - [ ] Token localStorage (httpOnly cookie reporté hébergeur HTTPS)
 
@@ -286,7 +287,7 @@ pendant que Phase 1–2 se codent, tu lances le **shoot top 80 SKUs** (Phase 3 h
 | Toi | Agent |
 |-----|--------|
 | Photos réelles / packshots | Pipeline, srcset, UI |
-| Clés Google OAuth + domaine | Wiring `oauth.js`, callbacks |
+| Clés Google/Meta + domaine + URI enregistrées | Callbacks serveur `oauth.js`, tests et documentation |
 | VPS / hébergeur + nom de domaine | Config serveur, HTTPS doc |
 | RC / texte garantie magasin | Pages légales i18n |
 | Décisions stock/prix réels | CRUD, import CSV |

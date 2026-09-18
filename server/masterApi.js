@@ -7,10 +7,34 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { newId } from './db.js'
 import { ensureStock, setStock, liveStockOf } from './catalog.js'
-import { PRODUCTS, isKnownCategory, isKnownKind, kindForCategory } from '../src/data.js'
-import { uploadBlob, deleteBlob, MAX_BYTES, MAX_PHOTOS } from './blobStore.js'
+import { PRODUCTS, isKnownCategory, isKnownCondition, isKnownKind, isKnownUse, kindForCategory } from '../src/data.js'
+import {
+  BARCODE_LIMIT,
+  CONDITION_NOTE_LIMIT,
+  DESCRIPTION_LIMIT,
+  MODEL_LIMIT,
+  cleanProductText,
+  isValidBarcode,
+  normalizeProductCompat,
+  normalizeProductDetails,
+  normalizeProductTags
+} from '../src/productMeta.js'
+import { uploadBlob, deleteBlob, isManagedUploadUrl, MAX_BYTES, MAX_PHOTOS } from './blobStore.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
+
+// SKU imprimable et borné : une référence sert aussi à l'étiquette, l'export
+// et aux recherches. La même règle vaut à la création et à chaque patch.
+const SKU_RE = /^[\w .\-/]{1,40}$/
+
+function isValidSku(value) {
+  return SKU_RE.test(value)
+}
+
+function skuTaken(db, sku, exceptId = null) {
+  const known = [...PRODUCTS, ...(db?.meta?.extraProducts || [])]
+  return known.some((product) => product && product.id !== exceptId && String(product.sku || '').trim() === sku)
+}
 
 /**
  * LOT 2.6 (F10) — `needs` normalisé en **tableau de chaînes**.
@@ -86,6 +110,38 @@ export function listMasterProducts(db) {
   return [...base, ...extras]
 }
 
+/** Photos effectives avant un remplacement, sans construire toute la vue master. */
+export function currentProductPhotos(db, id) {
+  const extra = (db?.meta?.extraProducts || []).find((product) => product?.id === id)
+  if (extra) return Array.isArray(extra.photos) ? [...extra.photos] : []
+  const base = PRODUCTS.find((product) => product.id === id)
+  if (!base) return null
+  const overridden = db?.meta?.productOverrides?.[id]?.photos
+  return Array.isArray(overridden) ? [...overridden] : Array.isArray(base.photos) ? [...base.photos] : []
+}
+
+/**
+ * Supprime après persistance les uploads sortis de la galerie (ou uploadés mais
+ * écartés par la limite). Retourne les chemins dont le provider n'a pas confirmé
+ * la suppression; l'appelant peut les journaliser sans invalider la fiche.
+ */
+export async function cleanupUnreferencedUploads(before, after, uploaded = []) {
+  const retained = new Set(Array.isArray(after) ? after.map(String) : [])
+  const candidates = [...new Set([...(before || []), ...(uploaded || [])].map(String))]
+  const stale = candidates.filter((photo) => !retained.has(photo) && isManagedUploadUrl(photo))
+  const outcomes = await Promise.allSettled(stale.map((photo) => unlinkUpload(photo)))
+  return outcomes
+    .map((result, index) => ({ result, photo: stale[index] }))
+    .filter(({ result }) => result.status === 'rejected' || result.value !== true)
+    .map(({ photo }) => photo)
+}
+
+/** La liste explicite remplace la galerie; son absence conserve l'existant. */
+export function mergeProductPhotos(current, desired, uploaded = []) {
+  const retained = Array.isArray(desired) ? desired : Array.isArray(current) ? current : []
+  return [...new Set([...retained, ...(Array.isArray(uploaded) ? uploaded : [])].map(String))].slice(0, MAX_PHOTOS)
+}
+
 /**
  * @param {string} [id] P5 (B12) : id pré-généré — permet de sauver les photos
  * directement sous le vrai id avant la création (plus de fichiers `tmp-*`).
@@ -96,8 +152,14 @@ export function createProduct(db, body, id) {
   if (!Array.isArray(db.meta.extraProducts)) db.meta.extraProducts = []
 
   const name = String(body.name || '').trim()
-  const price = Math.max(0, Number(body.price) || 0)
-  if (!name || price <= 0) return { ok: false, error: 'invalid' }
+  const price = Number(body.price)
+  if (!name) return { ok: false, error: 'invalid' }
+  // `Math.max(0, Number(value) || 0)` laissait passer Infinity à la création,
+  // contrairement aux patches. Une valeur non finie finirait sérialisée en
+  // `null` et rendrait une fiche impossible à vendre; on refuse avant écriture.
+  if (!Number.isFinite(price) || price <= 0) return { ok: false, error: 'price' }
+  const stock = body.stock == null || body.stock === '' ? 0 : Number(body.stock)
+  if (!Number.isFinite(stock) || stock < 0) return { ok: false, error: 'stock' }
   if (id && db.meta.extraProducts.some((p) => p.id === id)) return { ok: false, error: 'invalid' }
 
   // LOT 8.10 (A10) : `category` et `kind` étaient acceptés **libres**. Le nom,
@@ -128,18 +190,52 @@ export function createProduct(db, body, id) {
   if (kindProvided != null && !isKnownKind(kindProvided)) return { ok: false, error: 'kind' }
   const kind = kindProvided || kindForCategory(category)
 
+  // Métadonnées de vente visibles dans les nouveaux filtres. Elles sont
+  // validées côté serveur comme la catégorie : un produit « occasion » ne doit
+  // pas redevenir invisible après un rechargement de l'API.
+  const condition = body.condition == null ? 'new' : String(body.condition)
+  if (!isKnownCondition(condition)) return { ok: false, error: 'condition' }
+  const uses = body.uses == null ? [] : Array.isArray(body.uses) ? [...new Set(body.uses.map((u) => String(u)))] : null
+  if (!uses || uses.length > 6 || uses.some((use) => !isKnownUse(use))) return { ok: false, error: 'uses' }
+  const warrantyMonths = body.warrantyMonths == null ? 0 : Number(body.warrantyMonths)
+  if (!Number.isFinite(warrantyMonths) || warrantyMonths < 0 || warrantyMonths > 60) return { ok: false, error: 'warranty' }
+
+  // Fiche produit professionnelle : modèle, référence code-barres, description
+  // longue, note d'état, prix barré, seuil bas, détails libres et compatibilité.
+  // Les champs restent bornés afin qu'une fiche admin ne casse ni la vitrine ni
+  // le CSV/les sauvegardes.
+  const model = cleanProductText(body.model, MODEL_LIMIT)
+  const barcode = cleanProductText(body.barcode, BARCODE_LIMIT)
+  if (!isValidBarcode(barcode)) return { ok: false, error: 'barcode' }
+  const description = cleanProductText(body.description, DESCRIPTION_LIMIT)
+  const conditionNote = cleanProductText(body.conditionNote, CONDITION_NOTE_LIMIT)
+  const compareAtPrice = body.compareAtPrice == null || body.compareAtPrice === '' ? 0 : Number(body.compareAtPrice)
+  if (!Number.isFinite(compareAtPrice) || compareAtPrice < 0 || (compareAtPrice > 0 && compareAtPrice < price)) return { ok: false, error: 'compare_at_price' }
+  const lowStockAt = body.lowStockAt == null || body.lowStockAt === '' ? 0 : Number(body.lowStockAt)
+  if (!Number.isFinite(lowStockAt) || lowStockAt < 0 || lowStockAt > 9999) return { ok: false, error: 'low_stock' }
+  const details = normalizeProductDetails(body.details)
+  if (details == null) return { ok: false, error: 'details' }
+  const tags = normalizeProductTags(body.tags)
+  if (tags == null) return { ok: false, error: 'tags' }
+  const compat = normalizeProductCompat(body.compat)
+  if (compat == null) return { ok: false, error: 'compat' }
+  // La création suit la même forme de galerie que le patch : pas de tableau
+  // libre, pas de doublon, et jamais plus de MAX_PHOTOS références.
+  const photoPatch = sanitizeProductPatch({ photos: body.photos == null ? [] : body.photos })
+  if (!photoPatch.ok) return { ok: false, error: photoPatch.error }
+  const photos = photoPatch.patch.photos
+
   const finalId = id || newId('sku')
-  const sku = String(body.sku || finalId).trim()
+  const suppliedSku = body.sku == null ? '' : String(body.sku).trim()
+  const sku = suppliedSku || finalId
   // P22 (bug H) : le SKU saisi n'était confronté à rien. Un master pouvait
   // créer plusieurs produits portant le SKU d'une référence du catalogue de
   // base — mesuré en direct : trois produits se sont retrouvés avec
   // `100-100000910WOF` (celui de `cpu-7800x3d`). Le SKU est ce qui identifie
   // une référence sur l'étiquette, dans l'export CSV et dans le dossier de
   // photos : un doublon rend la fiche ambiguë. On refuse.
-  const taken = new Set(
-    [...PRODUCTS, ...db.meta.extraProducts].map((x) => String(x.sku || '').trim()).filter(Boolean)
-  )
-  if (taken.has(sku)) return { ok: false, error: 'sku_taken' }
+  if (!isValidSku(sku)) return { ok: false, error: 'sku' }
+  if (skuTaken(db, sku)) return { ok: false, error: 'sku_taken' }
   const product = {
     id: finalId,
     sku,
@@ -148,17 +244,27 @@ export function createProduct(db, body, id) {
     kind,
     category,
     price,
-    stock: Math.max(0, Math.floor(Number(body.stock) || 0)),
+    stock: Math.floor(stock),
     rating: 0,
     reviews: 0,
     related: [],
-    photos: Array.isArray(body.photos) ? body.photos.slice(0, MAX_PHOTOS) : [],
+    photos,
     short: String(body.short || '').trim(),
+    model,
+    barcode,
+    description,
+    condition,
+    conditionNote,
+    uses,
+    warrantyMonths: Math.floor(warrantyMonths),
+    compareAtPrice: Math.round(compareAtPrice),
+    lowStockAt: Math.floor(lowStockAt),
+    details,
     // LOT 2.6 (F10) : tableau, comme au patch — plus de produit qu'on ne peut
     // pas éditer sur ce champ.
     needs: normalizeNeeds(body.needs),
-    compat: body.compat && typeof body.compat === 'object' ? body.compat : {},
-    tags: Array.isArray(body.tags) ? body.tags : []
+    compat,
+    tags
   }
   db.meta.extraProducts = [product, ...db.meta.extraProducts]
   setStock(db, finalId, product.stock)
@@ -212,18 +318,70 @@ export function sanitizeProductPatch(patch = {}) {
     if (!isKnownKind(kind)) return { ok: false, error: 'kind' }
     out.kind = kind
   }
+  if (patch.condition != null) {
+    const condition = String(patch.condition)
+    if (!isKnownCondition(condition)) return { ok: false, error: 'condition' }
+    out.condition = condition
+  }
+  if (patch.uses != null) {
+    if (!Array.isArray(patch.uses)) return { ok: false, error: 'uses' }
+    const uses = [...new Set(patch.uses.map((use) => String(use)))]
+    if (uses.length > 6 || uses.some((use) => !isKnownUse(use))) return { ok: false, error: 'uses' }
+    out.uses = uses
+  }
+  if (patch.warrantyMonths != null) {
+    const months = Number(patch.warrantyMonths)
+    if (!Number.isFinite(months) || months < 0 || months > 60) return { ok: false, error: 'warranty' }
+    out.warrantyMonths = Math.floor(months)
+  }
+  if (patch.model != null) out.model = cleanProductText(patch.model, MODEL_LIMIT)
+  if (patch.barcode != null) {
+    const barcode = cleanProductText(patch.barcode, BARCODE_LIMIT)
+    if (!isValidBarcode(barcode)) return { ok: false, error: 'barcode' }
+    out.barcode = barcode
+  }
+  if (patch.description != null) out.description = cleanProductText(patch.description, DESCRIPTION_LIMIT)
+  if (patch.conditionNote != null) out.conditionNote = cleanProductText(patch.conditionNote, CONDITION_NOTE_LIMIT)
+  if (patch.compareAtPrice != null) {
+    const price = Number(patch.compareAtPrice)
+    if (!Number.isFinite(price) || price < 0) return { ok: false, error: 'compare_at_price' }
+    out.compareAtPrice = Math.round(price)
+  }
+  if (patch.lowStockAt != null) {
+    const lowStockAt = Number(patch.lowStockAt)
+    if (!Number.isFinite(lowStockAt) || lowStockAt < 0 || lowStockAt > 9999) return { ok: false, error: 'low_stock' }
+    out.lowStockAt = Math.floor(lowStockAt)
+  }
+  if (patch.details != null) {
+    const details = normalizeProductDetails(patch.details)
+    if (details == null) return { ok: false, error: 'details' }
+    out.details = details
+  }
+  if (patch.tags != null) {
+    const tags = normalizeProductTags(patch.tags)
+    if (tags == null) return { ok: false, error: 'tags' }
+    out.tags = tags
+  }
+  if (patch.compat != null) {
+    const compat = normalizeProductCompat(patch.compat)
+    if (compat == null) return { ok: false, error: 'compat' }
+    out.compat = compat
+  }
   if (patch.short != null) out.short = String(patch.short).slice(0, 200)
   if (patch.sku != null) {
     const sku = String(patch.sku).trim()
-    if (sku.length > 40 || !/^[\w .\-/]*$/.test(sku)) return { ok: false, error: 'sku' }
+    if (!isValidSku(sku)) return { ok: false, error: 'sku' }
     out.sku = sku
   }
   if (patch.photos != null) {
     if (!Array.isArray(patch.photos)) return { ok: false, error: 'photos' }
-    out.photos = patch.photos
-      .map((u) => String(u).trim())
-      .filter((u) => u.startsWith('/') || /^https?:\/\//.test(u))
-      .slice(0, MAX_PHOTOS)
+    out.photos = [
+      ...new Set(
+        patch.photos
+          .map((u) => String(u).trim())
+          .filter((u) => u.startsWith('/') || /^https?:\/\//.test(u))
+      )
+    ].slice(0, MAX_PHOTOS)
   }
   if (patch.needs != null) {
     // LOT 2.6 (F10) : chaîne OU tableau, normalisé en tableau. Le refus pur et
@@ -261,9 +419,28 @@ export function updateProduct(db, id, rawPatch) {
     // LOT 8.10 (A10) : `kind` validé par `sanitizeProductPatch` était jeté ici —
     // la route répondait 200 avec une fiche inchangée.
     if (patch.kind != null) cur.kind = String(patch.kind)
+    if (patch.condition != null) cur.condition = String(patch.condition)
+    if (patch.uses != null) cur.uses = patch.uses
+    if (patch.warrantyMonths != null) cur.warrantyMonths = patch.warrantyMonths
+    if (patch.model != null) cur.model = patch.model
+    if (patch.barcode != null) cur.barcode = patch.barcode
+    if (patch.description != null) cur.description = patch.description
+    if (patch.conditionNote != null) cur.conditionNote = patch.conditionNote
+    if (patch.compareAtPrice != null) cur.compareAtPrice = patch.compareAtPrice
+    if (patch.lowStockAt != null) cur.lowStockAt = patch.lowStockAt
+    if (patch.details != null) cur.details = patch.details
+    if (patch.tags != null) cur.tags = patch.tags
+    if (patch.compat != null) cur.compat = patch.compat
     if (patch.short != null) cur.short = String(patch.short)
-    if (patch.sku != null) cur.sku = String(patch.sku)
-    if (patch.photos != null && Array.isArray(patch.photos)) cur.photos = patch.photos.slice(0, MAX_PHOTOS)
+    if (Number(cur.compareAtPrice) > 0 && Number(cur.compareAtPrice) < Number(cur.price)) return { ok: false, error: 'compare_at_price' }
+    if (patch.sku != null) {
+      if (skuTaken(db, patch.sku, id)) return { ok: false, error: 'sku_taken' }
+      cur.sku = String(patch.sku)
+    }
+    if (patch.photos != null && Array.isArray(patch.photos)) {
+      cur.photos = patch.photos.slice(0, MAX_PHOTOS)
+      if (cur.photoMode === 'category' && cur.photos.length) cur.photoMode = 'custom'
+    }
     // LOT 2.6 (F10), second volet : `needs` n'était repris que dans la branche
     // « override du catalogue de base » ci-dessous. Pour un produit CRÉÉ par le
     // maître (`extraProducts`), le champ était validé par
@@ -290,13 +467,17 @@ export function updateProduct(db, id, rawPatch) {
   if (!db.meta.productOverrides) db.meta.productOverrides = {}
   const base = PRODUCTS.find((p) => p.id === id)
   if (!base) return { ok: false, error: 'not_found' }
+  if (patch.sku != null && skuTaken(db, patch.sku, id)) return { ok: false, error: 'sku_taken' }
   const prev = db.meta.productOverrides[id] || {}
   const next = { ...prev }
   // LOT 8.10 (A10) : `kind` ajouté à la liste — sans quoi un patch validé
   // n'était pas appliqué au produit du catalogue de base non plus.
-  for (const k of ['name', 'price', 'brand', 'category', 'short', 'sku', 'photos', 'needs', 'kind']) {
+  for (const k of ['name', 'price', 'brand', 'category', 'short', 'sku', 'photos', 'needs', 'kind', 'condition', 'uses', 'warrantyMonths', 'model', 'barcode', 'description', 'conditionNote', 'compareAtPrice', 'lowStockAt', 'details', 'tags', 'compat']) {
     if (patch[k] != null) next[k] = patch[k]
   }
+  const effectivePrice = Number(next.price ?? base.price)
+  if (Number(next.compareAtPrice) > 0 && Number(next.compareAtPrice) < effectivePrice) return { ok: false, error: 'compare_at_price' }
+  if (patch.photos != null && base.photoMode === 'category') next.photoMode = patch.photos.length ? 'custom' : 'category'
   if (patch.stock != null) {
     setStock(db, id, Math.max(0, Math.floor(Number(patch.stock) || 0)))
   }
@@ -321,6 +502,33 @@ export function updateProduct(db, id, rawPatch) {
 
 export function hideProductMaster(db, id, hidden = true) {
   return updateProduct(db, id, { hidden })
+}
+
+/**
+ * Suppression DÉFINITIVE d'un produit créé par le maître (extraProducts) et
+ * de son override éventuel. Les produits du catalogue de base ne se
+ * suppriment pas : ils se masquent (`hideProductMaster`), car le code du
+ * configurateur, des lignes de pièces et des tests en dépend structurellement.
+ * L'historique des commandes est conservé (prix et libellés y sont figés).
+ * @returns {{ ok: true, id, photos: string[] }} — photos renvoyées pour le
+ *   cleanup best-effort de la route, APRÈS le commit de la mutation.
+ */
+export function deleteProductMaster(db, id) {
+  if (!id || typeof id !== 'string') return { ok: false, error: 'id' }
+  if (PRODUCTS.some((p) => p?.id === id)) return { ok: false, error: 'base' }
+  const photos = currentProductPhotos(db, id)
+  const extras = db.meta?.extraProducts || []
+  const idx = extras.findIndex((p) => p?.id === id)
+  const hasOverride =
+    db.meta?.productOverrides && Object.prototype.hasOwnProperty.call(db.meta.productOverrides, id)
+  if (idx < 0 && !hasOverride) return { ok: false, error: 'not_found' }
+  if (idx >= 0) db.meta.extraProducts = extras.filter((p) => p?.id !== id)
+  if (hasOverride) delete db.meta.productOverrides[id]
+  if (db.stock && typeof db.stock === 'object') delete db.stock[id]
+  if (Array.isArray(db.meta.hiddenProductIds)) {
+    db.meta.hiddenProductIds = db.meta.hiddenProductIds.filter((x) => x !== id)
+  }
+  return { ok: true, id, photos }
 }
 
 export async function savePhotoDataUrls(productId, dataUrls = []) {
@@ -365,7 +573,7 @@ export async function savePhotoDataUrls(productId, dataUrls = []) {
 
 /** P5 (B12) : supprime un fichier d'upload à partir de son URL publique ou Blob CDN. */
 export async function unlinkUpload(publicPath) {
-  await deleteBlob(publicPath)
+  return deleteBlob(publicPath)
 }
 
 export function ordersToCsv(orders, { day = null } = {}) {

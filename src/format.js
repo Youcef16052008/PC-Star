@@ -38,7 +38,6 @@ export const DEFAULT_LANG = 'fr'
 /** Table des locales — la seule du dépôt. */
 export const LOCALES = {
   fr: 'fr-DZ',
-  ar: 'ar-DZ',
   en: 'en-GB'
 }
 
@@ -46,25 +45,24 @@ export const LOCALES = {
 export const CURRENCY = {
   fr: 'DA',
   en: 'DA',
-  ar: 'دج'
 }
 
 /**
- * Ramène une entrée de langue à l'identifiant court (`fr`, `ar`, `en`).
+ * Ramène une entrée de langue à l'identifiant court (`fr`, `en`; un ancien choix `ar` retombe sur le français).
  *
  * Accepte `fr`, `fr-DZ`, `FR`, `undefined` — l'UI passe l'identifiant de
  * `LANGS`, mais un réglage navigateur ou une préférence ancienne peut arriver
  * sous forme longue.
  *
  * @param {string} [lang]
- * @returns {'fr'|'ar'|'en'} une langue connue, `DEFAULT_LANG` sinon
+ * @returns {'fr'|'en'} une langue connue, `DEFAULT_LANG` sinon
  */
 export function normalizeLang(lang) {
   const short = String(lang || '')
     .trim()
     .toLowerCase()
     .split(/[-_]/)[0]
-  return short === 'ar' || short === 'en' || short === 'fr' ? short : DEFAULT_LANG
+  return short === 'en' || short === 'fr' ? short : DEFAULT_LANG
 }
 
 /**
@@ -122,6 +120,21 @@ export function money(n, lang = DEFAULT_LANG) {
  * @param {string} [lang]
  * @returns {string}
  */
+/**
+ * Formate une date SANS heure (`YYYY-MM-DD`) pour la langue — utilisée pour
+ * la date de retrait. Le découpage explicite évite le piège de `new
+ * Date('YYYY-MM-DD')`, qui part en UTC et décale la date affichée d'un jour.
+ */
+export function formatDay(day, lang = DEFAULT_LANG) {
+  const s = String(day || '')
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/)
+  if (!m) return s
+  const local = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]))
+  return Number.isNaN(local.getTime())
+    ? s
+    : local.toLocaleDateString(localeFor(lang), { weekday: 'short', day: 'numeric', month: 'short' })
+}
+
 export function formatDateTime(value, lang = DEFAULT_LANG) {
   if (value === null || value === undefined || value === '') return ''
   const d = value instanceof Date ? value : new Date(value)

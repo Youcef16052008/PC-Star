@@ -4,6 +4,7 @@ import PartThumb from './PartThumb.jsx'
 import ContactButton from './ContactPicker.jsx'
 import { relatedProducts, specRows } from './media.js'
 import { stockLabel } from './stockLabel.js'
+import { discountPercent, hasSale } from './productMeta.js'
 
 /**
  * LOT 2.6 (F10) — texte du bloc « besoins » d'une fiche produit.
@@ -96,7 +97,7 @@ export default function ProductPage({ t, lang = 'fr', product, photoIndex, setPh
                   <img
                     key={product.id + '-' + photoIndex}
                     src={photos[photoIndex]}
-                    alt={product.name}
+                    alt={product.photoMode === 'category' ? t('categoryIllustrationAlt', { name: product.name }) : product.name}
                     className="w-100 h-100"
                     style={{ objectFit: 'contain' }}
                     loading="eager"
@@ -112,6 +113,9 @@ export default function ProductPage({ t, lang = 'fr', product, photoIndex, setPh
               <span className={`badge position-absolute top-0 end-0 m-2 ${badge}`}>{st.text}</span>
             </div>
           </div>
+          {product.photoMode === 'category' && (
+            <p className="small text-secondary mt-2 mb-0">{t('categoryIllustrationNotice')}</p>
+          )}
           {photos.length > 1 && (
             <div className="d-flex flex-wrap gap-2 mt-2">
               {photos.map((src, i) => (
@@ -136,7 +140,16 @@ export default function ProductPage({ t, lang = 'fr', product, photoIndex, setPh
           <h1 className="h3 mb-2">{product.name}</h1>
           <Stars product={product} t={t} />
           <p className="text-secondary">{product.short}</p>
-          <div className="fs-4 fw-bold text-success mb-2">{money(product.price, lang)}</div>
+          {product.description && <p className="mb-3 product-description">{product.description}</p>}
+          <div className="d-flex align-items-center flex-wrap gap-2 mb-2">
+            <div className="fs-4 fw-bold text-success">{money(product.price, lang)}</div>
+            {hasSale(product) && (
+              <>
+                <del className="small text-secondary">{money(product.compareAtPrice, lang)}</del>
+                <span className="badge text-bg-danger">−{discountPercent(product)}%</span>
+              </>
+            )}
+          </div>
           <SpecBadges product={product} t={t} />
           {specs.length > 0 && (
             <div className="table-responsive mb-3">
@@ -150,6 +163,11 @@ export default function ProductPage({ t, lang = 'fr', product, photoIndex, setPh
                   ))}
                 </tbody>
               </table>
+            </div>
+          )}
+          {product.conditionNote && (
+            <div className="alert alert-info py-2 small mb-2">
+              <strong>{t('masterConditionNote')} : </strong>{product.conditionNote}
             </div>
           )}
           {(product.needsKey || needsText(product.needs)) && (

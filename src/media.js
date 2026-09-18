@@ -1,4 +1,4 @@
-import { specOf } from './data.js'
+import { conditionOf, specOf, usesOf } from './data.js'
 
 /** Spec rows for PDP table (i18n keys via labelKey). */
 export function specRows(product, t) {
@@ -9,9 +9,25 @@ export function specRows(product, t) {
     if (value == null || value === '' || value === false) return
     rows.push({ label, value: String(value) })
   }
+  const condition = conditionOf(product)
+  const conditionKey = condition === 'used' ? 'conditionUsed' : condition === 'refurbished' ? 'conditionRefurbished' : 'conditionNew'
+  const useKey = {
+    student: 'useStudent',
+    office: 'useOffice',
+    business: 'useBusiness',
+    gaming: 'useGaming',
+    creative: 'useCreative',
+    retail: 'useRetail'
+  }
   push(t('specBrand'), product.brand)
   push(t('specSku'), product.sku)
+  push(t('specModel'), product.model)
+  push(t('specBarcode'), product.barcode)
   push(t('specCategory'), t(`cat_${product.category}`) !== `cat_${product.category}` ? t(`cat_${product.category}`) : product.category)
+  push(t('specCondition'), t(conditionKey))
+  if (Number(product.warrantyMonths) > 0) push(t('specWarranty'), t('warrantyMonths', { n: product.warrantyMonths }))
+  const productUses = usesOf(product)
+  if (productUses.length) push(t('specUse'), productUses.map((use) => t(useKey[use] || use)).join(' · '))
   if (s.socket) push(t('specSocket'), Array.isArray(s.socket) ? s.socket.join(' / ') : s.socket)
   if (s.memory) push(t('specMemory'), s.memory)
   if (s.form) push(t('specForm'), s.form)
@@ -22,6 +38,9 @@ export function specRows(product, t) {
   if (s.cool) push(t('specCool'), `${s.cool} W`)
   if (s.pcie) push('PCIe', `x${s.pcie}`)
   if (s.slots) push(t('specSlots'), String(s.slots))
+  for (const detail of Array.isArray(product.details) ? product.details : []) {
+    if (detail?.label && detail?.value) push(detail.label, detail.value)
+  }
   if (product.tags?.length) push(t('specTags'), product.tags.join(', '))
   return rows
 }

@@ -4,7 +4,7 @@ import { money } from './data.js'
 // `new Date(o.at).toLocaleString()` ignorait la langue choisie et rendait la
 // locale du NAVIGATEUR : en mode arabe, le comptoir affichait `ar-DZ` et cette
 // page `fr-FR`, deux formats pour la même commande.
-import { formatDateTime } from './format.js'
+import { formatDateTime, formatDay } from './format.js'
 import * as api from './api.js'
 import { canCancelHere, statusLabelKey } from './orderLogic.js'
 import { loadOrders } from './prefs.js'
@@ -13,41 +13,34 @@ import { loadOrders } from './prefs.js'
  * P11 : page unique « Commandes » (remplace « Mes commandes » dans le profil).
  *
  * Sources croisées, dédoublonnées par code :
- *  - client connecté + backend en ligne : commandes serveur (`/api/orders/mine`,
- *    qui inclut aussi les commandes guest passées au même téléphone) + copie
- *    locale du navigateur ;
+ *  - client connecté + backend en ligne : commandes serveur explicitement liées
+ *    au compte + copie locale des mêmes commandes ;
  *  - sinon (hors-ligne, mode local, ou guest) : copie locale du navigateur —
- *    les commandes réussies via l'API sont maintenant aussi persistées localement
- *    à la création (reserve → saveOrders), un guest retrouve donc les siennes
- *    depuis cet appareil.
+ *    les commandes réussies via l'API sont aussi persistées à la création, afin
+ *    qu'un guest les retrouve sur le même appareil.
  *
- * LOT 2.8 (F12) : les commandes **guest de cet appareil** restent visibles après
- * connexion, marquées « passées sans compte ».
+ * Phase 3 : une commande guest ne bascule jamais dans un compte parce qu'il a
+ * le même téléphone. Cette égalité ne prouve pas la possession du numéro.
  */
-export default function OrdersPage({ t, lang = 'fr', user, apiOnline, mode, onCancelOrder, onBack }) {
+export default function OrdersPage({ t, lang = 'fr', user, apiOnline, mode, onCancelOrder, onClaimOrder, onBack }) {
   const [orders, setOrders] = useState([])
   const [loading, setLoading] = useState(true)
   const [cancelTick, setCancelTick] = useState(0)
+  // Phase 3 : saisie du code de retrait remis au comptoir (session connectée +
+  // backend en ligne uniquement — la preuve vit côté serveur).
+  const [claimOpen, setClaimOpen] = useState(false)
+  const [claimValue, setClaimValue] = useState('')
+  const [claimBusy, setClaimBusy] = useState(false)
+  const [claimError, setClaimError] = useState('')
 
   useEffect(() => {
     let cancelled = false
     setLoading(true)
     const all = loadOrders()
-    // LOT 2.8 (F12) : avant, un compte connecté ne voyait QUE `userId ===
-    // user.id`. Les commandes passées en guest depuis cet appareil
-    // (`userId == null`) disparaissaient donc à la connexion — y compris celle
-    // qui venait d'être faite, puisque le client se connectait souvent APRÈS
-    // avoir réservé (le serveur, lui, les rattache déjà par téléphone dans
-    // `/api/me/orders`). Union des deux, chacune marquée dans l'UI.
-    //
-    // Limite assumée : sur un appareil partagé, un compte connecté voit aussi
-    // les commandes guest d'un tiers faites sur le même navigateur. C'est la
-    // frontière de confiance du `localStorage` — la même que celle du serveur,
-    // qui rattache par numéro de téléphone saisi. Le marquage explicite
-    // (« passée sans compte ») dit d'où vient la ligne.
-    const local = user
-      ? all.filter((o) => o.userId === user.id || o.userId == null)
-      : all.filter((o) => o.userId == null)
+    // Ne pas fusionner les lignes guest dans une session connectée. Le stockage
+    // de navigateur n'est pas une preuve d'identité et peut être partagé; les
+    // commandes guest restent consultables avant connexion sur cet appareil.
+    const local = user ? all.filter((o) => o.userId === user.id) : all.filter((o) => o.userId == null)
     ;(async () => {
       if (!(user && apiOnline && mode === 'api')) {
         if (!cancelled) {
@@ -77,6 +70,32 @@ export default function OrdersPage({ t, lang = 'fr', user, apiOnline, mode, onCa
     if (ok) setCancelTick((x) => x + 1)
   }
 
+  async function doClaim(event) {
+    event.preventDefault()
+    const value = claimValue.trim()
+    if (!value || claimBusy) return
+    setClaimBusy(true)
+    setClaimError('')
+    try {
+      const r = await onClaimOrder?.(value)
+      if (r?.ok) {
+        setClaimValue('')
+        setClaimOpen(false)
+        setCancelTick((x) => x + 1)
+      } else if (r?.error === 'taken') {
+        setClaimError(t('orderClaimTaken'))
+      } else if (r?.error === 'status') {
+        setClaimError(t('orderClaimStatus'))
+      } else {
+        setClaimError(t('orderClaimInvalid'))
+      }
+    } finally {
+      setClaimBusy(false)
+    }
+  }
+
+  const canClaim = Boolean(user && apiOnline && mode === 'api' && typeof onClaimOrder === 'function')
+
   return (
     <main id="main-content" className="container page py-4" tabIndex={-1}>
       <button className="btn btn-outline-secondary btn-sm mb-3" type="button" onClick={onBack}>
@@ -89,6 +108,53 @@ export default function OrdersPage({ t, lang = 'fr', user, apiOnline, mode, onCa
               <h1 className="h4 mb-1">{t('navOrders')}</h1>
               <p className="small text-secondary mb-3">{t('ordersPageBody')}</p>
               {!user && <p className="small text-secondary">{t('ordersGuestNote')}</p>}
+              {canClaim && (
+                <div className="border rounded p-3 mb-3 bg-body-tertiary">
+                  {claimOpen ? (
+                    <form onSubmit={doClaim} className="row g-2 align-items-end">
+                      <div className="col-12 col-sm-7">
+                        <label className="form-label small mb-1" htmlFor="claim-code-input">
+                          {t('orderClaimTitle')}
+                        </label>
+                        <input
+                          id="claim-code-input"
+                          className="form-control"
+                          value={claimValue}
+                          onChange={(e) => setClaimValue(e.target.value)}
+                          placeholder={t('orderClaimPlaceholder')}
+                          maxLength={16}
+                          autoComplete="off"
+                        />
+                        <div className="form-text mb-0">{t('orderClaimHint')}</div>
+                        {claimError && (
+                          <div className="small text-danger mt-1" role="alert">
+                            {claimError}
+                          </div>
+                        )}
+                      </div>
+                      <div className="col-6 col-sm-5 d-flex gap-2 justify-content-sm-end">
+                        <button type="submit" className="btn btn-primary btn-sm" disabled={claimBusy || !claimValue.trim()}>
+                          {claimBusy ? '…' : t('orderClaimSubmit')}
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-outline-secondary btn-sm"
+                          onClick={() => {
+                            setClaimOpen(false)
+                            setClaimError('')
+                          }}
+                        >
+                          {t('close')}
+                        </button>
+                      </div>
+                    </form>
+                  ) : (
+                    <button type="button" className="btn btn-sm btn-outline-primary" onClick={() => setClaimOpen(true)}>
+                      {t('orderClaimTitle')}
+                    </button>
+                  )}
+                </div>
+              )}
               {loading ? (
                 <div className="empty-state py-4 text-center">
                   <span className="spinner-border spinner-border-sm me-2" aria-hidden="true" />
@@ -106,21 +172,26 @@ export default function OrdersPage({ t, lang = 'fr', user, apiOnline, mode, onCa
                       <div className="d-flex justify-content-between gap-2 flex-wrap">
                         <span className="font-monospace fw-semibold">{o.code}</span>
                         <span className="d-flex gap-1 flex-wrap">
-                          {/* LOT 2.8 (F12) : distingue les commandes rattachées au
-                              compte de celles passées sans compte depuis cet
-                              appareil (ou rattachées par téléphone côté serveur). */}
-                          {user && o.userId == null && (
-                            <span className="badge text-bg-light border">{t('orderGuestBadge')}</span>
-                          )}
                           {/* LOT 2.3 (F5) : commande créée hors-ligne, jamais
                               parvenue au serveur — conservée par la fusion. */}
                           {o.localOnly === true && (
                             <span className="badge text-bg-warning">{t('ordersLocalOnly')}</span>
                           )}
+                          {/* Copie locale périmée d'une commande guest : la
+                              session ne recevra jamais cette ligne du serveur
+                              (phase 3) — on l'explique au lieu d'afficher un
+                              bouton qui échouerait à tous les coups. */}
+                          {user && o.claimable === false && (
+                            <span className="badge text-bg-secondary">{t('orderGuestBadge')}</span>
+                          )}
                           <span className="badge text-bg-secondary">{t(statusLabelKey(o.status === 'pending' ? 'new' : o.status || 'new'))}</span>
                         </span>
                       </div>
                       <div className="small text-secondary mt-1">
+                        {/* Date de retrait annoncée (client ou comptoir). */}
+                        {o.pickupDate ? (
+                          <span className="text-body fw-semibold me-1">{formatDay(o.pickupDate, lang)} ·</span>
+                        ) : null}
                         {o.slot || '—'} · {formatDateTime(o.at, lang)}
                       </div>
                       <ul className="small mb-1 mt-2">
@@ -132,15 +203,13 @@ export default function OrdersPage({ t, lang = 'fr', user, apiOnline, mode, onCa
                       </ul>
                       <div className="d-flex justify-content-between align-items-center">
                         <div className="fw-semibold text-success">{money(o.total, lang)}</div>
-                        {/* LOT 8.3 (A3) : annulation possible tant que la commande
-                            est « neuve » ET revendicable (`canCancelHere`).
-                            Avant, seul le statut comptait : une commande
-                            `claimable: false` (guest déposée au numéro d'un
-                            compte, lot 4.4 / R20) affichait un bouton que le
-                            serveur refusait toujours en 404 — une action
-                            promise et impossible, avec un message d'échec qui ne
-                            disait ni pourquoi ni quoi faire. */}
-                        {canCancelHere(o) && (
+                        {/* Une session ne reçoit que ses propres lignes; une guest
+                            peut gérer localement sa copie neuve tant qu'elle est
+                            hors connexion. `allowGuest` ne franchit jamais l'API. */}
+                        {user && o.claimable === false && (
+                          <span className="small text-secondary">{t('orderNotClaimable')}</span>
+                        )}
+                        {canCancelHere(o, { allowGuest: !user }) && (
                           <button
                             type="button"
                             className="btn btn-sm btn-outline-danger"
@@ -149,11 +218,6 @@ export default function OrdersPage({ t, lang = 'fr', user, apiOnline, mode, onCa
                           >
                             {t('orderCancel')}
                           </button>
-                        )}
-                        {o.claimable === false && (
-                          <span className="small text-secondary text-end" title={t('orderNotClaimable')}>
-                            {t('orderNotClaimable')}
-                          </span>
                         )}
                       </div>
                     </article>

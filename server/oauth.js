@@ -12,7 +12,15 @@
  */
 
 import crypto from 'node:crypto'
-import { createSession, newId, newToken, readDbAsync, updateDbAsync, publicUser } from './db.js'
+import {
+  createSession,
+  isOAuthPendingExpired,
+  newId,
+  newToken,
+  readDbAsync,
+  updateDbAsync,
+  publicUser
+} from './db.js'
 
 // LOT 3.13 (B18) : `OAUTH_DEMO` et `OAUTH_REDIRECT_BASE` étaient évalués UNE
 // fois, à l'import du module. Conséquence : un test (ou tout rechargement à
@@ -159,10 +167,40 @@ export async function startOAuth(provider, { userId = null, intent = 'login', re
   if (provider !== 'google' && provider !== 'meta') {
     return { ok: false, error: 'provider' }
   }
+
+  // AUDIT-2026-09-17 / phase 1 (P0) : le repli automatique vers l'écran
+  // « démo » était dangereux. Avec OAUTH_DEMO=0, un état destiné à un vrai
+  // fournisseur pouvait quand même être soumis à POST /demo, et
+  // finishIdentity() lui faisait alors confiance comme à un e-mail vérifié.
+  //
+  // La décision est donc prise AVANT de créer/persister le state :
+  //   - démo explicitement active → consentement simulé ;
+  //   - démo désactivée + fournisseur absent → refus honnête, sans state mort ;
+  //   - démo désactivée + fournisseur configuré → vrai flux OAuth.
+  const demo = oauthDemo()
+  const cfg = oauthConfig()
+  const configured = provider === 'google' ? cfg.googleConfigured : cfg.metaConfigured
+  if (!demo && !configured) return { ok: false, error: 'provider_not_configured' }
+
   const state = newToken()
   // P13 (S2) : validé à l'entrée, re-validé à la redirection.
   const safeReturn = safeReturnUrl(returnUrl)
+  let startError = null
   await updateDbAsync((db) => {
+    // Défense à la source : un navigateur déjà authentifié comme maître ne
+    // reçoit même pas de state de rattachement. Le callback conserve la même
+    // règle pour les états historiques ou forgés avant ce contrôle.
+    if (intent === 'link') {
+      const account = db.users.find((u) => u.id === userId)
+      if (!account) {
+        startError = 'auth_required'
+        return db
+      }
+      if (account.role === 'master') {
+        startError = 'master_oauth_forbidden'
+        return db
+      }
+    }
     db.oauthPending[state] = {
       provider,
       userId,
@@ -172,9 +210,9 @@ export async function startOAuth(provider, { userId = null, intent = 'login', re
     }
     return db
   })
+  if (startError) return { ok: false, error: startError }
 
-  const cfg = oauthConfig()
-  if (oauthDemo() || (provider === 'google' && !cfg.googleConfigured) || (provider === 'meta' && !cfg.metaConfigured)) {
+  if (demo) {
     // Relative URL so Vite proxy / browser same-origin works in preview
     return {
       ok: true,
@@ -202,67 +240,96 @@ export async function startOAuth(provider, { userId = null, intent = 'login', re
     state,
     scope: 'email,public_profile'
   })
-  return { ok: true, demo: false, authorizeUrl: `https://www.facebook.com/v19.0/dialog/oauth?${params}` }
+  return { ok: true, demo: false, authorizeUrl: `https://www.facebook.com/${metaGraphVersion()}/dialog/oauth?${params}` }
 }
 
 /**
- * P13 (S1/S3) — clôture une identité OAuth.
+ * Clôture atomique d'une identité OAuth.
  *
- * S1 : le compte **master** ne se connecte QUE par mot de passe. Avant,
- * `finishIdentity` appariait par e-mail : en mode démo (défaut), taper l'e-mail
- * du magasin dans l'écran de consentement donnait une session master valide —
- * escalade totale. (Depuis le LOT 1.1 cet e-mail vient de `MASTER_EMAIL` ; il
- * n'est plus codé en dur, et `GET /api/health` ne le divulgue plus.)
- *
- * S2 : en démo, l'e-mail n'est vérifié par personne. Seuls les comptes de
- * démonstration (`demo: true`) ou un lien déjà établi peuvent être ouverts ;
- * sinon n'importe qui prend le contrôle d'un compte client en tapant son
- * e-mail (celui d'une commande, par exemple).
- *
- * S3 : le token de session ne transite plus par la base (`db._lastAuth`) —
- * il était recopié dans `store.json` puis dans chaque backup.
+ * AUDIT-2026-09-17 / phase 2 : le `pending` est relu DANS la transaction qui
+ * crée la session, puis supprimé dans cette même transaction. Lire le state
+ * avant d'entrer dans `updateDbAsync` permettait à deux callbacks simultanés
+ * de le réutiliser. La vérification de son âge est également locale à ce
+ * chemin : elle reste effective lorsque Neon n'a pas encore purgé le JSONB.
  */
-async function finishIdentity(provider, identity, pending, stateKey) {
-  // Un e-mail n'est une preuve que si le fournisseur l'a vérifié.
-  const trusted = !oauthDemo()
-  let outcome = null
+async function finishIdentity(provider, rawIdentity, stateKey, { trusted = false } = {}) {
+  const identity = {
+    id: String(rawIdentity?.id || '').trim().slice(0, 200),
+    email: String(rawIdentity?.email || '').trim().toLowerCase().slice(0, 254),
+    name: String(rawIdentity?.name || '').trim().slice(0, 120),
+    picture: rawIdentity?.picture ? String(rawIdentity.picture).slice(0, 1000) : null
+  }
+  if (!identity.id) return { ok: false, error: 'identity' }
 
+  let outcome = null
   await updateDbAsync((db) => {
+    const pending = db.oauthPending?.[stateKey]
+    if (!pending || pending.provider !== provider || isOAuthPendingExpired(pending)) {
+      // Une entrée expirée spécifique est retirée dès qu'elle est rencontrée,
+      // y compris sous Neon où une lecture seule ne persiste pas la purge.
+      if (pending && db.oauthPending) delete db.oauthPending[stateKey]
+      outcome = { ok: false, error: 'state' }
+      return db
+    }
+
     let user = null
+    const byLink = db.users.find((u) => u.links?.[provider]?.id === identity.id) || null
 
     if (pending.intent === 'link' && pending.userId) {
       user = db.users.find((u) => u.id === pending.userId)
       if (!user) {
+        delete db.oauthPending[stateKey]
         outcome = { ok: false, error: 'state' }
+        return db
+      }
+      // S1 : le compte maître n'a pas de fournisseur OAuth, ni à la connexion
+      // ni au rattachement. Cela ferme aussi les anciens liens éventuels.
+      if (user.role === 'master') {
+        delete db.oauthPending[stateKey]
+        outcome = { ok: false, error: 'master_oauth_forbidden' }
+        return db
+      }
+      // Une même identité fournisseur ne peut appartenir qu'à un seul compte.
+      if (byLink && byLink.id !== user.id) {
+        delete db.oauthPending[stateKey]
+        outcome = { ok: false, error: 'identity_linked' }
         return db
       }
       user.links = user.links || {}
       user.links[provider] = identity
     } else {
-      const byLink = db.users.find((u) => u.links?.[provider]?.id === identity.id) || null
+      // Un ancien lien OAuth sur le maître ne devient pas une porte dérobée.
+      if (byLink?.role === 'master') {
+        delete db.oauthPending[stateKey]
+        outcome = { ok: false, error: 'master_oauth_forbidden' }
+        return db
+      }
+
       const masterByEmail = Boolean(
         identity.email && db.users.some((u) => u.role === 'master' && u.email === identity.email)
       )
-      // S1 : l'e-mail du magasin n'entre jamais par OAuth.
       if (masterByEmail && !byLink) {
+        delete db.oauthPending[stateKey]
         outcome = { ok: false, error: 'master_email' }
         return db
       }
+
       const byEmail =
         identity.email && !masterByEmail
           ? db.users.find((u) => u.email && u.email === identity.email) || null
           : null
-      // S2 : en démo, pas d'appropriation d'un compte réel par simple e-mail.
+      // En démo, l'e-mail saisi n'est pas une preuve : il ne peut viser qu'une
+      // fixture démo ou une identité déjà liée. Un callback réel n'arrive ici
+      // qu'après l'échange du code auprès du fournisseur (`trusted: true`).
       if (!trusted && byEmail && !byLink && byEmail.demo !== true) {
+        delete db.oauthPending[stateKey]
         outcome = { ok: false, error: 'demo_email' }
         return db
       }
+
       user = byLink || byEmail
-      // P16 : un fournisseur qui ne renvoie PAS d'e-mail (compte Google/Meta
-      // sans e-mail vérifié) créait un utilisateur `email: ''` — impossible à
-      // reconnecter, et tous les suivants se confondaient avec lui. On refuse
-      // la création ; un compte déjà lié (`byLink`) reste utilisable.
-      if (!user && !String(identity.email || '').trim()) {
+      if (!user && !identity.email) {
+        delete db.oauthPending[stateKey]
         outcome = { ok: false, error: 'no_email' }
         return db
       }
@@ -270,7 +337,7 @@ async function finishIdentity(provider, identity, pending, stateKey) {
         user = {
           id: newId(provider === 'google' ? 'g' : 'm'),
           role: 'customer',
-          email: identity.email || '',
+          email: identity.email,
           passwordHash: '',
           name: identity.name || (provider === 'google' ? 'Google user' : 'Meta user'),
           phone: '',
@@ -290,22 +357,157 @@ async function finishIdentity(provider, identity, pending, stateKey) {
       }
     }
 
-    // Durcissement des jetons : seule l'empreinte sha256 est stockée ; le jeton
-    // brut repart par closure vers la réponse, jamais vers la base.
-    const token = createSession(db, user.id)
-    if (stateKey) delete db.oauthPending[stateKey]
-    // S3 : renvoyé par closure, jamais écrit dans la base.
-    outcome = { ok: true, token, user: publicUser(user) }
+    const token = createSession(db, user.id, { auth: `oauth:${provider}` })
+    delete db.oauthPending[stateKey]
+    outcome = { ok: true, token, user: publicUser(user), returnUrl: pending.returnUrl || null }
     return db
   })
 
   return outcome || { ok: false, error: 'state' }
 }
 
+const OAUTH_REQUEST_TIMEOUT_MS = 10_000
+
+/** Appel JSON borné vers une URL fournisseur codée en dur, sans journaliser de token. */
+async function providerJson(fetchImpl, url, init = {}) {
+  if (typeof fetchImpl !== 'function') return null
+  const controller = typeof AbortController === 'function' ? new AbortController() : null
+  const timer = controller ? setTimeout(() => controller.abort(), OAUTH_REQUEST_TIMEOUT_MS) : null
+  try {
+    const response = await fetchImpl(url, { ...init, ...(controller ? { signal: controller.signal } : {}) })
+    if (!response?.ok) return null
+    const data = await response.json().catch(() => null)
+    return data && typeof data === 'object' ? data : null
+  } catch {
+    return null
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
+}
+
+function redirectUri(provider) {
+  return `${oauthBase()}/api/oauth/${provider}/callback`
+}
+
+function providerIsConfigured(provider) {
+  const cfg = oauthConfig()
+  return provider === 'google' ? cfg.googleConfigured : provider === 'meta' ? cfg.metaConfigured : false
+}
+
+// Meta retire les versions Graph après environ deux ans. v19 est déjà obsolète
+// en septembre 2026 : une intégration « réelle » doit partir d'une version
+// maintenue. L'override permet une mise à niveau contrôlée sans modifier le
+// flux; seules les formes vN.0 sont admises pour garder l'URL fournisseur fixe.
+function metaGraphVersion() {
+  const requested = String(process.env.META_GRAPH_VERSION || '').trim()
+  return /^v\d+\.0$/.test(requested) ? requested : 'v26.0'
+}
+
+async function googleIdentity(code, fetchImpl) {
+  const tokenBody = new URLSearchParams({
+    code,
+    client_id: process.env.GOOGLE_CLIENT_ID,
+    client_secret: process.env.GOOGLE_CLIENT_SECRET,
+    redirect_uri: redirectUri('google'),
+    grant_type: 'authorization_code'
+  })
+  const token = await providerJson(fetchImpl, 'https://oauth2.googleapis.com/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: tokenBody.toString()
+  })
+  const accessToken = String(token?.access_token || '')
+  if (!accessToken) return null
+
+  const profile = await providerJson(fetchImpl, 'https://openidconnect.googleapis.com/v1/userinfo', {
+    headers: { Authorization: `Bearer ${accessToken}` }
+  })
+  // Google fournit explicitement cette propriété OpenID. Ne jamais rattacher un
+  // compte local par un e-mail que le fournisseur ne déclare pas vérifié.
+  if (profile?.email_verified !== true || !profile?.sub || !profile?.email) return null
+  return { id: profile.sub, email: profile.email, name: profile.name, picture: profile.picture }
+}
+
+async function metaIdentity(code, fetchImpl) {
+  const params = new URLSearchParams({
+    client_id: process.env.META_APP_ID,
+    client_secret: process.env.META_APP_SECRET,
+    redirect_uri: redirectUri('meta'),
+    code
+  })
+  const token = await providerJson(fetchImpl, `https://graph.facebook.com/${metaGraphVersion()}/oauth/access_token?${params}`)
+  const accessToken = String(token?.access_token || '')
+  if (!accessToken) return null
+
+  const profileParams = new URLSearchParams({ fields: 'id,name,email', access_token: accessToken })
+  const profile = await providerJson(fetchImpl, `https://graph.facebook.com/${metaGraphVersion()}/me?${profileParams}`)
+  // Meta ne fournit pas toujours l'e-mail : dans ce cas, on refuse plutôt que
+  // de créer un compte impossible à retrouver ou de deviner une identité.
+  if (!profile?.id || !profile?.email) return null
+  return { id: profile.id, email: profile.email, name: profile.name, picture: profile.picture }
+}
+
+/** Consomme un state sans créer de session (annulation ou erreur fournisseur). */
+async function consumePendingState(provider, state) {
+  let consumed = false
+  await updateDbAsync((db) => {
+    const pending = db.oauthPending?.[state]
+    if (!pending || pending.provider !== provider || isOAuthPendingExpired(pending)) {
+      if (pending && db.oauthPending) delete db.oauthPending[state]
+      return db
+    }
+    delete db.oauthPending[state]
+    consumed = true
+    return db
+  })
+  return consumed
+}
+
+/**
+ * Callback OAuth réel : state vérifié avant ET pendant la transaction, code
+ * échangé côté serveur seulement, puis profil récupéré sur l'API officielle.
+ * `fetchImpl` injectable maintient le flux testable sans appeler Google/Meta.
+ */
+export async function completeOAuthCallback(provider, query = {}, { fetchImpl = globalThis.fetch } = {}) {
+  if (provider !== 'google' && provider !== 'meta') return { ok: false, error: 'provider' }
+  if (oauthDemo()) return { ok: false, error: 'demo_enabled' }
+  if (!providerIsConfigured(provider)) return { ok: false, error: 'provider_not_configured' }
+
+  const state = String(query.state || '')
+  if (!state) return { ok: false, error: 'state' }
+  if (query.error) {
+    // Même un refus utilisateur est une réponse terminale : consommer le state
+    // sous le verrou empêche de conserver un état de consentement réutilisable.
+    return { ok: false, error: (await consumePendingState(provider, state)) ? 'provider_cancelled' : 'state' }
+  }
+
+  const code = String(query.code || '')
+  if (!code) return { ok: false, error: 'state' }
+
+  // Evite tout échange externe pour un state absent, expiré ou prévu pour un
+  // autre fournisseur. finishIdentity relit obligatoirement l'état sous verrou
+  // afin que deux callbacks simultanés ne puissent pas le consommer deux fois.
+  const before = await readDbAsync()
+  const pending = before.oauthPending?.[state]
+  if (!pending || pending.provider !== provider || isOAuthPendingExpired(pending)) return { ok: false, error: 'state' }
+
+  const identity = provider === 'google' ? await googleIdentity(code, fetchImpl) : await metaIdentity(code, fetchImpl)
+  if (!identity) {
+    // Une réponse de code est terminale. Ne pas garder un state vivant après un
+    // échange refusé/expiré par le fournisseur, sinon il peut être rejoué avec
+    // un autre code pendant toute sa fenêtre de quinze minutes.
+    await consumePendingState(provider, state)
+    return { ok: false, error: 'oauth_provider' }
+  }
+  return finishIdentity(provider, identity, state, { trusted: true })
+}
+
 export async function completeDemo(provider, state, profile = {}) {
-  const db = await readDbAsync()
-  const pending = db.oauthPending[state]
-  if (!pending || pending.provider !== provider) return { ok: false, error: 'state' }
+  // Défense en profondeur (AUDIT-2026-09-17 / phase 1) : même si une route
+  // appelante oubliait sa garde, un formulaire démo ne doit jamais pouvoir
+  // clôturer un état créé pour un fournisseur réel.
+  if (!oauthDemo()) return { ok: false, error: 'demo_disabled' }
+  if (provider !== 'google' && provider !== 'meta') return { ok: false, error: 'provider' }
 
   const identity =
     provider === 'google'
@@ -322,24 +524,28 @@ export async function completeDemo(provider, state, profile = {}) {
           picture: profile.picture || null
         }
 
-  // Déjà validé par startOAuth (S2) — le pending ne contient qu'une valeur sûre.
-  const returnUrl = pending.returnUrl || null
-  const done = await finishIdentity(provider, identity, pending, state)
-  if (!done?.ok) return done
-  return { ok: true, token: done.token, user: done.user, returnUrl }
+  return finishIdentity(provider, identity, String(state || ''), { trusted: false })
 }
 
 export async function unlinkProvider(userId, provider) {
   if (provider !== 'google' && provider !== 'meta') return { ok: false, error: 'provider' }
   let user = null
+  let forbidden = false
   await updateDbAsync((db) => {
     const u = db.users.find((x) => x.id === userId)
     if (!u) return db
+    // Même si une base historique contenait un lien maître, les opérations OAuth
+    // ne doivent plus pouvoir le manipuler : il sera refusé à la connexion.
+    if (u.role === 'master') {
+      forbidden = true
+      return db
+    }
     u.links = u.links || {}
     u.links[provider] = null
     user = u
     return db
   })
+  if (forbidden) return { ok: false, error: 'master_oauth_forbidden' }
   if (!user) return { ok: false, error: 'missing' }
   return { ok: true, user: publicUser(user) }
 }

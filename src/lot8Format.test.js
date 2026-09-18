@@ -113,20 +113,21 @@ after(async () => {
 
 describe('8.8 (A8) — une seule table de locales, dérivée de la langue', () => {
   it('normalizeLang ramène toute entrée à une langue connue', () => {
-    assert.equal(F.normalizeLang('ar'), 'ar')
+    // L'arabe a été retiré de l'interface : un ancien choix retombe sur fr.
+    assert.equal(F.normalizeLang('ar'), 'fr')
     assert.equal(F.normalizeLang('fr'), 'fr')
     assert.equal(F.normalizeLang('en'), 'en')
     assert.equal(F.normalizeLang('fr-DZ'), 'fr', 'une forme longue est acceptée')
-    assert.equal(F.normalizeLang('AR'), 'ar', 'la casse ne compte pas')
-    assert.equal(F.normalizeLang(' ar '), 'ar', 'les espaces non plus')
+    assert.equal(F.normalizeLang('AR'), 'fr', 'la casse ne compte pas')
+    assert.equal(F.normalizeLang(' ar '), 'fr', 'les espaces non plus')
     assert.equal(F.normalizeLang(undefined), F.DEFAULT_LANG, 'langue absente → défaut')
     assert.equal(F.normalizeLang('de'), F.DEFAULT_LANG, 'langue non supportée → défaut, pas une locale inventée')
     assert.equal(F.normalizeLang(''), F.DEFAULT_LANG)
   })
 
-  it('localeFor couvre exactement les trois langues de l’interface', () => {
-    assert.deepEqual(Object.keys(F.LOCALES).sort(), ['ar', 'en', 'fr'])
-    assert.equal(F.localeFor('ar'), 'ar-DZ')
+  it('localeFor couvre exactement les deux langues de l’interface', () => {
+    assert.deepEqual(Object.keys(F.LOCALES).sort(), ['en', 'fr'])
+    assert.equal(F.localeFor('ar'), 'fr-DZ', 'un ancien choix arabe retombe sur la locale française')
     assert.equal(F.localeFor('fr'), 'fr-DZ')
     assert.equal(F.localeFor('en'), 'en-GB')
     assert.equal(F.localeFor('zh'), 'fr-DZ', 'repli sur le défaut, jamais `undefined`')
@@ -135,22 +136,18 @@ describe('8.8 (A8) — une seule table de locales, dérivée de la langue', () =
   it('le suffixe monétaire suit la langue, comme les libellés i18n existants', () => {
     assert.equal(F.currencyFor('fr'), 'DA')
     assert.equal(F.currencyFor('en'), 'DA')
-    assert.equal(F.currencyFor('ar'), 'دج')
-    // Cohérence avec le dictionnaire arabe, qui écrit déjà « دج ».
-    assert.match(dict.ar.price_u15, /دج/, 'les filtres de prix arabes disent « دج »')
+    assert.equal(F.currencyFor('ar'), 'DA', 'un ancien choix arabe retombe sur le suffixe français')
+    assert.equal(dict.en.price_u15.includes('DA'), true, 'les filtres de prix anglais disent « DA »')
   })
 })
 
 describe('8.8 (A8) — money() localise le nombre ET le suffixe', () => {
-  it('les trois langues donnent trois rendus distincts', () => {
+  it('les deux langues donnent deux rendus distincts', () => {
     const fr = F.money(97000, 'fr')
-    const ar = F.money(97000, 'ar')
     const en = F.money(97000, 'en')
     assert.equal(fr.replace(/\s/g, ''), '97000DA')
-    assert.equal(ar, '97.000 دج')
     assert.equal(en, '97,000 DA')
-    assert.notEqual(fr, ar, 'le mode arabe ne rend plus le format français')
-    assert.notEqual(fr, en, 'le mode anglais non plus')
+    assert.notEqual(fr, en, 'les deux langues ne partagent pas le même format')
   })
 
   it('sans langue, le français reste le défaut (huit appelants historiques)', () => {
@@ -161,7 +158,7 @@ describe('8.8 (A8) — money() localise le nombre ET le suffixe', () => {
   it('P16 conservé : un prix absent ou cassé affiche un tiret, jamais « NaN »', () => {
     for (const bad of [undefined, 'abc', NaN, Infinity * 0]) {
       assert.equal(F.money(bad), '— DA', `money(${String(bad)})`)
-      assert.equal(F.money(bad, 'ar'), '— دج', `money(${String(bad)}, ar)`)
+      assert.equal(F.money(bad, 'en'), '— DA', `money(${String(bad)}, en)`)
     }
     assert.doesNotMatch(F.money(undefined), /NaN/)
     // Un prix valide reste arrondi, comme avant.
@@ -175,7 +172,7 @@ describe('8.8 (A8) — money() localise le nombre ET le suffixe', () => {
     // sans le dire. (Un `null` en base est déjà traité en amont : A2 refuse une
     // ligne dont le prix de référence est inconnu.)
     assert.equal(F.money(null), '0 DA')
-    assert.equal(F.money(null, 'ar'), '0 دج')
+    assert.equal(F.money(null, 'en'), '0 DA')
   })
 
   it('third() a disparu avec les clés du paiement 3× (LOT 8.9 / A9)', () => {
@@ -203,7 +200,7 @@ describe('8.8 (A8) — formatDateTime() est défensif comme l’était DeskPage'
 
   it('date invalide → la valeur brute, pour qu’un horodatage cassé se voie', () => {
     assert.equal(F.formatDateTime('pas-une-date', 'fr'), 'pas-une-date')
-    assert.equal(F.formatDateTime('pas-une-date', 'ar'), 'pas-une-date')
+    assert.equal(F.formatDateTime('pas-une-date', 'en'), 'pas-une-date')
   })
 
   it('un objet Date est accepté tel quel', () => {
@@ -213,12 +210,11 @@ describe('8.8 (A8) — formatDateTime() est défensif comme l’était DeskPage'
 
   it('la locale suit la langue — et n’est JAMAIS celle du navigateur', () => {
     const browserDefault = new Date(AT).toLocaleString() // ce que faisait OrdersPage
-    const ar = F.formatDateTime(AT, 'ar')
+    const fr = F.formatDateTime(AT, 'fr')
     const en = F.formatDateTime(AT, 'en')
-    assert.match(ar, /ص|م/, 'le rendu arabe porte son marqueur de période')
-    assert.notEqual(ar, browserDefault, 'ar-DZ ≠ locale du navigateur')
+    assert.notEqual(fr, browserDefault, 'fr-DZ ≠ locale du navigateur')
     assert.notEqual(en, browserDefault, 'en-GB ≠ en-US (ordre des champs différent)')
-    assert.notEqual(ar, en, 'les langues diffèrent entre elles')
+    assert.notEqual(fr, en, 'les langues diffèrent entre elles')
   })
 })
 
@@ -231,11 +227,11 @@ describe('8.8 (A8) — messages et notifications suivent la langue', () => {
     // Un traducteur RÉEL (celui de l'app, bound à la langue) : avec `(k) => k`
     // le message se réduirait à la clé `waMessage` et le total n'y apparaîtrait
     // pas — le test passerait à côté de ce qu'il vérifie.
-    const ar = buildWaMessage(cart, 97000, pickup, (k, v) => translate('ar', k, v), { lang: 'ar' })
+    const en = buildWaMessage(cart, 97000, pickup, (k, v) => translate('en', k, v), { lang: 'en' })
     const fr = buildWaMessage(cart, 97000, pickup, (k, v) => translate('fr', k, v))
-    assert.match(ar, /دج/, 'en arabe, le total porte « دج »')
+    assert.match(en, /DA/, 'en anglais, le total porte « DA »')
     assert.match(fr, /DA/, 'par défaut, « DA »')
-    assert.notEqual(ar, fr, 'les deux langues ne rendent pas le même total')
+    assert.notEqual(en, fr, 'les deux langues ne rendent pas le même message')
   })
 
   it('notifyNewOrder : la notification du comptoir suit la langue', () => {
@@ -250,10 +246,10 @@ describe('8.8 (A8) — messages et notifications suivent la langue', () => {
     }
     try {
       const order = { code: 'PS-20260916-0001', name: 'Karim', phone: '0550123456', total: 97000 }
-      assert.equal(notifyNewOrder(order, (k) => k, { lang: 'ar' }), true, 'notification émise')
+      assert.equal(notifyNewOrder(order, (k) => k, { lang: 'en' }), true, 'notification émise')
       assert.equal(notifyNewOrder(order, (k) => k, { lang: 'fr' }), true)
       assert.equal(made.length, 2)
-      assert.match(made[0].body, /دج/, 'corps arabe : « دج »')
+      assert.match(made[0].body, /DA/, 'corps anglais : « DA »')
       assert.match(made[1].body, /DA/, 'corps français : « DA »')
       assert.doesNotMatch(made[0].body, /NaN/)
     } finally {
@@ -348,13 +344,13 @@ const ORDER = {
 }
 
 describe('8.8 (A8) — rendu réel : une même commande, un même format partout', () => {
-  it('OrdersPage en arabe : date ar-DZ et prix en « دج »', async () => {
+  it('OrdersPage en anglais : date en-GB et prix en « DA »', async () => {
     window.localStorage.clear()
     saveOrders(safeStorage, [ORDER])
-    const m = await mount(React.createElement(OrdersPage, orderProps({ lang: 'ar' })))
+    const m = await mount(React.createElement(OrdersPage, orderProps({ lang: 'en' })))
     const txt = m.text()
-    assert.match(txt, /دج/, 'le prix suit la langue arabe')
-    assert.ok(clean(txt).includes(clean(F.formatDateTime(AT, 'ar'))), 'la date est rendue en ar-DZ')
+    assert.match(txt, /97,000 DA/, 'le prix suit la langue anglaise')
+    assert.ok(clean(txt).includes(clean(F.formatDateTime(AT, 'en'))), 'la date est rendue en en-GB')
     // Le défaut exact : sans locale, OrdersPage rendait celle du navigateur.
     assert.ok(!clean(txt).includes(clean(new Date(AT).toLocaleString())), 'plus la locale du navigateur')
     await m.unmount()
@@ -373,11 +369,11 @@ describe('8.8 (A8) — rendu réel : une même commande, un même format partout
   it('DeskPage et OrdersPage rendent la MÊME date pour la même commande', async () => {
     window.localStorage.clear()
     saveOrders(safeStorage, [ORDER])
-    const orders = await mount(React.createElement(OrdersPage, orderProps({ lang: 'ar' })))
-    const desk = await mount(React.createElement(DeskPage, deskProps({ lang: 'ar', reservations: [ORDER] })))
+    const orders = await mount(React.createElement(OrdersPage, orderProps({ lang: 'en' })))
+    const desk = await mount(React.createElement(DeskPage, deskProps({ lang: 'en', reservations: [ORDER] })))
 
-    const attendu = clean(F.formatDateTime(AT, 'ar'))
-    assert.ok(orders.text().includes(attendu), '« Mes commandes » affiche la date ar-DZ')
+    const attendu = clean(F.formatDateTime(AT, 'en'))
+    assert.ok(orders.text().includes(attendu), '« Mes commandes » affiche la date en-GB')
     assert.ok(desk.text().includes(attendu), 'le Desk affiche exactement la même chaîne')
     // Et en français aussi : la règle est unique, pas deux règles parallèles.
     await orders.unmount()
@@ -395,9 +391,9 @@ describe('8.8 (A8) — rendu réel : une même commande, un même format partout
   it('le prix affiché au Desk et sur « Mes commandes » est identique', async () => {
     window.localStorage.clear()
     saveOrders(safeStorage, [ORDER])
-    const orders = await mount(React.createElement(OrdersPage, orderProps({ lang: 'ar' })))
-    const desk = await mount(React.createElement(DeskPage, deskProps({ lang: 'ar', reservations: [ORDER] })))
-    const prix = clean(F.money(97000, 'ar'))
+    const orders = await mount(React.createElement(OrdersPage, orderProps({ lang: 'en' })))
+    const desk = await mount(React.createElement(DeskPage, deskProps({ lang: 'en', reservations: [ORDER] })))
+    const prix = clean(F.money(97000, 'en'))
     assert.ok(orders.text().includes(prix), `« Mes commandes » affiche ${prix}`)
     assert.ok(desk.text().includes(prix), `le Desk affiche ${prix}`)
     await orders.unmount()

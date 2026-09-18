@@ -27,19 +27,26 @@ import {
 } from './db.js'
 import {
   completeDemo,
+  completeOAuthCallback,
   configuredFrontUrl,
   demoConsentHtml,
   oauthConfig,
+  oauthDemo,
   safeReturnUrl,
   startOAuth,
   unlinkProvider
 } from './oauth.js'
 import {
   cancelOrder,
+  cancelOwnOrder,
+  claimGuestOrder,
+  issueClaimCode,
   liveStockOf,
+  ordersForUser,
   placeOrder,
   publicCatalog,
   purgeUser,
+  setOrderPickupDate,
   setOrderStatus,
   deleteOrder
 } from './catalog.js'
@@ -53,11 +60,15 @@ import { broadcastDesk, formatOrderMessage, sendWhatsApp, whatsappConfig } from 
 // LOT 8.4 (A4) : budgets d'octets partagés avec le client (compression, garde
 // d'envoi) et détection de l'environnement serverless.
 import { LOCAL_MAX_BODY_BYTES, MAX_UPLOAD_BODY_BYTES, VERCEL_MAX_BODY_BYTES } from '../src/limits.js'
-import { IS_SERVERLESS } from './blobStore.js'
+import { IS_SERVERLESS, safeUploadName } from './blobStore.js'
 import { attachDeskSocket } from './deskSocket.js'
 import {
   backupStore,
+  cleanupUnreferencedUploads,
   createProduct,
+  currentProductPhotos,
+  mergeProductPhotos,
+  deleteProductMaster,
   hideProductMaster,
   listMasterProducts,
   ordersToCsv,
@@ -120,11 +131,61 @@ function send(res, status, body, headers = {}) {
     // protection XSS. La CSP de l'application elle-même est dans vercel.json.
     'Content-Security-Policy':
       "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'self'; " +
-      "script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; " +
+      // La redirection /api/upload-file vers le CDN Blob est elle aussi évaluée
+      // par la directive des images : l'autoriser strictement évite les photos
+      // cassées après un cold start tout en ne permettant aucun autre hôte.
+      "script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://*.public.blob.vercel-storage.com; " +
       "connect-src 'self'; form-action 'self'",
     ...headers
   })
   res.end(payload)
+}
+
+/** Réponse HTML sans détail fournisseur ni secret pour les retours OAuth. */
+function sendOAuthFailure(res, error) {
+  const messages = {
+    // Les trois refus suivants ne distinguent ni le rôle ni l'existence d'un
+    // compte local : un callback ne doit pas devenir un oracle d'identités.
+    master_email: 'Le compte du magasin reste un compte à mot de passe : cette connexion ne peut pas être associée à ce compte.',
+    master_oauth_forbidden: 'Le compte du magasin reste un compte à mot de passe : cette connexion ne peut pas être associée à ce compte.',
+    identity_linked: 'Cette connexion ne peut pas être associée à ce compte.',
+    demo_email: 'Mode démo : seuls les comptes de démonstration peuvent être ouverts par OAuth.',
+    provider_cancelled: 'La connexion a été annulée chez le fournisseur.',
+    oauth_provider: 'Le fournisseur n’a pas pu confirmer votre identité. Recommencez la connexion.',
+    no_email: 'Le fournisseur n’a pas transmis l’e-mail requis pour cette connexion.',
+    provider_not_configured: 'Ce fournisseur de connexion n’est pas configuré.',
+    demo_enabled: 'La connexion réelle est désactivée tant que le mode démo est actif.'
+  }
+  const message = messages[error] || 'Session de consentement expirée ou invalide.'
+  const status = error === 'state' ? 400 : error === 'oauth_provider' ? 502 : 403
+  return send(
+    res,
+    status,
+    `<!doctype html><html lang="fr"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>Connexion refusée · PC Star</title></head><body style="font-family:system-ui,sans-serif;background:#0b1220;color:#f1c0c0;display:grid;place-items:center;min-height:100vh;margin:0"><div style="background:#151d2e;border:1px solid #4c2a36;border-radius:16px;padding:24px;max-width:420px;width:92%"><h1 style="font-size:18px;margin:0 0 8px;color:#f8fafc">Connexion refusée</h1><p style="color:#cbd5e1;font-size:14px;line-height:1.5;margin:0">${message}</p></div></body></html>`
+  )
+}
+
+/** Retourne la session OAuth par fragment afin qu'elle ne circule pas dans les logs/Referer. */
+function redirectOAuthSuccess(res, done, provider) {
+  // P13 (S2) : re-validation au moment de la redirection (défense en
+  // profondeur) — jamais de token envoyé vers une origine tierce.
+  const front = safeReturnUrl(done.returnUrl) || configuredFrontUrl()
+  const tok = encodeURIComponent(done.token)
+  const prov = encodeURIComponent(provider)
+  let redir
+  try {
+    const u = new URL(String(front))
+    u.search = ''
+    u.hash = `#oauth_token=${tok}&oauth_provider=${prov}`
+    redir = u.toString()
+  } catch {
+    // `configuredFrontUrl()` est normalement absolue. Ce dernier repli conserve
+    // néanmoins le fragment (jamais un paramètre de requête) si une ancienne
+    // configuration locale est invalide.
+    redir = `${String(front).replace(/\/$/, '')}/#oauth_token=${tok}&oauth_provider=${prov}`
+  }
+  res.writeHead(302, { Location: redir, ...corsHeaders() })
+  return res.end()
 }
 
 // P10 (P7-10) : corps de requête borné (~6 photos compressées en base64 +
@@ -264,19 +325,34 @@ async function savePhotoDataUrlsSafe(productId, dataUrls) {
   }
 }
 
-/**
- * LOT 4.4 (R20) — une commande GUEST appartient-elle à ce compte ?
- *
- * Trois conditions : pas de propriétaire (`userId == null`), un numéro de
- * compte non vide, et le même numéro. La quatrième est nouvelle : la commande
- * doit être **revendicable**. `claimable: false` est posé par `placeOrder`
- * quand le numéro appartient à un compte existant et que l'acheteur n'est pas
- * ce compte (et par la migration `normalizeDb` pour les lignes déjà en base) :
- * un tiers ne peut plus déposer une commande dans l'historique d'autrui.
- */
-function isClaimableGuest(order, phone) {
-  return Boolean(order && order.userId == null && phone && order.phone === phone && order.claimable !== false)
+/** Journalise une suppression différée sans défaire la fiche déjà persistée. */
+async function cleanupProductUploads(before, after, uploaded = []) {
+  const remaining = await cleanupUnreferencedUploads(before, after, uploaded)
+  for (const photo of remaining) console.warn(`[pcstar] suppression photo différée : ${photo}`)
 }
+
+/**
+ * Sauvegarde suivant le driver réellement utilisé. Une copie de `store.json`
+ * n'est pas une sauvegarde lorsque DATABASE_URL sélectionne Neon : en Vercel,
+ * ce fichier n'est même pas l'état courant. Le driver Neon crée donc un
+ * snapshot transactionnel persistant dans `pcstar_backups`.
+ */
+async function backupCurrentState(source = 'manual') {
+  if (process.env.DATABASE_URL) {
+    const { createNeonBackup } = await import('./neonStore.js')
+    const backup = await createNeonBackup(source)
+    return { driver: 'neon', ...backup }
+  }
+  const { dbFile, dataDir } = dbPaths()
+  const dest = backupStore(dbFile, path.join(dataDir, 'backups'))
+  if (!dest) throw new Error('local database file is unavailable')
+  return { driver: 'file', file: path.basename(dest) }
+}
+
+// AUDIT-2026-09-17 / phase 3 — aucune correspondance téléphone → compte.
+// Sans OTP/SMS effectivement livré et vérifié, le numéro déclaré au checkout
+// n'est pas une preuve de possession. Les routes client ne servent donc que les
+// commandes dont `userId` est déjà celui de la session.
 // LOT 6.2 (Q2) : `phoneCarrier` vient de `server/phone.js` (implémentation
 // partagée avec le front dans `src/phoneLogic.js`) — plus de copie serveur.
 
@@ -530,49 +606,75 @@ export async function handler(req, res) {
       return send(res, 200, { ok: true, user: publicUser(user) })
     }
 
-    // Customer own orders
+    // Customer own orders. Une session n'accède qu'aux lignes explicitement
+    // rattachées à son userId : un numéro de téléphone n'est jamais une preuve.
     if (req.method === 'GET' && pathname === '/api/me/orders') {
       const auth = await userFromReq(req)
       if (!auth) return send(res, 401, { ok: false, error: 'auth' })
       const db = await readDbAsync()
-      const uid = auth.user.id
-      const phone = auth.user.phone || ''
-      // P10 (P7-15) : le match par téléphone ne s'applique qu'aux commandes
-      // GUEST (userId null) — avant, deux comptes au même numéro voyaient (et
-      // annulaient) les commandes de l'autre.
-      // LOT 4.4 (R20) : et seulement si la commande est revendicable. Une
-      // commande guest déposée au numéro d'un compte existant par UN TIERS
-      // (`claimable: false`, posé à la création ou par la migration) ne doit pas
-      // apparaître dans SON historique — sinon un inconnu peut garnir le compte
-      // d'autrui, et le titulaire annule une commande qu'il n'a jamais passée.
-      const orders = (db.orders || []).filter((o) => o.userId === uid || isClaimableGuest(o, phone))
-      return send(res, 200, { ok: true, orders })
+      return send(res, 200, { ok: true, orders: ordersForUser(db, auth.user.id) })
     }
 
-    // Customer cancels ONE of his own orders (new/pending only) → restock.
+    // Customer cancels one of HIS OWN new orders. L'autorisation ET l'état
+    // annulable sont relus dans updateDbAsync : une lecture préalable seule
+    // permettait un TOCTOU avec une suppression ou un changement de statut.
     if (req.method === 'POST' && pathname.startsWith('/api/me/orders/') && pathname.endsWith('/cancel')) {
       const auth = await userFromReq(req)
       if (!auth) return send(res, 401, { ok: false, error: 'auth' })
       const code = decodeURIComponent(pathname.split('/').slice(-2, -1)[0])
-      const db0 = await readDbAsync()
       const uid = auth.user.id
-      const phone = auth.user.phone || ''
-      // P10 (P7-15) : même règle que GET — guest (userId null) ou propriétaire.
-      // LOT 4.4 (R20) : `isClaimableGuest` écarte les commandes non
-      // revendicables — un tiers ne peut pas les annuler via le compte du
-      // titulaire du numéro.
-      const mine = (db0.orders || []).find((o) => o.code === code && (o.userId === uid || isClaimableGuest(o, phone)))
-      if (!mine) return send(res, 404, { ok: false, error: 'not_found' })
-      if (mine.status !== 'new' && mine.status !== 'pending') {
-        return send(res, 409, { ok: false, error: 'status' })
-      }
       let result = null
       await updateDbAsync((db) => {
-        result = cancelOrder(db, code)
+        // Revalidation métier dans la même mutation que le restock : le
+        // callback ne peut jamais annuler une commande devenue preparing/ready.
+        result = cancelOwnOrder(db, code, uid)
         return db
       })
-      if (!result?.ok) return send(res, 400, { ok: false, error: result?.error })
+      if (!result?.ok) {
+        const status = result?.error === 'not_found' ? 404 : result?.error === 'status' ? 409 : 400
+        return send(res, status, { ok: false, error: result?.error || 'not_found' })
+      }
       return send(res, 200, { ok: true, order: result.order })
+    }
+
+    // Phase 3 — rattachement d'une commande guest via le code à usage unique
+    // remis au comptoir. Le téléphone ne fait jamais partie de la preuve.
+    if (req.method === 'POST' && pathname === '/api/me/orders/claim') {
+      const auth = await userFromReq(req)
+      if (!auth) return send(res, 401, { ok: false, error: 'auth' })
+      const rl = rateLimit({ windowMs: 600_000, max: 10, key: clientKey(req, 'claim') })
+      if (!rl.ok) return send(res, 429, { ok: false, error: 'rate_limited' })
+      const body = await readBody(req)
+      let result = null
+      await updateDbAsync((db) => {
+        result = claimGuestOrder(db, body?.code, auth.user.id)
+        return db
+      })
+      if (!result?.ok) {
+        const status = result?.error === 'taken' ? 409 : result?.error === 'status' ? 409 : 404
+        return send(res, status, { ok: false, error: result?.error || 'not_found' })
+      }
+      return send(res, 200, { ok: true, order: result.order })
+    }
+
+    // Le comptoir émet un code de retrait pour une commande guest : preuve
+    // remise en main propre, unique, et jamais renvoyée par cette route.
+    if (req.method === 'POST' && pathname.startsWith('/api/orders/') && pathname.endsWith('/claim-code')) {
+      const auth = await userFromReq(req)
+      if (!auth || auth.user.role !== 'master') return send(res, 403, { ok: false, error: 'forbidden' })
+      const rl = rateLimit({ windowMs: 60_000, max: 30, key: clientKey(req, 'claim-code') })
+      if (!rl.ok) return send(res, 429, { ok: false, error: 'rate_limited' })
+      const code = decodeURIComponent(pathname.split('/').slice(-2, -1)[0])
+      let result = null
+      await updateDbAsync((db) => {
+        result = issueClaimCode(db, code)
+        return db
+      })
+      if (!result?.ok) {
+        const status = result?.error === 'not_found' ? 404 : result?.error === 'status' ? 409 : 400
+        return send(res, status, { ok: false, error: result?.error || 'not_found' })
+      }
+      return send(res, 200, { ok: true, claimCode: result.claimCode })
     }
 
     // Password change (authenticated)
@@ -716,63 +818,37 @@ export async function handler(req, res) {
       return send(res, 200, resStart)
     }
 
-    // OAuth demo consent page
-    if (req.method === 'GET' && /^\/api\/oauth\/(google|meta)\/demo$/.test(pathname)) {
+    // OAuth réel : seul le fournisseur appelle ce callback avec le code. Le
+    // code reste côté serveur et `completeOAuthCallback` vérifie/consomme le
+    // state sous verrou avant toute session.
+    if (req.method === 'GET' && /^\/api\/oauth\/(google|meta)\/callback$/.test(pathname)) {
       const provider = pathname.includes('google') ? 'google' : 'meta'
-      const state = url.searchParams.get('state')
-      return send(res, 200, demoConsentHtml(provider, state))
+      const done = await completeOAuthCallback(provider, {
+        code: url.searchParams.get('code'),
+        state: url.searchParams.get('state'),
+        error: url.searchParams.get('error')
+      })
+      if (!done.ok) return sendOAuthFailure(res, done.error)
+      return redirectOAuthSuccess(res, done, provider)
     }
 
-    if (req.method === 'POST' && /^\/api\/oauth\/(google|meta)\/demo$/.test(pathname)) {
+    // OAuth demo consent page. AUDIT-2026-09-17 / phase 1 (P0) : les deux
+    // méthodes doivent disparaître entièrement hors démo. Une simple absence
+    // de lien dans le client ne protégeait pas la route : un attaquant pouvait
+    // démarrer un state public puis POSTer directement l'e-mail d'un client.
+    if ((req.method === 'GET' || req.method === 'POST') && /^\/api\/oauth\/(google|meta)\/demo$/.test(pathname)) {
+      if (!oauthDemo()) return send(res, 404, { ok: false, error: 'not_found' })
+
       const provider = pathname.includes('google') ? 'google' : 'meta'
+      if (req.method === 'GET') {
+        const state = url.searchParams.get('state')
+        return send(res, 200, demoConsentHtml(provider, state))
+      }
+
       const body = await readBody(req)
       const done = await completeDemo(provider, body.state, { name: body.name, email: body.email })
-      if (!done.ok) {
-        // P13 (S1/S2) : refus explicite — l'écran de consentement est un
-        // formulaire HTML, on répond en HTML lisible (pas un blob JSON).
-        const msg =
-          done.error === 'master_email'
-            ? 'Cet e-mail est le compte du magasin : il se connecte uniquement par mot de passe.'
-            : done.error === 'demo_email'
-              ? 'Mode démo : seuls les comptes de démonstration peuvent être ouverts par OAuth.'
-              : 'Session de consentement expirée ou invalide.'
-        return send(
-          res,
-          done.error === 'state' ? 400 : 403,
-          `<!doctype html><html lang="fr"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>Connexion refusée · PC Star</title></head><body style="font-family:system-ui,sans-serif;background:#0b1220;color:#f1c0c0;display:grid;place-items:center;min-height:100vh;margin:0"><div style="background:#151d2e;border:1px solid #4c2a36;border-radius:16px;padding:24px;max-width:420px;width:92%"><h1 style="font-size:18px;margin:0 0 8px;color:#f8fafc">Connexion refusée</h1><p style="color:#cbd5e1;font-size:14px;line-height:1.5;margin:0">${msg}</p></div></body></html>`
-        )
-      }
-      // P13 (S2) : re-validation au moment de la redirection (défense en
-      // profondeur) — jamais de token envoyé vers une origine tierce.
-      // LOT 1.13 : `safeReturnUrl` valide soigneusement le `returnUrl` fourni
-      // par le CLIENT, mais le repli concaténait `process.env.FRONT_URL` brut
-      // dans un `Location` porteur d'un token de session. Une variable
-      // d'environnement mal configurée (sans schéma, par exemple) produisait
-      // donc une redirection non validée. Le repli passe désormais par
-      // `configuredFrontUrl()`, qui valide et journalise.
-      const front = safeReturnUrl(done.returnUrl) || configuredFrontUrl()
-      // LOT 3.18 (R14) : le token revient par FRAGMENT (`#oauth_token=…`) et non
-      // plus en query. Un fragment n'est jamais renvoyé au serveur : il ne finit
-      // donc ni dans les journaux d'accès du front, ni dans le `Referer` des
-      // requêtes suivantes, ni dans l'historique d'un proxy. Le client le lit au
-      // montage puis nettoie l'URL (`history.replaceState`).
-      const tok = encodeURIComponent(done.token)
-      const prov = encodeURIComponent(provider)
-      let redir
-      try {
-        const u = new URL(String(front))
-        u.search = ''
-        u.hash = `#oauth_token=${tok}&oauth_provider=${prov}`
-        redir = u.toString()
-      } catch {
-        // `configuredFrontUrl()` peut renvoyer une base non-URL si
-        // OAUTH_REDIRECT_BASE est mal renseigné : on retombe sur la concaténation
-        // (le token ne part de toute façon pas vers une origine tierce, il est
-        // re-validé juste au-dessus).
-        redir = `${String(front).replace(/\/$/, '')}/#oauth_token=${tok}&oauth_provider=${prov}`
-      }
-      res.writeHead(302, { Location: redir, ...corsHeaders() })
-      return res.end()
+      if (!done.ok) return sendOAuthFailure(res, done.error)
+      return redirectOAuthSuccess(res, done, provider)
     }
 
     if (req.method === 'POST' && pathname === '/api/oauth/unlink') {
@@ -787,8 +863,12 @@ export async function handler(req, res) {
     // Serve uploads: filesystem (local / Vercel /tmp fallback) or redirect to
     // Vercel Blob CDN when the file was uploaded there.
     if (req.method === 'GET' && pathname === '/api/upload-file') {
-      const name = path.basename(String(url.searchParams.get('name') || ''))
-      if (!name || name.includes('..')) return send(res, 400, { ok: false, error: 'name' })
+      const suppliedName = String(url.searchParams.get('name') || '')
+      const name = safeUploadName(suppliedName)
+      // Ne jamais normaliser silencieusement une tentative de traversée en un
+      // nom de fichier valide (`../../x` → `x`) : le chemin doit être exactement
+      // celui qui a été émis par l'upload.
+      if (!name || name !== suppliedName) return send(res, 400, { ok: false, error: 'name' })
       const dir = process.env.VERCEL
         ? path.join('/tmp', 'pcstar-uploads')
         : path.join(__dirname, '../public/photos/uploads')
@@ -936,20 +1016,11 @@ export async function handler(req, res) {
       const orderPhone = normalizePhone(body.phone)
       let result = null
       await updateDbAsync((db) => {
-        // LOT 4.4 (R20) : le numéro saisi appartient-il à un compte existant ?
-        // Si oui et que l'acheteur n'est PAS ce compte (commande guest, ou un
-        // autre utilisateur connecté qui livre chez ce numéro), la commande est
-        // marquée non revendicable : elle reste visible au comptoir, mais elle
-        // n'entre pas dans l'historique du titulaire du numéro et il ne peut pas
-        // l'annuler. La commande n'est PAS refusée — commander au numéro d'un
-        // proche reste un usage légitime.
-        // Le test se fait DANS la transaction : il porte sur l'état qui sera
-        // persisté, pas sur une lecture antérieure.
-        const owner = (db.users || []).find(
-          (u) => u && u.role !== 'master' && normalizePhone(u.phone || '') === orderPhone
-        )
+        // Le téléphone reste l'information de retrait du comptoir, pas une
+        // preuve d'identité web. Seule une session présente au checkout attache
+        // la ligne à un compte; une commande guest n'est pas récupérable par
+        // simple ajout de ce numéro dans un profil ultérieur.
         const requesterId = auth?.user?.id || null
-        const unclaimable = Boolean(owner) && owner.id !== requesterId
         result = placeOrder(
           db,
           {
@@ -959,12 +1030,17 @@ export async function handler(req, res) {
             wilaya: orderWilaya,
             // P9 (P7-4) : « journée » locale du client (validée dans placeOrder)
             day: body.day || '',
+            // Date de retrait choisie au checkout (validée dans placeOrder)
+            pickupDate: body.pickupDate,
             payment: 'cash',
             slot: rawSlot,
+            // Clé opaque créée par le navigateur avant l'envoi; sa validation et
+            // son empreinte sont faites dans placeOrder sous le verrou DB.
+            idempotencyKey: body.idempotencyKey,
             items: body.items,
             total: body.total
           },
-          { userId: requesterId, unclaimable }
+          { userId: requesterId }
         )
         return db
       })
@@ -981,6 +1057,7 @@ export async function handler(req, res) {
         // était tarifée 0 DA et la commande acceptée en 201.
         if (result?.error === 'unknown_product')
           return send(res, 400, { ok: false, error: 'unknown_product', unknown: result.unknown })
+        if (result?.error === 'idempotency_conflict') return send(res, 409, { ok: false, error: 'idempotency_conflict' })
         return send(res, 400, { ok: false, error: result?.error || 'order' })
       }
       // P19 — notifier le master. Jamais bloquant : une panne WhatsApp ou un
@@ -1001,22 +1078,36 @@ export async function handler(req, res) {
       return send(res, 201, { ok: true, order })
     }
 
-    // PATCH /api/orders/:code  { status }
+    // PATCH /api/orders/:code  { status?, pickupDate? } — au moins un des deux.
     if (req.method === 'PATCH' && pathname.startsWith('/api/orders/')) {
       const auth = await userFromReq(req)
       if (!auth || auth.user.role !== 'master') return send(res, 403, { ok: false, error: 'forbidden' })
       const code = decodeURIComponent(pathname.split('/').pop())
       const body = await readBody(req)
       const status = String(body.status || '')
+      const hasPickup = body.pickupDate != null
+      if (!status && !hasPickup) return send(res, 400, { ok: false, error: 'status' })
       let result = null
       await updateDbAsync((db) => {
-        result = setOrderStatus(db, code, status)
+        result = null
+        if (status) {
+          result = setOrderStatus(db, code, status)
+          // Statut + date en un seul aller-retour (le « prêt » annonce la date).
+          if (result?.ok && hasPickup) {
+            const pd = setOrderPickupDate(db, code, String(body.pickupDate))
+            if (!pd.ok) result = pd
+          }
+        } else {
+          result = setOrderPickupDate(db, code, String(body.pickupDate))
+        }
         return db
       })
       if (!result?.ok) {
         const codeHttp = result?.error === 'not_found' ? 404 : 400
         return send(res, codeHttp, { ok: false, error: result?.error || 'status' })
       }
+      // Le comptoir d'un autre écran met à jour sa carte sans attendre le poll.
+      broadcastDesk({ type: 'order:updated', order: result.order })
       return send(res, 200, { ok: true, order: result.order })
     }
 
@@ -1073,9 +1164,15 @@ export async function handler(req, res) {
       const photoSave = hasDataUrls ? await savePhotoDataUrlsSafe(newProductId, body.photoDataUrls) : { paths: [] }
       if (photoSave.error) return send(res, photoSave.status, { ok: false, error: photoSave.error })
       const saved = photoSave.paths
+      // Une galerie qui contient des data URLs mais dont aucune n'est une image
+      // valide ne doit pas produire un 201 silencieux sans photo.
+      if (hasDataUrls && !saved.length) return send(res, 400, { ok: false, error: 'photos' })
       try {
         await updateDbAsync((db) => {
-          if (saved.length) body.photos = [...(body.photos || []), ...saved].slice(0, 6)
+          // Les chemins reçus sont la galerie voulue; les nouveaux uploads y
+          // sont ajoutés sans jamais dépasser la capacité. Les uploads écartés
+          // par la borne seront supprimés après la création réussie.
+          if (saved.length) body.photos = mergeProductPhotos([], Array.isArray(body.photos) ? body.photos : [], saved)
           result = createProduct(db, body, newProductId)
           return db
         })
@@ -1090,6 +1187,7 @@ export async function handler(req, res) {
         if (saved.length) for (const p of saved) await unlinkUpload(p)
         return send(res, 400, { ok: false, error: result?.error || 'invalid' })
       }
+      await cleanupProductUploads([], result.product?.photos, saved)
       return send(res, 201, { ok: true, product: result.product })
     }
 
@@ -1098,16 +1196,25 @@ export async function handler(req, res) {
       if (!auth || auth.user.role !== 'master') return send(res, 403, { ok: false, error: 'forbidden' })
       const id = decodeURIComponent(pathname.split('/').pop())
       const body = await readBody(req)
-      const putSave =
-        Array.isArray(body.photoDataUrls) && body.photoDataUrls.length
-          ? await savePhotoDataUrlsSafe(id, body.photoDataUrls)
-          : { paths: [] }
+      const hasDataUrls = Array.isArray(body.photoDataUrls) && body.photoDataUrls.length > 0
+      const putSave = hasDataUrls ? await savePhotoDataUrlsSafe(id, body.photoDataUrls) : { paths: [] }
       if (putSave.error) return send(res, putSave.status, { ok: false, error: putSave.error })
       const newPaths = putSave.paths
+      if (hasDataUrls && !newPaths.length) return send(res, 400, { ok: false, error: 'photos' })
+      const photoPatch = newPaths.length > 0 || Array.isArray(body.photos)
+      const suppliedPaths = Array.isArray(body.photos) ? body.photos : null
+      let previousPhotos = []
       let result = null
       try {
         await updateDbAsync((db) => {
-          if (newPaths.length) body.photos = [...(body.photos || []), ...newPaths].slice(0, 6)
+          if (photoPatch) {
+            previousPhotos = currentProductPhotos(db, id) || []
+            // `photos` représente toujours la galerie finale. Si un ancien
+            // client n'envoie que photoDataUrls, conserver l'existant plutôt
+            // que le remplacer accidentellement; une liste vide explicite
+            // permet en revanche de repartir de zéro.
+            body.photos = mergeProductPhotos(previousPhotos, suppliedPaths, newPaths)
+          }
           result = updateProduct(db, id, body)
           return db
         })
@@ -1117,6 +1224,7 @@ export async function handler(req, res) {
         return send(res, 500, { ok: false, error: 'server' })
       }
       if (!result?.ok) return send(res, result?.error === 'not_found' ? 404 : 400, { ok: false, error: result?.error })
+      if (photoPatch) await cleanupProductUploads(previousPhotos, result.product?.photos, newPaths)
       return send(res, 200, { ok: true, product: result.product })
     }
 
@@ -1135,20 +1243,62 @@ export async function handler(req, res) {
       return send(res, 200, { ok: true, product: result.product })
     }
 
+    // DELETE /api/master/products/:id — suppression DÉFINITIVE d'un produit
+    // créé par le maître (les produits de base se masquent, ils ne se
+    // suppriment pas). Les photos gérées sont nettoyées APRÈS le commit.
+    if (req.method === 'DELETE' && pathname.startsWith('/api/master/products/')) {
+      const auth = await userFromReq(req)
+      if (!auth || auth.user.role !== 'master') return send(res, 403, { ok: false, error: 'forbidden' })
+      const id = decodeURIComponent(pathname.split('/').pop())
+      let result = null
+      await updateDbAsync((db) => {
+        result = deleteProductMaster(db, id)
+        return db
+      })
+      if (!result?.ok) {
+        const st = result?.error === 'not_found' ? 404 : result?.error === 'base' ? 409 : 400
+        return send(res, st, { ok: false, error: result?.error })
+      }
+      // Phase 4 : ne jamais supprimer un chemin qui n'est pas un upload géré.
+      for (const p of result.photos || []) {
+        try {
+          await unlinkUpload(p)
+        } catch {
+          /* best effort : l'objet orphelin éventuel sera repris au cleanup */
+        }
+      }
+      broadcastDesk({ type: 'catalog:changed' })
+      return send(res, 200, { ok: true, id: result.id })
+    }
+
     if (req.method === 'POST' && pathname.startsWith('/api/master/products/') && pathname.endsWith('/photos')) {
       const auth = await userFromReq(req)
       if (!auth || auth.user.role !== 'master') return send(res, 403, { ok: false, error: 'forbidden' })
       const parts = pathname.split('/')
       const id = decodeURIComponent(parts[parts.length - 2])
       const body = await readBody(req)
-      const photoOnly = await savePhotoDataUrlsSafe(id, body.photoDataUrls || body.photos || [])
+      // Compatibilité : l'ancienne API acceptait les data URLs dans `photos`;
+      // la liste de chemins (hors data:) est désormais la galerie à conserver.
+      const uploadSource = Array.isArray(body.photoDataUrls)
+        ? body.photoDataUrls
+        : Array.isArray(body.photos)
+          ? body.photos.filter((photo) => String(photo).startsWith('data:'))
+          : []
+      const photoOnly = await savePhotoDataUrlsSafe(id, uploadSource)
       if (photoOnly.error) return send(res, photoOnly.status, { ok: false, error: photoOnly.error })
       const paths = photoOnly.paths
-      if (!paths.length && !Array.isArray(body.photos)) return send(res, 400, { ok: false, error: 'photos' })
+      const hasDesiredPaths = Array.isArray(body.photos)
+      if (uploadSource.length && !paths.length) return send(res, 400, { ok: false, error: 'photos' })
+      if (!paths.length && !hasDesiredPaths) return send(res, 400, { ok: false, error: 'photos' })
+      let previousPhotos = []
       let result = null
       try {
         await updateDbAsync((db) => {
-          const photos = paths.length ? paths : body.photos
+          previousPhotos = currentProductPhotos(db, id) || []
+          const retainedPaths = hasDesiredPaths
+            ? body.photos.filter((photo) => !String(photo).startsWith('data:'))
+            : null
+          const photos = mergeProductPhotos(previousPhotos, retainedPaths, paths)
           result = updateProduct(db, id, { photos })
           return db
         })
@@ -1159,8 +1309,9 @@ export async function handler(req, res) {
       }
       if (!result?.ok) {
         if (paths.length) for (const p of paths) await unlinkUpload(p)
-        return send(res, 400, { ok: false, error: result?.error })
+        return send(res, result?.error === 'not_found' ? 404 : 400, { ok: false, error: result?.error })
       }
+      await cleanupProductUploads(previousPhotos, result.product?.photos, paths)
       return send(res, 200, { ok: true, product: result.product })
     }
 
@@ -1257,12 +1408,15 @@ export async function handler(req, res) {
     if (req.method === 'POST' && pathname === '/api/master/backup') {
       const auth = await userFromReq(req)
       if (!auth || auth.user.role !== 'master') return send(res, 403, { ok: false, error: 'forbidden' })
-      // P16 : le chemin était figé sur `server/data/…`, donc avec
-      // PCSTAR_DATA_DIR (tests, conteneur, instance locale) on sauvegardait un
-      // fichier qui n'est PAS la base en cours.
-      const { dbFile, dataDir } = dbPaths()
-      const dest = backupStore(dbFile, path.join(dataDir, 'backups'))
-      return send(res, 200, { ok: true, file: dest ? path.basename(dest) : null })
+      try {
+        const backup = await backupCurrentState('master-manual')
+        // Le snapshot ne quitte jamais le serveur : l'identifiant est seulement
+        // une référence opérateur, sans données clients ni chaîne DATABASE_URL.
+        return send(res, 200, { ok: true, backup })
+      } catch (error) {
+        console.error('[pcstar-backup] sauvegarde manuelle échouée :', String((error && error.message) || error))
+        return send(res, 503, { ok: false, error: 'backup_failed' })
+      }
     }
 
     // Catalog meta — P9 (P7-5) : route PUBLIQUE réduite aux seuls champs que
@@ -1422,22 +1576,19 @@ function startLocalServer() {
       }
     }
     console.log('OAuth:', oauthConfig())
-    // P16 : mêmes chemins que le reste de l'API (dbPaths respecte
-    // PCSTAR_DATA_DIR) — sinon le backup local copiait un fichier qui n'est
-    // pas la base en cours.
-    const { dbFile, dataDir } = dbPaths()
-    try {
-      const dest = backupStore(dbFile, path.join(dataDir, 'backups'))
-      if (dest) console.log('Backup:', dest)
-    } catch (e) {
-      console.warn('Backup skipped', e.message)
-    }
-    setInterval(() => {
+    // Même driver que les écritures métier : avec Neon, un backup est un
+    // snapshot JSONB durable et non une copie inutile de /tmp/store.json.
+    const scheduledBackup = async () => {
       try {
-        backupStore(dbFile, path.join(dataDir, 'backups'))
-      } catch {
-        /* ignore */
+        const backup = await backupCurrentState('scheduled')
+        console.log('Backup:', backup.driver === 'neon' ? backup.id : backup.file)
+      } catch (error) {
+        console.warn('Backup skipped', String((error && error.message) || error))
       }
+    }
+    void scheduledBackup()
+    setInterval(() => {
+      void scheduledBackup()
     }, 6 * 60 * 60 * 1000).unref?.()
   })
   return server

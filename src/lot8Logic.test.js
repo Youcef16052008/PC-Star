@@ -275,6 +275,10 @@ describe('LOT 8.1 + 8.2 — le client classe et nomme les nouveaux refus', () =>
     assert.deepEqual(r.lines, [{ id: 'ghost', name: 'Fantôme' }])
   })
 
+  it('orderApiFailure : conflit de clé de réservation ≠ rupture de stock', () => {
+    assert.equal(orderApiFailure({ ok: false, status: 409, data: { error: 'idempotency_conflict' } }).kind, 'idempotency')
+  })
+
   it('orderApiFailure : la rupture garde son classement (non-régression P8/LOT 5.2)', () => {
     assert.equal(
       orderApiFailure({ ok: false, status: 409, data: { error: 'stock', shortages: [{ id: 'x' }] } }).kind,
@@ -322,6 +326,14 @@ describe('LOT 8.1 + 8.2 — le client classe et nomme les nouveaux refus', () =>
       if (key.endsWith('Detail')) {
         for (const { id } of LANGS) assert.ok(dict[id][key].includes('{lines}'), `${id}:${key} sans {lines}`)
       }
+    }
+  })
+
+  it('le message de conflit d’idempotence existe dans les trois langues', () => {
+    for (const { id } of LANGS) {
+      const value = dict[id]?.orderRetryConflict
+      assert.equal(typeof value, 'string', `${id}:orderRetryConflict absent`)
+      assert.ok(value.trim().length > 8, `${id}:orderRetryConflict trop court`)
     }
   })
 

@@ -244,15 +244,17 @@ describe('LOT 8.10 (A10) — création : `kind` validé contre KINDS, déduit si
     assert.deepEqual(KIND_IDS, ['part', 'accessory', 'machine', 'service'])
   })
 
-  it('`kind` absent → déduit de la catégorie (repair→service, laptop/ready→machine, accessories→accessory, sinon part)', () => {
+  it('`kind` absent → déduit de la catégorie étendue (machine, accessoire, service ou pièce)', () => {
     const cas = [
       ['repair', 'service'],
       ['laptop', 'machine'],
-      ['ready', 'machine'],
+      ['desktop', 'machine'],
+      ['printer', 'accessory'],
+      ['network', 'accessory'],
+      ['console', 'accessory'],
       ['accessories', 'accessory'],
       ['cpu', 'part'],
-      ['memory', 'part'],
-      ['console', 'part']
+      ['memory', 'part']
     ]
     for (const [category, attendu] of cas) {
       const r = createProduct(fakeDb(), { ...BASE_PRODUCT, name: `Dérivé ${category}`, category })
@@ -391,7 +393,9 @@ describe('LOT 8.10 (A10) — conséquence métier : un produit accepté est joig
     // Contre-épreuve : le produit que le correctif refuse est exactement celui
     // qui disparaissait de toute navigation.
     const fantome = { ...BASE_PRODUCT, id: 'x-1', category: 'ssd', compat: {} }
-    assert.equal(PART_LINES.some((l) => l.match(fantome)), false, 'aucune ligne PART_LINES')
+    // La ligne universelle « all » sert précisément à explorer le catalogue ;
+    // elle ne rend pas une catégorie libre joignable par navigation dédiée.
+    assert.equal(PART_LINES.filter((l) => l.id !== 'all').some((l) => l.match(fantome)), false, 'aucune ligne PART_LINES dédiée')
     for (const c of CATEGORIES) {
       if (c.id === 'all') continue
       assert.equal(fantome.category === c.id, false, `filtre vitrine ${c.id}`)
@@ -542,5 +546,80 @@ describe('LOT 8.10 (A10) — le refus est dit au maître, dans les trois langues
     )
     assert.equal(vus[0], t('fr', 'backendOffline'))
     assert.equal(vus[1], t('fr', 'masterPhotoNoStorage'))
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Fiche maître enrichie — les mêmes métadonnées passent par l'API et le repli
+// local. Elles restent bornées afin de pouvoir apparaître sans risque dans la
+// vitrine, l'export et les sauvegardes.
+// ---------------------------------------------------------------------------
+describe('fiche maître professionnelle : métadonnées commerciales et techniques', () => {
+  const rich = {
+    ...BASE_PRODUCT,
+    category: 'laptop',
+    model: 'ThinkPad T14 Gen 3',
+    barcode: '0196801234567',
+    description: 'Portable professionnel testé.\nChargeur inclus.',
+    conditionNote: 'Batterie et clavier contrôlés au comptoir.',
+    compareAtPrice: 14900,
+    lowStockAt: 2,
+    tags: ['Pro', 'laptop', 'pro', '', '  mobilité  '],
+    details: [
+      { label: 'Écran', value: '14 pouces FHD IPS' },
+      { label: 'Mémoire', value: '16 Go DDR4' },
+      { label: '', value: '' }
+    ],
+    compat: { memory: 'DDR4', psuMin: 100 }
+  }
+
+  it('crée et conserve une fiche détaillée normalisée', () => {
+    const r = createProduct(fakeDb(), rich)
+    assert.equal(r.ok, true)
+    assert.equal(r.product.model, rich.model)
+    assert.equal(r.product.barcode, rich.barcode)
+    assert.equal(r.product.description, rich.description)
+    assert.equal(r.product.compareAtPrice, 14900)
+    assert.equal(r.product.lowStockAt, 2)
+    assert.deepEqual(r.product.tags, ['Pro', 'laptop', 'mobilité'])
+    assert.deepEqual(r.product.details, rich.details.slice(0, 2))
+    assert.deepEqual(r.product.compat, { memory: 'DDR4', psuMin: 100 })
+  })
+
+  it('refuse un prix barré inférieur au prix actuel, un code-barres et une compatibilité invalides', () => {
+    assert.equal(createProduct(fakeDb(), { ...rich, compareAtPrice: 12499 }).error, 'compare_at_price')
+    assert.equal(createProduct(fakeDb(), { ...rich, barcode: '###' }).error, 'barcode')
+    assert.equal(createProduct(fakeDb(), { ...rich, compat: { memory: 'LPDDR5' } }).error, 'compat')
+  })
+
+  it('le patch du catalogue applique ces champs et garde la règle du prix promotionnel', () => {
+    const db = fakeDb()
+    const base = PRODUCTS[0]
+    const updated = updateProduct(db, base.id, {
+      model: 'Référence atelier', barcode: '12345678', description: 'Description complète',
+      conditionNote: 'Testé', compareAtPrice: base.price + 500, lowStockAt: 3,
+      details: [{ label: 'Test', value: 'OK' }], tags: ['atelier'], compat: { socket: 'AM5' }
+    })
+    assert.equal(updated.ok, true)
+    assert.equal(updated.product.model, 'Référence atelier')
+    assert.equal(updated.product.details[0].value, 'OK')
+    assert.equal(updateProduct(db, base.id, { compareAtPrice: base.price - 1 }).error, 'compare_at_price')
+  })
+
+  it('une vraie photo maître remplace le statut d’illustration de rayon', () => {
+    const db = fakeDb()
+    const illustrated = PRODUCTS.find((product) => product.photoMode === 'category')
+    assert.ok(illustrated, 'un produit des nouveaux rayons existe')
+    const updated = updateProduct(db, illustrated.id, { photos: ['/uploads/real-photo.jpg'] })
+    assert.equal(updated.ok, true)
+    assert.equal(updated.product.photoMode, 'custom')
+  })
+
+  it('le repli local stocke le même ensemble de champs', () => {
+    const r = addProduct({ extraProducts: [], hiddenProductIds: [] }, rich, [])
+    assert.equal(r.ok, true)
+    assert.equal(r.product.description, rich.description)
+    assert.equal(r.product.compareAtPrice, 14900)
+    assert.deepEqual(r.product.details, rich.details.slice(0, 2))
   })
 })

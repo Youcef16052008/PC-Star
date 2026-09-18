@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /** API smoke: health → catalog → login → order → me/orders → legal pages via front */
 import { masterCredentials, demoCredentials } from './masterEnv.mjs'
+import { PRODUCTS } from '../src/data.js'
 
 const API = process.env.API || 'http://127.0.0.1:8787'
 const FRONT = process.env.FRONT || 'http://127.0.0.1:5173'
@@ -30,10 +31,11 @@ const h = await j(`${API}/api/health`)
 ok('health', h.ok && h.data?.ok)
 
 const cat = await j(`${API}/api/catalog`)
-// P6 : `speakers` (stock 0) est filtrée du catalogue public.
-// P21 : 223 SKUs de base (27 références « dz-hit » retirées à la demande du
-// comptoir) → 222 visibles.
-ok('catalog', cat.ok && cat.data?.count >= 222 && cat.data?.count <= 223, cat.data?.count)
+// P6 : les produits à stock 0 sont filtrés du catalogue public. Phase 7 :
+// plus de comptage FIGÉ — la borne suit le catalogue réel (le stock d'un
+// serveur déjà utilisé peut avoir baissé, d'où la marge de 20 %).
+const visibleBase = PRODUCTS.filter((p) => Number(p.stock) > 0).length
+ok('catalog', cat.ok && cat.data?.count >= Math.floor(visibleBase * 0.8), String(cat.data?.count) + ' / base ' + visibleBase)
 
 let token = null
 let customerName = 'Recette Smoke'

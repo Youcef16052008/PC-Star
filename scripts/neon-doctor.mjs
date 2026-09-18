@@ -90,13 +90,16 @@ if (!readsOk) {
 }
 
 console.log('\n3) Schéma')
-const tables = await sql`SELECT to_regclass('public.pcstar_state') AS state, to_regclass('public.pcstar_archived_orders') AS archive`
+const tables = await sql`SELECT to_regclass('public.pcstar_state') AS state, to_regclass('public.pcstar_archived_orders') AS archive, to_regclass('public.pcstar_backups') AS backups`
 const hasState = Boolean(tables[0]?.state)
 const hasArchive = Boolean(tables[0]?.archive)
+const hasBackups = Boolean(tables[0]?.backups)
 if (hasState) ok('table pcstar_state présente')
 else bad('table pcstar_state ABSENTE → lancer : npm run db:migrate:neon')
 if (hasArchive) ok('table pcstar_archived_orders présente')
 else warn('table pcstar_archived_orders absente → lancer : npm run db:migrate:neon')
+if (hasBackups) ok('table pcstar_backups présente')
+else warn('table pcstar_backups absente → lancer : npm run db:migrate:neon')
 
 if (!hasState) {
   console.log('')
@@ -144,7 +147,9 @@ if (publicProducts.length > 0) {
 }
 
 const archived = await sql`SELECT count(*)::int AS n FROM pcstar_archived_orders`.catch(() => [{ n: 0 }])
+const backups = await sql`SELECT count(*)::int AS n, max(created_at) AS newest FROM pcstar_backups`.catch(() => [{ n: 0, newest: null }])
 info(`commandes archivées : ${archived[0]?.n ?? 0}`)
+info(`snapshots Neon     : ${backups[0]?.n ?? 0}${backups[0]?.newest ? ` (dernier : ${new Date(backups[0].newest).toISOString()})` : ''}`)
 
 console.log('')
 process.exit(0)

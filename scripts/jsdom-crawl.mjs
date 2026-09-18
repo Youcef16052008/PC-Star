@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * L2 (Direction 03 « Terminal Cyber ») — porte de validation :
- * crawl jsdom des 13 pages × 3 langues, 0 erreur JavaScript.
+ * crawl jsdom des 13 pages × 2 langues, 0 erreur JavaScript.
  *
  * Usage : `npm run build` puis `npm run crawl`.
  * Le script démarre et arrête LUI-MÊME l'API (:8787) et `vite preview` (:4173).
@@ -24,7 +24,7 @@ const API = 'http://127.0.0.1:8787'
 // `masterCredentials` charge aussi le `.env` dans `process.env`, donc l'API
 // démarrée ci-dessous en processus enfant hérite des mêmes valeurs.
 const MASTER = masterCredentials('jsdom-crawl')
-const LANGS = ['ar', 'fr', 'en']
+const LANGS = ['fr', 'en']
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 async function waitFor(fn, label, timeout = 25000) {

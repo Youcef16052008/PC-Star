@@ -1,13 +1,22 @@
-import { defineConfig, devices } from '@playwright/test'
+// Relecture PR #8 — configuration simplifiée et validée en local :
+// un seul webServer (scripts/dev-all.mjs démarre API 8787 + front 5173).
+// Pas de globalSetup : l'environnement de test est entièrement porté par
+// dev-all.mjs (identifiants via .env / MASTER_EMAIL, MASTER_PASSWORD).
+import { defineConfig } from '@playwright/test'
 
 export default defineConfig({
-  testDir: './e2e',
-  timeout: 30_000,
-  reporter: process.env.CI ? 'dot' : 'list',
-  use: { baseURL: 'http://127.0.0.1:5173', trace: 'on-first-retry' },
-  webServer: [
-    { command: 'npm run start:api', url: 'http://127.0.0.1:8787/api/health', reuseExistingServer: true, timeout: 30_000 },
-    { command: 'npm run dev -- --host 127.0.0.1', url: 'http://127.0.0.1:5173', reuseExistingServer: true, timeout: 30_000 }
-  ],
-  projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }]
+  testDir: 'e2e',
+  fullyParallel: false,
+  retries: 0,
+  reporter: 'list',
+  use: {
+    baseURL: process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:5173',
+    trace: 'on-first-retry'
+  },
+  webServer: {
+    command: 'node scripts/dev-all.mjs',
+    url: 'http://localhost:5173',
+    timeout: 60000,
+    reuseExistingServer: !process.env.CI
+  }
 })

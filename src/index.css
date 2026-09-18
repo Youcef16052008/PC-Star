@@ -28,10 +28,6 @@ body {
   overflow-wrap: break-word;
 }
 
-html[dir='rtl'] body {
-  font-family: var(--font-display);
-}
-
 img {
   display: block;
   max-width: 100%;
@@ -201,6 +197,20 @@ a:focus-visible {
 .cat-cooling { background: linear-gradient(145deg, #5b7cff, #1d38b0); }
 .cat-accessories { background: linear-gradient(145deg, #7583a6, #33456f); }
 .cat-laptop { background: linear-gradient(145deg, #2947d0, #16224a); }
+.cat-desktop,
+.cat-allinone,
+.cat-server { background: linear-gradient(145deg, #3c4a6b, #101a33); }
+.cat-tablet,
+.cat-phone { background: linear-gradient(145deg, #4a63d8, #243a6c); }
+.cat-printer,
+.cat-scanner,
+.cat-consumables { background: linear-gradient(145deg, #245b9d, #172d55); }
+.cat-pos { background: linear-gradient(145deg, #875b15, #48300d); }
+.cat-network,
+.cat-power { background: linear-gradient(145deg, #146c63, #103a42); }
+.cat-laptop_accessories,
+.cat-multimedia { background: linear-gradient(145deg, #5a468f, #2c2551); }
+.cat-furniture { background: linear-gradient(145deg, #77543e, #37281d); }
 .cat-ready { background: linear-gradient(145deg, #3c4a6b, #101a33); }
 .cat-usb { background: linear-gradient(145deg, #4a63d8, #243a6c); }
 .cat-console { background: linear-gradient(145deg, #d81f26, #6b0f14); }
@@ -612,4 +622,42 @@ html[data-theme='light'] .text-secondary {
 }
 .skip-link:focus {
   outline: 3px solid #fff;
+}
+
+/* Fiche master — les sections courtes évitent le long formulaire indistinct et
+   rendent visibles les informations commercialement importantes. */
+.master-product-form {
+  max-height: calc(100vh - 2rem);
+  overflow: auto;
+  position: sticky;
+  top: 1rem;
+}
+.master-form-section {
+  min-inline-size: 0;
+  border: 1px solid var(--line);
+  border-radius: 0.55rem;
+  padding: 0.75rem;
+  margin: 0 0 0.85rem;
+  background: color-mix(in srgb, var(--soft) 48%, transparent);
+}
+.master-form-section legend {
+  float: none;
+  width: auto;
+  padding: 0 0.35rem;
+  margin: 0;
+  color: var(--ink);
+  font-size: 0.86rem;
+  font-weight: 700;
+}
+.master-form-section .form-label {
+  font-weight: 600;
+}
+@media (max-width: 991.98px) {
+  .master-product-form {
+    max-height: none;
+    position: static;
+  }
+}
+.product-description {
+  white-space: pre-line;
 }

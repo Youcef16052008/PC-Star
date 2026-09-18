@@ -1,17 +1,22 @@
 import { useEffect, useMemo, useState } from 'react'
-import { PRICE_PRESETS, SOCKETS, STORE, money, starText } from './data'
+import { PRICE_PRESETS, PRODUCT_CONDITIONS, PRODUCT_USES, SOCKETS, STORE, conditionOf, money, starText, usesOf } from './data'
 import { loadSavedSearches, saveSavedSearches } from './shopStore.js'
 import { stockLabel } from './stockLabel.js'
 import PartThumb from './PartThumb.jsx'
+import { discountPercent, hasSale } from './productMeta.js'
 
 // LOT 6.1 (Q1) : `stockLabel` vient de `src/stockLabel.js` — une seule définition,
 // une seule famille de classes (la classe Bootstrap complète, rien à traduire).
 
 const EMPTY = {
   q: '',
-  line: 'cpu',
+  // La recherche ouvre désormais le catalogue entier : aucun rayon (imprimante,
+  // occasion, laptop…) n'est caché par le choix CPU historique.
+  line: 'all',
   brands: [],
   socket: 'all',
+  condition: 'all',
+  use: 'all',
   price: 'any',
   inStock: false,
   sort: 'featured'
@@ -67,6 +72,16 @@ export default function SearchPage({ t, products, lines, panels, lang, liveStock
   const preset = PRICE_PRESETS.find((p) => p.id === filters.price) || PRICE_PRESETS[0]
   const showSocket = line && (line.id === 'cpu' || line.id === 'motherboard' || line.id === 'cooler')
   const lineLabel = line ? (t(`line_${line.id}`) !== `line_${line.id}` ? t(`line_${line.id}`) : line.label) : ''
+  const conditionLabel = (id) => {
+    if (id === 'all') return t('conditionAny')
+    const key = PRODUCT_CONDITIONS.find((condition) => condition.id === id)?.labelKey
+    return key ? t(key) : id
+  }
+  const useLabel = (id) => {
+    if (id === 'all') return t('useAny')
+    const key = PRODUCT_USES.find((use) => use.id === id)?.labelKey
+    return key ? t(key) : id
+  }
 
   const results = useMemo(() => {
     if (!line) return []
@@ -75,6 +90,8 @@ export default function SearchPage({ t, products, lines, panels, lang, liveStock
       if (!line.match(p)) return false
       const left = liveStock(p)
       if (filters.brands.length && !filters.brands.includes(p.brand)) return false
+      if (filters.condition !== 'all' && conditionOf(p) !== filters.condition) return false
+      if (filters.use !== 'all' && !usesOf(p).includes(filters.use)) return false
       if (showSocket && filters.socket !== 'all') {
         const sock = p.compat && p.compat.socket
         const ok = Array.isArray(sock) ? sock.includes(filters.socket) : sock === filters.socket
@@ -83,7 +100,11 @@ export default function SearchPage({ t, products, lines, panels, lang, liveStock
       if (p.price < preset.min || p.price > preset.max) return false
       if (filters.inStock && left <= 0) return false
       if (q) {
-        const hay = `${p.name} ${p.sku} ${p.short} ${p.brand}`.toLowerCase()
+        // Les champs enrichis par le maître font partie de l'index : un mot-clé,
+        // une référence fabricant ou une caractéristique doit réellement aider
+        // le client à retrouver la bonne fiche.
+        const details = Array.isArray(p.details) ? p.details.map((d) => `${d?.label || ''} ${d?.value || ''}`).join(' ') : ''
+        const hay = `${p.name} ${p.sku} ${p.short} ${p.brand} ${p.model || ''} ${p.barcode || ''} ${p.description || ''} ${p.conditionNote || ''} ${(p.tags || []).join(' ')} ${details}`.toLowerCase()
         if (!hay.includes(q)) return false
       }
       return true
@@ -99,12 +120,16 @@ export default function SearchPage({ t, products, lines, panels, lang, liveStock
 
   const activeChips = []
   if (filters.socket !== 'all') activeChips.push({ key: 'socket', label: filters.socket })
+  if (filters.condition !== 'all') activeChips.push({ key: 'condition', label: conditionLabel(filters.condition) })
+  if (filters.use !== 'all') activeChips.push({ key: 'use', label: useLabel(filters.use) })
   if (filters.price !== 'any') activeChips.push({ key: 'price', label: t(PRICE_KEYS[filters.price] || 'price_any') })
   if (filters.inStock) activeChips.push({ key: 'inStock', label: t('inStoreOnly') })
   filters.brands.forEach((b) => activeChips.push({ key: `brand-${b}`, label: b, brand: b }))
 
   function clearChip(chip) {
     if (chip.key === 'socket') set('socket', 'all')
+    else if (chip.key === 'condition') set('condition', 'all')
+    else if (chip.key === 'use') set('use', 'all')
     else if (chip.key === 'price') set('price', 'any')
     else if (chip.key === 'inStock') set('inStock', false)
     else if (chip.brand) toggleBrand(chip.brand)
@@ -158,10 +183,15 @@ export default function SearchPage({ t, products, lines, panels, lang, liveStock
             <PartThumb product={p} />
           </div>
           <span className={`badge position-absolute top-0 end-0 m-2 ${st.cls}`}>{st.text}</span>
+          {p.photoMode === 'category' && <span className="badge text-bg-light border position-absolute top-0 start-0 m-2">{t('categoryIllustrationBadge')}</span>}
         </button>
         <div className="card-body d-flex flex-column">
           <div className="small text-secondary">
             {p.sku} · {p.brand}
+          </div>
+          <div className="d-flex flex-wrap gap-1 mt-1 mb-1">
+            <span className="badge text-bg-light border">{conditionLabel(conditionOf(p))}</span>
+            {Number(p.warrantyMonths) > 0 && <span className="badge text-bg-light border">{t('warrantyMonths', { n: p.warrantyMonths })}</span>}
           </div>
           <h3 className="h6 card-title">{p.name}</h3>
           {p.rating ? (
@@ -171,7 +201,10 @@ export default function SearchPage({ t, products, lines, panels, lang, liveStock
           ) : null}
           <p className="small text-secondary flex-grow-1">{p.short}</p>
           <div className="d-flex justify-content-between align-items-center gap-2 mt-auto">
-            <span className="fw-bold text-success">{money(p.price, lang)}</span>
+            <span className="d-flex flex-column">
+              <span className="fw-bold text-success">{money(p.price, lang)}</span>
+              {hasSale(p) && <small className="text-danger"><del>{money(p.compareAtPrice, lang)}</del> · −{discountPercent(p)}%</small>}
+            </span>
             <button type="button" className="btn btn-sm btn-success" disabled={left <= 0} onClick={() => onAdd(p)}>
               {left <= 0 ? t('soldOut') : t('add')}
             </button>
@@ -269,6 +302,34 @@ export default function SearchPage({ t, products, lines, panels, lang, liveStock
                   </div>
                 </fieldset>
               )}
+
+              <fieldset className="mb-3">
+                <legend className="form-label fw-semibold small">{t('condition')}</legend>
+                <label className="form-check">
+                  <input className="form-check-input" type="radio" name="condition" checked={filters.condition === 'all'} onChange={() => set('condition', 'all')} />
+                  <span className="form-check-label small">{t('conditionAny')}</span>
+                </label>
+                {PRODUCT_CONDITIONS.map((condition) => (
+                  <label key={condition.id} className="form-check">
+                    <input className="form-check-input" type="radio" name="condition" checked={filters.condition === condition.id} onChange={() => set('condition', condition.id)} />
+                    <span className="form-check-label small">{t(condition.labelKey)}</span>
+                  </label>
+                ))}
+              </fieldset>
+
+              <fieldset className="mb-3">
+                <legend className="form-label fw-semibold small">{t('use')}</legend>
+                <label className="form-check">
+                  <input className="form-check-input" type="radio" name="product-use" checked={filters.use === 'all'} onChange={() => set('use', 'all')} />
+                  <span className="form-check-label small">{t('useAny')}</span>
+                </label>
+                {PRODUCT_USES.map((use) => (
+                  <label key={use.id} className="form-check">
+                    <input className="form-check-input" type="radio" name="product-use" checked={filters.use === use.id} onChange={() => set('use', use.id)} />
+                    <span className="form-check-label small">{t(use.labelKey)}</span>
+                  </label>
+                ))}
+              </fieldset>
 
               {showSocket && (
                 <fieldset className="mb-3">
@@ -385,11 +446,15 @@ export default function SearchPage({ t, products, lines, panels, lang, liveStock
                           {p.name}
                         </button>
                         <div className="small text-secondary">{p.short}</div>
-                        <span className={`badge ${st.cls}`}>{st.text}</span>
+                        <div className="d-flex flex-wrap gap-1 mt-1">
+                          <span className={`badge ${st.cls}`}>{st.text}</span>
+                          {p.photoMode === 'category' && <span className="badge text-bg-light border">{t('categoryIllustrationBadge')}</span>}
+                        </div>
                       </div>
                       <div className="text-end">
-                        <div className="fw-bold text-success mb-2">{money(p.price, lang)}</div>
-                        <button type="button" className="btn btn-sm btn-success" disabled={left <= 0} onClick={() => onAdd(p)}>
+                        <div className="fw-bold text-success">{money(p.price, lang)}</div>
+                        {hasSale(p) && <small className="d-block text-danger mb-2"><del>{money(p.compareAtPrice, lang)}</del> · −{discountPercent(p)}%</small>}
+                        <button type="button" className="btn btn-sm btn-success mt-2" disabled={left <= 0} onClick={() => onAdd(p)}>
                           {left <= 0 ? t('soldOut') : t('add')}
                         </button>
                       </div>
@@ -428,6 +493,20 @@ export default function SearchPage({ t, products, lines, panels, lang, liveStock
                   {Object.keys(PRICE_KEYS).map((id) => (
                     <option key={id} value={id}>{t(PRICE_KEYS[id])}</option>
                   ))}
+                </select>
+              </div>
+              <div className="mb-3">
+                <label className="form-label small">{t('condition')}</label>
+                <select className="form-select" value={filters.condition} onChange={(e) => set('condition', e.target.value)}>
+                  <option value="all">{t('conditionAny')}</option>
+                  {PRODUCT_CONDITIONS.map((condition) => <option key={condition.id} value={condition.id}>{t(condition.labelKey)}</option>)}
+                </select>
+              </div>
+              <div className="mb-3">
+                <label className="form-label small">{t('use')}</label>
+                <select className="form-select" value={filters.use} onChange={(e) => set('use', e.target.value)}>
+                  <option value="all">{t('useAny')}</option>
+                  {PRODUCT_USES.map((use) => <option key={use.id} value={use.id}>{t(use.labelKey)}</option>)}
                 </select>
               </div>
               <div className="form-check mb-3">

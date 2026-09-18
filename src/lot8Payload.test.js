@@ -508,7 +508,7 @@ describe('8.5 (A5) — MasterPage refuse un corps trop lourd AVANT de l’envoye
   })
 
   it('les deux langues restantes portent aussi le message (pas de clé manquante)', () => {
-    for (const lang of ['fr', 'en', 'ar']) {
+    for (const lang of ['fr', 'en']) {
       assert.ok(dict[lang].masterPhotosTooHeavy, `${lang}.masterPhotosTooHeavy manque`)
       assert.match(dict[lang].masterPhotosTooHeavy, /\{size\}|\{limit\}/, 'le message cite les tailles')
       assert.match(dict[lang].masterPhotoTooBig, /\{mb\}/, 'la limite par photo n’est plus écrite en dur')

@@ -95,10 +95,6 @@ describe('P22 piège 2 — le stockage est résolu à l’usage, pas à l’impo
           labels.includes(dict[lang].navAbout),
           `libellé « ${dict[lang].navAbout} » présent (${lang})`
         )
-        assert.ok(
-          !labels.includes(dict.ar.navAbout),
-          `l'arabe n'est pas servi par défaut en mode ${lang}`
-        )
       } finally {
         root.unmount()
         await settle(30)

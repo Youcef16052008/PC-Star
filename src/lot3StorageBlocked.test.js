@@ -118,7 +118,7 @@ describe('LOT 3.1 (F7 + F8) — stockage navigateur bloqué : l’app monte quan
       // La langue affichée dépend de la détection du navigateur (ici `ar`) :
       // on accepte le libellé dans l'une des trois langues du site.
       const note = clean(status)
-      const known = ['fr', 'en', 'ar'].map((l) => dict[l].storageBlockedNote)
+      const known = ['fr', 'en'].map((l) => dict[l].storageBlockedNote)
       assert.ok(known.includes(note), `texte inattendu : ${note}`)
 
       // Le panier fonctionne en mémoire : ajouter un produit met le badge à 1.
