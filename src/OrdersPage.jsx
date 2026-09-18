@@ -13,16 +13,14 @@ import { loadOrders } from './prefs.js'
  * P11 : page unique « Commandes » (remplace « Mes commandes » dans le profil).
  *
  * Sources croisées, dédoublonnées par code :
- *  - client connecté + backend en ligne : commandes serveur (`/api/orders/mine`,
- *    qui inclut aussi les commandes guest passées au même téléphone) + copie
- *    locale du navigateur ;
+ *  - client connecté + backend en ligne : commandes serveur explicitement liées
+ *    au compte + copie locale des mêmes commandes ;
  *  - sinon (hors-ligne, mode local, ou guest) : copie locale du navigateur —
- *    les commandes réussies via l'API sont maintenant aussi persistées localement
- *    à la création (reserve → saveOrders), un guest retrouve donc les siennes
- *    depuis cet appareil.
+ *    les commandes réussies via l'API sont aussi persistées à la création, afin
+ *    qu'un guest les retrouve sur le même appareil.
  *
- * LOT 2.8 (F12) : les commandes **guest de cet appareil** restent visibles après
- * connexion, marquées « passées sans compte ».
+ * Phase 3 : une commande guest ne bascule jamais dans un compte parce qu'il a
+ * le même téléphone. Cette égalité ne prouve pas la possession du numéro.
  */
 export default function OrdersPage({ t, lang = 'fr', user, apiOnline, mode, onCancelOrder, onBack }) {
   const [orders, setOrders] = useState([])
@@ -33,21 +31,10 @@ export default function OrdersPage({ t, lang = 'fr', user, apiOnline, mode, onCa
     let cancelled = false
     setLoading(true)
     const all = loadOrders()
-    // LOT 2.8 (F12) : avant, un compte connecté ne voyait QUE `userId ===
-    // user.id`. Les commandes passées en guest depuis cet appareil
-    // (`userId == null`) disparaissaient donc à la connexion — y compris celle
-    // qui venait d'être faite, puisque le client se connectait souvent APRÈS
-    // avoir réservé (le serveur, lui, les rattache déjà par téléphone dans
-    // `/api/me/orders`). Union des deux, chacune marquée dans l'UI.
-    //
-    // Limite assumée : sur un appareil partagé, un compte connecté voit aussi
-    // les commandes guest d'un tiers faites sur le même navigateur. C'est la
-    // frontière de confiance du `localStorage` — la même que celle du serveur,
-    // qui rattache par numéro de téléphone saisi. Le marquage explicite
-    // (« passée sans compte ») dit d'où vient la ligne.
-    const local = user
-      ? all.filter((o) => o.userId === user.id || o.userId == null)
-      : all.filter((o) => o.userId == null)
+    // Ne pas fusionner les lignes guest dans une session connectée. Le stockage
+    // de navigateur n'est pas une preuve d'identité et peut être partagé; les
+    // commandes guest restent consultables avant connexion sur cet appareil.
+    const local = user ? all.filter((o) => o.userId === user.id) : all.filter((o) => o.userId == null)
     ;(async () => {
       if (!(user && apiOnline && mode === 'api')) {
         if (!cancelled) {
@@ -106,16 +93,17 @@ export default function OrdersPage({ t, lang = 'fr', user, apiOnline, mode, onCa
                       <div className="d-flex justify-content-between gap-2 flex-wrap">
                         <span className="font-monospace fw-semibold">{o.code}</span>
                         <span className="d-flex gap-1 flex-wrap">
-                          {/* LOT 2.8 (F12) : distingue les commandes rattachées au
-                              compte de celles passées sans compte depuis cet
-                              appareil (ou rattachées par téléphone côté serveur). */}
-                          {user && o.userId == null && (
-                            <span className="badge text-bg-light border">{t('orderGuestBadge')}</span>
-                          )}
                           {/* LOT 2.3 (F5) : commande créée hors-ligne, jamais
                               parvenue au serveur — conservée par la fusion. */}
                           {o.localOnly === true && (
                             <span className="badge text-bg-warning">{t('ordersLocalOnly')}</span>
+                          )}
+                          {/* Copie locale périmée d'une commande guest : la
+                              session ne recevra jamais cette ligne du serveur
+                              (phase 3) — on l'explique au lieu d'afficher un
+                              bouton qui échouerait à tous les coups. */}
+                          {user && o.claimable === false && (
+                            <span className="badge text-bg-secondary">{t('orderGuestBadge')}</span>
                           )}
                           <span className="badge text-bg-secondary">{t(statusLabelKey(o.status === 'pending' ? 'new' : o.status || 'new'))}</span>
                         </span>
@@ -132,15 +120,13 @@ export default function OrdersPage({ t, lang = 'fr', user, apiOnline, mode, onCa
                       </ul>
                       <div className="d-flex justify-content-between align-items-center">
                         <div className="fw-semibold text-success">{money(o.total, lang)}</div>
-                        {/* LOT 8.3 (A3) : annulation possible tant que la commande
-                            est « neuve » ET revendicable (`canCancelHere`).
-                            Avant, seul le statut comptait : une commande
-                            `claimable: false` (guest déposée au numéro d'un
-                            compte, lot 4.4 / R20) affichait un bouton que le
-                            serveur refusait toujours en 404 — une action
-                            promise et impossible, avec un message d'échec qui ne
-                            disait ni pourquoi ni quoi faire. */}
-                        {canCancelHere(o) && (
+                        {/* Une session ne reçoit que ses propres lignes; une guest
+                            peut gérer localement sa copie neuve tant qu'elle est
+                            hors connexion. `allowGuest` ne franchit jamais l'API. */}
+                        {user && o.claimable === false && (
+                          <span className="small text-secondary">{t('orderNotClaimable')}</span>
+                        )}
+                        {canCancelHere(o, { allowGuest: !user }) && (
                           <button
                             type="button"
                             className="btn btn-sm btn-outline-danger"
@@ -149,11 +135,6 @@ export default function OrdersPage({ t, lang = 'fr', user, apiOnline, mode, onCa
                           >
                             {t('orderCancel')}
                           </button>
-                        )}
-                        {o.claimable === false && (
-                          <span className="small text-secondary text-end" title={t('orderNotClaimable')}>
-                            {t('orderNotClaimable')}
-                          </span>
                         )}
                       </div>
                     </article>

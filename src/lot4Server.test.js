@@ -21,9 +21,9 @@ import { TEST_MASTER_EMAIL, TEST_MASTER_PASSWORD } from '../scripts/test-env.mjs
 //  4.3 (F16) supprimer un client laissait ses commandes en cours debout, sans
 //            propriétaire : stock réservé pour personne, jamais rendu, invisible.
 //            Annulation + rendu du stock + résumé renvoyé au master.
-//  4.4 (R20) une commande GUEST au numéro d'un compte existant tombait dans
-//            l'historique de ce compte, qui pouvait l'annuler. Marquage
-//            `claimable: false` à la création.
+//  4.4 (R20) puis phase 3 : une commande GUEST n'est jamais récupérée par
+//            égalité de téléphone — seule une session présente au checkout la
+//            rattache à un compte. `claimable: false` marque toute ligne guest.
 //  4.5 (U11) `GET /api/orders` remappait `pending → new` à l'affichage pendant
 //            que `PATCH`/`DELETE` lisaient le statut brut. Migration des lignes
 //            legacy + réponse fidèle.
@@ -358,19 +358,20 @@ describe('4.4 (R20) — commande guest au numéro d’un compte existant', () =>
     assert.ok((all.data.orders || []).some((o) => o.code === code), 'commande invisible au comptoir')
   })
 
-  it('numéro libre : la commande guest reste revendicable après inscription', async () => {
+  it('numéro libre : une inscription ultérieure ne revendique pas une commande guest', async () => {
     const phone = '0550777888'
     const guest = await call('POST', '/api/orders', { body: { name: 'Futur client', phone, items: items(1) } })
     assert.equal(guest.status, 201)
     const code = guest.data.order.code
-    assert.equal(storeOrder(code).claimable, undefined, 'un numéro libre ne doit pas être marqué')
+    assert.equal(storeOrder(code).claimable, false, 'toute commande guest doit être explicitement non revendicable')
 
-    // Le client crée son compte APRÈS sa commande, au même numéro : il la retrouve.
+    // Saisir le même numéro au profil n'est pas une possession vérifiée : aucun
+    // compte ne doit donc récupérer ou annuler la commande serveur.
     const owner = await registerClient(phone)
     const mine = await call('GET', '/api/me/orders', { token: owner.token })
-    assert.ok((mine.data.orders || []).some((o) => o.code === code), 'commande guest perdue à l’inscription')
+    assert.equal((mine.data.orders || []).some((o) => o.code === code), false)
     const cancel = await call('POST', `/api/me/orders/${code}/cancel`, { token: owner.token })
-    assert.equal(cancel.status, 200, `annulation légitime refusée : ${cancel.status} ${JSON.stringify(cancel.data)}`)
+    assert.equal(cancel.status, 404, `annulation par simple numéro : ${cancel.status}`)
   })
 
   it('le titulaire qui commande lui-même reste propriétaire de sa commande', async () => {
@@ -399,7 +400,7 @@ describe('4.4 (R20) — commande guest au numéro d’un compte existant', () =>
     assert.equal(ord.status, 201)
     const code = ord.data.order.code
     assert.equal(storeOrder(code).userId, other.id, 'la commande appartient à l’acheteur')
-    assert.equal(storeOrder(code).claimable, false, 'le titulaire du numéro ne doit pas la voir')
+    assert.equal(storeOrder(code).claimable, undefined, 'une commande déjà rattachée ne porte pas de drapeau guest')
 
     const holderSees = await call('GET', '/api/me/orders', { token: holder.token })
     assert.equal((holderSees.data.orders || []).some((o) => o.code === code), false)
@@ -407,15 +408,12 @@ describe('4.4 (R20) — commande guest au numéro d’un compte existant', () =>
     assert.ok((otherSees.data.orders || []).some((o) => o.code === code), 'l’acheteur ne voit plus sa commande')
   })
 
-  it('le numéro du maître ne rend pas une commande guest non revendicable par erreur… mais ne l’expose pas non plus', async () => {
-    // Le maître est exclu de la recherche de propriétaire : une commande au
-    // numéro du magasin n'est pas « rattachée » à son compte (et son compte n'a
-    // de toute façon pas d'historique client).
+  it('une commande guest, y compris au numéro du magasin, reste non revendicable', async () => {
     const master = await loginMaster()
     const masterPhone = '0770650387'
     const guest = await call('POST', '/api/orders', { body: { name: 'Client magasin', phone: masterPhone, items: items(1) } })
     assert.equal(guest.status, 201)
-    assert.equal(storeOrder(guest.data.order.code).claimable, undefined, 'le maître ne doit pas être traité comme un tiers propriétaire')
+    assert.equal(storeOrder(guest.data.order.code).claimable, false)
     const all = await call('GET', '/api/orders', { token: master })
     assert.ok((all.data.orders || []).some((o) => o.code === guest.data.order.code))
   })

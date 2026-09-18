@@ -202,10 +202,13 @@ export async function masterHideProduct(id, hidden = true) {
   return req(`/api/master/products/${encodeURIComponent(id)}/hide`, { method: 'POST', body: { hidden } })
 }
 
-export async function masterPhotos(id, photoDataUrls) {
+export async function masterPhotos(id, photoDataUrls, photos = undefined) {
   return req(`/api/master/products/${encodeURIComponent(id)}/photos`, {
     method: 'POST',
-    body: { photoDataUrls }
+    // `photos` est la galerie existante que le master a choisi de conserver;
+    // les data URLs sont ajoutées côté serveur puis la liste complète remplace
+    // l'ancienne. Ainsi un retrait local ne ressuscite pas au prochain upload.
+    body: { photoDataUrls, ...(Array.isArray(photos) ? { photos } : {}) }
   })
 }
 

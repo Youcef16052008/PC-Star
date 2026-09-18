@@ -103,20 +103,23 @@ export function canTransition(from, to) {
  *    qui échouait à tous les coups avec un message générique
  *    (« L'annulation a échoué »), sans dire ni pourquoi ni quoi faire.
  *
- * `claimable` absent veut dire revendicable (commandes antérieures au lot 4.4,
- * commandes locales hors-ligne, commandes du titulaire du compte) : le
- * comportement habituel est préservé.
+ * Phase 3 : toutes les lignes guest sont `claimable: false` côté serveur, car
+ * un téléphone déclaré ne peut les rattacher à un compte. L'appareil guest qui
+ * vient de créer la ligne peut toutefois l'annuler dans son stockage local :
+ * `allowGuest` est réservé à cette interface non authentifiée, jamais à une
+ * route API.
  *
  * @param {{status?: string, claimable?: boolean}} order
+ * @param {{allowGuest?: boolean}} [options]
  * @returns {boolean}
  */
-export function canCancelHere(order) {
+export function canCancelHere(order, { allowGuest = false } = {}) {
   // Pas d'objet → pas d'annulation : un `undefined` qui traîne (commande
   // supprimée entre-temps) ne doit pas être traité comme une commande neuve.
   if (!order || typeof order !== 'object') return false
   const status = order?.status || 'new'
   if (status !== 'new' && status !== 'pending') return false
-  return order?.claimable !== false
+  return allowGuest || order?.claimable !== false
 }
 
 export function statusLabelKey(status) {
@@ -179,6 +182,7 @@ export function orderApiFailure(r) {
   const err = r.data?.error
   if (err === 'unavailable') return { kind: 'unavailable', lines: r.data?.unavailable || [] }
   if (err === 'unknown_product') return { kind: 'unknown', lines: r.data?.unknown || [] }
+  if (err === 'idempotency_conflict') return { kind: 'idempotency' }
   if (r.status === 409 || err === 'stock') {
     return { kind: 'stock', shortages: r.data?.shortages || [] }
   }

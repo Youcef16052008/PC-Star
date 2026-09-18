@@ -32,7 +32,7 @@
 
 ## OAuth (livré, mode démo)
 
-- Boutons **Google / Meta** dans le login — consent simulé par défaut (`OAUTH_DEMO=1`), réel avec clés.
+- Boutons **Google / Meta** dans le login — consent simulé par défaut (`OAUTH_DEMO=1`). Le flux réel est disponible avec `OAUTH_DEMO=0`, les clés serveur et les URI de callback enregistrées chez Google et Meta.
 
 ## Lancer
 

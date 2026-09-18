@@ -72,7 +72,18 @@ export { normalizePhone, isDzPhone, phoneCarrier }
 // (une ternaire inline) mais ne validait PAS la catégorie : hors ligne, un
 // produit `category: "SSD"` était enregistré et disparaissait de tous les
 // filtres, exactement comme avant le correctif côté API.
-import { isKnownCategory, kindForCategory } from './data.js'
+import { isKnownCategory, isKnownCondition, isKnownUse, kindForCategory } from './data.js'
+import {
+  BARCODE_LIMIT,
+  CONDITION_NOTE_LIMIT,
+  DESCRIPTION_LIMIT,
+  MODEL_LIMIT,
+  cleanProductText,
+  isValidBarcode,
+  normalizeProductCompat,
+  normalizeProductDetails,
+  normalizeProductTags
+} from './productMeta.js'
 
 export function createMemoryStorage(seed = {}) {
   const map = { ...seed }
@@ -358,7 +369,7 @@ function skuSlug(title) {
  *   liste, un SKU saisi à la main pouvait doubler une référence existante
  *   (le serveur refuse désormais aussi, voir server/masterApi.js).
  */
-export function addProduct(meta, { name, price, category, brand, stock, short, photos, sku } = {}, knownSkus = []) {
+export function addProduct(meta, { name, price, category, brand, stock, short, photos, sku, condition, uses, warrantyMonths, model, barcode, description, conditionNote, compareAtPrice, lowStockAt, details, tags, compat } = {}, knownSkus = []) {
   const title = String(name || '').trim()
   const n = Number(price)
   if (!title || !Number.isFinite(n) || n < 0) return { ok: false, error: 'product' }
@@ -369,6 +380,27 @@ export function addProduct(meta, { name, price, category, brand, stock, short, p
   // `CATEGORIES` (hors `all`). Sans cela, le mode local enregistrait un produit
   // invisible dans tous les filtres de la vitrine et dans le Builder.
   if (!isKnownCategory(cat)) return { ok: false, error: 'category' }
+  const productCondition = condition == null ? 'new' : String(condition)
+  if (!isKnownCondition(productCondition)) return { ok: false, error: 'condition' }
+  const productUses = uses == null ? [] : Array.isArray(uses) ? [...new Set(uses.map((use) => String(use)))] : null
+  if (!productUses || productUses.length > 6 || productUses.some((use) => !isKnownUse(use))) return { ok: false, error: 'uses' }
+  const months = warrantyMonths == null ? 0 : Number(warrantyMonths)
+  if (!Number.isFinite(months) || months < 0 || months > 60) return { ok: false, error: 'warranty' }
+  const productModel = cleanProductText(model, MODEL_LIMIT)
+  const productBarcode = cleanProductText(barcode, BARCODE_LIMIT)
+  if (!isValidBarcode(productBarcode)) return { ok: false, error: 'barcode' }
+  const productDescription = cleanProductText(description, DESCRIPTION_LIMIT)
+  const productConditionNote = cleanProductText(conditionNote, CONDITION_NOTE_LIMIT)
+  const productCompareAtPrice = compareAtPrice == null || compareAtPrice === '' ? 0 : Number(compareAtPrice)
+  if (!Number.isFinite(productCompareAtPrice) || productCompareAtPrice < 0 || (productCompareAtPrice > 0 && productCompareAtPrice < n)) return { ok: false, error: 'compare_at_price' }
+  const productLowStockAt = lowStockAt == null || lowStockAt === '' ? 0 : Number(lowStockAt)
+  if (!Number.isFinite(productLowStockAt) || productLowStockAt < 0 || productLowStockAt > 9999) return { ok: false, error: 'low_stock' }
+  const productDetails = normalizeProductDetails(details)
+  if (productDetails == null) return { ok: false, error: 'details' }
+  const productTags = normalizeProductTags(tags)
+  if (productTags == null) return { ok: false, error: 'tags' }
+  const productCompat = normalizeProductCompat(compat)
+  if (productCompat == null) return { ok: false, error: 'compat' }
   // P22 (bug H) : un SKU saisi doit être libre — dans les produits du master
   // comme dans le catalogue de base.
   const manualSku = String(sku || '').trim()
@@ -392,6 +424,18 @@ export function addProduct(meta, { name, price, category, brand, stock, short, p
     short: String(short || title),
     brand: String(brand || 'PC Star'),
     category: cat,
+    condition: productCondition,
+    uses: productUses,
+    warrantyMonths: Math.floor(months),
+    model: productModel,
+    barcode: productBarcode,
+    description: productDescription,
+    conditionNote: productConditionNote,
+    compareAtPrice: Math.round(productCompareAtPrice),
+    lowStockAt: Math.floor(productLowStockAt),
+    details: productDetails,
+    tags: productTags,
+    compat: productCompat,
     // LOT 8.10 (A10) : la règle inline (repair→service, laptop/ready→machine,
     // accessories→accessory, sinon part) est maintenant partagée avec le
     // serveur via `kindForCategory` — un produit créé via l'API et le même créé
@@ -463,7 +507,10 @@ export function buildShopView(baseProducts, baseLines, basePanels, meta) {
   const hiddenIds = new Set(meta.hiddenProductIds || [])
   const overrides = meta.photoOverrides || {}
   const withPhotos = (p) => {
-    if (overrides[p.id]?.length) return { ...p, photos: overrides[p.id] }
+    // Une photo importée par le maître devient la photo de référence : on ne
+    // garde pas l'avertissement « illustration de catégorie » après son
+    // remplacement par un visuel réellement fourni par le magasin.
+    if (overrides[p.id]?.length) return { ...p, photos: overrides[p.id], photoMode: 'custom' }
     return p
   }
   const products = [

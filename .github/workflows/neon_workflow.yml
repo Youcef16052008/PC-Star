@@ -37,6 +37,12 @@ jobs:
       || github.event.action == 'opened'
       || github.event.action == 'reopened')
     runs-on: ubuntu-latest
+    # Identifiants de fixture, valables seulement dans la branche Neon éphémère
+    # créée ci-dessous. Ils ne sont ni les secrets Vercel ni un accès production.
+    env:
+      MASTER_EMAIL: master-ci@test.pcstar.local
+      MASTER_PASSWORD: ci-master-password-not-for-production
+      DEMO_PASSWORD: ci-demo-password-not-for-production
     steps:
       - name: Get branch expiration date as an env variable (2 weeks from now)
         run: echo "EXPIRES_AT=$(date -u --date '+14 days' +'%Y-%m-%dT%H:%M:%SZ')" >> "$GITHUB_ENV"
@@ -74,14 +80,22 @@ jobs:
       - name: Verify Neon concurrent reservation protection
         env:
           DATABASE_URL: ${{ steps.create_neon_branch.outputs.db_url_pooled }}
+          PCSTAR_NEON_TEST_ISOLATED: '1'
         run: npm run test:neon:concurrency
-      - name: Reset Neon state before full suite
+      - name: Verify Neon backup and restoration
+        env:
+          DATABASE_URL: ${{ steps.create_neon_branch.outputs.db_url_pooled }}
+          PCSTAR_NEON_TEST_ISOLATED: '1'
+        run: npm run test:neon:backup
+      - name: Reset isolated Neon state before full suite
         env:
           DATABASE_URL: ${{ steps.create_neon_branch.outputs.db_url_pooled }}
         run: npm run db:migrate:neon:reset
-      - name: Run full test suite against Neon
-        env:
-          DATABASE_URL: ${{ steps.create_neon_branch.outputs.db_url_pooled }}
+      - name: Run full isolated regression suite
+        # `scripts/test-env.mjs` intentionally pins DATABASE_URL empty: unit and
+        # HTTP tests keep their filesystem fixture isolation. The two preceding
+        # steps are the real Neon integration gates and fail this workflow on a
+        # migration, transaction, backup or restore failure.
         run: npm test
 
   delete_neon_branch:

@@ -1,5 +1,6 @@
 import { EXTRA } from './extraCatalog.js'
 import { DZ_EXTRA, DZ_GUIDES, WILAYAS_NEAR, DZ_BRANDS } from './dzCatalog.js'
+import { CATALOG_EXTENSIONS } from './catalogExtensions.js'
 import { ensureProductPhotos } from './productPhotos.js'
 
 export { DZ_GUIDES, WILAYAS_NEAR, DZ_BRANDS }
@@ -76,53 +77,179 @@ export const SLOTS = [
   '18:00'
 ]
 
+// Les catégories sont la source de vérité du catalogue, du filtre d'accueil
+// et du formulaire administrateur. Les rayons étendus correspondent à la
+// structure observée chez les grandes boutiques informatiques locales : ils
+// permettent de ranger un produit sans le rendre introuvable.
 export const CATEGORIES = [
-  { id: 'all', label: 'All' },
+  { id: 'all', label: 'Tout le catalogue' },
   { id: 'cpu', label: 'CPU' },
   { id: 'gpu', label: 'GPU' },
-  { id: 'motherboard', label: 'Motherboard' },
-  { id: 'memory', label: 'RAM & SSD' },
-  { id: 'case', label: 'Case & PSU' },
-  { id: 'cooling', label: 'Cooling' },
-  { id: 'laptop', label: 'Laptops' },
-  { id: 'ready', label: 'Ready PCs' },
+  { id: 'motherboard', label: 'Carte mère' },
+  { id: 'memory', label: 'RAM, SSD & HDD' },
+  { id: 'case', label: 'Boîtier & alimentation' },
+  { id: 'cooling', label: 'Refroidissement' },
+  { id: 'laptop', label: 'PC portables' },
+  { id: 'desktop', label: 'PC de bureau & mini PC' },
+  { id: 'allinone', label: 'PC tout-en-un' },
+  { id: 'tablet', label: 'Tablettes' },
+  { id: 'server', label: 'Serveurs' },
+  { id: 'ready', label: 'PC prêts' },
+  { id: 'printer', label: 'Imprimantes' },
+  { id: 'scanner', label: 'Scanners' },
+  { id: 'pos', label: 'POS & code-barres' },
+  { id: 'consumables', label: 'Toners, encres & papier' },
+  { id: 'network', label: 'Réseau & Wi‑Fi' },
+  { id: 'power', label: 'Onduleurs & électricité' },
+  { id: 'laptop_accessories', label: 'Accessoires laptop' },
+  { id: 'multimedia', label: 'Multimédia & création' },
+  { id: 'furniture', label: 'Mobilier informatique' },
+  { id: 'phone', label: 'Téléphonie & énergie mobile' },
   { id: 'usb', label: 'USB & flash' },
   { id: 'console', label: 'Consoles' },
-  { id: 'repair', label: 'Repairs' },
-  { id: 'accessories', label: 'Accessories' }
+  { id: 'repair', label: 'Réparations' },
+  { id: 'accessories', label: 'Accessoires PC' }
 ]
+
+export const PRODUCT_CONDITIONS = [
+  { id: 'new', labelKey: 'conditionNew' },
+  { id: 'used', labelKey: 'conditionUsed' },
+  { id: 'refurbished', labelKey: 'conditionRefurbished' }
+]
+
+export const PRODUCT_USES = [
+  { id: 'student', labelKey: 'useStudent' },
+  { id: 'office', labelKey: 'useOffice' },
+  { id: 'business', labelKey: 'useBusiness' },
+  { id: 'gaming', labelKey: 'useGaming' },
+  { id: 'creative', labelKey: 'useCreative' },
+  { id: 'retail', labelKey: 'useRetail' }
+]
+
+export const PRODUCT_CONDITION_IDS = PRODUCT_CONDITIONS.map((c) => c.id)
+export const PRODUCT_USE_IDS = PRODUCT_USES.map((u) => u.id)
 
 function hay(p) {
   return `${p.name} ${p.short || ''} ${p.id}`.toLowerCase()
 }
 
+/** État sûr pour les références historiques qui n'avaient pas encore ce champ. */
+export function conditionOf(product) {
+  const explicit = product?.condition
+  if (PRODUCT_CONDITION_IDS.includes(explicit)) return explicit
+  const text = hay(product || {})
+  if (/reconditionn[eé]|refurbished/.test(text)) return 'refurbished'
+  if (/occasion|\bused\b|\boccas\b/.test(text)) return 'used'
+  return 'new'
+}
+
+/** Usages normalisés ; les produits historiques sans usage restent visibles sans filtre. */
+export function usesOf(product) {
+  return Array.isArray(product?.uses) ? product.uses.filter((u) => PRODUCT_USE_IDS.includes(u)) : []
+}
+
+export function isKnownCondition(value) {
+  return PRODUCT_CONDITION_IDS.includes(typeof value === 'string' ? value : '')
+}
+
+export function isKnownUse(value) {
+  return PRODUCT_USE_IDS.includes(typeof value === 'string' ? value : '')
+}
+
+const byCategory = (...categories) => (p) => categories.includes(p.category)
+const byCondition = (...conditions) => (p) => conditions.includes(conditionOf(p))
+const hasUse = (use) => (p) => usesOf(p).includes(use)
+const tagged = (tag) => (p) => (p.tags || []).includes(tag)
+
 export const PART_LINES = [
-  { id: 'cpu', label: 'CPU', group: 'parts', match: (p) => p.category === 'cpu' },
-  { id: 'motherboard', label: 'Motherboard', group: 'parts', match: (p) => p.category === 'motherboard' },
-  { id: 'gpu', label: 'GPU', group: 'parts', match: (p) => p.category === 'gpu' },
+  // Explorer
+  { id: 'all', label: 'Tout', group: 'catalog', match: () => true },
+
+  // Composants PC
+  { id: 'cpu', label: 'CPU', group: 'parts', match: byCategory('cpu') },
+  { id: 'motherboard', label: 'Carte mère', group: 'parts', match: byCategory('motherboard') },
+  { id: 'gpu', label: 'GPU', group: 'parts', match: byCategory('gpu') },
   { id: 'ram', label: 'RAM', group: 'parts', match: (p) => p.category === 'memory' && p.compat?.memory },
   { id: 'ssd', label: 'SSD', group: 'parts', match: (p) => p.category === 'memory' && !p.compat?.memory && !/hdd/.test(hay(p)) },
   { id: 'hdd', label: 'HDD', group: 'parts', match: (p) => p.category === 'memory' && /hdd/.test(hay(p)) },
-  { id: 'case', label: 'Case', group: 'parts', match: (p) => p.category === 'case' && p.compat?.form },
-  { id: 'psu', label: 'PSU', group: 'parts', match: (p) => Boolean(p.compat?.psuWatts) },
-  { id: 'cooler', label: 'Cooler', group: 'parts', match: (p) => p.category === 'cooling' },
-  { id: 'fan', label: 'Fan', group: 'parts', match: (p) => p.category === 'case' && /fan/.test(hay(p)) && !Array.isArray(p.compat?.socket) && !p.compat?.form && !p.compat?.psuWatts },
-  { id: 'keyboard', label: 'Keyboard', group: 'accessories', match: (p) => p.category === 'accessories' && /keyboard|clavier|apex|huntsman|alloy/.test(hay(p)) },
-  { id: 'mouse', label: 'Mouse', group: 'accessories', match: (p) => p.category === 'accessories' && /mouse|souris|viper|rival|haste/.test(hay(p)) && !/pad/.test(hay(p)) },
-  { id: 'headset', label: 'Headset', group: 'accessories', match: (p) => p.category === 'accessories' && /headset|casque|arctis|blackshark|cloud|g pro x 2/.test(hay(p)) },
-  { id: 'monitor', label: 'Monitor', group: 'accessories', match: (p) => p.category === 'accessories' && /monitor|27"|24"/.test(hay(p)) },
-  { id: 'controller', label: 'Manette', group: 'accessories', match: (p) => p.category === 'accessories' && /controller|manette|xbox|dualsense|dualshock|8bitdo/.test(hay(p)) },
-  { id: 'webcam', label: 'Webcam', group: 'accessories', match: (p) => p.category === 'accessories' && /webcam|brio|c920/.test(hay(p)) },
-  { id: 'mic', label: 'Microphone', group: 'accessories', match: (p) => p.category === 'accessories' && /mic|yeti/.test(hay(p)) && !/casque|headset/.test(hay(p)) },
-  { id: 'mousepad', label: 'Mousepad', group: 'accessories', match: (p) => p.category === 'accessories' && /pad|qck|g640/.test(hay(p)) },
-  { id: 'speakers', label: 'Speakers', group: 'accessories', match: (p) => p.category === 'accessories' && /speaker/.test(hay(p)) },
-  { id: 'network', label: 'Network', group: 'accessories', match: (p) => p.category === 'accessories' && /wifi|router|archer/.test(hay(p)) },
-  { id: 'misc', label: 'Cables & paste', group: 'parts', match: (p) => p.category === 'case' && /paste|cable|nt-h2/.test(hay(p)) },
-  { id: 'laptop', label: 'Laptop', group: 'machines', match: (p) => p.category === 'laptop' },
-  { id: 'ready', label: 'PC pret', group: 'machines', match: (p) => p.category === 'ready' },
-  { id: 'usb', label: 'USB & flash', group: 'desk', match: (p) => p.category === 'usb' },
-  { id: 'console', label: 'Console', group: 'desk', match: (p) => p.category === 'console' },
-  { id: 'repair', label: 'Reparation', group: 'desk', match: (p) => p.category === 'repair' }
+  { id: 'case', label: 'Boîtier', group: 'parts', match: (p) => p.category === 'case' && p.compat?.form },
+  { id: 'psu', label: 'Alimentation', group: 'parts', match: (p) => Boolean(p.compat?.psuWatts) },
+  { id: 'cooler', label: 'Refroidissement', group: 'parts', match: byCategory('cooling') },
+  { id: 'fan', label: 'Ventilateurs', group: 'parts', match: (p) => p.category === 'case' && /fan/.test(hay(p)) && !Array.isArray(p.compat?.socket) && !p.compat?.form && !p.compat?.psuWatts },
+  // Les deux ids ci-dessous restent aussi des emplacements facultatifs du
+  // configurateur PC ; ils sont enrichis sans casser les anciennes configs.
+  { id: 'misc', label: 'Câbles & pâte', group: 'parts', match: (p) => p.category === 'case' && /paste|pâte|cable|câble|nt-h2/.test(hay(p)) },
+  { id: 'components_used', label: 'Composants occasion', group: 'parts', match: (p) => ['cpu', 'gpu', 'motherboard', 'memory', 'case', 'cooling'].includes(p.category) && byCondition('used', 'refurbished')(p) },
+
+  // Ordinateurs
+  { id: 'laptop', label: 'PC portables neufs', group: 'machines', match: (p) => p.category === 'laptop' && conditionOf(p) === 'new' },
+  { id: 'laptop_used', label: 'Laptops occasion', group: 'machines', match: (p) => p.category === 'laptop' && byCondition('used', 'refurbished')(p) },
+  { id: 'laptop_student', label: 'Laptops étudiant', group: 'machines', match: (p) => p.category === 'laptop' && hasUse('student')(p) },
+  { id: 'laptop_business', label: 'Laptops pro', group: 'machines', match: (p) => p.category === 'laptop' && hasUse('business')(p) },
+  { id: 'laptop_gaming', label: 'Laptops gaming', group: 'machines', match: (p) => p.category === 'laptop' && hasUse('gaming')(p) },
+  { id: 'ready', label: 'PC prêts', group: 'machines', match: byCategory('ready') },
+  { id: 'desktop', label: 'PC de marque', group: 'machines', match: byCategory('desktop') },
+  { id: 'mini_pc', label: 'Mini PC', group: 'machines', match: (p) => p.category === 'desktop' && tagged('mini')(p) },
+  { id: 'allinone', label: 'Tout-en-un', group: 'machines', match: byCategory('allinone') },
+  { id: 'tablet', label: 'Tablettes', group: 'machines', match: byCategory('tablet') },
+  { id: 'workstation', label: 'Workstations', group: 'machines', match: (p) => p.category === 'desktop' && tagged('workstation')(p) },
+  { id: 'server', label: 'Serveurs', group: 'machines', match: byCategory('server') },
+  { id: 'pc_used', label: 'PC occasion', group: 'machines', match: (p) => ['desktop', 'ready', 'allinone'].includes(p.category) && byCondition('used', 'refurbished')(p) },
+
+  // Imprimantes et commerces
+  { id: 'printer_laser', label: 'Imprimantes laser', group: 'printing', match: (p) => p.category === 'printer' && !tagged('thermal')(p) && !tagged('label')(p) && !tagged('matrix')(p) && !/ecotank|smart tank/.test(hay(p)) },
+  { id: 'printer_ink', label: 'Jet d’encre', group: 'printing', match: (p) => p.category === 'printer' && /ecotank|smart tank|jet d.encre/.test(hay(p)) },
+  { id: 'printer_thermal', label: 'Tickets thermiques', group: 'printing', match: (p) => p.category === 'printer' && tagged('thermal')(p) },
+  { id: 'printer_label', label: 'Étiquettes & code-barres', group: 'printing', match: (p) => p.category === 'printer' && tagged('label')(p) },
+  { id: 'printer_matrix', label: 'Imprimantes matricielles', group: 'printing', match: (p) => p.category === 'printer' && tagged('matrix')(p) },
+  { id: 'scanner', label: 'Scanners', group: 'printing', match: byCategory('scanner') },
+  { id: 'pos', label: 'POS & caisse', group: 'printing', match: byCategory('pos') },
+  { id: 'toner', label: 'Toners', group: 'printing', match: (p) => p.category === 'consumables' && tagged('toner')(p) },
+  { id: 'ink', label: 'Encres & cartouches', group: 'printing', match: (p) => p.category === 'consumables' && tagged('ink')(p) },
+  { id: 'paper', label: 'Papier & rouleaux', group: 'printing', match: (p) => p.category === 'consumables' && tagged('paper')(p) },
+
+  // Périphériques et accessoires laptop
+  { id: 'keyboard', label: 'Claviers', group: 'peripherals', match: (p) => p.category === 'accessories' && /keyboard|clavier|apex|huntsman|alloy/.test(hay(p)) },
+  { id: 'mouse', label: 'Souris', group: 'peripherals', match: (p) => p.category === 'accessories' && /mouse|souris|viper|rival|haste/.test(hay(p)) && !/pad/.test(hay(p)) },
+  { id: 'headset', label: 'Casques', group: 'peripherals', match: (p) => p.category === 'accessories' && /headset|casque|arctis|blackshark|cloud|g pro x 2/.test(hay(p)) },
+  { id: 'monitor', label: 'Écrans', group: 'peripherals', match: (p) => (p.category === 'accessories' && /monitor|écran|ecran|27"|24"/.test(hay(p))) },
+  { id: 'controller', label: 'Manettes', group: 'peripherals', match: (p) => p.category === 'accessories' && /controller|manette|xbox|dualsense|dualshock|8bitdo/.test(hay(p)) },
+  { id: 'webcam', label: 'Webcams', group: 'peripherals', match: (p) => p.category === 'accessories' && /webcam|brio|c920/.test(hay(p)) },
+  { id: 'mic', label: 'Microphones', group: 'peripherals', match: (p) => p.category === 'accessories' && /mic|yeti/.test(hay(p)) && !/casque|headset/.test(hay(p)) },
+  { id: 'mousepad', label: 'Tapis souris', group: 'peripherals', match: (p) => p.category === 'accessories' && /pad|qck|g640/.test(hay(p)) },
+  { id: 'speakers', label: 'Enceintes', group: 'peripherals', match: (p) => p.category === 'accessories' && /speaker/.test(hay(p)) },
+  { id: 'laptop_accessories', label: 'Accessoires laptop', group: 'peripherals', match: byCategory('laptop_accessories') },
+  { id: 'laptop_charger', label: 'Chargeurs laptop', group: 'peripherals', match: (p) => p.category === 'laptop_accessories' && /chargeur/.test(hay(p)) },
+  { id: 'laptop_bag', label: 'Sacs & housses', group: 'peripherals', match: (p) => p.category === 'laptop_accessories' && /sac|housse/.test(hay(p)) },
+  { id: 'laptop_cooling', label: 'Refroidisseurs laptop', group: 'peripherals', match: (p) => p.category === 'laptop_accessories' && /refroid|cool/.test(hay(p)) },
+
+  // Réseau et énergie
+  // `network` reste dans le configurateur comme accessoire facultatif ; son
+  // raccourci couvre maintenant le rayon complet au lieu de seulement deux routeurs.
+  { id: 'network', label: 'Réseau', group: 'networking', match: byCategory('network') },
+  { id: 'router', label: 'Routeurs & Wi‑Fi', group: 'networking', match: (p) => p.category === 'network' && /routeur|wifi|wi‑fi/.test(hay(p)) },
+  { id: 'network_repeater', label: 'Répéteurs & points d’accès', group: 'networking', match: (p) => p.category === 'network' && /répéteur|point d.accès/.test(hay(p)) },
+  { id: 'network_switch', label: 'Switchs réseau', group: 'networking', match: (p) => p.category === 'network' && /switch/.test(hay(p)) },
+  { id: 'network_adapter', label: 'Adaptateurs réseau', group: 'networking', match: (p) => p.category === 'network' && /adaptateur|carte réseau/.test(hay(p)) },
+  { id: 'network_cable', label: 'Câbles réseau & CPL', group: 'networking', match: (p) => p.category === 'network' && /câble|cable|cpl/.test(hay(p)) },
+  { id: 'ups', label: 'Onduleurs', group: 'networking', match: (p) => p.category === 'power' && /onduleur|ups/.test(hay(p)) },
+  { id: 'ups_battery', label: 'Batteries onduleur', group: 'networking', match: (p) => p.category === 'power' && /batterie/.test(hay(p)) },
+  { id: 'power_strip', label: 'Multiprises & parafoudre', group: 'networking', match: (p) => p.category === 'power' && /multiprise|parafoudre/.test(hay(p)) },
+
+  // Multimédia, mobilité et mobilier
+  { id: 'multimedia', label: 'Multimédia & création', group: 'lifestyle', match: byCategory('multimedia') },
+  { id: 'projector', label: 'Vidéoprojecteurs', group: 'lifestyle', match: (p) => p.category === 'multimedia' && /vidéoprojecteur|projecteur/.test(hay(p)) },
+  { id: 'creative', label: 'Création & streaming', group: 'lifestyle', match: (p) => p.category === 'multimedia' && (hasUse('creative')(p) || hasUse('business')(p)) },
+  { id: 'phone', label: 'Téléphonie & power bank', group: 'lifestyle', match: byCategory('phone') },
+  { id: 'furniture', label: 'Mobilier informatique', group: 'lifestyle', match: byCategory('furniture') },
+  { id: 'chairs', label: 'Chaises PC', group: 'lifestyle', match: (p) => p.category === 'furniture' && /chaise|siège|fauteuil/.test(hay(p)) },
+  { id: 'desks', label: 'Bureaux & supports', group: 'lifestyle', match: (p) => p.category === 'furniture' && /bureau|support|bras/.test(hay(p)) },
+  { id: 'usb', label: 'USB & flash', group: 'lifestyle', match: byCategory('usb') },
+  { id: 'console', label: 'Consoles', group: 'lifestyle', match: byCategory('console') },
+  { id: 'repair', label: 'Réparations', group: 'lifestyle', match: byCategory('repair') },
+
+  // Raccourci transversal : état occasion/reconditionné, tous rayons confondus.
+  { id: 'deals', label: 'Occasion & bonnes affaires', group: 'deals', match: (p) => byCondition('used', 'refurbished')(p) || tagged('budget')(p) }
 ]
 
 export function brandsForLine(lineId) {
@@ -193,8 +320,8 @@ export function isKnownKind(value) {
  */
 export function kindForCategory(category) {
   if (category === 'repair') return 'service'
-  if (category === 'laptop' || category === 'ready') return 'machine'
-  if (category === 'accessories') return 'accessory'
+  if (['laptop', 'desktop', 'allinone', 'tablet', 'server', 'ready'].includes(category)) return 'machine'
+  if (['accessories', 'usb', 'console', 'printer', 'scanner', 'pos', 'consumables', 'network', 'power', 'laptop_accessories', 'multimedia', 'furniture', 'phone'].includes(category)) return 'accessory'
   return 'part'
 }
 
@@ -212,7 +339,7 @@ export const BRANDS = [
   'Xigmatek', 'Tenda', '1st Player', 'Ares', 'Hybrok', 'Antec', 'GameNote', 'Ugreen'
 ]
 
-export const SOCKETS = ['AM5', 'LGA1700', 'LGA1851']
+export const SOCKETS = ['AM4', 'AM5', 'LGA1700', 'LGA1851']
 
 export const PRICE_PRESETS = [
   { id: 'any', label: 'Any price', min: 0, max: 999999 },
@@ -631,7 +758,17 @@ const PRODUCTS_CORE = [
   }
 ]
 
-export const PRODUCTS = [...PRODUCTS_CORE, ...EXTRA, ...DZ_EXTRA].map(ensureProductPhotos)
+// Les anciennes références n'avaient pas encore forcément l'état/usage ; on
+// les normalise ici afin que les nouveaux filtres restent fiables avec tout le
+// catalogue, pas seulement avec les nouveaux rayons.
+export const PRODUCTS = [...PRODUCTS_CORE, ...EXTRA, ...DZ_EXTRA, ...CATALOG_EXTENSIONS].map((product) =>
+  ensureProductPhotos({
+    ...product,
+    condition: conditionOf(product),
+    uses: usesOf(product),
+    warrantyMonths: Number.isFinite(Number(product.warrantyMonths)) ? Math.max(0, Math.floor(Number(product.warrantyMonths))) : 0
+  })
+)
 
 function firstMatch(text, rules, fallback = {}) {
   for (const [re, spec] of rules) {

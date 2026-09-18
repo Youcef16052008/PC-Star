@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 // LOT 2.5 (F9) : `PRODUCTS` est le catalogue de base COMPLET — non filtré par
 // stock ni par masquage. C'est la seule source qui contient les SKU des
 // références en rupture ou masquées.
-import { CATEGORIES, PRODUCTS, money } from './data.js'
+import { CATEGORIES, PRODUCTS, PRODUCT_CONDITIONS, PRODUCT_USES, money } from './data.js'
 import { addPanel, addProduct, deleteCustomer, hideProduct, setProductPhotos, togglePanel } from './shopStore.js'
 import PartThumb from './PartThumb.jsx'
 import * as api from './api.js'
@@ -12,6 +12,7 @@ import { compressDataUrl } from './photoCompress.js'
 // d'envoi, la borne du corps côté serveur et le refus par photo.
 import { MAX_INPUT_BYTES, MAX_PHOTOS, MAX_UPLOAD_BODY_BYTES, payloadOverBudget, toMb } from './limits.js'
 import { labelOr } from './i18n.js'
+import { COMPAT_FORMS, COMPAT_MEMORY, COMPAT_SOCKETS, isValidBarcode } from './productMeta.js'
 
 /**
  * Traduit une réponse d'API en message utilisateur.
@@ -97,18 +98,19 @@ function readFilesAsDataUrls(fileList) {
 // qu'elle applique (`payloadOverBudget`) — la même fonction est testable hors
 // React, et client comme documentation parlent d'une seule borne.
 
+function emptyProductForm(category = 'accessories') {
+  return {
+    name: '', price: '', stock: '1', category, brand: 'PC Star', short: '', sku: '',
+    model: '', barcode: '', compareAtPrice: '', lowStockAt: '2',
+    description: '', condition: 'new', conditionNote: '', uses: ['office'],
+    warrantyMonths: '12', tagsText: '', details: [{ label: '', value: '' }],
+    compat: { socket: '', memory: '', form: '', psuWatts: '', psuMin: '' }, photos: []
+  }
+}
+
 export default function MasterPage({ t, lang, user, users, onUsers, products, masterCatalog, meta, onMeta, basePanels, setToast, onBack, apiOnline, onStockRefresh }) {
   const [tab, setTab] = useState('products')
-  const [form, setForm] = useState({
-    name: '',
-    price: '',
-    stock: '1',
-    category: 'accessories',
-    brand: 'PC Star',
-    short: '',
-    sku: '',
-    photos: []
-  })
+  const [form, setForm] = useState(() => emptyProductForm())
   const [panelTitle, setPanelTitle] = useState({ ar: '', fr: '', en: '' })
   const [panelCat, setPanelCat] = useState('accessories')
   const [editId, setEditId] = useState(null)
@@ -198,8 +200,45 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, ma
     e.target.value = ''
   }
 
+  function toggleUse(useId) {
+    setForm((current) => ({
+      ...current,
+      uses: current.uses.includes(useId)
+        ? current.uses.filter((id) => id !== useId)
+        : [...current.uses, useId]
+    }))
+  }
+
+  function updateDetail(index, key, value) {
+    setForm((current) => ({
+      ...current,
+      details: current.details.map((detail, i) => i === index ? { ...detail, [key]: value } : detail)
+    }))
+  }
+
+  function productPayload() {
+    return {
+      name: form.name, price: Number(form.price), stock: Number(form.stock),
+      category: form.category, brand: form.brand, short: form.short, sku: form.sku || undefined,
+      model: form.model, barcode: form.barcode, description: form.description,
+      condition: form.condition, conditionNote: form.conditionNote, uses: form.uses,
+      warrantyMonths: Number(form.warrantyMonths), compareAtPrice: form.compareAtPrice,
+      lowStockAt: form.lowStockAt, tags: form.tagsText.split(','), details: form.details,
+      compat: form.compat
+    }
+  }
+
   async function submitProduct(e) {
     e.preventDefault()
+    const payload = productPayload()
+    if (!isValidBarcode(payload.barcode)) {
+      setToast(t('masterBarcodeInvalid'))
+      return
+    }
+    if (Number(payload.compareAtPrice) > 0 && Number(payload.compareAtPrice) < Number(payload.price)) {
+      setToast(t('masterComparePriceInvalid'))
+      return
+    }
     if (apiOnline) {
       // LOT 8.5 (A5) : refus AVANT l'envoi si le corps dépasserait le budget.
       const over = payloadOverBudget(form.photos)
@@ -207,16 +246,7 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, ma
         setToast(t('masterPhotosTooHeavy', { size: toMb(over), limit: toMb(MAX_UPLOAD_BODY_BYTES) }))
         return
       }
-      const r = await api.masterCreateProduct({
-        name: form.name,
-        price: Number(form.price),
-        stock: Number(form.stock),
-        category: form.category,
-        brand: form.brand,
-        short: form.short,
-        sku: form.sku || undefined,
-        photoDataUrls: form.photos
-      })
+      const r = await api.masterCreateProduct({ ...payload, photoDataUrls: form.photos })
       if (!r.ok) {
         // P22 (bug H) : le serveur répond `sku_taken` quand le SKU saisi existe
         // déjà — un message dédié plutôt que « échec de création ».
@@ -224,7 +254,7 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, ma
         else errToast(setToast, t, r, 'masterCreateFail')
         return
       }
-      setForm({ name: '', price: '', stock: '1', category: form.category, brand: 'PC Star', short: '', sku: '', photos: [] })
+      setForm(emptyProductForm(form.category))
       setToast(t('masterAdded'))
       setApiTick((x) => x + 1)
       onStockRefresh?.()
@@ -232,16 +262,7 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, ma
     }
     const res = addProduct(
       meta,
-      {
-        name: form.name,
-        price: Number(form.price),
-        stock: Number(form.stock),
-        category: form.category,
-        brand: form.brand,
-        short: form.short,
-        sku: form.sku || undefined,
-        photos: form.photos
-      },
+      { ...payload, photos: form.photos },
       // P22 (bug H) : le catalogue de base compte aussi — un SKU saisi ne doit
       // pas doubler une référence existante.
       // LOT 2.5 (F9) : catalogue COMPLET (base non filtrée + master + extra),
@@ -267,7 +288,7 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, ma
       return
     }
     onMeta(res.meta)
-    setForm({ name: '', price: '', stock: '1', category: form.category, brand: 'PC Star', short: '', sku: '', photos: [] })
+      setForm(emptyProductForm(form.category))
     setToast(t('masterAdded'))
   }
 
@@ -290,7 +311,7 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, ma
           setToast(t('masterPhotosTooHeavy', { size: toMb(over), limit: toMb(MAX_UPLOAD_BODY_BYTES) }))
           return
         }
-        const up = await api.masterPhotos(editId, dataUrls)
+        const up = await api.masterPhotos(editId, dataUrls, paths)
         if (!up.ok) {
           errToast(setToast, t, up, 'masterActionFail')
           return
@@ -451,70 +472,188 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, ma
 
       {tab === 'products' && (
         <div className="row g-4">
-          <div className="col-lg-4">
-            <form className="card shadow-sm border-0" onSubmit={submitProduct}>
+          <div className="col-lg-5">
+            <form className="card shadow-sm border-0 master-product-form" onSubmit={submitProduct}>
               <div className="card-body">
-                <h2 className="h5 mb-3">{t('masterAddProduct')}</h2>
-                <div className="mb-2">
-                  <label className="form-label small">{t('masterName')}</label>
-                  <input className="form-control" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required />
-                </div>
-                <div className="mb-2">
-                  <label className="form-label small">{t('masterSku')}</label>
-                  <input className="form-control" value={form.sku} placeholder={t('masterSkuPh')} onChange={(e) => setForm({ ...form, sku: e.target.value })} />
-                </div>
-                <div className="row g-2 mb-2">
-                  <div className="col-6">
-                    <label className="form-label small">{t('masterPrice')}</label>
-                    <input className="form-control" type="number" min="0" value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value })} required />
+                <div className="d-flex align-items-start justify-content-between gap-3 mb-3">
+                  <div>
+                    <h2 className="h5 mb-1">{t('masterAddProduct')}</h2>
+                    <p className="small text-secondary mb-0">{t('masterProductFormIntro')}</p>
                   </div>
-                  <div className="col-6">
-                    <label className="form-label small">{t('masterStock')}</label>
-                    <input className="form-control" type="number" min="0" value={form.stock} onChange={(e) => setForm({ ...form, stock: e.target.value })} />
+                  <span className="badge text-bg-light border">{t('masterRequiredFields')}</span>
+                </div>
+
+                <fieldset className="master-form-section">
+                  <legend>{t('masterIdentity')}</legend>
+                  <div className="mb-2">
+                    <label className="form-label small" htmlFor="master-product-name">{t('masterName')}</label>
+                    <input id="master-product-name" className="form-control" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required />
                   </div>
-                </div>
-                <div className="mb-2">
-                  <label className="form-label small">{t('masterCategory')}</label>
-                  <select className="form-select" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })}>
-                    {CATEGORIES.filter((c) => c.id !== 'all').map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {labelOr(t, `cat_${c.id}`, c.label || c.id)}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="mb-2">
-                  <label className="form-label small">{t('masterBrand')}</label>
-                  <input className="form-control" value={form.brand} onChange={(e) => setForm({ ...form, brand: e.target.value })} />
-                </div>
-                <div className="mb-2">
-                  <label className="form-label small">{t('masterShort')}</label>
-                  <input className="form-control" value={form.short} onChange={(e) => setForm({ ...form, short: e.target.value })} />
-                </div>
-                <div className="mb-2">
-                  <label className="form-label small">{t('masterPhotos')}</label>
+                  <div className="row g-2">
+                    <div className="col-md-6">
+                      <label className="form-label small" htmlFor="master-product-sku">{t('masterSku')}</label>
+                      <input id="master-product-sku" className="form-control" value={form.sku} placeholder={t('masterSkuPh')} onChange={(e) => setForm({ ...form, sku: e.target.value })} />
+                    </div>
+                    <div className="col-md-6">
+                      <label className="form-label small" htmlFor="master-product-model">{t('masterModel')}</label>
+                      <input id="master-product-model" className="form-control" value={form.model} placeholder={t('masterModelPh')} onChange={(e) => setForm({ ...form, model: e.target.value })} />
+                    </div>
+                    <div className="col-12">
+                      <label className="form-label small" htmlFor="master-product-barcode">{t('masterBarcode')}</label>
+                      <input id="master-product-barcode" className="form-control" value={form.barcode} placeholder={t('masterBarcodePh')} inputMode="numeric" onChange={(e) => setForm({ ...form, barcode: e.target.value })} />
+                    </div>
+                  </div>
+                </fieldset>
+
+                <fieldset className="master-form-section">
+                  <legend>{t('masterCommercial')}</legend>
+                  <div className="row g-2 mb-2">
+                    <div className="col-md-6">
+                      <label className="form-label small" htmlFor="master-product-price">{t('masterPrice')}</label>
+                      <input id="master-product-price" className="form-control" type="number" min="0" value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value })} required />
+                    </div>
+                    <div className="col-md-6">
+                      <label className="form-label small" htmlFor="master-product-compare">{t('masterCompareAtPrice')}</label>
+                      <input id="master-product-compare" className="form-control" type="number" min="0" value={form.compareAtPrice} onChange={(e) => setForm({ ...form, compareAtPrice: e.target.value })} />
+                    </div>
+                    <div className="col-md-6">
+                      <label className="form-label small" htmlFor="master-product-stock">{t('masterStock')}</label>
+                      <input id="master-product-stock" className="form-control" type="number" min="0" value={form.stock} onChange={(e) => setForm({ ...form, stock: e.target.value })} />
+                    </div>
+                    <div className="col-md-6">
+                      <label className="form-label small" htmlFor="master-product-low-stock">{t('masterLowStockAt')}</label>
+                      <input id="master-product-low-stock" className="form-control" type="number" min="0" max="9999" value={form.lowStockAt} onChange={(e) => setForm({ ...form, lowStockAt: e.target.value })} />
+                    </div>
+                  </div>
+                  <div className="row g-2">
+                    <div className="col-md-6">
+                      <label className="form-label small" htmlFor="master-product-condition">{t('masterCondition')}</label>
+                      <select id="master-product-condition" className="form-select" value={form.condition} onChange={(e) => setForm({ ...form, condition: e.target.value })}>
+                        {PRODUCT_CONDITIONS.map((condition) => <option key={condition.id} value={condition.id}>{t(condition.labelKey)}</option>)}
+                      </select>
+                    </div>
+                    <div className="col-md-6">
+                      <label className="form-label small" htmlFor="master-product-warranty">{t('masterWarranty')}</label>
+                      <input id="master-product-warranty" className="form-control" type="number" min="0" max="60" value={form.warrantyMonths} onChange={(e) => setForm({ ...form, warrantyMonths: e.target.value })} />
+                    </div>
+                  </div>
+                </fieldset>
+
+                <fieldset className="master-form-section">
+                  <legend>{t('masterCatalogDetails')}</legend>
+                  <div className="mb-2">
+                    <label className="form-label small" htmlFor="master-product-category">{t('masterCategory')}</label>
+                    <select id="master-product-category" className="form-select" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })}>
+                      {CATEGORIES.filter((c) => c.id !== 'all').map((c) => (
+                        <option key={c.id} value={c.id}>{labelOr(t, `cat_${c.id}`, c.label || c.id)}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="mb-2">
+                    <label className="form-label small" htmlFor="master-product-brand">{t('masterBrand')}</label>
+                    <input id="master-product-brand" className="form-control" value={form.brand} onChange={(e) => setForm({ ...form, brand: e.target.value })} />
+                  </div>
+                  <div className="mb-2">
+                    <label className="form-label small" htmlFor="master-product-short">{t('masterShort')}</label>
+                    <input id="master-product-short" className="form-control" value={form.short} onChange={(e) => setForm({ ...form, short: e.target.value })} />
+                  </div>
+                  <div className="mb-2">
+                    <label className="form-label small" htmlFor="master-product-description">{t('masterDescription')}</label>
+                    <textarea id="master-product-description" className="form-control" rows="4" maxLength="2000" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
+                    <div className="form-text">{t('masterDescriptionHint')}</div>
+                  </div>
+                  <div className="mb-2">
+                    <label className="form-label small" htmlFor="master-product-condition-note">{t('masterConditionNote')}</label>
+                    <textarea id="master-product-condition-note" className="form-control" rows="2" maxLength="500" value={form.conditionNote} onChange={(e) => setForm({ ...form, conditionNote: e.target.value })} />
+                  </div>
+                  <div className="mb-2">
+                    <label className="form-label small" htmlFor="master-product-tags">{t('masterTags')}</label>
+                    <input id="master-product-tags" className="form-control" value={form.tagsText} placeholder={t('masterTagsPh')} onChange={(e) => setForm({ ...form, tagsText: e.target.value })} />
+                    <div className="form-text">{t('masterTagsHint')}</div>
+                  </div>
+                  <div>
+                    <span className="form-label small d-block mb-1">{t('masterUses')}</span>
+                    <div className="d-flex flex-wrap gap-2">
+                      {PRODUCT_USES.map((use) => (
+                        <div className="form-check form-check-inline me-0" key={use.id}>
+                          <input className="form-check-input" id={`master-use-${use.id}`} type="checkbox" checked={form.uses.includes(use.id)} onChange={() => toggleUse(use.id)} />
+                          <label className="form-check-label small" htmlFor={`master-use-${use.id}`}>{t(use.labelKey)}</label>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </fieldset>
+
+                <fieldset className="master-form-section">
+                  <legend>{t('masterTechnicalDetails')}</legend>
+                  <p className="small text-secondary mb-2">{t('masterTechnicalDetailsHint')}</p>
+                  {form.details.map((detail, index) => (
+                    <div className="row g-2 align-items-end mb-2" key={index}>
+                      <div className="col-5">
+                        <label className="visually-hidden" htmlFor={`detail-label-${index}`}>{t('masterDetailLabel')}</label>
+                        <input id={`detail-label-${index}`} className="form-control form-control-sm" value={detail.label} placeholder={t('masterDetailLabel')} onChange={(e) => updateDetail(index, 'label', e.target.value)} />
+                      </div>
+                      <div className="col-6">
+                        <label className="visually-hidden" htmlFor={`detail-value-${index}`}>{t('masterDetailValue')}</label>
+                        <input id={`detail-value-${index}`} className="form-control form-control-sm" value={detail.value} placeholder={t('masterDetailValue')} onChange={(e) => updateDetail(index, 'value', e.target.value)} />
+                      </div>
+                      <div className="col-1 d-grid">
+                        <button className="btn btn-sm btn-outline-secondary" type="button" disabled={form.details.length === 1} onClick={() => setForm((current) => ({ ...current, details: current.details.filter((_, i) => i !== index) }))} aria-label={t('remove')}>×</button>
+                      </div>
+                    </div>
+                  ))}
+                  <button className="btn btn-sm btn-outline-secondary" type="button" disabled={form.details.length >= 12} onClick={() => setForm((current) => ({ ...current, details: [...current.details, { label: '', value: '' }] }))}>
+                    + {t('masterAddDetail')}
+                  </button>
+                </fieldset>
+
+                <fieldset className="master-form-section">
+                  <legend>{t('masterCompatibility')}</legend>
+                  <div className="row g-2">
+                    <div className="col-md-6">
+                      <label className="form-label small" htmlFor="master-compat-socket">{t('masterSocket')}</label>
+                      <select id="master-compat-socket" className="form-select form-select-sm" value={form.compat.socket} onChange={(e) => setForm({ ...form, compat: { ...form.compat, socket: e.target.value } })}>
+                        <option value="">—</option>{COMPAT_SOCKETS.map((value) => <option key={value} value={value}>{value}</option>)}
+                      </select>
+                    </div>
+                    <div className="col-md-6">
+                      <label className="form-label small" htmlFor="master-compat-memory">{t('masterMemory')}</label>
+                      <select id="master-compat-memory" className="form-select form-select-sm" value={form.compat.memory} onChange={(e) => setForm({ ...form, compat: { ...form.compat, memory: e.target.value } })}>
+                        <option value="">—</option>{COMPAT_MEMORY.map((value) => <option key={value} value={value}>{value}</option>)}
+                      </select>
+                    </div>
+                    <div className="col-md-6">
+                      <label className="form-label small" htmlFor="master-compat-form">{t('masterFormFactor')}</label>
+                      <select id="master-compat-form" className="form-select form-select-sm" value={form.compat.form} onChange={(e) => setForm({ ...form, compat: { ...form.compat, form: e.target.value } })}>
+                        <option value="">—</option>{COMPAT_FORMS.map((value) => <option key={value} value={value}>{value}</option>)}
+                      </select>
+                    </div>
+                    <div className="col-md-3">
+                      <label className="form-label small" htmlFor="master-compat-watts">{t('masterPsuWatts')}</label>
+                      <input id="master-compat-watts" className="form-control form-control-sm" type="number" min="100" max="2500" value={form.compat.psuWatts} onChange={(e) => setForm({ ...form, compat: { ...form.compat, psuWatts: e.target.value } })} />
+                    </div>
+                    <div className="col-md-3">
+                      <label className="form-label small" htmlFor="master-compat-min">{t('masterPsuMin')}</label>
+                      <input id="master-compat-min" className="form-control form-control-sm" type="number" min="100" max="2500" value={form.compat.psuMin} onChange={(e) => setForm({ ...form, compat: { ...form.compat, psuMin: e.target.value } })} />
+                    </div>
+                  </div>
+                </fieldset>
+
+                <fieldset className="master-form-section mb-3">
+                  <legend>{t('masterPhotos')}</legend>
                   <input className="form-control" type="file" accept="image/*" multiple onChange={onFormPhotos} />
                   <div className="form-text">{t('masterPhotosHint')}</div>
-                </div>
-                {form.photos.length > 0 && (
-                  <div className="d-flex flex-wrap gap-2 mb-3">
-                    {form.photos.map((src, i) => (
-                      <button
-                        key={i}
-                        type="button"
-                        className="btn p-0 border rounded overflow-hidden"
-                        style={{ width: 56, height: 56 }}
-                        onClick={() => setForm((f) => ({ ...f, photos: f.photos.filter((_, j) => j !== i) }))}
-                        title={t('remove')}
-                      >
-                        <img src={src} alt="" className="w-100 h-100" style={{ objectFit: 'cover' }} />
-                      </button>
-                    ))}
-                  </div>
-                )}
-                <button className="btn btn-success w-100" type="submit">
-                  {t('masterAddProduct')}
-                </button>
+                  {form.photos.length > 0 && (
+                    <div className="d-flex flex-wrap gap-2 mt-2">
+                      {form.photos.map((src, i) => (
+                        <button key={i} type="button" className="btn p-0 border rounded overflow-hidden" style={{ width: 56, height: 56 }} onClick={() => setForm((f) => ({ ...f, photos: f.photos.filter((_, j) => j !== i) }))} title={t('remove')}>
+                          <img src={src} alt="" className="w-100 h-100" style={{ objectFit: 'cover' }} />
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </fieldset>
+                <button className="btn btn-success w-100" type="submit">{t('masterAddProduct')}</button>
               </div>
             </form>
           </div>
