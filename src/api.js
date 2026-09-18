@@ -152,6 +152,11 @@ export async function patchOrder(code, status) {
   return req(`/api/orders/${encodeURIComponent(code)}`, { method: 'PATCH', body: { status } })
 }
 
+// Le comptoir fixe ou décale la date de retrait (sans toucher au statut).
+export async function patchOrderPickup(code, pickupDate) {
+  return req(`/api/orders/${encodeURIComponent(code)}`, { method: 'PATCH', body: { pickupDate } })
+}
+
 export async function cancelOrder(code) {
   return req(`/api/orders/${encodeURIComponent(code)}/cancel`, { method: 'POST' })
 }
@@ -196,6 +201,11 @@ export async function masterCreateProduct(body) {
 
 export async function masterUpdateProduct(id, body) {
   return req(`/api/master/products/${encodeURIComponent(id)}`, { method: 'PUT', body })
+}
+
+// Suppression définitive d'un produit créé par le maître (base → masquer seulement).
+export async function masterDeleteProduct(id) {
+  return req(`/api/master/products/${encodeURIComponent(id)}`, { method: 'DELETE' })
 }
 
 export async function masterHideProduct(id, hidden = true) {

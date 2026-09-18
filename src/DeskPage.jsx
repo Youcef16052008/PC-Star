@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { money } from './data.js'
-import { formatDateTime } from './format.js'
+import { formatDateTime, formatDay } from './format.js'
 import { localDay, statusLabelKey, waNumber } from './orderLogic.js'
 import * as api from './api.js'
 
@@ -16,7 +16,7 @@ function badgeClass(status) {
   return 'text-bg-light'
 }
 
-export default function DeskPage({ t, lang, reservations, onStatus, onDelete, setToast }) {
+export default function DeskPage({ t, lang, reservations, onStatus, onPickupDate, onDelete, setToast }) {
   const [filter, setFilter] = useState('all')
   const [q, setQ] = useState('')
   const [busy, setBusy] = useState(null)
@@ -74,6 +74,30 @@ export default function DeskPage({ t, lang, reservations, onStatus, onDelete, se
     } finally {
       setBusy(null)
     }
+  }
+
+  // La date de retrait annoncée au client (PATCH dédié, sans toucher au statut).
+  async function changePickupDate(code, date) {
+    setBusy(code)
+    try {
+      const ok = await onPickupDate?.(code, date)
+      setToast?.(ok ? t('deskPickupOk') : t('deskPickupFail'))
+    } catch {
+      setToast?.(t('deskPickupFail'))
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  // « Rappeler le client » : préparation bientôt terminée — message WhatsApp
+  // avec la date de retrait annoncée (ou le créneau seul, à défaut de date).
+  function remindLink(r) {
+    const num = waNumber(r.phone)
+    if (!num) return null
+    const date = r.pickupDate ? formatDay(r.pickupDate, lang) : ''
+    const when = [date, r.slot || ''].filter(Boolean).join(' · ')
+    const msg = t('deskRemindMsg', { code: r.code, name: r.name, when })
+    return `https://wa.me/${num}?text=${encodeURIComponent(msg)}`
   }
 
   // P19 : suppression définitive — pour les commandes de test du master, qui
@@ -195,6 +219,9 @@ export default function DeskPage({ t, lang, reservations, onStatus, onDelete, se
                       </span>
                     </div>
                     <div className="small text-secondary mb-1">
+                      {r.pickupDate ? (
+                        <span className="fw-semibold text-body me-1">{formatDay(r.pickupDate, lang)} ·</span>
+                      ) : null}
                       {r.slot || '—'} · {formatAt(r.at)}
                     </div>
                     <h2 className="h6 mb-1">{r.name}</h2>
@@ -248,6 +275,29 @@ export default function DeskPage({ t, lang, reservations, onStatus, onDelete, se
                         >
                           {t('deskMarkPicked')}
                         </button>
+                      )}
+                      {(st === 'new' || st === 'preparing' || st === 'ready') && (
+                        <input
+                          type="date"
+                          className="form-control form-control-sm"
+                          style={{ maxWidth: 150 }}
+                          value={r.pickupDate || ''}
+                          disabled={busy === r.code}
+                          title={t('deskPickupDate')}
+                          aria-label={t('deskPickupDate')}
+                          onChange={(e) => changePickupDate(r.code, e.target.value)}
+                        />
+                      )}
+                      {(st === 'preparing' || st === 'ready') && remindLink(r) && (
+                        <a
+                          className="btn btn-sm btn-outline-primary"
+                          href={remindLink(r)}
+                          target="_blank"
+                          rel="noreferrer"
+                          title={t('deskRemind')}
+                        >
+                          {t('deskRemind')}
+                        </a>
                       )}
                       {/* P6 : contact WhatsApp client disponible à tout moment
                           (avant : uniquement au statut « prêt ») */}

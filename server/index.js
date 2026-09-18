@@ -46,6 +46,7 @@ import {
   placeOrder,
   publicCatalog,
   purgeUser,
+  setOrderPickupDate,
   setOrderStatus,
   deleteOrder
 } from './catalog.js'
@@ -67,6 +68,7 @@ import {
   createProduct,
   currentProductPhotos,
   mergeProductPhotos,
+  deleteProductMaster,
   hideProductMaster,
   listMasterProducts,
   ordersToCsv,
@@ -1028,6 +1030,8 @@ export async function handler(req, res) {
             wilaya: orderWilaya,
             // P9 (P7-4) : « journée » locale du client (validée dans placeOrder)
             day: body.day || '',
+            // Date de retrait choisie au checkout (validée dans placeOrder)
+            pickupDate: body.pickupDate,
             payment: 'cash',
             slot: rawSlot,
             // Clé opaque créée par le navigateur avant l'envoi; sa validation et
@@ -1074,22 +1078,36 @@ export async function handler(req, res) {
       return send(res, 201, { ok: true, order })
     }
 
-    // PATCH /api/orders/:code  { status }
+    // PATCH /api/orders/:code  { status?, pickupDate? } — au moins un des deux.
     if (req.method === 'PATCH' && pathname.startsWith('/api/orders/')) {
       const auth = await userFromReq(req)
       if (!auth || auth.user.role !== 'master') return send(res, 403, { ok: false, error: 'forbidden' })
       const code = decodeURIComponent(pathname.split('/').pop())
       const body = await readBody(req)
       const status = String(body.status || '')
+      const hasPickup = body.pickupDate != null
+      if (!status && !hasPickup) return send(res, 400, { ok: false, error: 'status' })
       let result = null
       await updateDbAsync((db) => {
-        result = setOrderStatus(db, code, status)
+        result = null
+        if (status) {
+          result = setOrderStatus(db, code, status)
+          // Statut + date en un seul aller-retour (le « prêt » annonce la date).
+          if (result?.ok && hasPickup) {
+            const pd = setOrderPickupDate(db, code, String(body.pickupDate))
+            if (!pd.ok) result = pd
+          }
+        } else {
+          result = setOrderPickupDate(db, code, String(body.pickupDate))
+        }
         return db
       })
       if (!result?.ok) {
         const codeHttp = result?.error === 'not_found' ? 404 : 400
         return send(res, codeHttp, { ok: false, error: result?.error || 'status' })
       }
+      // Le comptoir d'un autre écran met à jour sa carte sans attendre le poll.
+      broadcastDesk({ type: 'order:updated', order: result.order })
       return send(res, 200, { ok: true, order: result.order })
     }
 
@@ -1223,6 +1241,34 @@ export async function handler(req, res) {
       })
       if (!result?.ok) return send(res, 400, { ok: false, error: result?.error })
       return send(res, 200, { ok: true, product: result.product })
+    }
+
+    // DELETE /api/master/products/:id — suppression DÉFINITIVE d'un produit
+    // créé par le maître (les produits de base se masquent, ils ne se
+    // suppriment pas). Les photos gérées sont nettoyées APRÈS le commit.
+    if (req.method === 'DELETE' && pathname.startsWith('/api/master/products/')) {
+      const auth = await userFromReq(req)
+      if (!auth || auth.user.role !== 'master') return send(res, 403, { ok: false, error: 'forbidden' })
+      const id = decodeURIComponent(pathname.split('/').pop())
+      let result = null
+      await updateDbAsync((db) => {
+        result = deleteProductMaster(db, id)
+        return db
+      })
+      if (!result?.ok) {
+        const st = result?.error === 'not_found' ? 404 : result?.error === 'base' ? 409 : 400
+        return send(res, st, { ok: false, error: result?.error })
+      }
+      // Phase 4 : ne jamais supprimer un chemin qui n'est pas un upload géré.
+      for (const p of result.photos || []) {
+        try {
+          await unlinkUpload(p)
+        } catch {
+          /* best effort : l'objet orphelin éventuel sera repris au cleanup */
+        }
+      }
+      broadcastDesk({ type: 'catalog:changed' })
+      return send(res, 200, { ok: true, id: result.id })
     }
 
     if (req.method === 'POST' && pathname.startsWith('/api/master/products/') && pathname.endsWith('/photos')) {

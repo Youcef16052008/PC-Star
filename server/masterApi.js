@@ -504,6 +504,33 @@ export function hideProductMaster(db, id, hidden = true) {
   return updateProduct(db, id, { hidden })
 }
 
+/**
+ * Suppression DÉFINITIVE d'un produit créé par le maître (extraProducts) et
+ * de son override éventuel. Les produits du catalogue de base ne se
+ * suppriment pas : ils se masquent (`hideProductMaster`), car le code du
+ * configurateur, des lignes de pièces et des tests en dépend structurellement.
+ * L'historique des commandes est conservé (prix et libellés y sont figés).
+ * @returns {{ ok: true, id, photos: string[] }} — photos renvoyées pour le
+ *   cleanup best-effort de la route, APRÈS le commit de la mutation.
+ */
+export function deleteProductMaster(db, id) {
+  if (!id || typeof id !== 'string') return { ok: false, error: 'id' }
+  if (PRODUCTS.some((p) => p?.id === id)) return { ok: false, error: 'base' }
+  const photos = currentProductPhotos(db, id)
+  const extras = db.meta?.extraProducts || []
+  const idx = extras.findIndex((p) => p?.id === id)
+  const hasOverride =
+    db.meta?.productOverrides && Object.prototype.hasOwnProperty.call(db.meta.productOverrides, id)
+  if (idx < 0 && !hasOverride) return { ok: false, error: 'not_found' }
+  if (idx >= 0) db.meta.extraProducts = extras.filter((p) => p?.id !== id)
+  if (hasOverride) delete db.meta.productOverrides[id]
+  if (db.stock && typeof db.stock === 'object') delete db.stock[id]
+  if (Array.isArray(db.meta.hiddenProductIds)) {
+    db.meta.hiddenProductIds = db.meta.hiddenProductIds.filter((x) => x !== id)
+  }
+  return { ok: true, id, photos }
+}
+
 export async function savePhotoDataUrls(productId, dataUrls = []) {
   const out = []
   let i = 0

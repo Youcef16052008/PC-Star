@@ -231,9 +231,19 @@ export function placeOrder(db, body, { userId = null } = {}) {
   // (avant : date locale du serveur = UTC sur Vercel → décalage 1 h).
   const day = /^\d{4}-\d{2}-\d{2}$/.test(String(body.day || '')) ? String(body.day) : localDayOf(new Date())
 
+  // Date de retrait souhaitée par le client (input date du checkout). Format
+  // ISO court uniquement ; faute de choix explicite, le jour de la réservation
+  // est retenu — le comptoir peut toujours la décaler (PATCH master).
+  let pickupDate = day
+  if (body.pickupDate != null && body.pickupDate !== '') {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(body.pickupDate))) return { ok: false, error: 'pickup_date' }
+    pickupDate = String(body.pickupDate)
+  }
+
   const order = {
     code: makeOrderCode(db, day),
     day,
+    pickupDate,
     name: String(body.name || '').trim(),
     phone: String(body.phone || ''),
     carrier: body.carrier || null,
@@ -477,6 +487,22 @@ export function setOrderStatus(db, code, status) {
     return { ok: false, error: 'transition', from, to: status }
   }
   order.status = status
+  order.updatedAt = new Date().toISOString()
+  return { ok: true, order }
+}
+
+/**
+ * Le comptoir fixe ou décale la date de retrait d'une commande (le client la
+ * voit dans « Mes commandes »). Distinct du statut : on peut annoncer une date
+ * sans changer l'état de préparation.
+ */
+export function setOrderPickupDate(db, code, pickupDate) {
+  const order = (db.orders || []).find((o) => o?.code === code)
+  if (!order) return { ok: false, error: 'not_found' }
+  if (typeof pickupDate !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(pickupDate)) {
+    return { ok: false, error: 'pickup_date' }
+  }
+  order.pickupDate = pickupDate
   order.updatedAt = new Date().toISOString()
   return { ok: true, order }
 }

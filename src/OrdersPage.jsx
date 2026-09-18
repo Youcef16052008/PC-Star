@@ -4,7 +4,7 @@ import { money } from './data.js'
 // `new Date(o.at).toLocaleString()` ignorait la langue choisie et rendait la
 // locale du NAVIGATEUR : en mode arabe, le comptoir affichait `ar-DZ` et cette
 // page `fr-FR`, deux formats pour la même commande.
-import { formatDateTime } from './format.js'
+import { formatDateTime, formatDay } from './format.js'
 import * as api from './api.js'
 import { canCancelHere, statusLabelKey } from './orderLogic.js'
 import { loadOrders } from './prefs.js'
@@ -188,6 +188,10 @@ export default function OrdersPage({ t, lang = 'fr', user, apiOnline, mode, onCa
                         </span>
                       </div>
                       <div className="small text-secondary mt-1">
+                        {/* Date de retrait annoncée (client ou comptoir). */}
+                        {o.pickupDate ? (
+                          <span className="text-body fw-semibold me-1">{formatDay(o.pickupDate, lang)} ·</span>
+                        ) : null}
                         {o.slot || '—'} · {formatDateTime(o.at, lang)}
                       </div>
                       <ul className="small mb-1 mt-2">

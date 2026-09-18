@@ -285,7 +285,7 @@ export default function App() {
   const [toast, setToast] = useState('')
   // P8 (P7-3) : état vide du formulaire de retrait — unique source, réutilisé
   // au logout pour ne JAMAIS laisser les infos du client précédent.
-  const [pickup, setPickup] = useState(PICKUP_DEFAULTS)
+  const [pickup, setPickup] = useState({ ...PICKUP_DEFAULTS, pickupDate: localDay(new Date()) })
   const [phoneErr, setPhoneErr] = useState('')
   const [nameErr, setNameErr] = useState('')
   const [reservations, setReservations] = useState(() => loadOrders(storage))
@@ -767,6 +767,27 @@ export default function App() {
     return true
   }
 
+  // Date de retrait fixée/décalée par le comptoir — le client la voit dans
+  // « Mes commandes » ; en repli local, la copie de l'appareil est mise à jour.
+  async function handleOrderPickup(code, pickupDate) {
+    if (apiOnline && authMode === 'api' && isMaster) {
+      try {
+        const r = await api.patchOrderPickup(code, pickupDate)
+        if (r.ok && r.data?.order) {
+          orderEditedAt.current.set(code, Date.now())
+          syncReservations((prev) => prev.map((o) => (o.code === code ? { ...o, ...r.data.order } : o)))
+          return true
+        }
+        const err = r.data?.error
+        if (!r.offline && err !== 'not_found' && err !== 'forbidden') return false
+      } catch {
+        /* réseau mort → repli local ci-dessous */
+      }
+    }
+    commitReservations((prev) => prev.map((o) => (o.code === code ? { ...o, pickupDate } : o)))
+    return true
+  }
+
   // P6 : le client annule une de SES commandes (état « neuve » uniquement)
   // → le stock est rétabli (serveur ou local).
   async function cancelMyOrder(code) {
@@ -1232,6 +1253,8 @@ export default function App() {
       day: localDay(new Date()),
       payment: 'cash',
       slot: pickup.slot,
+      // Date de retrait souhaitée (le comptoir peut la décaler ensuite).
+      pickupDate: pickup.pickupDate || localDay(new Date()),
       // LOT 5.4 (U4) : `pricedCart`, pas `cart` — le récapitulatif local (repli
       // hors-ligne) et le message WhatsApp portent les mêmes prix que l'écran.
       items: pricedCart.map((i) => ({
@@ -2033,6 +2056,7 @@ export default function App() {
           lang={lang}
           reservations={reservations}
           onStatus={handleOrderStatus}
+          onPickupDate={handleOrderPickup}
           onDelete={handleOrderDelete}
           setToast={setToast}
         />
@@ -2288,6 +2312,17 @@ export default function App() {
                     reste transmise (profil du client ou « Oran » par défaut). */}
                 {/* P21 : bloc « Mode de paiement / Espèces au comptoir » retiré
                     du panier — le paiement reste `cash` côté données. */}
+                <div className="mb-2">
+                  <label className="form-label small mb-1" htmlFor="pickup-date">{t('pickupDate')}</label>
+                  <input
+                    id="pickup-date"
+                    type="date"
+                    className="form-select"
+                    min={localDay(new Date())}
+                    value={pickup.pickupDate || localDay(new Date())}
+                    onChange={(e) => setPickup({ ...pickup, pickupDate: e.target.value })}
+                  />
+                </div>
                 <div className="mb-3">
                   <label className="form-label small mb-1" htmlFor="slot">{t('timeSlot')}</label>
                   <select id="slot" className="form-select" value={pickup.slot} onChange={(e) => setPickup({ ...pickup, slot: e.target.value })}>

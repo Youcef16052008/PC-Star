@@ -362,6 +362,32 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, ma
     setToast(isHidden ? t('masterShown') : t('masterHidden'))
   }
 
+  // Phase suivante — suppression DÉFINITIVE d'un produit créé par le maître.
+  // Un produit du catalogue de base ne se supprime pas : il se masque (le
+  // serveur répond `base`), on l'explique au lieu d'échouer en silence.
+  async function doDeleteProduct(id) {
+    if (!window.confirm(t('confirmDeleteProduct'))) return
+    if (apiOnline) {
+      const r = await api.masterDeleteProduct(id)
+      if (!r.ok) {
+        setToast(r.data?.error === 'base' ? t('masterDeleteBase') : t('masterActionFail'))
+        return
+      }
+      setApiProducts((prev) => prev.filter((p) => p.id !== id))
+      setToast(t('masterDeleted'))
+      onStockRefresh?.()
+      return
+    }
+    const extras = meta.extraProducts || []
+    const known = extras.some((p) => p.id === id)
+    if (!known) {
+      setToast(t('masterDeleteBase'))
+      return
+    }
+    onMeta({ ...meta, extraProducts: extras.filter((p) => p.id !== id) })
+    setToast(t('masterDeleted'))
+  }
+
   function doDeleteCustomer(id) {
     if (apiOnline) {
       // Suppression côté serveur (sessions purgées, commandes détachées).
@@ -690,6 +716,15 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, ma
                           onClick={() => doToggleHidden(p.id, Boolean(p.hidden))}
                         >
                           {p.hidden ? t('masterShow') : t('masterHide')}
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-sm btn-outline-danger"
+                          disabled={p.source !== 'extra'}
+                          title={p.source !== 'extra' ? t('masterDeleteBase') : t('masterDelete')}
+                          onClick={() => doDeleteProduct(p.id)}
+                        >
+                          🗑 {t('masterDelete')}
                         </button>
                       </div>
                     </div>
