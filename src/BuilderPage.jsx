@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { BUILDER_SLOTS, STORE, checkCompatibility, money, socketsMatch, specOf, splitWarnings } from './data'
+import { BUILDER_SLOTS, STORE, caseFitsBoard, checkCompatibility, money, socketsMatch, specOf, splitWarnings } from './data'
 import { BUILD_PRESETS, applyPreset, buildPowerRecap } from './orderLogic.js'
 import { stockLabel } from './stockLabel.js'
 import PartThumb from './PartThumb.jsx'
@@ -55,11 +55,8 @@ export default function BuilderPage({ t, lang = 'fr', products, build, setBuild,
       list = list.filter((p) => !p.compat?.socket || !board.compat?.socket || socketsMatch(p.compat.socket, board.compat.socket))
     }
     if (slot.key === 'case' && board) {
-      list = list.filter((p) => {
-        if (!board.compat?.form) return true
-        if (board.compat.form === 'mATX') return true
-        return p.compat?.form === 'ATX' || p.compat?.form === board.compat.form
-      })
+      // Phase 6 : une seule règle boîtier ↔ carte mère, partagée et testée.
+      list = list.filter((p) => caseFitsBoard(p, board))
     }
     if (slot.key === 'gpu') {
       list = list.map((p) => {

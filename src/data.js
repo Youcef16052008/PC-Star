@@ -854,6 +854,20 @@ export function specOf(p) {
   return c
 }
 
+/**
+ * Phase 6 — compatibilité boîtier ↔ carte mère, UNE définition partagée par le
+ * configurateur et les tests. Une carte mATX tient partout ; une carte ATX
+ * exige un boîtier ATX (ou de même format). Un boîtier sans format déclaré est
+ * exclu dès que la carte impose une contrainte : ne pas promettre ce qu'on ne
+ * peut pas vérifier.
+ */
+export function caseFitsBoard(box, board) {
+  const form = board?.compat?.form
+  if (!form) return true
+  if (form === 'mATX') return true
+  return box?.compat?.form === 'ATX' || box?.compat?.form === form
+}
+
 export function splitWarnings(warnings) {
   const blocks = []
   const notes = []
@@ -888,7 +902,7 @@ export function checkCompatibility(items) {
   const gpus = list.filter((i) => i.category === 'gpu')
   const psus = list.filter((i) => i.compat && i.compat.psuWatts)
   const coolers = list.filter((i) => i.category === 'cooling' && Array.isArray(i.compat?.socket))
-  const cases = list.filter((i) => i.compat?.form && !i.compat?.psuWatts && !Array.isArray(i.compat?.socket))
+  const cases = list.filter((i) => i.category === 'case' && i.compat?.form && !i.compat?.psuWatts && !Array.isArray(i.compat?.socket))
 
   if (cpus.length && boards.length) {
     cpus.forEach((cpu) => {

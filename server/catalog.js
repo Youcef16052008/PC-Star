@@ -107,6 +107,22 @@ export function priceOf(db, productId) {
 }
 
 /**
+ * Phase 6 — référence canonique d'un produit : SKU et nom viennent du
+ * catalogue serveur (même précédence que `priceOf`), jamais du client. Le
+ * panier ne peut donc pas injecter un libellé arbitraire dans les commandes,
+ * le desk ou l'export CSV ; le texte du client n'est plus qu'un repli pour
+ * les messages de refus sur les ids inconnus.
+ */
+export function productRefOf(db, productId) {
+  const base = PRODUCTS.find((p) => p.id === productId) || null
+  const extra = (db.meta?.extraProducts || []).find((p) => p.id === productId) || null
+  const ov = db.meta?.productOverrides?.[productId] || null
+  if (!base && !extra && !ov) return null
+  const merged = { ...(base || {}), ...(extra || {}), ...(ov || {}) }
+  return { sku: String(merged.sku || ''), name: String(merged.name || '') }
+}
+
+/**
  * Try to reserve items atomically. Returns { ok, order?, error?, shortages? }.
  * Decrements stock only when every line is available.
  */
@@ -163,10 +179,13 @@ export function placeOrder(db, body, { userId = null } = {}) {
     const price = priceOf(db, id)
     const rawQty = Number(i.qty)
     const qty = Number.isFinite(rawQty) ? Math.max(1, Math.floor(rawQty)) : 1
+    // Phase 6 : SKU et libellé canoniques — le nom affiché au comptoir, dans
+    // l'historique et dans le CSV est celui du catalogue serveur.
+    const ref = productRefOf(db, id)
     const line = {
       id,
-      sku: String(i.sku || ''),
-      name: String(i.name || ''),
+      sku: ref?.sku || String(i.sku || ''),
+      name: ref?.name || String(i.name || ''),
       qty,
       price: price == null ? 0 : price
     }

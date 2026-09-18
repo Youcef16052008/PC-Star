@@ -81,7 +81,7 @@ Un compte ne récupère ni n’annule une commande guest par simple déclaration
 
 ## Phase 4 — Catalogue et médias Master
 
-**Statut : implémentation et tests unitaires isolés ajoutés. Complément livré : la recette de déploiement médias est documentée ([RECETTE-PHOTOS-MASTER.md](./RECETTE-PHOTOS-MASTER.md)) — scénario upload → affichage → cold start → remplacement → cleanup, et inventaire des 20 visuels de rayon qui habillent les nouvelles références (10 groupes supplémentaires : laser, encre, tickets, scanners, toners, papier, routeurs, onduleurs, laptop gaming/pro).**
+**Statut : implémentation et tests unitaires isolés ajoutés. Complément livré : la recette de déploiement médias est documentée ([RECETTE-PHOTOS-MASTER.md](./RECETTE-PHOTOS-MASTER.md)) — scénario upload → affichage → cold start → remplacement → cleanup, et inventaire des 27 visuels de rayon qui habillent les 75 nouvelles références (17 groupes précis : laser, encre, tickets, scanners, toners, papier, routeurs, onduleurs, laptops gaming/pro, tablettes, vidéoprojecteur, écrans, serveurs, tout-en-un, douchettes, création).**
 
 ### Changements livrés
 
@@ -121,3 +121,34 @@ Le remplacement d’une galerie ne laisse pas de fichier local géré orphelin; 
 ### Critère de sortie atteint côté code
 
 Le chemin de sauvegarde suit le driver réellement actif; les scripts mutateurs exigent une intention explicite ou une branche de test marquée isolée; le workflow contient un test réel snapshot → mutation → restauration qui fait échouer la CI si Neon échoue.
+
+## Phase 6 — Cohérence produit et interface
+
+**Statut : livré et testé.**
+
+### Changements livrés
+
+- Compatibilité boîtier ↔ carte mère : UNE règle partagée `caseFitsBoard()` (src/data.js) utilisée par le configurateur et les tests — une carte mATX tient partout, une carte ATX exige un boîtier ATX, un boîtier sans format déclaré n'est plus proposé dès qu'une contrainte existe. Le catalogue vend désormais du mATX (carte mère ASRock B450M AM4 + deux boîtiers Havit et Cooler Master) : le filtre n'vide plus le rayon.
+- Garde resserrée : `checkCompatibility` ne classe plus comme « boîtier » un produit qui n'est pas de catégorie `case` (un GPU avec `compat.form` ne se comparait plus lui-même comme boîtier).
+- Noms et SKU de commandes canonisés : `placeOrder` impose la référence du catalogue serveur (`productRefOf`, même précédence que le prix : override maître > produit maître > base). Le panier ne peut plus injecter un libellé arbitraire dans les commandes, le desk ou l'export CSV ; le texte du client ne survit que dans les messages de refus des ids inconnus.
+- Date serveur confirmée : `at` est estampillé ISO par le serveur ; le `day` de retrait reste la journée locale du client (décision P9), validée par format.
+- Contrat des panneaux : validation API inchangée et testée (types, dédoublonnage, borne 12 panneaux supplémentaires).
+
+### Tests
+
+`src/phase6Coherence.test.js` (8 tests, ajouté à `npm test`) : règle boîtier/carte dans les deux sens, présence mATX au catalogue, chaque carte ATX garde un boîtier compatible, canonisation client/override/refus, horodatage serveur.
+
+## Phase 7 — Outillage et recette finale
+
+**Statut : livré et exécuté dans l'environnement de travail ; la recette Playwright réelle reste à rejouer là où le CDN des navigateurs est joignable.**
+
+### Changements livrés
+
+- Injection shell éliminée : `scripts/assignSkuPhotos.mjs` n'utilise plus `execSync` avec interpolation (un `$()` dans un nom de fichier s'exécutait malgré `JSON.stringify`) — `execFileSync('convert', [...])`, plus aucun appel shell dans `scripts/`.
+- `scripts/smoke-e2e.mjs` : le comptage du catalogue n'est plus figé sur 222/223 ; la borne suit le catalogue réel (`PRODUCTS`, marge 20 % pour un serveur déjà utilisé). Exécution réelle : **SMOKE OK 9/9** (health, catalogue 300/300, inscription, commande, me/orders, login maître, oauth-start, front, robots).
+- Crawl : `npm run build:crawl` OK ; recette `scripts/jsdom-crawl.mjs` : **36 pages rendues (3 langues × 13 pages), 0 erreur**.
+- `npm test` : 856+ tests verts ; `npm run build` : OK, aucun secret.
+
+### Action restante (environnement)
+
+Le téléchargement du navigateur Playwright est bloqué dans l'environnement de travail (CDN injoignable). Sur un poste ou en CI avec accès réseau : `npx playwright install chromium && npm run test:e2e`. La configuration (`playwright.config.js`) et le scénario (`e2e/smoke.spec.js`) sont en place ; les serveurs sont démarrés par la config.

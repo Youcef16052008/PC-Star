@@ -41,9 +41,12 @@ et restent remplaçables par les vraies photos du magasin.
 
 | Visuel | Rayon couvert |
 |---|---|
-| `components-studio` | Composants PC et écrans |
-| `desktop-studio` | PC de marque, mini PC, all-in-one, serveurs |
+| `components-studio` | Composants PC (occasion) |
+| `desktop-studio` | PC de marque et mini PC |
+| `allinone-studio` | PC tout-en-un |
+| `server-studio` | Serveurs et workstations |
 | `laptop-studio` | Laptops étudiant / polyvalent |
+| `monitor-studio` | Écrans et bras articulés |
 | `laptop-business-studio` | Laptops pro et reconditionnés |
 | `laptop-gaming-studio` | Laptops gaming |
 | `laptop-accessories-studio` | Chargeurs, sacs, refroidissement, SODIMM |
@@ -54,16 +57,20 @@ et restent remplaçables par les vraies photos du magasin.
 | `scanner-studio` | Scanners à plat et à chargeur |
 | `toner-ink-studio` | Toners et encres |
 | `paper-label-studio` | Papier, rouleaux, étiquettes |
-| `pos-studio` | Point de vente : terminal, douchette, tiroir |
+| `pos-studio` | Point de vente : terminal et tiroir-caisse |
+| `barcode-studio` | Douchettes code-barres |
 | `router-studio` | Routeurs, points d'accès, répéteurs |
 | `network-studio` | Switch, adaptateurs, câblage, CPL |
 | `ups-studio` | Onduleurs, batteries, multiprises |
-| `mobile-studio` | Tablettes, téléphonie, énergie mobile |
-| `multimedia-studio` | Webcams, micros, enceintes, VR, création |
+| `mobile-studio` | Téléphonie et énergie mobile |
+| `tablet-studio` | Tablettes |
+| `projector-studio` | Vidéoprojecteurs |
+| `multimedia-studio` | Webcams et enceintes |
+| `creative-studio` | Création : tablette graphique, micro, VR |
 | `furniture-studio` | Chaises, bureaux, supports, coffres |
 
-À générer au prochain lot : `tablet-studio`, `projector-studio` (les tablettes
-et le vidéoprojecteur restent sur `mobile-studio` / `multimedia-studio`).
+Couverture complète : les 75 références du catalogue élargi pointent chacune
+vers son rayon précis (27 visuels).
 
 ## 4. Remplacer une illustration par les vraies photos
 
