@@ -322,6 +322,79 @@ export function ordersForUser(db, userId) {
   return (db.orders || []).filter((order) => order?.userId === userId)
 }
 
+// ---------------------------------------------------------------------------
+// Phase 3 — rattachement d'une commande guest par PREUVE délivrée au comptoir.
+//
+// Le plan de remédiation laisse le rattachement inter-appareil indisponible
+// tant qu'aucun canal OTP réel n'existe. La preuve que le magasin peut délivrer
+// sans fournisseur externe, c'est un code à usage unique remis en main propre
+// au comptoir : le maître l'émet pour une commande guest, le client le saisit
+// depuis SON compte, et le serveur rattache la ligne dans la même mutation qui
+// consomme le code. Le téléphone déclaratif reste hors du chemin d'autorisation.
+// ---------------------------------------------------------------------------
+
+/** Alphabet sans caractères ambigus (pas de 0/O, 1/I/L) pour une dictée fiable. */
+const CLAIM_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'
+
+/** Format accepté à la saisie : 8 caractères, espaces/tirets tolérés. */
+export function normalizeClaimCode(raw) {
+  const compact = String(raw || '').toUpperCase().replace(/[\s-]+/g, '')
+  return /^[A-HJ-NP-Z2-9]{8}$/.test(compact) ? compact : null
+}
+
+function claimCodeHash(compact) {
+  return crypto.createHash('sha256').update(`pcstar:claim:${compact}`).digest('hex')
+}
+
+/**
+ * Le comptoir émet un code de retrait à usage unique pour une commande GUEST.
+ * Seule l'empreinte est persistée : le code en clair n'apparaît que dans la
+ * réponse de cette route, le temps d'être dicté au client.
+ */
+export function issueClaimCode(db, orderCode) {
+  ensureStock(db)
+  const order = (db.orders || []).find((o) => o?.code === orderCode)
+  if (!order) return { ok: false, error: 'not_found' }
+  if (order.userId != null) return { ok: false, error: 'attached' }
+  if (order.status === 'cancelled' || order.status === 'picked') {
+    return { ok: false, error: 'status' }
+  }
+  let claimCode = ''
+  do {
+    claimCode = Array.from(
+      { length: 8 },
+      () => CLAIM_ALPHABET[crypto.randomInt(CLAIM_ALPHABET.length)]
+    ).join('')
+    // Indirectement garanti par l'espace (32^8 ≈ 2^40), mais la boucle coûte
+    // moins qu'une explication : jamais deux commandes sur le même code.
+  } while ((db.orders || []).some((o) => o?.claimCodeHash === claimCodeHash(claimCode)))
+  order.claimCodeHash = claimCodeHash(claimCode)
+  order.claimCodeIssuedAt = new Date().toISOString()
+  return { ok: true, order, claimCode: `${claimCode.slice(0, 4)}-${claimCode.slice(4)}` }
+}
+
+/**
+ * Rattachement côté client : le code est vérifié et consommé DANS la mutation
+ * (pas de fenêtre TOCTOU entre la vérification et l'écriture). Usage unique :
+ * l'empreinte est supprimée dès le rattachement.
+ */
+export function claimGuestOrder(db, rawCode, userId) {
+  const compact = normalizeClaimCode(rawCode)
+  if (!compact || !userId) return { ok: false, error: 'not_found' }
+  const hash = claimCodeHash(compact)
+  const order = (db.orders || []).find((o) => o?.claimCodeHash === hash)
+  if (!order) return { ok: false, error: 'not_found' }
+  if (order.userId != null) return { ok: false, error: 'taken' }
+  if (order.status === 'cancelled' || order.status === 'picked') {
+    return { ok: false, error: 'status' }
+  }
+  delete order.claimCodeHash
+  order.userId = userId
+  delete order.claimable
+  order.claimedAt = new Date().toISOString()
+  return { ok: true, order }
+}
+
 /**
  * Annulation client atomique : propriété et état sont vérifiés dans le même
  * mutateur que `cancelOrder`, qui effectue le restock. À appeler sous

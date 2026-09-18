@@ -39,6 +39,8 @@ import {
 import {
   cancelOrder,
   cancelOwnOrder,
+  claimGuestOrder,
+  issueClaimCode,
   liveStockOf,
   ordersForUser,
   placeOrder,
@@ -631,6 +633,46 @@ export async function handler(req, res) {
         return send(res, status, { ok: false, error: result?.error || 'not_found' })
       }
       return send(res, 200, { ok: true, order: result.order })
+    }
+
+    // Phase 3 — rattachement d'une commande guest via le code à usage unique
+    // remis au comptoir. Le téléphone ne fait jamais partie de la preuve.
+    if (req.method === 'POST' && pathname === '/api/me/orders/claim') {
+      const auth = await userFromReq(req)
+      if (!auth) return send(res, 401, { ok: false, error: 'auth' })
+      const rl = rateLimit({ windowMs: 600_000, max: 10, key: clientKey(req, 'claim') })
+      if (!rl.ok) return send(res, 429, { ok: false, error: 'rate_limited' })
+      const body = await readBody(req)
+      let result = null
+      await updateDbAsync((db) => {
+        result = claimGuestOrder(db, body?.code, auth.user.id)
+        return db
+      })
+      if (!result?.ok) {
+        const status = result?.error === 'taken' ? 409 : result?.error === 'status' ? 409 : 404
+        return send(res, status, { ok: false, error: result?.error || 'not_found' })
+      }
+      return send(res, 200, { ok: true, order: result.order })
+    }
+
+    // Le comptoir émet un code de retrait pour une commande guest : preuve
+    // remise en main propre, unique, et jamais renvoyée par cette route.
+    if (req.method === 'POST' && pathname.startsWith('/api/orders/') && pathname.endsWith('/claim-code')) {
+      const auth = await userFromReq(req)
+      if (!auth || auth.user.role !== 'master') return send(res, 403, { ok: false, error: 'forbidden' })
+      const rl = rateLimit({ windowMs: 60_000, max: 30, key: clientKey(req, 'claim-code') })
+      if (!rl.ok) return send(res, 429, { ok: false, error: 'rate_limited' })
+      const code = decodeURIComponent(pathname.split('/').slice(-2, -1)[0])
+      let result = null
+      await updateDbAsync((db) => {
+        result = issueClaimCode(db, code)
+        return db
+      })
+      if (!result?.ok) {
+        const status = result?.error === 'not_found' ? 404 : result?.error === 'status' ? 409 : 400
+        return send(res, status, { ok: false, error: result?.error || 'not_found' })
+      }
+      return send(res, 200, { ok: true, claimCode: result.claimCode })
     }
 
     // Password change (authenticated)

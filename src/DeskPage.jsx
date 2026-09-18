@@ -20,6 +20,9 @@ export default function DeskPage({ t, lang, reservations, onStatus, onDelete, se
   const [filter, setFilter] = useState('all')
   const [q, setQ] = useState('')
   const [busy, setBusy] = useState(null)
+  // Phase 3 : codes de retrait émis pour les commandes guest, affichés sur la
+  // carte le temps d'être dictés au client (jamais renvoyés par l'API ensuite).
+  const [claimCodes, setClaimCodes] = useState({})
 
   const list = useMemo(() => {
     const query = q.trim().toLowerCase()
@@ -49,6 +52,26 @@ export default function DeskPage({ t, lang, reservations, onStatus, onDelete, se
       setToast?.(t('deskStatusFail'))
     } finally {
       // Toujours libéré, même si onStatus lève : sinon la carte reste figée.
+      setBusy(null)
+    }
+  }
+
+  // Phase 3 : le comptoir émet un code de retrait à usage unique pour une
+  // commande guest. Le client le saisit depuis son compte pour rattacher la
+  // commande — c'est la preuve réelle, remise en main propre.
+  async function issueCode(code) {
+    setBusy(code)
+    try {
+      const r = await api.issueClaimCode(code)
+      if (!r.ok) {
+        setToast?.(t('deskClaimFail'))
+        return
+      }
+      setClaimCodes((prev) => ({ ...prev, [code]: r.data?.claimCode || '' }))
+      setToast?.(t('deskClaimOk'))
+    } catch {
+      setToast?.(t('deskClaimFail'))
+    } finally {
       setBusy(null)
     }
   }
@@ -243,6 +266,17 @@ export default function DeskPage({ t, lang, reservations, onStatus, onDelete, se
                           {t('deskCancel')}
                         </button>
                       )}
+                      {st !== 'cancelled' && st !== 'picked' && r.userId == null && (
+                        <button
+                          type="button"
+                          className="btn btn-sm btn-outline-primary"
+                          disabled={busy === r.code}
+                          onClick={() => issueCode(r.code)}
+                          title={t('deskClaimHint')}
+                        >
+                          {claimCodes[r.code] ? t('deskClaimAgain') : t('deskClaimCode')}
+                        </button>
+                      )}
                       {/* P19 : corbeille — suppression définitive, dispo pour
                           tous les statuts (y compris « picked » et
                           « cancelled », que l'annulation ne couvre pas). */}
@@ -259,6 +293,12 @@ export default function DeskPage({ t, lang, reservations, onStatus, onDelete, se
                         </button>
                       )}
                     </div>
+                    {claimCodes[r.code] && (
+                      <div className="small mt-2 border rounded p-2 bg-body-tertiary">
+                        <span className="text-secondary">{t('deskClaimReady')} </span>
+                        <code className="fw-bold fs-6 user-select-all">{claimCodes[r.code]}</code>
+                      </div>
+                    )}
                   </div>
                 </article>
               </div>

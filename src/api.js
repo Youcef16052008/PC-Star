@@ -270,6 +270,18 @@ export async function cancelMyOrder(code) {
   return req(`/api/me/orders/${encodeURIComponent(code)}/cancel`, { method: 'POST' })
 }
 
+// Phase 3 : rattache au compte une commande passée sans compte, via le code
+// à usage unique remis au comptoir. Le téléphone n'est jamais la preuve.
+export async function claimMyOrder(claimCode) {
+  return req('/api/me/orders/claim', { method: 'POST', body: { code: claimCode } })
+}
+
+// Phase 3 (comptoir) : émet le code de retrait d'une commande guest. Le code
+// en clair n'est renvoyé qu'une fois, dans la réponse de cet appel.
+export async function issueClaimCode(code) {
+  return req(`/api/orders/${encodeURIComponent(code)}/claim-code`, { method: 'POST' })
+}
+
 /**
  * LOT 1.4 : `current` est OBLIGATOIRE.
  *

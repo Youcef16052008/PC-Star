@@ -830,6 +830,40 @@ export default function App() {
     return true
   }
 
+  // Phase 3 — rattachement d'une commande guest via le code remis au comptoir.
+  // Contrairement à l'annulation, la commande peut être absente de la copie
+  // locale (passée depuis un autre appareil) : on l'ajoute si besoin.
+  async function claimMyOrder(claimCode) {
+    if (!(apiOnline && authMode === 'api' && user)) return { ok: false, error: 'offline' }
+    let r = null
+    try {
+      r = await api.claimMyOrder(claimCode)
+    } catch {
+      r = { ok: false, offline: true }
+    }
+    if (r?.ok && r.data?.order) {
+      const claimed = r.data.order
+      syncReservations((prev) => {
+        const known = prev.some((o) => o.code === claimed.code)
+        return known ? prev.map((o) => (o.code === claimed.code ? { ...o, ...claimed } : o)) : [claimed, ...prev]
+      })
+      await refreshStock()
+      setToast(t('orderClaimOk'))
+      return { ok: true }
+    }
+    const err = r?.data?.error
+    if (err === 'taken') {
+      setToast(t('orderClaimTaken'))
+      return { ok: false, error: 'taken' }
+    }
+    if (err === 'status') {
+      setToast(t('orderClaimStatus'))
+      return { ok: false, error: 'status' }
+    }
+    setToast(t(r?.offline || !r ? 'backendOffline' : 'orderClaimInvalid'))
+    return { ok: false, error: err || 'not_found' }
+  }
+
   // Per-account cart + pickup form : à la connexion / déconnexion /
   // changement de compte, charger le PROPRE panier du compte et reprendre
   // nom/tél depuis son profil (un nouveau client ne voit plus le panier
@@ -2035,6 +2069,7 @@ export default function App() {
           apiOnline={apiOnline}
           mode={authMode}
           onCancelOrder={cancelMyOrder}
+          onClaimOrder={claimMyOrder}
           onBack={() => go('shop')}
         />
       )}

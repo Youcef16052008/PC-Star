@@ -22,10 +22,16 @@ import { loadOrders } from './prefs.js'
  * Phase 3 : une commande guest ne bascule jamais dans un compte parce qu'il a
  * le même téléphone. Cette égalité ne prouve pas la possession du numéro.
  */
-export default function OrdersPage({ t, lang = 'fr', user, apiOnline, mode, onCancelOrder, onBack }) {
+export default function OrdersPage({ t, lang = 'fr', user, apiOnline, mode, onCancelOrder, onClaimOrder, onBack }) {
   const [orders, setOrders] = useState([])
   const [loading, setLoading] = useState(true)
   const [cancelTick, setCancelTick] = useState(0)
+  // Phase 3 : saisie du code de retrait remis au comptoir (session connectée +
+  // backend en ligne uniquement — la preuve vit côté serveur).
+  const [claimOpen, setClaimOpen] = useState(false)
+  const [claimValue, setClaimValue] = useState('')
+  const [claimBusy, setClaimBusy] = useState(false)
+  const [claimError, setClaimError] = useState('')
 
   useEffect(() => {
     let cancelled = false
@@ -64,6 +70,32 @@ export default function OrdersPage({ t, lang = 'fr', user, apiOnline, mode, onCa
     if (ok) setCancelTick((x) => x + 1)
   }
 
+  async function doClaim(event) {
+    event.preventDefault()
+    const value = claimValue.trim()
+    if (!value || claimBusy) return
+    setClaimBusy(true)
+    setClaimError('')
+    try {
+      const r = await onClaimOrder?.(value)
+      if (r?.ok) {
+        setClaimValue('')
+        setClaimOpen(false)
+        setCancelTick((x) => x + 1)
+      } else if (r?.error === 'taken') {
+        setClaimError(t('orderClaimTaken'))
+      } else if (r?.error === 'status') {
+        setClaimError(t('orderClaimStatus'))
+      } else {
+        setClaimError(t('orderClaimInvalid'))
+      }
+    } finally {
+      setClaimBusy(false)
+    }
+  }
+
+  const canClaim = Boolean(user && apiOnline && mode === 'api' && typeof onClaimOrder === 'function')
+
   return (
     <main id="main-content" className="container page py-4" tabIndex={-1}>
       <button className="btn btn-outline-secondary btn-sm mb-3" type="button" onClick={onBack}>
@@ -76,6 +108,53 @@ export default function OrdersPage({ t, lang = 'fr', user, apiOnline, mode, onCa
               <h1 className="h4 mb-1">{t('navOrders')}</h1>
               <p className="small text-secondary mb-3">{t('ordersPageBody')}</p>
               {!user && <p className="small text-secondary">{t('ordersGuestNote')}</p>}
+              {canClaim && (
+                <div className="border rounded p-3 mb-3 bg-body-tertiary">
+                  {claimOpen ? (
+                    <form onSubmit={doClaim} className="row g-2 align-items-end">
+                      <div className="col-12 col-sm-7">
+                        <label className="form-label small mb-1" htmlFor="claim-code-input">
+                          {t('orderClaimTitle')}
+                        </label>
+                        <input
+                          id="claim-code-input"
+                          className="form-control"
+                          value={claimValue}
+                          onChange={(e) => setClaimValue(e.target.value)}
+                          placeholder={t('orderClaimPlaceholder')}
+                          maxLength={16}
+                          autoComplete="off"
+                        />
+                        <div className="form-text mb-0">{t('orderClaimHint')}</div>
+                        {claimError && (
+                          <div className="small text-danger mt-1" role="alert">
+                            {claimError}
+                          </div>
+                        )}
+                      </div>
+                      <div className="col-6 col-sm-5 d-flex gap-2 justify-content-sm-end">
+                        <button type="submit" className="btn btn-primary btn-sm" disabled={claimBusy || !claimValue.trim()}>
+                          {claimBusy ? '…' : t('orderClaimSubmit')}
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-outline-secondary btn-sm"
+                          onClick={() => {
+                            setClaimOpen(false)
+                            setClaimError('')
+                          }}
+                        >
+                          {t('close')}
+                        </button>
+                      </div>
+                    </form>
+                  ) : (
+                    <button type="button" className="btn btn-sm btn-outline-primary" onClick={() => setClaimOpen(true)}>
+                      {t('orderClaimTitle')}
+                    </button>
+                  )}
+                </div>
+              )}
               {loading ? (
                 <div className="empty-state py-4 text-center">
                   <span className="spinner-border spinner-border-sm me-2" aria-hidden="true" />

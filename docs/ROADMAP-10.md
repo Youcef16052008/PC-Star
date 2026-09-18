@@ -125,6 +125,7 @@ client trouve un produit → construit un PC compatible → réserve en espèces
 
 ### 3.1 Photos (hors-code — toi / photographe)
 - [ ] Shoot ou packshots fournisseurs : **fond neutre, 1:1, ≥ 1200px**, 3 angles/SKU prioritaires (top 80 ventes)
+- [x] **Visuels de rayon générés** (`public/catalog/*-studio.jpg`, 20 groupes) couvrant les 75 refs du catalogue élargi — remplacement feuille par feuille (`photoGroup`) — voir [RECETTE-PHOTOS-MASTER.md](RECETTE-PHOTOS-MASTER.md) ; restent à générer : `tablet-studio`, `projector-studio`
 - [ ] Remplacer d’abord : CPU, GPU, MB, SoG, Havit, combos
 - [ ] Charte : fond `#0f172a` ou blanc studio, ombre douce, pas de watermark
 
@@ -166,7 +167,7 @@ client trouve un produit → construit un PC compatible → réserve en espèces
 
 ### 4.3 Ops
 - [x] `FRONT_ORIGIN` env (défaut `*` démo) + `.env.example`
-- [ ] HTTPS — doc hébergeur (hors sandbox)
+- [x] HTTPS — doc hébergeur : [HEBERGEMENT-HTTPS.md](HEBERGEMENT-HTTPS.md) (Vercel ou VPS + Let's Encrypt)
 - [x] `.env.example`
 - [x] `/api/health` enrichi (cors, payments)
 

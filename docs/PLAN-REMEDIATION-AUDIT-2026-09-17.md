@@ -65,7 +65,7 @@ Les changements sont découpés pour qu’un correctif de sécurité urgent ne s
 
 ## Phase 3 — Propriété du compte et intégrité des commandes
 
-**Statut : implémentation et tests unitaires ajoutés.**
+**Statut : implémentation et tests unitaires ajoutés. Complément livré : le rattachement inter-appareil existe désormais par UNE preuve réelle — le code de retrait à usage unique émis au comptoir (`POST /api/orders/:code/claim-code`, saisie client `POST /api/me/orders/claim`). Le code est haché en base, dicté une seule fois, consommé dans la mutation de rattachement, et borné par un rate limit ; une commande annulée ou retirée ne peut plus être codée ni rattachée.**
 
 ### Changements livrés
 
@@ -81,7 +81,7 @@ Un compte ne récupère ni n’annule une commande guest par simple déclaration
 
 ## Phase 4 — Catalogue et médias Master
 
-**Statut : implémentation et tests unitaires isolés ajoutés.**
+**Statut : implémentation et tests unitaires isolés ajoutés. Complément livré : la recette de déploiement médias est documentée ([RECETTE-PHOTOS-MASTER.md](./RECETTE-PHOTOS-MASTER.md)) — scénario upload → affichage → cold start → remplacement → cleanup, et inventaire des 20 visuels de rayon qui habillent les nouvelles références (10 groupes supplémentaires : laser, encre, tickets, scanners, toners, papier, routeurs, onduleurs, laptop gaming/pro).**
 
 ### Changements livrés
 
