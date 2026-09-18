@@ -125,7 +125,7 @@ client trouve un produit → construit un PC compatible → réserve en espèces
 
 ### 3.1 Photos (hors-code — toi / photographe)
 - [ ] Shoot ou packshots fournisseurs : **fond neutre, 1:1, ≥ 1200px**, 3 angles/SKU prioritaires (top 80 ventes)
-- [x] **Visuels de rayon générés** (`public/catalog/*-studio.jpg`, 27 groupes, couverture complète des 75 refs) — remplacement feuille par feuille (`photoGroup`) — voir [RECETTE-PHOTOS-MASTER.md](RECETTE-PHOTOS-MASTER.md)
+- [x] **Visuels de rayon générés** (`public/catalog/*-studio.jpg`, 36 groupes — chaque référence a SA photo de rayon) — remplacement feuille par feuille (`photoGroup`) — voir [RECETTE-PHOTOS-MASTER.md](RECETTE-PHOTOS-MASTER.md)
 - [ ] Remplacer d’abord : CPU, GPU, MB, SoG, Havit, combos
 - [ ] Charte : fond `#0f172a` ou blanc studio, ombre douce, pas de watermark
 

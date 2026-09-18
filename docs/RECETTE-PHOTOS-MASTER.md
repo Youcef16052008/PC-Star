@@ -41,15 +41,22 @@ et restent remplaçables par les vraies photos du magasin.
 
 | Visuel | Rayon couvert |
 |---|---|
-| `components-studio` | Composants PC (occasion) |
-| `desktop-studio` | PC de marque et mini PC |
+| `motherboard-studio` | Cartes mères |
+| `gpu-studio` | Cartes graphiques |
+| `ssd-studio` | SSD et stockage (occasion) |
+| `components-studio` | Composants génériques (repli nouvelles catégories) |
+| `desktop-studio` | PC de marque (SFF/tour compacte) |
+| `case-studio` | Boîtiers (mATX, mesh, verre trempé) |
+| `mini-pc-studio` | Mini PC |
 | `allinone-studio` | PC tout-en-un |
 | `server-studio` | Serveurs et workstations |
 | `laptop-studio` | Laptops étudiant / polyvalent |
 | `monitor-studio` | Écrans et bras articulés |
 | `laptop-business-studio` | Laptops pro et reconditionnés |
 | `laptop-gaming-studio` | Laptops gaming |
-| `laptop-accessories-studio` | Chargeurs, sacs, refroidissement, SODIMM |
+| `charger-studio` | Chargeurs laptop et USB-C |
+| `ram-studio` | Barrettes SODIMM (upgrade) |
+| `laptop-accessories-studio` | Hubs, sacs, refroidissement |
 | `printer-laser-studio` | Imprimantes laser |
 | `printer-ink-studio` | Multifonctions à réservoir |
 | `printer-ticket-studio` | Tickets thermiques et étiquettes |
@@ -61,16 +68,20 @@ et restent remplaçables par les vraies photos du magasin.
 | `barcode-studio` | Douchettes code-barres |
 | `router-studio` | Routeurs, points d'accès, répéteurs |
 | `network-studio` | Switch, adaptateurs, câblage, CPL |
-| `ups-studio` | Onduleurs, batteries, multiprises |
-| `mobile-studio` | Téléphonie et énergie mobile |
+| `ups-studio` | Onduleurs et batteries |
+| `surge-studio` | Multiprises parafoudre |
+| `mobile-studio` | Power banks et chargeurs voiture |
+| `audio-studio` | Enceintes 2.1 et écouteurs Bluetooth |
 | `tablet-studio` | Tablettes |
 | `projector-studio` | Vidéoprojecteurs |
-| `multimedia-studio` | Webcams et enceintes |
+| `multimedia-studio` | Webcams |
 | `creative-studio` | Création : tablette graphique, micro, VR |
-| `furniture-studio` | Chaises, bureaux, supports, coffres |
+| `chair-studio` | Chaises gamer |
+| `furniture-studio` | Bureaux, supports, coffres |
 
-Couverture complète : les 75 références du catalogue élargi pointent chacune
-vers son rayon précis (27 visuels).
+Couverture complète : les 78 références du catalogue élargi pointent chacune
+vers son rayon précis (36 visuels ; chaque produit a SA photo de rayon, plus
+aucun visuel générique trompeur).
 
 ## 4. Remplacer une illustration par les vraies photos
 

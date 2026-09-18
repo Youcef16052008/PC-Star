@@ -81,7 +81,7 @@ Un compte ne récupère ni n’annule une commande guest par simple déclaration
 
 ## Phase 4 — Catalogue et médias Master
 
-**Statut : implémentation et tests unitaires isolés ajoutés. Complément livré : la recette de déploiement médias est documentée ([RECETTE-PHOTOS-MASTER.md](./RECETTE-PHOTOS-MASTER.md)) — scénario upload → affichage → cold start → remplacement → cleanup, et inventaire des 27 visuels de rayon qui habillent les 75 nouvelles références (17 groupes précis : laser, encre, tickets, scanners, toners, papier, routeurs, onduleurs, laptops gaming/pro, tablettes, vidéoprojecteur, écrans, serveurs, tout-en-un, douchettes, création).**
+**Statut : implémentation et tests unitaires isolés ajoutés. Complément livré : la recette de déploiement médias est documentée ([RECETTE-PHOTOS-MASTER.md](./RECETTE-PHOTOS-MASTER.md)) — scénario upload → affichage → cold start → remplacement → cleanup, et inventaire des 36 visuels de rayon qui habillent les 78 nouvelles références (aucun visuel générique : chaque rayon a sa photo : laser, encre, tickets, scanners, toners, papier, routeurs, onduleurs, laptops gaming/pro, tablettes, vidéoprojecteur, écrans, serveurs, tout-en-un, douchettes, création).**
 
 ### Changements livrés
 
