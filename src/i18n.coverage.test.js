@@ -59,7 +59,7 @@ test(`i18n: ${allKeys.size} clés statiques + dynamiques toutes présentes en ar
   assert.equal(missing.length, 0, 'clés manquantes → ' + missing.join(', '))
 })
 
-test('i18n: les 3 langues ont le même nombre de clés (pas de bloc déséquilibré)', () => {
+test('i18n: les 2 langues ont le même nombre de clés (pas de bloc déséquilibré)', () => {
   const counts = LANGS.map((l) => Object.keys(dict[l.id]).length)
   assert.equal(new Set(counts).size, 1, `compte inégal: ${LANGS.map((l, i) => `${l.id}=${counts[i]}`).join(' ')}`)
 })

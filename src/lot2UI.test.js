@@ -655,11 +655,10 @@ describe('Phase 3 — commandes guest séparées de la session connectée', () =
   })
 
   it('les clés ajoutées existent dans les trois langues', () => {
-    for (const lang of ['ar', 'fr', 'en']) {
+    for (const lang of ['fr', 'en']) {
       const v = dict[lang]?.orderGuestBadge
       assert.ok(typeof v === 'string' && v.length > 3, `[${lang}] orderGuestBadge : ${JSON.stringify(v)}`)
     }
-    assert.notEqual(dict.ar.orderGuestBadge, dict.fr.orderGuestBadge)
     assert.notEqual(dict.en.orderGuestBadge, dict.fr.orderGuestBadge)
   })
 })

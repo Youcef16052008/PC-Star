@@ -61,7 +61,7 @@ const { dict } = await import('./i18n.js')
 // La langue par défaut du navigateur de test peut être l'arabe : on cherche le
 // bouton du menu par son libellé réel dans chacune des trois langues plutôt que
 // sur un motif approximatif.
-const ABOUT_LABELS = ['ar', 'fr', 'en'].map((l) => String(dict[l]?.navAbout || '')).filter(Boolean)
+const ABOUT_LABELS = ['fr', 'en'].map((l) => String(dict[l]?.navAbout || '')).filter(Boolean)
 
 describe('P20 — page « À propos » : deux boutons WhatsApp', () => {
   it('rend un bouton par numéro, avec les bons liens', async () => {

@@ -120,7 +120,7 @@ function timeAgo(ts, lang) {
   const at = Number(ts)
   if (!Number.isFinite(at) || at <= 0) return ''
   const sec = Math.max(1, Math.round((Date.now() - at) / 1000))
-  const locale = lang === 'ar' ? 'ar-DZ' : lang === 'fr' ? 'fr-FR' : 'en-GB'
+  const locale = lang === 'en' ? 'en-GB' : 'fr-FR'
   try {
     RELATIVE_FMT[locale] =
       RELATIVE_FMT[locale] || new Intl.RelativeTimeFormat(locale, { numeric: 'always' })

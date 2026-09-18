@@ -481,13 +481,13 @@ describe('P19 — notification navigateur', () => {
 describe('P19 — clés i18n', () => {
   it('les 5 nouvelles clés existent dans les 3 langues', () => {
     const keys = ['deskDelete', 'deskDeleteFail', 'confirmDeleteOrder', 'deskNotifyTitle', 'orderDeleted']
-    for (const lang of ['ar', 'fr', 'en']) {
+    for (const lang of ['fr', 'en']) {
       for (const k of keys) assert.ok(k in dict[lang], `${lang}.${k} manquante`)
     }
   })
 
   it('les dictionnaires restent symétriques', () => {
-    const counts = ['ar', 'fr', 'en'].map((l) => Object.keys(dict[l]).length)
+    const counts = ['fr', 'en'].map((l) => Object.keys(dict[l]).length)
     assert.equal(new Set(counts).size, 1, `asymétrie : ${JSON.stringify(counts)}`)
   })
 })

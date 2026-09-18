@@ -55,7 +55,7 @@ Also in the app menu: **Guide**.
 - PC builder + compatibility / overheat checks  
 - Simple email accounts (customer + master)  
 - Multi-device API: desk orders, master add/hide products  
-- AR / FR / EN · DZ phones 05/06/07 · catalogue marché algérien  
+- FR / EN · DZ phones 05/06/07 · catalogue marché algérien  
 
 ## Removed (volontairement)
 

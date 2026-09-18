@@ -9,7 +9,7 @@ Vue d'ensemble du système : **front SPA React** / **API Node (serverless-ready)
 ```
                          ┌─────────────────────────────────────────────────────┐
                          │                    NAVIGATEUR (mobile first)         │
-                         │  React 19 + Bootstrap 5.3 (CDN) + i18n AR/FR/EN      │
+                         │  React 19 + Bootstrap 5.3 (CDN) + i18n FR/EN      │
                          │                                                     │
                          │  Pages (state-based, pas de router) :               │
                          │  shop · product · search · builder · about          │

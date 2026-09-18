@@ -106,7 +106,7 @@ async function gotoAbout(host) {
 }
 
 describe('P22 bug E — le bouton profil est nommé pour un lecteur d’écran', () => {
-  for (const lang of ['ar', 'fr', 'en']) {
+  for (const lang of ['fr', 'en']) {
     it(`[${lang}] aria-label = fonction + nom visible, title = fonction`, async () => {
       const { host, root } = await renderIn(lang)
       try {
@@ -150,8 +150,8 @@ describe('P22 bug F — le sous-titre Google Maps est traduit', () => {
     assert.equal(maps.subKey, 'storeMapSub')
   })
 
-  for (const lang of ['ar', 'fr', 'en']) {
-    it(`[${lang}] le bouton Maps affiche ${JSON.stringify(dict.ar.storeMapSub)} et non du français`, async () => {
+  for (const lang of ['fr', 'en']) {
+    it(`[${lang}] le bouton Maps affiche ${JSON.stringify(dict[lang].storeMapSub)}`, async () => {
       const { host, root } = await renderIn(lang)
       try {
         await gotoAbout(host)
@@ -166,19 +166,6 @@ describe('P22 bug F — le sous-titre Google Maps est traduit', () => {
     })
   }
 
-  it('l’arabe n’affiche plus la chaîne française en dur', async () => {
-    const { host, root } = await renderIn('ar')
-    try {
-      await gotoAbout(host)
-      const link = [...host.querySelectorAll('a.social-maps')][0]
-      const sub = (link.querySelector('span') || {}).textContent || ''
-      assert.notEqual(sub, 'Les Castors, Oran')
-      assert.ok(/[\u0600-\u06FF]/.test(sub), `le sous-titre est bien en arabe : ${sub}`)
-    } finally {
-      root.unmount()
-      await settle(30)
-    }
-  })
 })
 
 describe('P22 bug G — une seule table de transitions, client et serveur d’accord', () => {

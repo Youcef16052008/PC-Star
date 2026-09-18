@@ -28,10 +28,6 @@ body {
   overflow-wrap: break-word;
 }
 
-html[dir='rtl'] body {
-  font-family: var(--font-display);
-}
-
 img {
   display: block;
   max-width: 100%;

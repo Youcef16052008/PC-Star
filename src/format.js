@@ -38,7 +38,6 @@ export const DEFAULT_LANG = 'fr'
 /** Table des locales — la seule du dépôt. */
 export const LOCALES = {
   fr: 'fr-DZ',
-  ar: 'ar-DZ',
   en: 'en-GB'
 }
 
@@ -46,25 +45,24 @@ export const LOCALES = {
 export const CURRENCY = {
   fr: 'DA',
   en: 'DA',
-  ar: 'دج'
 }
 
 /**
- * Ramène une entrée de langue à l'identifiant court (`fr`, `ar`, `en`).
+ * Ramène une entrée de langue à l'identifiant court (`fr`, `en`; un ancien choix `ar` retombe sur le français).
  *
  * Accepte `fr`, `fr-DZ`, `FR`, `undefined` — l'UI passe l'identifiant de
  * `LANGS`, mais un réglage navigateur ou une préférence ancienne peut arriver
  * sous forme longue.
  *
  * @param {string} [lang]
- * @returns {'fr'|'ar'|'en'} une langue connue, `DEFAULT_LANG` sinon
+ * @returns {'fr'|'en'} une langue connue, `DEFAULT_LANG` sinon
  */
 export function normalizeLang(lang) {
   const short = String(lang || '')
     .trim()
     .toLowerCase()
     .split(/[-_]/)[0]
-  return short === 'ar' || short === 'en' || short === 'fr' ? short : DEFAULT_LANG
+  return short === 'en' || short === 'fr' ? short : DEFAULT_LANG
 }
 
 /**

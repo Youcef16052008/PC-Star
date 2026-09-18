@@ -210,7 +210,7 @@ describe('5.1 (U1) — l’indicateur d’état dit la vérité', () => {
   })
 
   it('les 3 états sont traduits dans les 3 langues', () => {
-    for (const lang of ['fr', 'en', 'ar']) {
+    for (const lang of ['fr', 'en']) {
       for (const state of ['online', 'degraded', 'offline']) {
         assert.ok(dict[lang][`sysState_${state}`], `${lang}.sysState_${state} manque`)
       }
@@ -259,7 +259,7 @@ describe('5.3 (U3) — le bouton annonce une action, pas un résultat', () => {
   })
 
   it('la clé du toast de confirmation existe toujours (U3 ne supprime pas la confirmation)', () => {
-    for (const lang of ['fr', 'en', 'ar']) {
+    for (const lang of ['fr', 'en']) {
       assert.ok(dict[lang].masterPhotosSaved, `${lang}.masterPhotosSaved manque`)
       assert.ok(dict[lang].masterSavePhotos, `${lang}.masterSavePhotos manque`)
       assert.notEqual(dict[lang].masterPhotosSaved, dict[lang].masterSavePhotos, 'les deux libellés doivent différer')

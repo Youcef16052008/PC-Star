@@ -17,7 +17,7 @@
   2. clés Google/Meta, URI de callback et recette fournisseur avant tout passage en `OAUTH_DEMO=0`,
   3. persistance cloud (Vercel KV / Turso) pour des orders survivant aux cold starts,
   4. mesure Lighthouse en prod HTTPS (cible Perf mobile ≥ 90).
-- **Cas d’usage Oran : exploitable** — catalogue 251 SKU de base persistant, stock API multi-écrans, desk comptoir, AR/FR/EN, HTTPS sur Vercel sans VPS.
+- **Cas d’usage Oran : exploitable** — catalogue 251 SKU de base persistant, stock API multi-écrans, desk comptoir, FR/EN (arabe retiré sur demande), HTTPS sur Vercel sans VPS.
 - Lire aussi : [PORTFOLIO.md](PORTFOLIO.md) · [PROBLEMS-SOLUTIONS.md](PROBLEMS-SOLUTIONS.md) · [ARCHITECTURE.md](ARCHITECTURE.md) · [README.md](README.md) (index doc).
 
 ---
@@ -35,7 +35,7 @@
 | 6 | Perf, SEO, a11y, QA | **10.0 shop Oran** | 3–5 j |
 
 **Définition du 10/10 ici :**  
-client trouve un produit → construit un PC compatible → réserve en espèces → reçoit un code PS → master prépare au comptoir El Makari — **sans friction**, sur mobile, AR/FR/EN, stock cohérent, photos crédibles, panne serveur gérée.
+client trouve un produit → construit un PC compatible → réserve en espèces → reçoit un code PS → master prépare au comptoir El Makari — **sans friction**, sur mobile, FR/EN, stock cohérent, photos crédibles, panne serveur gérée.
 
 ---
 
@@ -45,7 +45,7 @@ client trouve un produit → construit un PC compatible → réserve en espèces
 - [x] Cash-only pickup Oran
 - [x] Builder + compat
 - [x] Comptes + master desk
-- [x] AR / FR / EN
+- [x] FR / EN (l’arabe a été retiré de l’interface et du dictionnaire)
 - [x] Shell Bootstrap + Offcanvas/Modal API
 - [x] Design tokens unifiés
 - [x] Guide master-only
@@ -143,7 +143,7 @@ client trouve un produit → construit un PC compatible → réserve en espèces
 **Exit Phase 3**
 - Top 80 SKUs : vraies photos ≥ 1200px
 - Lighthouse « images » plus de plainte oversized sans srcset
-- PDP specs lisibles AR/FR/EN
+- PDP specs lisibles FR/EN
 
 **Note estimée : 9.0 code media (sans shoot studio réel reste plafond ~8.5–9.0 photos)**
 
