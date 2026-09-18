@@ -243,7 +243,14 @@ export async function downloadOrdersCsv(day) {
   }
   if (!res.ok) return { ok: false, status: res.status }
   const blob = await res.blob()
-  const url = URL.createObjectURL(blob)
+  // `URL.createObjectURL` manque dans quelques environnements (webviews anciennes,
+  // jsdom des tests) : un repli `data:` évite un crash sec sur le clic « CSV ».
+  let url
+  try {
+    url = URL.createObjectURL(blob)
+  } catch {
+    url = `data:text/csv;charset=utf-8,${encodeURIComponent(await blob.text())}`
+  }
   const a = document.createElement('a')
   a.href = url
   a.download = `pcstar-orders${day ? '-' + day : ''}.csv`
