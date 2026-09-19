@@ -4,7 +4,7 @@ import PartThumb from './PartThumb.jsx'
 import ContactButton from './ContactPicker.jsx'
 import { relatedProducts, specRows } from './media.js'
 import { stockLabel } from './stockLabel.js'
-import { discountPercent, hasSale } from './productMeta.js'
+import { compatLabel, discountPercent, hasSale } from './productMeta.js'
 
 /**
  * LOT 2.6 (F10) — texte du bloc « besoins » d'une fiche produit.

@@ -14,6 +14,7 @@
  */
 import { describe, it, before, after } from 'node:test'
 import assert from 'node:assert/strict'
+import { JSDOM } from 'jsdom'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -252,5 +253,96 @@ describe('P1/B11 — le panneau maître peut enregistrer et relire une liste', (
     const builder = fs.readFileSync(path.join(process.cwd(), 'src', 'BuilderPage.jsx'), 'utf8')
     assert.match(builder, /compatIntersects\(p\.compat\?\.memory, board\.compat\.memory\)/)
     assert.doesNotMatch(builder, /p\.compat\?\.memory === board\.compat\.memory/)
+  })
+})
+
+/**
+ * Rendu RÉEL de la fiche produit — test écrit parce que le premier correctif de
+ * cette grappe cassait la page : `compatLabel` était utilisé dans
+ * `ProductPage.jsx` sans être importé (le fichier importait déjà
+ * `productMeta.js` pour deux autres fonctions). `ReferenceError` levée au
+ * rendu, invisible à `node --check` comme à `esbuild --bundle=false` (syntaxe
+ * seule) ; le crawl de la CI, lui, ne voyait plus le marqueur `.pdp-zoom`.
+ * Un montage réel est le seul test qui parle.
+ */
+const reactDom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', {
+  url: 'http://127.0.0.1:5173/',
+  pretendToBeVisual: true
+})
+const reactWindow = reactDom.window
+const React = (await import('react')).default
+const { act } = await import('react')
+const { createRoot } = await import('react-dom/client')
+const { default: ProductPage } = await import('./ProductPage.jsx')
+
+describe('P1/B11 — la fiche produit rend les listes (montage jsdom)', () => {
+  const window = reactWindow
+
+  before(() => {
+    for (const k of ['window', 'document', 'navigator', 'HTMLElement', 'Element', 'Node', 'Event', 'CustomEvent', 'getComputedStyle']) {
+      Object.defineProperty(globalThis, k, { value: window[k], writable: true, configurable: true })
+    }
+    globalThis.requestAnimationFrame = (cb) => setTimeout(cb, 0)
+    globalThis.cancelAnimationFrame = clearTimeout
+    globalThis.IS_REACT_ACT_ENVIRONMENT = true
+    window.matchMedia = window.matchMedia || ((q) => ({ matches: false, media: q, addEventListener() {}, removeEventListener() {} }))
+  })
+
+  after(() => {
+    for (const k of ['window', 'document', 'IS_REACT_ACT_ENVIRONMENT']) {
+      try {
+        delete globalThis[k]
+      } catch {
+        /* getter en lecture seule sur Node 22 */
+      }
+    }
+    window.close()
+  })
+
+  const tr = (key, vars) => {
+    let out = String(key)
+    for (const [k, v] of Object.entries(vars || {})) out = out.replaceAll(`{${k}}`, String(v))
+    return out
+  }
+
+  function renderProduct(product) {
+    const host = window.document.createElement('div')
+    window.document.getElementById('root').appendChild(host)
+    const root = createRoot(host)
+    act(() =>
+      root.render(
+        React.createElement(ProductPage, {
+          t: tr,
+          lang: 'fr',
+          product,
+          photoIndex: 0,
+          setPhotoIndex: () => {},
+          left: 3,
+          onBack: () => {},
+          onAdd: () => {},
+          onOpen: () => {},
+          liveStock: () => 3,
+          onAddRelated: () => {},
+          catalog: PRODUCTS
+        })
+      )
+    )
+    return host
+  }
+
+  it('rend « AM4/AM5 » quand la fiche déclare plusieurs supports', () => {
+    const base = PRODUCTS.find((p) => p.category === 'cooling') || PRODUCTS[0]
+    const host = renderProduct({ ...base, compat: { socket: ['AM4', 'AM5'], memory: 'DDR5', psuWatts: 750 } })
+    const texte = host.textContent || ''
+    assert.ok(texte.includes('AM4/AM5'), `liste de sockets absente du rendu : ${texte.slice(0, 200)}`)
+    assert.ok(!texte.includes('[object Object]'), 'aucun objet rendu brut')
+  })
+
+  it('rend une fiche à support unique comme avant', () => {
+    const base = PRODUCTS.find((p) => p.category === 'cpu') || PRODUCTS[0]
+    const host = renderProduct({ ...base, compat: { socket: 'AM5', memory: ['DDR4', 'DDR5'] } })
+    const texte = host.textContent || ''
+    assert.ok(texte.includes('AM5'), 'support unique conservé')
+    assert.ok(texte.includes('DDR4/DDR5'), `générations multiples absentes : ${texte.slice(0, 200)}`)
   })
 })
