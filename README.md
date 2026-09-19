@@ -15,7 +15,7 @@ npm run check:bundle # re-run only the dist/ secret scan (lot 7.3)
 
 ## État mesuré (19/09/2026)
 
-- `npm test` : **1025 tests, 0 échec** (77 fichiers `src/*.test.js`, tous branchés dans le script — `src/p3ServerHygiene.test.js` le vérifie). La suite scanne le bundle publié
+- `npm test` : **1025 tests, 0 échec** (77 fichiers `src/*.test.js`, tous branchés dans le script — `src/p3ServerHygiene.test.js` le vérifie). Le total peut bouger de ±1 selon le nombre de chunks que `dist/` contient : `src/bundleSecrets.test.js` fabrique un test par artefact scanné, ce n'est pas une régression. La suite scanne le bundle publié
   (`src/bundleSecrets.test.js`) : sans `dist/`, elle échoue en cascade — le build
   est une pré-condition, pas une étape optionnelle.
 - `npm run build:crawl && node scripts/jsdom-crawl.mjs` : 24 pages rendues en

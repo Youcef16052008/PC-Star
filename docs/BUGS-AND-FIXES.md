@@ -2455,3 +2455,56 @@ moteurs ne sont pas joués localement — c'est le run de la PR qui le dira. Si 
 Firefox casse, la règle reste la même : on répare le harnais ou l'assertion dépendante
 du moteur, **on n'amollit pas la porte** (ne pas retirer un moteur de la config pour
 faire passer le vert : ce serait le chemin exact vers la porte muette).
+
+### 4. Dans la foulée, en CI : une porte rouge qui ne dit rien, et un ordre de balisage qui la rendait possible
+
+Les trois premiers lots de cette session poussés, la CI a rendu : **e2e vert sur les
+trois moteurs** (chromium + webkit + firefox, 9 tests), **crawl rouge** sur
+`✗ fr/orders : jsdomError: Uncaught [TypeError: Cannot read properties of undefined
+(reading 'querySelector')]`. Rejoué cinq fois localement (dont deux sous saturation CPU
+volontaire, 2 cœurs) : **jamais reproduit**. Trois courses disaient donc : rouge sur
+`fd3d221` (qui ne touchait que des documents), vert sur `70e225c`, rouge ici.
+
+Deux choses faites, dans cet ordre :
+
+1. **Le harnais rend sa pile.** Le collecteur ne gardait que `e.message` ; il garde
+   maintenant la tête de pile **et** les frames qui touchent `dist-crawl`/`assets/` — une
+   ligne, donc lisible dans l'annotation `::error::` du job (le blob store des logs
+   Actions est injoignable depuis ce bac à sable, vérifié : `gh api …/jobs/<id>/logs`
+   meurt sur le transport, `--log-failed` rend du vide). J'ai par ailleurs écrit, puis
+   **effacé**, un motif Popper ajouté à la liste des fautes excusées pour faire passer
+   le vert : la ligne qui ferme cette liste dans `scripts/jsdom-crawl.mjs` explique
+   maintenant pourquoi elle reste fermée.
+2. **Un hazard réel trouvé en cherchant.** `scripts/fix-crawl-html.mjs` retire
+   `type="module"` de l'`index.html` du crawl (jsdom n'exécute pas les modules) — donc
+   il transformait un script **différé** en script **classique**, laissé dans `<head>`.
+   Or `src/main.jsx` fait `createRoot(document.getElementById('root'))`, et `#root` est
+   dans le `<body>` : un script classique du `<head>` est, spec HTML, bloquant, donc
+   évalué avant que le conteneur existe. Mesuré avec le bundle réel du crawl dans jsdom :
+
+   | position du script | erreurs | contenu rendu dans `#root` |
+   |---|---|---|
+   | dans `<head>` (avant) | 1 — `Minified React error #299` | 0 caractère |
+   | après `<div id="root">`, avec `defer` (après) | 0 | 373 300 caractères |
+
+   Le générateur déplace maintenant le(s) script(s) après le conteneur **et** pose
+   `defer` ; `src/p3ServerHygiene.test.js` verrouille les deux (et le refus d'un
+   `index.html` inattendu). La prod n'a jamais eu ce problème : son script est un
+   module, différé par spéculation de parsing — c'est bien pour ça que le bug ne vivait
+   que dans le harnais de la porte. Est-ce *la* cause du rouge `fr/orders` ? Pas prouvé :
+   le message n'est pas #299. Ce qui est prouvé, c'est qu'une page rendue par cette porte
+   dépendait de la vitesse à laquelle le serveur de preview répond — et qu'une porte dont
+   le verdict dépend du cache est une porte qui ment.
+
+Enfin, le **rouge e2e** de la même course (une seule fois, chromium, sur la reprise de
+session après rechargement : le nom du compte attendu absent pendant 5 s) est une course
+de la spec, pas de l'application : le test attendait un délai, il attend maintenant un
+événement — `waitForResponse` sur la réponse de session, puis l'assertion de rendu.
+Le verrou `6.9 (Q9)` de `src/lot6Quality.test.js`, qui découpait le fichier sur la
+première occurrence du texte `page.reload()`, a été durci au passage : il retirait mal
+les commentaires de suite (une phrase qui *nommait* l'appel déplaçait la découpe) ; il
+découpe maintenant sur le dernier rechargement du code, commentaires exclus — un
+commentaire ne peut plus ni satisfaire ni saboter ce verrou.
+
+Portes rejouées après tout ça : `npm test` **1025 / 1025**, crawl **24 pages, 0 erreur**,
+audit boutons en cours, `build:crawl` propre.

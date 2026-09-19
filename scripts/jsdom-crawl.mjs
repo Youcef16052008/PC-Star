@@ -136,7 +136,12 @@ for (const lang of LANGS) {
     // laisse pas diagnostiquer depuis un journal GitHub (le blob store des logs
     // est souvent injoignable — les annotations restent le seul canal) : sans
     // frame, on ne peut ni reproduire ni réparer, et la porte devient un mur.
-    const pile = (e.stack || '').split('\n').slice(1, 5).map((l) => l.trim()).join(' ← ')
+    const frames = (e.stack || '').split('\n').slice(1).map((l) => l.trim()).filter(Boolean)
+    // Les frames de jsdom (`reportException`, `processJavaScript`, …) ne disent
+    // rien : la première course en CI n'a montré que ça. On garde la tête de
+    // pile ET les frames qui touchent le bundle — c'est là que vit la faute.
+    const nôtres = frames.filter((l) => /dist-crawl|assets\/|src\//.test(l)).slice(0, 3)
+    const pile = [...new Set([...frames.slice(0, 2), ...nôtres])].join(' ← ')
     errors.push(`jsdomError: ${e.message}${pile ? ` [${pile}]` : ''}`)
   })
 
