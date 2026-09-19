@@ -941,9 +941,23 @@ export async function handler(req, res) {
       const stock = db.stock || {}
       const zeroStock = Object.values(stock).filter((v) => (Number(v) || 0) <= 0).length
       const products = publicCatalog(db)
+      // LOT P0 (B1) : l'état du pool de transactions, sous le même régime que le
+      // reste de la sonde — des compteurs et un dernier message, aucun secret.
+      // `idleErrors > 0` raconte une panne de connexion absorbée (compute
+      // suspendu, pooler qui ferme l'inactif) : sans l'auditeur, ces erreurs
+      // tuaient le processus au lieu d'être journalisées ici.
+      let pool = null
+      if (process.env.DATABASE_URL) {
+        try {
+          const { neonPoolStatus } = await import('./neonStore.js')
+          pool = neonPoolStatus()
+        } catch {
+          pool = null
+        }
+      }
       return send(res, 200, {
         ok: true,
-        db: { driver, reachable: ok, error, ms: Date.now() - startedAt, ...dbUrlDiagnostics() },
+        db: { driver, reachable: ok, error, ms: Date.now() - startedAt, pool, ...dbUrlDiagnostics() },
         counts: {
           baseProducts: PRODUCTS.length,
           publicProducts: products.length,
