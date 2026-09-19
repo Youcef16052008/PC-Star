@@ -328,19 +328,11 @@ export function kindForCategory(category) {
   return 'part'
 }
 
-export const BRANDS = [
-  'AMD', 'Intel', 'NVIDIA', 'ASUS', 'MSI', 'Gigabyte', 'ASRock',
-  'Corsair', 'G.Skill', 'Kingston', 'Samsung', 'WD', 'Crucial',
-  'Lian Li', 'NZXT', 'Cooler Master', 'Noctua', 'be quiet!',
-  'Logitech', 'Razer', 'SteelSeries', 'HyperX', 'Xbox', 'Zotac',
-  'Sapphire', 'Blue', 'PowerColor', 'Palit', 'PNY', 'XFX',
-  'TeamGroup', 'Patriot', 'Seagate', 'Fractal', 'Phanteks',
-  'Thermaltake', 'DeepCool', 'SilverStone', 'Seasonic', 'EVGA',
-  'Arctic', 'TP-Link', 'HP', 'Dell', 'Lenovo', 'Acer', 'Apple', 'PC Star',
-  'SanDisk', 'Sony', 'Nintendo', '8BitDo', 'Generic',
-  'Spirit of Gamer', 'Havit', 'Gamemax', 'Raidmax', 'Twinmos', 'Magma',
-  'Xigmatek', 'Tenda', '1st Player', 'Ares', 'Hybrok', 'Antec', 'GameNote', 'Ugreen'
-]
+// LOT P3 (B25) : `BRANDS` (67 marques « curatées », aucune lecture dans le code)
+// a été retiré : la vitrine dresse ses puces sur `BRANDS_DZ_PRIORITY` croisée
+// avec les marques réellement en rayon, et la recherche les déduit du catalogue.
+
+
 
 export const SOCKETS = ['AM4', 'AM5', 'LGA1700', 'LGA1851']
 

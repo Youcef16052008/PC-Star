@@ -83,6 +83,22 @@ export function normalizeProductDetails(value) {
  * partout ailleurs — un ventirad édité perdait ses supports, et un CPU double
  * socket (AM5 **et** LGA1700) restait impossible à saisir.
  */
+/**
+ * LOT P3 (B25) — les puces de marques du rayon, dérivées du stock réel.
+ *
+ * `priority` (`BRANDS_DZ_PRIORITY`) donne l'ORDRE, `products` donne ce qui est
+ * vraiment vendu : une marque sans produit en rayon ne propose plus de puce
+ * (avant, elle en proposait une qui filtrait à vide), et `BRANDS` — 67 marques
+ * « curatées » que rien ne lisait — est retiré de `src/data.js` plutôt que
+ * d'entretenir une fausse autorité.
+ */
+export function brandsOnSale(products, priority = []) {
+  const vues = new Set((products || []).map((p) => String(p?.brand || '').trim()).filter(Boolean))
+  const ordre = [...new Set(priority.filter((b) => vues.has(b)))]
+  const reste = [...vues].filter((b) => !ordre.includes(b)).sort((a, b) => a.localeCompare(b))
+  return [...ordre, ...reste]
+}
+
 export function compatValues(value) {
   if (value == null) return []
   const raw = Array.isArray(value) ? value : String(value).split(',')

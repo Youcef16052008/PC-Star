@@ -21,7 +21,7 @@ import * as api from './api.js'
 import { createDeskStream } from './deskStream.js'
 import { notifyNewOrder, requestNotificationPermission } from './notify.js'
 import { ensureProductPhotos } from './productPhotos.js'
-import { discountPercent, hasSale } from './productMeta.js'
+import { brandsOnSale, discountPercent, hasSale } from './productMeta.js'
 import SearchPage from './SearchPage.jsx'
 import BuilderPage from './BuilderPage.jsx'
 import PartThumb from './PartThumb.jsx'
@@ -201,7 +201,12 @@ export function deskBeep() {
     if (!AC) return
     if (!deskAudioCtx || deskAudioCtx.state === 'closed') deskAudioCtx = new AC()
     // autoplay : un contexte peut naître « suspended » → le réveiller.
-    if (deskAudioCtx.state === 'suspended') deskAudioCtx.resume()
+    // LOT P3 (B26) : `resume()` renvoie une promesse. Le `try` de cette
+    // fonction est SYNCHRONE, donc un refus du navigateur (aucun geste
+    // utilisateur) partait en `unhandledrejection` : un bruit de console à
+    // chaque commande annoncée, sans conséquence ailleurs — mais le `catch`
+    // ne coûte rien et le bruit coûtait un diagnostic à chaque audit.
+    if (deskAudioCtx.state === 'suspended') deskAudioCtx.resume().catch(() => {})
     const o = deskAudioCtx.createOscillator()
     const g = deskAudioCtx.createGain()
     o.connect(g)
@@ -248,7 +253,23 @@ function openExternal(e, href) {
   } catch {
     w = null
   }
-  if (!w) window.location.href = href
+  // LOT P3 (B22) : `window.open` ne beneficie PAS du `noopener` implicite des
+  // `<a target="_blank">` — la page ouverte garde `window.opener` sur le
+  // boutique et peut la rediriger. Passer `'noopener'` en 3e argument etait
+  // la refonte refusee ici (voir `ContactPicker.jsx:56-69`) : il fait renvoyer
+  // `null`, ce qui declencherait la navigation meme onglet pour TOUTE
+  // ouverture reussie. Couper le lien apres coup donne la meme protection sans
+  // perdre le sens de `w`.
+  if (w) {
+    try {
+      w.opener = null
+    } catch {
+      /* environnement qui refuse d'ecrire sur l'objet fenetre */
+    }
+    return undefined
+  }
+  window.location.href = href
+  return undefined
 }
 
 // LOT 5.7 (U7) : `cartMessage` vivait ici, sans garde de longueur. La
@@ -320,7 +341,6 @@ export default function App() {
   useEffect(() => {
     reservationKeyRef.current = null
   }, [cart])
-  const prevOrderCount = useRef(0)
   // P19 : codes déjà vus — la détection par longueur ratait une commande
   // arrivée en même temps qu'une suppression.
   const seenOrderCodes = useRef(null)
@@ -424,6 +444,12 @@ export default function App() {
   }, [apiOnline, serverCatalogReady, serverCatalog, shopView.products, stockMap])
   // Le produit affiché peut sortir du catalogue pendant la visite (rupture /
   // masquage) : on garde la dernière référence pour ne pas vider la PDP.
+  // LOT P3 (B25) : ordre de la priorité Algérie, mais uniquement des marques
+  // réellement en rayon (les autres marques du catalogue suivent, triées).
+  // Déclaré ici, après `catalog` : posé plus haut, il lisait une constante en
+  // zone morte de déclaration (TDZ) et faisait tomber tout le montage de `App`.
+  const marquesVendues = useMemo(() => brandsOnSale(catalog, BRANDS_DZ_PRIORITY), [catalog])
+
   const selectedFound = catalog.find((p) => p.id === selectedId)
   const selectedRef = useRef(null)
   if (selectedFound) selectedRef.current = selectedFound
@@ -993,7 +1019,6 @@ export default function App() {
         }
       }
       seenOrderCodes.current = new Set(server.map((o) => o.code))
-      prevOrderCount.current = server.length
       // LOT 3.11 (B16) : horodatage persisté du dernier pull réussi — pris AVANT
       // l'envoi, donc toute commande créée pendant la requête sera vue comme
       // « arrivée depuis » au prochain démarrage à froid.
@@ -1191,6 +1216,18 @@ export default function App() {
     // P5 (B20) inchangé : plafond = stock VRAIMENT disponible (`stockMap`), pas
     // le `product.stock` statique ; produit sorti du catalogue → plafond 1.
     const max = product ? (stockMap[id] != null ? stockMap[id] : product.stock) : 1
+    // LOT P3 (B19) : avec un stock a zero, `Math.min(0, Math.max(1, 2))`
+    // rendait 0, et le `.filter(qty > 0)` du bas faisait disparaitre la LIGNE :
+    // un clic sur « + » supprimait le produit du panier, sans un mot. Une
+    // montee au-dessus de ce qui reste se refuse et se dit ; la descendre a 0
+    // reste le moyen prevu de retirer la ligne (et fonctionne aussi en rupture).
+    if (max < 1) {
+      const deja = (cart.find((i) => i.id === id) || {}).qty || 0
+      if (Number(qty) > deja) {
+        setToast(t('outOfStock'))
+        return
+      }
+    }
     setCart((prev) =>
       prev
         .map((i) => (i.id === id ? { ...i, qty: Math.min(max, Math.max(1, qty)) } : i))
@@ -1699,7 +1736,15 @@ export default function App() {
             <button type="button" className={`btn btn-sm ${!brandFilter ? 'btn-success' : 'btn-outline-secondary'}`} onClick={() => setBrandFilter(null)}>
               {t('cat_all')}
             </button>
-            {BRANDS_DZ_PRIORITY.map((b) => (
+            {/* LOT P3 (B25) : la rangee etait dressee sur `BRANDS_DZ_PRIORITY`
+                seule, une liste degerbee du stock : 18 marques du catalogue
+                n'y figuraient pas (infiltrables donc seulement par la
+                recherche), et `BRANDS` — 67 marques « curates » — n'etait lu
+                par PERSONNE. Une puce qui ne mene a aucun produit est un
+                bouton vide ; une liste que rien ne lit est une fausse
+                autorite. On croise la priorite avec les marques reellement
+                vendues, et la liste morte est retiree de `src/data.js`. */}
+            {marquesVendues.map((b) => (
               <button key={b} type="button" className={`btn btn-sm ${brandFilter === b ? 'btn-success' : 'btn-outline-secondary'}`} onClick={() => setBrandFilter(brandFilter === b ? null : b)}>
                 {b}
               </button>
