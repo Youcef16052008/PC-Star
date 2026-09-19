@@ -97,7 +97,16 @@ describe('P21 — un échec d’écriture du store renvoie une réponse exploita
       assert.match(fail.contentType, /application\/json/, 'réponse JSON, pas une connexion pendue')
       assert.equal(fail.data.ok, false, 'ok:false explicite')
       assert.equal(fail.data.error, 'server')
-      assert.ok(fail.data.message, 'le motif réel est remonté pour le diagnostic')
+      // LOT P1 (audit 19/09/2026, B2) : le motif réel ne part PLUS dans la
+      // réponse. Ce test exigeait `message` — c'est-à-dire qu'il verrouillait la
+      // fuite mesurée à l'audit (`EISDIR: illegal operation on a directory,
+      // open '/chemin/store.json.tmp'`, donc l'arborescence du serveur offerte à
+      // un appelant). Ce qui est vérifié ici n'était pas le contrat utile : la
+      // réponse doit rester un JSON `ok:false` (le Desk ne se fige pas), sans en
+      // dire plus. Le diagnostic reste dans le journal du serveur.
+      assert.equal(fail.data.message, undefined, 'aucun détail interne dans le corps du 500')
+      const indexSrc = fs.readFileSync(path.join(process.cwd(), 'server', 'index.js'), 'utf8')
+      assert.match(indexSrc, /console\.error\(err\)/, 'le catch global journalise la panne')
 
       // Le store ne doit pas être tronqué par l'échec.
       const raw = fs.readFileSync(path.join(dir, 'store.json'), 'utf8')

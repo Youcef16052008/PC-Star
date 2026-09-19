@@ -114,6 +114,27 @@ export function corsHeaders() {
   }
 }
 
+/**
+ * LOT P1 (audit 19/09/2026, B3) — un segment de chemin mal encodé est une
+ * REQUÊTE invalide, pas une panne serveur.
+ *
+ * Avant : chaque route appelait `decodeURIComponent(...)` à l'air libre, à
+ * l'intérieur du `try` géant du handler. Une séquence comme `/api/orders/%E0%A4%A`
+ * levait donc un `URIError` attrapé par le `catch` global → **500** (mesuré à
+ * l'audit, avec de surcroît le message interne dans le corps — B2). Un 400
+ * typé est le seul réponse honnête : le client a envoyé une URL indécodable, le
+ * serveur n'a rien qui a cassé.
+ *
+ * @returns {string|null} le segment décodé, `null` s'il est mal formé
+ */
+function pathSegment(raw) {
+  try {
+    return decodeURIComponent(String(raw ?? ''))
+  } catch {
+    return null
+  }
+}
+
 function send(res, status, body, headers = {}) {
   const payload = typeof body === 'string' ? body : JSON.stringify(body)
   const isJson = typeof body !== 'string'
@@ -621,7 +642,8 @@ export async function handler(req, res) {
     if (req.method === 'POST' && pathname.startsWith('/api/me/orders/') && pathname.endsWith('/cancel')) {
       const auth = await userFromReq(req)
       if (!auth) return send(res, 401, { ok: false, error: 'auth' })
-      const code = decodeURIComponent(pathname.split('/').slice(-2, -1)[0])
+      const code = pathSegment(pathname.split('/').slice(-2, -1)[0])
+      if (code === null) return send(res, 400, { ok: false, error: 'invalid_code' })
       const uid = auth.user.id
       let result = null
       await updateDbAsync((db) => {
@@ -664,7 +686,8 @@ export async function handler(req, res) {
       if (!auth || auth.user.role !== 'master') return send(res, 403, { ok: false, error: 'forbidden' })
       const rl = rateLimit({ windowMs: 60_000, max: 30, key: clientKey(req, 'claim-code') })
       if (!rl.ok) return send(res, 429, { ok: false, error: 'rate_limited' })
-      const code = decodeURIComponent(pathname.split('/').slice(-2, -1)[0])
+      const code = pathSegment(pathname.split('/').slice(-2, -1)[0])
+      if (code === null) return send(res, 400, { ok: false, error: 'invalid_code' })
       let result = null
       await updateDbAsync((db) => {
         result = issueClaimCode(db, code)
@@ -751,7 +774,8 @@ export async function handler(req, res) {
       const auth = await userFromReq(req)
       if (!auth || auth.user.role !== 'master') return send(res, 403, { ok: false, error: 'forbidden' })
       const parts = pathname.split('/')
-      const id = decodeURIComponent(parts[parts.length - 2])
+      const id = pathSegment(parts[parts.length - 2])
+      if (id === null) return send(res, 400, { ok: false, error: 'invalid_id' })
       const body = await readBody(req)
       // P16 (#14) : plus de valeur par défaut. Avant, un corps vide remettait
       // le mot de passe du client à `client31` — devinable, et le master ne
@@ -926,7 +950,11 @@ export async function handler(req, res) {
     }
 
     if (req.method === 'GET' && pathname.startsWith('/api/stock/')) {
-      const id = pathname.split('/').pop()
+      // LOT P1 (B3) : même règle que les autres routes paramétrées — le segment
+      // est décodé, et un segment indécodable est un 400 (avant : non décodé, la
+      // recherche portait sur `foo%20bar` là où les autres routes voyaient `foo bar`).
+      const id = pathSegment(pathname.split('/').pop())
+      if (id === null) return send(res, 400, { ok: false, error: 'invalid_id' })
       const { db, ok } = await readDbSafe()
       return send(res, 200, { ok: true, id, stock: liveStockOf(db, id), degraded: !ok })
     }
@@ -1096,7 +1124,8 @@ export async function handler(req, res) {
     if (req.method === 'PATCH' && pathname.startsWith('/api/orders/')) {
       const auth = await userFromReq(req)
       if (!auth || auth.user.role !== 'master') return send(res, 403, { ok: false, error: 'forbidden' })
-      const code = decodeURIComponent(pathname.split('/').pop())
+      const code = pathSegment(pathname.split('/').pop())
+      if (code === null) return send(res, 400, { ok: false, error: 'invalid_code' })
       const body = await readBody(req)
       const status = String(body.status || '')
       const hasPickup = body.pickupDate != null
@@ -1129,7 +1158,8 @@ export async function handler(req, res) {
       const auth = await userFromReq(req)
       if (!auth || auth.user.role !== 'master') return send(res, 403, { ok: false, error: 'forbidden' })
       const parts = pathname.split('/')
-      const code = decodeURIComponent(parts[parts.length - 2])
+      const code = pathSegment(parts[parts.length - 2])
+      if (code === null) return send(res, 400, { ok: false, error: 'invalid_code' })
       let result = null
       await updateDbAsync((db) => {
         result = cancelOrder(db, code)
@@ -1145,7 +1175,8 @@ export async function handler(req, res) {
     if (req.method === 'DELETE' && pathname.startsWith('/api/orders/')) {
       const auth = await userFromReq(req)
       if (!auth || auth.user.role !== 'master') return send(res, 403, { ok: false, error: 'forbidden' })
-      const code = decodeURIComponent(pathname.split('/').pop())
+      const code = pathSegment(pathname.split('/').pop())
+      if (code === null) return send(res, 400, { ok: false, error: 'invalid_code' })
       let result = null
       await updateDbAsync((db) => {
         result = deleteOrder(db, code)
@@ -1208,7 +1239,8 @@ export async function handler(req, res) {
     if (req.method === 'PUT' && pathname.startsWith('/api/master/products/')) {
       const auth = await userFromReq(req)
       if (!auth || auth.user.role !== 'master') return send(res, 403, { ok: false, error: 'forbidden' })
-      const id = decodeURIComponent(pathname.split('/').pop())
+      const id = pathSegment(pathname.split('/').pop())
+      if (id === null) return send(res, 400, { ok: false, error: 'invalid_id' })
       const body = await readBody(req)
       const hasDataUrls = Array.isArray(body.photoDataUrls) && body.photoDataUrls.length > 0
       const putSave = hasDataUrls ? await savePhotoDataUrlsSafe(id, body.photoDataUrls) : { paths: [] }
@@ -1246,7 +1278,8 @@ export async function handler(req, res) {
       const auth = await userFromReq(req)
       if (!auth || auth.user.role !== 'master') return send(res, 403, { ok: false, error: 'forbidden' })
       const parts = pathname.split('/')
-      const id = decodeURIComponent(parts[parts.length - 2])
+      const id = pathSegment(parts[parts.length - 2])
+      if (id === null) return send(res, 400, { ok: false, error: 'invalid_id' })
       const body = await readBody(req)
       let result = null
       await updateDbAsync((db) => {
@@ -1263,7 +1296,8 @@ export async function handler(req, res) {
     if (req.method === 'DELETE' && pathname.startsWith('/api/master/products/')) {
       const auth = await userFromReq(req)
       if (!auth || auth.user.role !== 'master') return send(res, 403, { ok: false, error: 'forbidden' })
-      const id = decodeURIComponent(pathname.split('/').pop())
+      const id = pathSegment(pathname.split('/').pop())
+      if (id === null) return send(res, 400, { ok: false, error: 'invalid_id' })
       let result = null
       await updateDbAsync((db) => {
         result = deleteProductMaster(db, id)
@@ -1289,7 +1323,8 @@ export async function handler(req, res) {
       const auth = await userFromReq(req)
       if (!auth || auth.user.role !== 'master') return send(res, 403, { ok: false, error: 'forbidden' })
       const parts = pathname.split('/')
-      const id = decodeURIComponent(parts[parts.length - 2])
+      const id = pathSegment(parts[parts.length - 2])
+      if (id === null) return send(res, 400, { ok: false, error: 'invalid_id' })
       const body = await readBody(req)
       // Compatibilité : l'ancienne API acceptait les data URLs dans `photos`;
       // la liste de chemins (hors data:) est désormais la galerie à conserver.
@@ -1474,7 +1509,9 @@ export async function handler(req, res) {
     if (req.method === 'DELETE' && pathname.startsWith('/api/customers/')) {
       const auth = await userFromReq(req)
       if (!auth || auth.user.role !== 'master') return send(res, 403, { ok: false, error: 'forbidden' })
-      const id = pathname.split('/').pop()
+      // LOT P1 (B3) : décodé comme le reste (l'API cliente encode déjà l'identifiant).
+      const id = pathSegment(pathname.split('/').pop())
+      if (id === null) return send(res, 400, { ok: false, error: 'invalid_id' })
       // LOT 4.3 (F16) : `purgeUser` annule désormais les commandes en cours du
       // compte (le stock réservé est rendu) et renvoie le détail. La réponse le
       // transmet : le master voit ce que la suppression a entraîné au lieu d'un
@@ -1531,8 +1568,20 @@ export async function handler(req, res) {
       // deviner entre les 4,5 Mo de Vercel et les 15 Mo d'un serveur local.
       return send(res, 413, bodyTooLargePayload(), { Connection: 'close' })
     }
+    // LOT P1 (audit 19/09/2026, B2 + B3) — deux règles :
+    //  · une URI indécodable reste une erreur du CLIENT : 400, jamais 500. Le
+    //    filet ci-dessous couvre les décodages qui ne passent pas par
+    //    `pathSegment()` (modules importés, `searchParams`, etc.).
+    //  · un 500 ne dit QUE « server ». `err.message` partait au client :
+    //    mesuré à l'audit, une écriture impossible répondait
+    //    `{"error":"server","message":"EACCES: permission denied, open
+    //    '/chemin/absolu/store.json.tmp'"}` — l'arborescence du serveur
+    //    offerte à un appelant anonyme. Le détail part en journal, pas en réponse.
+    if (err instanceof URIError) {
+      return send(res, 400, { ok: false, error: 'invalid_uri' })
+    }
     console.error(err)
-    return send(res, 500, { ok: false, error: 'server', message: String(err.message || err) })
+    return send(res, 500, { ok: false, error: 'server' })
   }
 }
 
