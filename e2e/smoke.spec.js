@@ -112,6 +112,19 @@ test('demo session survives a page reload', async ({ page }) => {
   await brancher(page)
   await expect(page.getByRole('button', { name: new RegExp(DEMO.name.replace('.', '\\.'), 'i') })).toBeVisible()
 
-  await page.reload()
+  // La course attendait le nom de l'utilisateur pendant 5 s APRÈS le
+  // rechargement. Sur un runner chargé, ce n'est pas le rendu qui traîne :
+  // c'est la reprise de session qui part du jeton relu puis rappelle l'API — et
+  // le premier `await` du navigateur peut dépasser le délai par temps d'attente
+  // CPU. Le verrou est le même (le nom doit être là, sinon la session n'a pas
+  // survécu), mais il est posé sur un événement : la réponse de session. Le
+  // délai de 30 s n'amollit rien — une session qui ne revient pas en 30 s est
+  // une session qui ne revient pas ; une session qui revient en 6 s n'est pas
+  // un bug.
+  const [reponse] = await Promise.all([
+    page.waitForResponse((r) => r.url().endsWith('/api/me'), { timeout: 30_000 }),
+    page.reload()
+  ])
+  await expect(reponse.ok()).toBe(true)
   await expect(page.getByRole('button', { name: new RegExp(DEMO.name.replace('.', '\\.'), 'i') })).toBeVisible()
 })

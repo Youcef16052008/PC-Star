@@ -569,7 +569,15 @@ describe('6.9 (Q9) — le smoke e2e vérifie l’état connecté', () => {
     const reload = b['demo session survives a page reload']
     assert.ok(reload, 'un test de survie de session au rechargement doit exister')
     assert.match(reload, /page\.reload\(\)/, 'le test doit recharger la page')
-    const apres = reload.split('page.reload()')[1] || ''
+    // Découpe sur le code, pas sur la prose : la verrouillait sur la PREMIERE
+    // occurrence du texte, donc une phrase de commentaire qui nommait l'appel
+    // déplaçait la découpe et faisait échouer le verrou pour la mauvaise raison.
+    // Les commentaires sont retirés, puis on découpe sur la dernière occurrence
+    // du rechargement — seule la vraie assertion compte, dans un sens comme dans
+    // l'autre (un commentaire ne peut plus ni satisfaire ni saboter ce verrou).
+    const corps = reload.replace(/^\s*\/\/.*$/gm, '')
+    const i = corps.lastIndexOf('page.reload()')
+    const apres = i >= 0 ? corps.slice(i + 'page.reload()'.length) : ''
     assert.match(
       apres,
       /expect\(page\.getByRole\('button', \{ name: new RegExp\(DEMO\.name/,
