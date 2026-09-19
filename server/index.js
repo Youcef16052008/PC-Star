@@ -60,6 +60,8 @@ import { broadcastDesk, formatOrderMessage, sendWhatsApp, whatsappConfig } from 
 // LOT 8.4 (A4) : budgets d'octets partagés avec le client (compression, garde
 // d'envoi) et détection de l'environnement serverless.
 import { LOCAL_MAX_BODY_BYTES, MAX_UPLOAD_BODY_BYTES, VERCEL_MAX_BODY_BYTES } from '../src/limits.js'
+// LOT P1 (B20) : une seule validation de « journée » pour tout le projet.
+import { normalizeDay } from '../src/orderLogic.js'
 import { IS_SERVERLESS, safeUploadName } from './blobStore.js'
 import { attachDeskSocket } from './deskSocket.js'
 import {
@@ -1099,6 +1101,10 @@ export async function handler(req, res) {
         // était tarifée 0 DA et la commande acceptée en 201.
         if (result?.error === 'unknown_product')
           return send(res, 400, { ok: false, error: 'unknown_product', unknown: result.unknown })
+        // LOT P1 (B13) : produit connu mais non tarifé. Requête invalide (400)
+        // avec la liste des lignes en cause, sur le modèle de `unknown_product`.
+        if (result?.error === 'unpriced')
+          return send(res, 400, { ok: false, error: 'unpriced', unpriced: result.unpriced })
         if (result?.error === 'idempotency_conflict') return send(res, 409, { ok: false, error: 'idempotency_conflict' })
         return send(res, 400, { ok: false, error: result?.error || 'order' })
       }
@@ -1436,7 +1442,7 @@ export async function handler(req, res) {
       // P16 : `day` finit dans Content-Disposition — sans validation, un CRLF
       // injectait un en-tête (et faisait tomber la route en 500).
       const rawDay = url.searchParams.get('day') // YYYY-MM-DD optional
-      const day = /^\d{4}-\d{2}-\d{2}$/.test(String(rawDay || '')) ? String(rawDay) : ''
+      const day = normalizeDay(rawDay)
       const csv = ordersToCsv((await readDbAsync()).orders || [], { day })
       res.writeHead(200, {
         'Content-Type': 'text/csv; charset=utf-8',

@@ -5,7 +5,7 @@ import crypto from 'node:crypto'
 import { PRODUCTS } from '../src/data.js'
 // P22 (bug G) : table des transitions partagée avec le client.
 // LOT 2.2 (F3 + F4) : algorithme du code de commande partagé lui aussi.
-import { ORDER_TRANSITIONS, nextOrderCode } from '../src/orderLogic.js'
+import { ORDER_TRANSITIONS, nextOrderCode, normalizeDay } from '../src/orderLogic.js'
 
 export const ORDER_STATUSES = ['new', 'preparing', 'ready', 'picked', 'cancelled']
 
@@ -167,6 +167,18 @@ export function placeOrder(db, body, { userId = null } = {}) {
   //   visant son id (reproduit en direct → HTTP 201). Le masquage est une
   //   décision du maître, elle doit valoir aussi à la commande.
   const hidden = new Set(Array.isArray(db.meta?.hiddenProductIds) ? db.meta.hiddenProductIds : [])
+  // LOT P1 (audit 19/09/2026, B13) — une ligne connue du catalogue mais SANS
+  // prix exploitable est refusée, comme une ligne inconnue.
+  //
+  // `priceOf` renvoie `null` pour un id inconnu (déjà refusé en `unknown_product`)
+  // mais `0` pour un produit légitime dont le prix a été saisi en texte
+  // (`Number('beaucoup') || 0`) ou remis à zéro par le maître. La normalisation
+  // `price == null ? 0 : price` transformait alors ces produits en articles
+  // GRATUITS : reproduit à l'audit, une commande `{items:[{id:'desk-info'}]}`
+  // — un produit sans prix — passait en 201 avec `total: 0`. Le comptoir
+  // encaisse au retrait, donc un total faux n'est pas un détail d'affichage :
+  // c'est une vente offerte. Mêmes motifs de refus que A2 (voir ci-dessus).
+  const unpriced = []
   // Une commande peut contenir le même SKU plusieurs fois (fusion de panier,
   // double clic, client malveillant). Les quantités doivent être consolidées
   // AVANT le contrôle de stock : vérifier deux fois « reste 1 » puis décrémenter
@@ -199,6 +211,12 @@ export function placeOrder(db, body, { userId = null } = {}) {
       unavailable.push({ id, name: line.name })
       continue
     }
+    // Prix absent, nul, négatif, non numérique ou explicitement 0 : la ligne
+    // n'est pas tarifable, donc elle n'est pas commandable (B13).
+    if (!(Number.isFinite(price) && price > 0)) {
+      unpriced.push({ id, name: line.name })
+      continue
+    }
     const existing = byProductId.get(id)
     if (existing) {
       existing.qty += line.qty
@@ -212,6 +230,7 @@ export function placeOrder(db, body, { userId = null } = {}) {
   // contrôle de stock ci-dessous).
   if (unknown.length) return { ok: false, error: 'unknown_product', unknown }
   if (unavailable.length) return { ok: false, error: 'unavailable', unavailable }
+  if (unpriced.length) return { ok: false, error: 'unpriced', unpriced }
 
   const shortages = []
   for (const line of normalized) {
@@ -229,15 +248,20 @@ export function placeOrder(db, body, { userId = null } = {}) {
   // P9 (P7-4) : « journée » = date LOCALE du client (Oran), validée côté
   // serveur ; le code de commande et l'export CSV partagent cette date
   // (avant : date locale du serveur = UTC sur Vercel → décalage 1 h).
-  const day = /^\d{4}-\d{2}-\d{2}$/.test(String(body.day || '')) ? String(body.day) : localDayOf(new Date())
+  // LOT P1 (B20) : `normalizeDay` — la regex laissait passer `2026-02-31`, qui
+  // partait dans le code de commande, le nom de l'export CSV et les filtres.
+  const day = normalizeDay(body.day) || localDayOf(new Date())
 
   // Date de retrait souhaitée par le client (input date du checkout). Format
   // ISO court uniquement ; faute de choix explicite, le jour de la réservation
   // est retenu — le comptoir peut toujours la décaler (PATCH master).
   let pickupDate = day
   if (body.pickupDate != null && body.pickupDate !== '') {
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(body.pickupDate))) return { ok: false, error: 'pickup_date' }
-    pickupDate = String(body.pickupDate)
+    // LOT P1 (B20) : jour inexistant = refus explicite (`pickup_date`), et non
+    // une date stockée que `new Date()` ferait déborder sur le mois suivant.
+    const requested = normalizeDay(body.pickupDate)
+    if (!requested) return { ok: false, error: 'pickup_date' }
+    pickupDate = requested
   }
 
   const order = {
@@ -499,10 +523,11 @@ export function setOrderStatus(db, code, status) {
 export function setOrderPickupDate(db, code, pickupDate) {
   const order = (db.orders || []).find((o) => o?.code === code)
   if (!order) return { ok: false, error: 'not_found' }
-  if (typeof pickupDate !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(pickupDate)) {
-    return { ok: false, error: 'pickup_date' }
-  }
-  order.pickupDate = pickupDate
+  // LOT P1 (B20) : `2026-02-31` accepté par la regex était stocké tel quel et
+  // s'affichait ensuite dans « Mes commandes » comme une date fantôme.
+  const next = normalizeDay(pickupDate)
+  if (!next) return { ok: false, error: 'pickup_date' }
+  order.pickupDate = next
   order.updatedAt = new Date().toISOString()
   return { ok: true, order }
 }

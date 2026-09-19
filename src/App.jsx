@@ -1300,6 +1300,9 @@ export default function App() {
         await refreshStock()
         return
       }
+      // LOT P1 (B13) : `unpriced` rejoint les deux refus ci-dessous — un article
+      // sans prix exploitable côté serveur ne reviendra pas par un nouvel envoi
+      // du panier, il faut donc le retirer comme les autres.
       // LOT 8.1 (A1) + LOT 8.2 (A2) : refus DÉFINITIF du serveur sur certaines
       // lignes — produit retiré de la vente par le maître, ou id inconnu du
       // catalogue (onglet ouvert avant un changement de catalogue, commande
@@ -1307,7 +1310,7 @@ export default function App() {
       // le reste reste commandable : sans cela l'utilisateur renvoyait la même
       // commande en boucle sur un échec identique — et le repli hors-ligne
       // pouvait finir par créer une commande locale sur un article fantôme.
-      if (fail.kind === 'unavailable' || fail.kind === 'unknown') {
+      if (fail.kind === 'unavailable' || fail.kind === 'unknown' || fail.kind === 'unpriced') {
         setToast(orderBlockedMessage(fail.lines, t, fail.kind))
         const kept = dropCartLines(cart, fail.lines)
         setCart(kept)
