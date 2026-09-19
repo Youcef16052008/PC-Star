@@ -164,6 +164,25 @@ function send(res, status, body, headers = {}) {
   res.end(payload)
 }
 
+/**
+ * LOT P2 (B28) — la réponse 429 était recopiée à l'identique sur sept routes,
+ * et écrite *autrement* sur deux autres (`error: 'rate_limited'`, sans
+ * `retryAfter` ni en-tête) : `orderApiFailure` clé sur le statut 429 mais lit
+ * `data.retryAfter` pour annoncer la durée d'attente — ces deux-là répondaient
+ * donc « attendez » sans chiffre. L'en-tête standard `Retry-After` (ajouté au
+ * P16 sur une seule route sur neuf) vit désormais ici : une route nouvelle qui
+ * se limite ne peut plus l'oublier, et le corps est inchangé pour les sept qui
+ * étaient justes.
+ */
+function tooManyRequests(res, rl) {
+  return send(
+    res,
+    429,
+    { ok: false, error: 'rate', retryAfter: rl.retryAfter },
+    { 'Retry-After': String(Math.max(1, rl.retryAfter || 1)) }
+  )
+}
+
 /** Réponse HTML sans détail fournisseur ni secret pour les retours OAuth. */
 function sendOAuthFailure(res, error) {
   const messages = {
@@ -435,10 +454,7 @@ export async function handler(req, res) {
       // aussi couper un flot de requêtes NON authentifiées, qui coûteraient
       // sinon chacune une lecture de base avant de répondre 401.
       const rl = rateLimit({ windowMs: 60_000, max: 120, key: clientKey(req, 'me') })
-      if (!rl.ok)
-        return send(res, 429, { ok: false, error: 'rate', retryAfter: rl.retryAfter }, {
-          'Retry-After': String(Math.max(1, rl.retryAfter || 1))
-        })
+      if (!rl.ok) return tooManyRequests(res, rl)
       const auth = await userFromReq(req)
       if (!auth) return send(res, 401, { ok: false, error: 'auth' })
       return send(res, 200, { ok: true, user: publicUser(auth.user) })
@@ -459,10 +475,7 @@ export async function handler(req, res) {
       // même adresse — et c'est précisément ce que le 429 `Retry-After`
       // signalerait à tort comme une attaque.
       const rl = rateLimit({ windowMs: 600_000, max: 20, key: clientKey(req, 'register') })
-      if (!rl.ok)
-        return send(res, 429, { ok: false, error: 'rate', retryAfter: rl.retryAfter }, {
-          'Retry-After': String(Math.max(1, rl.retryAfter || 1))
-        })
+      if (!rl.ok) return tooManyRequests(res, rl)
       const body = await readBody(req)
       const email = String(body.email || '')
         .trim()
@@ -525,11 +538,7 @@ export async function handler(req, res) {
 
     if (req.method === 'POST' && pathname === '/api/auth/login') {
       const rl = rateLimit({ windowMs: 60_000, max: 20, key: clientKey(req, 'login') })
-      if (!rl.ok)
-        return send(res, 429, { ok: false, error: 'rate', retryAfter: rl.retryAfter }, {
-          // P16 : l'en-tête standard manquait — seul le corps le disait.
-          'Retry-After': String(Math.max(1, rl.retryAfter || 1))
-        })
+      if (!rl.ok) return tooManyRequests(res, rl)
       const body = await readBody(req)
       const email = String(body.email || '')
         .trim()
@@ -595,10 +604,7 @@ export async function handler(req, res) {
       // LOT 1.6 : limité (lecture + écriture de base à chaque appel), avant
       // l'authentification pour la même raison que sur GET /api/me.
       const rl = rateLimit({ windowMs: 60_000, max: 30, key: clientKey(req, 'me-write') })
-      if (!rl.ok)
-        return send(res, 429, { ok: false, error: 'rate', retryAfter: rl.retryAfter }, {
-          'Retry-After': String(Math.max(1, rl.retryAfter || 1))
-        })
+      if (!rl.ok) return tooManyRequests(res, rl)
       const auth = await userFromReq(req)
       if (!auth) return send(res, 401, { ok: false, error: 'auth' })
       const body = await readBody(req)
@@ -667,7 +673,7 @@ export async function handler(req, res) {
       const auth = await userFromReq(req)
       if (!auth) return send(res, 401, { ok: false, error: 'auth' })
       const rl = rateLimit({ windowMs: 600_000, max: 10, key: clientKey(req, 'claim') })
-      if (!rl.ok) return send(res, 429, { ok: false, error: 'rate_limited' })
+      if (!rl.ok) return tooManyRequests(res, rl)
       const body = await readBody(req)
       let result = null
       await updateDbAsync((db) => {
@@ -687,7 +693,7 @@ export async function handler(req, res) {
       const auth = await userFromReq(req)
       if (!auth || auth.user.role !== 'master') return send(res, 403, { ok: false, error: 'forbidden' })
       const rl = rateLimit({ windowMs: 60_000, max: 30, key: clientKey(req, 'claim-code') })
-      if (!rl.ok) return send(res, 429, { ok: false, error: 'rate_limited' })
+      if (!rl.ok) return tooManyRequests(res, rl)
       const code = pathSegment(pathname.split('/').slice(-2, -1)[0])
       if (code === null) return send(res, 400, { ok: false, error: 'invalid_code' })
       let result = null
@@ -706,10 +712,7 @@ export async function handler(req, res) {
     if (req.method === 'POST' && pathname === '/api/me/password') {
       // LOT 1.6 : limité — chaque appel coûte un scrypt et une écriture.
       const rl = rateLimit({ windowMs: 600_000, max: 5, key: clientKey(req, 'password') })
-      if (!rl.ok)
-        return send(res, 429, { ok: false, error: 'rate', retryAfter: rl.retryAfter }, {
-          'Retry-After': String(Math.max(1, rl.retryAfter || 1))
-        })
+      if (!rl.ok) return tooManyRequests(res, rl)
       const auth = await userFromReq(req)
       if (!auth) return send(res, 401, { ok: false, error: 'auth' })
       const body = await readBody(req)
@@ -772,7 +775,17 @@ export async function handler(req, res) {
     }
 
     // Master reset customer password (demo/store desk)
+    //
+    // LOT P2 (B28) : cette route était la seule à faire dépenser du CPU sans
+    // être limitée — chaque appel coûte un `hashPassAsync` (scrypt, ~50 ms de
+    // CPU) pour le mot de passe fourni, puis un second pour celui qui est
+    // écrit. La limite est posée AVANT `userFromReq` à dessein, comme sur
+    // `/api/me` : un flot non authentifié ne doit pas coûter une lecture de
+    // base par requête. Cinq par minute laisse une marge large pour l'usage
+    // réel (un compte client, une fois).
     if (req.method === 'POST' && pathname.startsWith('/api/master/customers/') && pathname.endsWith('/reset-password')) {
+      const rl = rateLimit({ windowMs: 60_000, max: 5, key: clientKey(req, 'master-reset') })
+      if (!rl.ok) return tooManyRequests(res, rl)
       const auth = await userFromReq(req)
       if (!auth || auth.user.role !== 'master') return send(res, 403, { ok: false, error: 'forbidden' })
       const parts = pathname.split('/')
@@ -821,10 +834,7 @@ export async function handler(req, res) {
       // l'audit : 12 appels d'affilée → 12 entrées `oauthPending` en base
       // (purgées à 15 min, mais remplissables en continu).
       const rl = rateLimit({ windowMs: 60_000, max: 10, key: clientKey(req, 'oauth-start') })
-      if (!rl.ok)
-        return send(res, 429, { ok: false, error: 'rate', retryAfter: rl.retryAfter }, {
-          'Retry-After': String(Math.max(1, rl.retryAfter || 1))
-        })
+      if (!rl.ok) return tooManyRequests(res, rl)
       const body = await readBody(req)
       const auth = await userFromReq(req)
       // LOT 1.15 : `intent: 'link'` SANS session était accepté et stocké avec
@@ -1019,11 +1029,7 @@ export async function handler(req, res) {
 
     if (req.method === 'POST' && pathname === '/api/orders') {
       const rl = rateLimit({ windowMs: 60_000, max: 15, key: clientKey(req, 'order') })
-      if (!rl.ok)
-        return send(res, 429, { ok: false, error: 'rate', retryAfter: rl.retryAfter }, {
-          // P16 : l'en-tête standard manquait — seul le corps le disait.
-          'Retry-After': String(Math.max(1, rl.retryAfter || 1))
-        })
+      if (!rl.ok) return tooManyRequests(res, rl)
       const body = await readBody(req)
       if (!body.name || !Array.isArray(body.items) || !body.items.length) {
         return send(res, 400, { ok: false, error: 'order' })
