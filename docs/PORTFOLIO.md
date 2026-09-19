@@ -33,6 +33,11 @@ Contraintes assumées (écrites dans le projet) :
 
 ## 3. Ce qui a été livré (phases P0 → P6)
 
+> Les chiffres des lignes ci-dessous sont **ceux du jour de chaque lot** (251 SKU,
+> AR/FR/EN, 34 tests…). L'état mesuré d'aujourd'hui est au § 4 ; le détail des
+> retraits (arabe, thème sombre, comparateur) est dans
+> [`PROBLEMS-SOLUTIONS.md`](PROBLEMS-SOLUTIONS.md).
+
 | Phase | Livré |
 |-------|-------|
 | **P0** Baseline | 251 SKU de base, cash pickup, builder + compat, comptes + desk, AR/FR/EN, shell Bootstrap, tokens design |
@@ -51,17 +56,18 @@ Plan + scores : **[ROADMAP-10.md](ROADMAP-10.md)**.
 
 | Indicateur | Valeur |
 |------------|--------|
-| Produits catalogue | **251 SKU de base** (prix DA, specs, compat), 3 langues |
-| Photos | **1800 fichiers** (`public/photos/` : lib 105 · sku 753 · legacy 56 + uploads) |
-| Code | **~12 000 lignes** (front + API), **zéro dépendance côté API** |
-| Tests | **113 pass** (`node --test`) + smoke e2e API |
-| API | **~30 endpoints** (auth, OAuth, catalog, orders, master, CSV, backup) |
+| Produits catalogue | **301 produits** dans `src/data.js` (prix DA, specs, compat), **300 exposés** (un seul retiré pour rupture) |
+| Photos | **2 308 fichiers** dans `public/photos/` (sku 1 974 · lib 210 · le reste en uploads hors dépôt), **767 références** servies par le catalogue |
+| Code | **~19 000 lignes** front + API (`src/*.js{,x}` + `server/*.js`, hors tests) ; API sans framework, deux dépendances : `ws` (comptoir) et `@neondatabase/serverless` (persistance) |
+| Tests | **1 025 tests, 0 échec** sur 77 fichiers `src/*.test.js` (mesuré le 19/09/2026), + crawl jsdom des 24 pages et audit des 32 vérifications de boutons, + smoke e2e Playwright sur **trois moteurs** en CI |
+| Langues | **FR / EN**, 646 clés chacune ; l'arabe a été retiré de la vitrine à la demande du client |
+| API | **~40 endpoints** (auth, OAuth, catalog, orders, master, CSV, backup, temps réel) |
 | Langues | ar (défaut, RTL) · fr · en — **1523 lignes** de traductions |
 | Déploiement | Vercel : build Vite + API serverless + rewrites + headers, **HTTPS auto, sans VPS** |
 
 ## 5. Décisions techniques marquantes
 
-1. **Catalogue statique, état serveur minimal.** Les 251 SKU de base vivent dans le repo → persistants sur Vercel sans base. Seule la donnée volatile (orders, stock overrides) passe par `store.json`, isolée dans `server/db.js` pour brancher KV/Turso plus tard sans réécrire.
+1. **Catalogue statique, état serveur minimal.** Les 301 produits du catalogue vivent dans le repo → persistants sur Vercel sans base. Seule la donnée volatile (orders, stock overrides) passe par `store.json`, isolée dans `server/db.js` pour brancher KV/Turso plus tard sans réécrire.
 2. **API `node:http` sans framework.** Déployable partout, lisible d'une traite, zéro supply chain côté serveur ; compatible serverless (`VERCEL_URL`, corps pré-parsés, `/tmp`).
 3. **Atomicité de la réservation.** `placeOrder` vérifie toutes les lignes **avant** de décrémenter quoi que ce soit ; sinon HTTP 409 + liste de shortage → le stock ne peut pas passer négatif, même en multi-appareils.
 4. **OAuth démo explicitement isolé et réel côté serveur.** Le consentement simulé (`OAUTH_DEMO=1`) ne peut plus être atteint quand le mode démo est désactivé. Avec `OAUTH_DEMO=0`, les callbacks échangent le code côté serveur, consomment le state une fois et ne permettent pas OAuth au maître.
@@ -87,7 +93,7 @@ Plan + scores : **[ROADMAP-10.md](ROADMAP-10.md)**.
 
 ```bash
 npm install && npm run start:api & npm run dev   # démo locale
-npm test                                         # 34 tests
+npm test                                         # la suite entière (77 fichiers, node:test)
 npx vercel --prod                                # prod (voir DEPLOY-VERCEL.md)
 ```
 

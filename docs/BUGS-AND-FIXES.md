@@ -1,5 +1,13 @@
 # PC Star — Bugs trouvés & corrections (audit 10/09/2026)
 
+> **Journal courant, append-only.** Une section par jour de session, la plus récente
+> en bas. Ce qui est écrit dans une section est l'état du dépôt **ce jour-là** : on
+> ne remonte pas corriger une conclusion d'il y a trois sessions : on ouvre une
+> section nouvelle. Les sections les plus récentes portent leur date dans leur titre
+> (« LOT P3 — … (audit du 19/09/2026) ») ; celles du haut datent de l'audit du 10/09
+> et décrivent 24 bugs (B1–B24) sur un dépôt qui en a vu d'autres depuis.
+> Pour l'état d'aujourd'hui : [`../../README.md`](../../README.md).
+
 Audit **ligne par ligne, fichier par fichier** (`src/*`, `server/*`, `api/*`, `scripts/*`,
 configs) conduit à **24 bugs** (B1–B24). Tous les bugs de code ont été corrigés en
 **5 phases**, chacune = un commit sur la branche `5d6f736` (PR #2), tests verts avant
@@ -2357,3 +2365,93 @@ l'un parce que la spec e2e ne s'était jamais jouée sans `DEMO_PASSWORD`,
 l'autre parce qu'il n'existe que dans le jsdom d'un runner. Ce qui a rendu les
 deux réparables, ce n'est pas un correctif de plus : c'est le fait d'avoir écrit
 le journal dans une annotation que l'API Checks pouvait relà.
+
+---
+
+## LOT P3 (suite, 19/09/2026) — deux angles morts assumés : les moteurs du smoke, et les docs qui décrètent un état révolu
+
+Demande explicite : couvrir **ce qui restait non couvert** après la PR #9. Deux
+chantiers, et un troisième trouvé en route.
+
+### 1. Le smoke ne regardait qu'un seul moteur
+
+`playwright.config.js` déclarait **un** projet chromium, et `.github/workflows/e2e-smoke.yml`
+n'installait que chromium. Le smoke est le seul contrôle du dépôt qui rende
+l'application dans un moteur avec mise en page, polices et clavier réels — jsdom n'a
+rien de tout ça, et le crawl se refuse exprès les clics destructeurs. Vérifié avant de
+toucher : **aucun `src/*.test.js` ne lisait `playwright.config.js`** (`grep playwright
+src/*.test.js` → 0), donc aucun verrou à satisfaire ; il a fallu en créer un, sinon la
+config et le workflow redivergent — c'est exactement le motif qui avait rendu le job muet.
+
+- Trois projets : `chromium` (`Desktop Chrome`), `webkit` (`Desktop Safari`), `firefox`
+  (`Desktop Firefox`). Le parc du magasin est android (Chrome et WebView partagent un
+  moteur, donc un seul suffit) ; **iOS ne peut être servi que par WebKit** et Firefox
+  Android est Gecko — les deux navigateurs pour lesquels « ça marche sur ma machine »
+  ne veut rien dire.
+- `npx playwright install --with-deps chromium firefox webkit`, puis
+  `--forbid-only` sur la commande du job : un `.only` oublié fait passer le smoke **en
+  vert sans rien tester**, et un moteur déclaré mais non installé fait échouer le smoke
+  sans jamais dire « le moteur manque ».
+- Verrous ajoutés dans `src/p3ServerHygiene.test.js` : la liste des projets de la config
+  est exactement celle que le workflow installe (dans les deux sens), chaque projet pointe
+  un `devices[...]` connu, `--with-deps` est présent, et le résumé du crawl ne peut plus
+  réciter un nombre de pages à la main.
+- **Ce que ça ne couvre toujours pas**, écrit dans `README.md` pour que la limite soit
+  lue : des desktops émuls, pas les viewport téléphones (c'est la recette responsive),
+  et aucune comparaison de captures d'écran.
+
+### 2. Neuf phrases des docs vivaient dans une époque révolue
+
+Règle du dépôt : un **journal daté ne se réécrit pas**. Les journaux d'audit
+(`AUDIT-P22`, `AUDIT-REPO`, `PLAN-CORRECTIONS`, `ROADMAP-10`, les `VERIFICATION-RAPPORT-*`,
+`SECURITY-AUDIT`…) énoncent tous un état du dépôt dépassé — « 3 langues », « 36 pages
+rendues », « 251 SKU », `--experimental-loader`, « 4 026 clics ». Chiffre à leur date,
+donc conservé, **plus** une bannière « Journal daté » en tête des **14** journaux (et une
+note append-only sur `BUGS-AND-FIXES.md`).
+
+Corrigés, eux, parce qu'on les **exécute** :
+
+| Doc | Ce qu'elle affirmait | Réalité mesurée |
+|---|---|---|
+| `docs/README.md` | index de 9 docs, « `npm test` # 34 tests », « thème, langues » dans le guide de démo | index des **28** fichiers, classés **datés / vivants**, aucun chiffre recopié |
+| `docs/ARCHITECTURE.md` | « 251 SKU de base / 249 publics » ×4, « ☀/☾/◐ », « 34 tests » | 301 produits, 300 exposés ; thème fixé à `light` (`App.jsx:296`), tokens sombres en veille et toujours verrouillés par `cyberDesign.test.js` T2 ; le compte n'est plus écrit ici |
+| `docs/GUIDE-DEMO.md` | le vendeur doit montrer « **ع / FR / EN** » et le sélecteur de thème | les deux commandes ont été retirées sur demande du client — la démo n'a plus ces boutons à cocher |
+| `docs/GUIDE-DEMO-AR.md` | — | note en tête : le document est en arabe, **la vitrine se sert en FR/EN** |
+| `docs/PORTFOLIO.md` | § 4 : « 1800 fichiers photos », « ~12 000 lignes », « **zéro dépendance côté API** », « 113 pass », « ~30 endpoints » | 2 308 fichiers, ~19 000 lignes hors tests, API sans framework avec **deux** dépendances (`ws`, `@neondatabase/serverless`), 1 025 tests, ~40 endpoints ; table des lots marquée « chiffres du jour du lot » |
+| `docs/SECURITY-AUDIT.md` | (ligne que j'avais « corrigée » en 301 produits) | **rendue à sa date** (251) — une trace datée se bannière, elle ne s'amende pas |
+| `docs/PROMPT-AGENT-DEPLOIEMENT.md` | « 36 pages rendues (3 langues × 13) », « 856 tests » | 24 pages (2 × 12) ; plus aucun nombre de tests dans un prompt d'agent |
+| `docs/RECETTE-RESPONSIVE-DIRECTION-03.md` | 5 lignes de checklist **arabe/RTL** à cocher sur un écran, « 13 pages × 2 langues » | lignes arabe repliées dans un `<details>` « sans objet tant que la langue ne revient pas », grille FR/EN en face ; rangée « glyphes de thème ☀ ☾ ◐ » marquée sans objet |
+| `README.md` (racine) | « `npm run test:e2e` existe mais ne tourne dans **aucune** CI » | faux depuis la session précédente : le job existe, est vert, et couvre trois moteurs |
+| `scripts/jsdom-crawl.mjs` | imprimait « 2 langues × **13** pages » **à côté de** « **24** pages rendues » | le résumé calcule `PAGES.length` : 24 = 12 × 2. Un compteur écrit à la main dans un message de porte est un compteur qui ment à la première page ajoutée ; `ui-audit.yml` (nom du job ×3) suivi |
+
+Un test de structure rend la règle exécutable : **`src/p3DocsAging.test.js`** (6 verrous) —
+tout `docs/*.md` est classé (ajouter un doc sans le classer rougit le test), tout journal
+porte sa bannière, aucune doc exécutable ne recopie un nombre de tests / une langue
+retirée / « 13 pages » / l'ancien invocateur `--experimental-loader`, et `docs/README.md`
+cite chaque fichier du dossier.
+
+### 3. Trouvé en route : treize verrous écrits, verts, et jamais joués
+
+En branchant `src/p3DocsAging.test.js` dans `package.json`, l'inventaire a montré
+**deux fichiers de test absents de la liste explicite** : `src/lot1BaseScripts.test.js`
+et `src/phase5Reliability.test.js`. joués à la main : **13/13 verts**. Ils n'avaient
+jamais tourné en CI — même famille de panne que le job e2e muet : la porte existe, le
+capteur est bon, rien ne l'appelle. Un verrou de branchement a été ajouté dans
+`src/p3ServerHygiene.test.js` (tout `src/*.test.js` du disque est dans `npm test`, et
+tout ce que `npm test` liste existe).
+
+### Portes rejouées après ces modifications
+
+| Porte | Résultat | Détail |
+|---|---|---|
+| `npm test` | **1025 / 1025, 0 échec** (142 s) | 1002 + 6 (`p3DocsAging`) + 13 (les deux orphans) + 4 (`p3ServerHygiene`) |
+| `npm run build` → `build:crawl` → `jsdom-crawl` | **CRAWL OK — 24 pages (2 langues × 12), 0 erreur** | résumé désormais calculé |
+| `audit-buttons` | **AUDIT OK — 32 vérifications**, 0 erreur JS | 496 s en local (10 pages × 2 langues + 5 scénarios vide→erreur) |
+| YAML | les deux workflows parseés (`js-yaml`) | — |
+
+**Ce que le bac à sable ne peut pas prouver** : aucun navigateur n'est installé ici
+(`playwright install` échoue sur les paquets système), donc les neuf tests sur trois
+moteurs ne sont pas joués localement — c'est le run de la PR qui le dira. Si WebKit ou
+Firefox casse, la règle reste la même : on répare le harnais ou l'assertion dépendante
+du moteur, **on n'amollit pas la porte** (ne pas retirer un moteur de la config pour
+faire passer le vert : ce serait le chemin exact vers la porte muette).

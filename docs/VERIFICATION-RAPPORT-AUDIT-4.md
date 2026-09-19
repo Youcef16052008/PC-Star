@@ -1,5 +1,17 @@
 # Vérification indépendante du rapport d'audit « ligne par ligne » (2026-09-19)
 
+> **Journal daté — ses chiffres sont ceux du jour, pas l'état du dépôt.** Ce
+> document est une trace : on ne le réécrit pas quand il est contredit plus tard,
+> parce qu'effacer une conclusion fausse efface aussi la raison pour laquelle
+> elle était fausse.
+> Au fil des lots, plusieurs nombres et commandes ci-dessous ont été
+> dépassés. L'état mesuré d'aujourd'hui est dans
+> [`../../README.md`](../../README.md) (« État mesuré »), la suite des sessions
+> dans [`BUGS-AND-FIXES.md`](BUGS-AND-FIXES.md). Les docs **exécutables** (guides,
+> recettes, prompts d'agent, `docs/README.md`) ont, elles, été corrigées — c'est
+> `src/p3DocsAging.test.js` qui verrouille les deux régimes.
+
+
 **Date :** 19/09/2026
 **Objet :** contre-vérification, item par item, du rapport d'audit fourni
 (33 bugs B1→B33 + dérives doc + état git + priorités).
@@ -365,3 +377,24 @@ n'a pas été JOUÉ ici — le YAML est parse et tous les chemins qu'il invoque
 existent. Le reste des commentaires d'état périmés (quatorze titres de tests qui
 disaient « 3 langues » là où les assertions portaient déjà sur `LANGS`) est
 repris dans le même mouvement.
+
+---
+
+## 8. Addendum — 19/09/2026, relu à froid
+
+Le § 7 était vrai le jour où il a été écrit. Deux de ses énoncés ne le sont plus,
+et c'est ici — pas dans le § 7 — que la correction vit :
+
+| | ce que § 7 disait | rejoué sur `70e225c` |
+|---|---|---|
+| Suite de tests | 995, 0 échec | **1 002, 0 échec** (+7 verrous posés aux lots suivants) |
+| e2e en CI | workflow écrit, **non joué** (pas de navigateur dans le bac à sable) | **joué et vert** — le job `e2e-smoke` tourne en CI, et sur **trois** moteurs depuis (chromium, webkit, firefox) ; durées par course dans [`BUGS-AND-FIXES.md`](BUGS-AND-FIXES.md) |
+
+Deux détails relevés en relisant les docs vivantes, corrigés depuis : le résumé
+de `scripts/jsdom-crawl.mjs` imprimait « 2 langues × **13** pages » alors que son
+tableau en fait douze (24 = 12 × 2) — le compteur est maintenant lu sur `PAGES` ;
+et `docs/GUIDE-DEMO.md` faisait encore montrer au vendeur un sélecteur de thème
+et une bascule arabe retirés sur demande du client. La divergence entre la config
+Playwright et le `playwright install` de la CI — exactement le motif qui avait
+rendu le job muet une première fois — est verrouillée par
+`src/p3ServerHygiene.test.js`.

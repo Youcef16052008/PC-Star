@@ -66,8 +66,15 @@ La page **Guide / Help** n’apparaît et n’est accessible **que** pour le com
 
 ## Thème & langues
 
-- **☀ / ☾ / ◐** : clair / sombre / système.
-- **ع / FR / EN** : arabe (RTL), français, anglais.
+- **Langues : FR et EN**, deux boutons dans la barre supérieure (`src/i18n.js`,
+  646 clés chacune). **La vitrine ne sert plus l'arabe**, retiré à la demande du
+  client : `docs/GUIDE-DEMO-AR.md` reste un document en arabe qui décrit un site
+  bilingue, il n'y a plus de bascule RTL à montrer.
+- **Thème : clair uniquement.** Le sélecteur ☀ / ☾ / ◐ a été supprimé sur la même
+  demande (« site blanc ») : il n'y a rien à cocher dans une démo sur ce point.
+
+*(Deux lignes de ce guide décrivaient des boutons qui n'existent plus ; elles
+étaient le genre de détail qui fait perdre du temps au comptoir le matin.)*
 
 ## OAuth Google / Meta (livré — mode démo par défaut)
 

@@ -9,17 +9,18 @@ npm install
 npm run start:api   # :8787 multi-device orders + auth
 npm run dev         # :5173 site (proxies /api)
 npm run build       # vite build, then scans dist/ for secrets — fails if any landed there
-npm test            # 1002 tests (node:test) — run `npm run build` first: bundleSecrets scans dist/
+npm test            # 1025 tests (node:test, 77 fichiers) — run `npm run build` first: bundleSecrets scans dist/
 npm run check:bundle # re-run only the dist/ secret scan (lot 7.3)
 ```
 
 ## État mesuré (19/09/2026)
 
-- `npm test` : **1002 tests, 0 échec**. La suite scanne le bundle publié
+- `npm test` : **1025 tests, 0 échec** (77 fichiers `src/*.test.js`, tous branchés dans le script — `src/p3ServerHygiene.test.js` le vérifie). La suite scanne le bundle publié
   (`src/bundleSecrets.test.js`) : sans `dist/`, elle échoue en cascade — le build
   est une pré-condition, pas une étape optionnelle.
 - `npm run build:crawl && node scripts/jsdom-crawl.mjs` : 24 pages rendues en
-  jsdom (2 langues × 13 pages), 0 erreur. C'est le seul contrôle qui voit une
+  jsdom (2 langues × 12 pages — le résumé du script calcule ce produit, il ne le
+  recopie plus : « × 13 pages » a menti pendant des dizaines de sessions), 0 erreur. C'est le seul contrôle qui voit une
   page React casser au rendu (un import manquant passe `node --check`, le bundle
   et tous les tests `node:test`) ; `src/moduleWiring.test.js` en garde une partie
   en secondes.
@@ -31,9 +32,17 @@ npm run check:bundle # re-run only the dist/ secret scan (lot 7.3)
   picked`, annulation libre avant `picked`) ; un écran qui écrit peut passer
   `expectedStatus` pour refuser une écriture obsolète (409 `stale`) au lieu de la
   voir s'appliquer.
-- `npm run test:e2e` (Playwright) existe mais ne tourne dans **aucune** CI du
-  dépôt : ce ne sont ni `build:crawl`, ni `jsdom-crawl`, ni les 1002 tests qui le
-  remplacent — le parcours navigateur réel reste à lancer à la main.
+- `npm run test:e2e` (Playwright) est **joué en CI** par `.github/workflows/e2e-smoke.yml`
+  sur **trois moteurs** : chromium, webkit, firefox — les deux derniers couvrent
+  iPhone/iPad (WebKit est le seul moteur que iOS autorise) et Firefox Android, que
+  le parc android du magasin ne représente pas. Ni `build:crawl`, ni `jsdom-crawl`,
+  ni les tests `node:test` ne le remplacent : aucun autre contrôle du dépôt ne rend
+  l'application dans un moteur qui a une mise en page, des polices et un vrai clavier.
+  Le job refuse un `.only` oublié (`--forbid-only`) : sans lui, une spec exclusive
+  rend le smoke muet sans le faire rouge. Limites assumées : des desktops émuls, pas
+  les viewport téléphones (couverts par la recette
+  [`docs/RECETTE-RESPONSIVE-DIRECTION-03.md`](docs/RECETTE-RESPONSIVE-DIRECTION-03.md)),
+  et le job ne compare pas des captures d'écran.
 
 ## Demo accounts (click in Login, or type)
 

@@ -4,8 +4,10 @@
 > navigateur : tout ce qui est **calculable** a été automatisé
 > (`src/cyberDesign.test.js` : contraste AA, breakpoints Bootstrap, cibles
 > tactiles ≥ 44 px, clip-path/focus, couleurs en dur, RTL, impression, zoom
-> iOS — 15 tests) et le rendu DOM des **13 pages × 2 langues** est vérifié
-> sans erreur par `node scripts/jsdom-crawl.mjs` (après `npm run build:crawl`).
+> iOS — 15 tests) et le rendu DOM des **24 pages (12 par langue × 2 langues)** est vérifié
+> sans erreur par `node scripts/jsdom-crawl.mjs` (après `npm run build:crawl`). Le
+> « 13 pages » que portaient cette grille, le script et le nom du job de CI ne
+> correspondait à aucun tableau de 13 entrées : le crawl en fait douze.
 > Ce qui reste **non automatisable** — le
 > rendu réel, le ressenti typographique, le comportement de scroll — se
 > coche ici, sur appareils réels. Une case cochée = vérifié sur un vrai
@@ -46,13 +48,27 @@ une fiche produit, panier, configurateur).
 
 ## 2. Vérifications spécifiques par langue
 
-| Vérification | ar ✅ | fr ✅ | en ✅ |
-|---|---|---|---|
-| Direction RTL/LTR correcte dès le chargement | ☐ | ☐ | ☐ |
-| **arabe : lettres liées** (aucune lettre disjointe — letter-spacing 0) | ☐ | ☐ | ☐ |
-| **arabe : biseaux cohérents** (symétriques, pas de coin « à contre-sens ») | ☐ | ☐ | ☐ |
-| **arabe : pas de casse** → les méta (badges, topbar) restent lisibles via le poids 700 | ☐ | ☐ | ☐ |
-| **arabe : tableaux de specs alignés** malgré police proportionnelle | ☐ | ☐ | ☐ |
+> **Les cinq lignes « arabe » de cette grille ne sont plus cochables** : la
+> vitrine sert **FR et EN** depuis le retrait de l'arabe à la demande du client.
+> Elles sont conservées telles quelles ci-dessous parce qu'elles décrivent le
+> travail livré à l'époque — et parce que `src/cyberDesign.test.js` verrouille
+> toujours RTL en calcul. À réactiver seulement si la langue revient.
+
+| Vérification | fr ✅ | en ✅ |
+|---|---|---|
+| Direction LTR correcte dès le chargement | ☐ | ☐ |
+
+<details><summary>Lignes arabe / RTL de la livraison d'origine (sans objet tant que l'arabe n'est pas servi)</summary>
+
+| Vérification | ar ✅ |
+|---|---|
+| Direction RTL/LTR correcte dès le chargement | ☐ |
+| **arabe : lettres liées** (aucune lettre disjointe — letter-spacing 0) | ☐ |
+| **arabe : biseaux cohérents** (symétriques, pas de coin « à contre-sens ») | ☐ |
+| **arabe : pas de casse** → les méta (badges, topbar) restent lisibles via le poids 700 | ☐ |
+| **arabe : tableaux de specs alignés** malgré police proportionnelle | ☐ |
+
+</details>
 | Barre système sans débordement (adresse complète visible ou wrappée) | ☐ | ☐ | ☐ |
 | Titres Chakra Petch / repli Noto Naskh Arabic rendu correct | ☐ | ☐ | ☐ |
 
@@ -63,9 +79,9 @@ une fiche produit, panier, configurateur).
 | Bascule sombre ⇄ clair ⇄ système : palette cohérente partout, aucun « flash » au chargement | ☐ |
 | Thème clair « papier technique » : accent cyan #0e7490, textes lisibles, biseaux identiques | ☐ |
 | Navigation clavier (Tab) : anneau de focus **visible** sur TOUS les boutons biseautés | ☐ |
-| Skip-link : apparaît au premier Tab, atteint le contenu, miroir à droite en arabe | ☐ |
+| Skip-link : apparaît au premier Tab, atteint le contenu *(le « miroir à droite en arabe » n'est plus cochable : la vitrine sert FR/EN, en LTR)* | ☐ |
 | `prefers-reduced-motion` activé : aucune transition (survols, offcanvas, collapse) | ☐ |
-| Boutons des glyphes de thème ◐ ☀ ☾ : annonce « Système / Clair / Sombre » au lecteur d'écran | ☐ |
+| ~~Boutons des glyphes de thème ◐ ☀ ☾ : annonce « Système / Clair / Sombre » au lecteur d'écran~~ — **sans objet** : le sélecteur de thème a été retiré sur demande du client (`const theme = 'light'`, `src/App.jsx`) | — |
 
 ## 4. Mobile-only (à faire sur un vrai téléphone)
 
@@ -91,7 +107,7 @@ une fiche produit, panier, configurateur).
 
 | Contrôle | Où |
 |---|---|
-| Contraste WCAG AA des 14 paires × 2 thèmes (calcul de luminance réel) | `cyberDesign.test.js` T2 |
+| Contraste WCAG AA des 14 paires × 2 palettes (calcul de luminance réel) — la palette sombre reste dans `tokens.css` et reste verrouillée, elle n'est simplement plus atteignable depuis l'UI | `cyberDesign.test.js` T2 |
 | Breakpoints = échelle Bootstrap uniquement | T3 |
 | Cibles tactiles ≥ 44 px sous 576 px | T4 |
 | Jamais de clip-path sur un sélecteur :focus | T5 |
@@ -101,7 +117,7 @@ une fiche produit, panier, configurateur).
 | Champs ≥ 16 px sous 576 px (anti-zoom iOS) | T10 |
 | Impression : clip-path none + couches retirées + fond blanc | T11 |
 | letter-spacing 0 en RTL, casse compensée, repli Noto Naskh Arabic | T13-T15 |
-| Rendu DOM des 13 pages × 2 langues, 0 erreur JS | `npm run build:crawl && node scripts/jsdom-crawl.mjs` |
+| Rendu DOM des 24 pages (12 × 2 langues), 0 erreur JS | `npm run build:crawl && node scripts/jsdom-crawl.mjs` |
 
 **Décisions client actées pendant l'intégration** (§ 8 du plan) :
 1. Accent **cyan** (option a) — le vert historique ne subsiste que dans
