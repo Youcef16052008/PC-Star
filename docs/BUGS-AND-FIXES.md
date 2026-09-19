@@ -2032,3 +2032,165 @@ derniers qui traînent dans les anciens fichiers de test (`clientFixes`, `lot2UI
 `lot4UI`, `lot5Logic`, `lot3StorageBlocked`, `cyberDesign` — ils décrètent un état
 du dépôt qui n'est plus, leurs assertions tournent déjà sur `LANGS`). Et
 `npm run test:e2e` (Playwright) ne tourne toujours dans aucune CI.
+
+---
+
+## LOT P3 — « ce que l'écran doit dire » (audit du 19/09/2026, 18 points)
+
+`docs/VERIFICATION-RAPPORT-AUDIT-4.md` §6 : la liste P3 est menée en quatre
+grappes, un commit chacune. Le fil du lot n'est pas la donnée (aucune écriture
+de commande, de stock ou de meta n'a changé de résultat) mais **ce que l'écran
+renvoie quand ça rate** : un code brut, un clic muet, un « … » sans fin, un 400
+là où le PUT dit 404.
+
+### G1 — `e0175da` : B8, B9, B21, B17
+
+- **B8** — `401 demo_locked` n'était pas dans `AUTH_ERRORS` (`src/AuthPanel.jsx`) :
+  `fail()` fait `t(code)`, l'écran affichait `demo_locked`. Table exportée (elle
+  était locale au module, donc un test qui la recopiait ne pouvait rien voir),
+  clé `authErrorDemoLocked` dans les deux dictionnaires, et le test vérifie que
+  ** chaque** code mappé existe en fr **et** en en, et ne se traduit pas par son
+  propre nom. Le serveur est rejoué pour de vrai (compte démo verrouillé, sans
+  `DEMO_PASSWORD`) pour prouver que le code est bien celui de la table.
+- **B9** — `ProfilePage` rendait le bloc « comptes rattachés » **au maître**, que
+  le serveur refuse quatre fois sur quatre ; `link()`/`unlink()` ne disaient
+  rien sur un refus. Le bloc est masqué (`role !== 'master'`), les deux actions
+  annoncent l'échec (`authOAuthFail`), et le déliaison demande confirmation
+  (`oauthUnlinkAsk`) — c'est la seule action du profil qui défait un login.
+- **B21** — « Mes commandes » de l'écran de confirmation menait au **profil**,
+  d'où « Mes commandes » est sorti depuis le LOT 5.x : le client qui vient de
+  réserver tombe sur un écran sans sa commande. CTA → `go('orders')`.
+- **B17** — annuler une commande du serveur sans session affichait « Commande
+  annulée — stock rétabli » alors que rien n'était annulé. `cancelMyOrder` refuse
+  maintenant explicitement (`orderCancelNeedsLogin`) **sans toucher la copie
+  locale** : ce qui est réservé hors ligne reste annulable, c'est le serveur qui
+  n'a pas de session.
+
+Le correctif a d'abord atterri sur le **mauvais bloc** (l'ancre `{apiOnline &&
+mode === 'api' && (` se répète dans le JSX, le remplacements a saisi la carte du
+mot de passe) — retiré, reposé sur une ancre unique (`<h2>{t('linkedAccounts')}</h2>`),
+revérifié au `grep -n`. Piège consigné : une trame JSX répétée ne se remplace pas
+à l'aveugle.
+
+### G2 — `80c3d28` : B14, B19, B22, B24, B25, B26
+
+- **B19** — `setQty` : vouloir monter la quantité d'une ligne déjà en rupture
+  faisait `Math.min(0, Math.max(1, qty))` → 1… puis le `.filter(qty > 0)`
+  **retranchait la ligne**. Le refus est posé avant l'écriture (`outOfStock`), et
+  descendre à zéro reste le seul moyen de retirer une ligne.
+- **B14** — le compteur d'essais ratés de `PartThumb` vivait sur l'**installation**,
+  pas sur la fiche. Réinitialisation pendante pendant le rendu (`vu` comparé à
+  `product?.id`) — pas d'`useEffect` : le badge de catégorie doit être levé **au
+  premier rendu** de la nouvelle fiche, pas après un repaint.
+- **B22** — `openExternal(url, '_blank', 'noopener')` : le 3ᵉ argument ne borne pas
+  seulement `opener`, il fait retourner `null` à `window.open` dans la plupart des
+  navigateurs, et le repli naviguait **l'onglet même** vers un lien de paiement.
+  `w.opener = null` rend le même service sans l'effet de bord.
+- **B24** — `prevOrderCount` : un `useRef` écrit à chaque pull du comptoir, lu
+  nulle part (le badge de nouveautés vient de `markDeskOrdersSeen`). Supprimé.
+- **B25** — `BRANDS` (67 marques « curatées ») n'était lu par personne : la
+  recherche et la boutique déduisent les marques du catalogue. Retiré de
+  `src/data.js`, et un helper pur `brandsOnSale` (`src/productMeta.js`) croise
+  `BRANDS_DZ_PRIORITY` avec l'inventaire — une marque sans produit en rayon ne
+  propose plus de puce qui filtre à vide, les marques hors liste restent
+  joignables. Insertion ratée une première fois (le `useMemo` posé **avant**
+  `catalog` → TDZ, tout le montage d'`App` tombait : 10 fichiers de test rouges) ;
+  déplacé après `catalog`, avec le commentaire qui dit pourquoi.
+- **B26** — `deskAudioCtx.resume()` sans `await` ni `catch` : un refus de reprise
+  (onglet en arrière-plan) jetait en l'air. Repli silencieux assumé — le bip est
+  un confort.
+
+### G3 — `ac94502` : B32, B33 (et B32 rectifié)
+
+**B32 d'abord démêlé** : le rapport parlait d'un `setEditing({kind:'client'…})`
+écrit jamais lu (`MasterPage.jsx:193`). Il n'existe pas — `git log -S setEditing`
+est vide, y compris à la base auditée. Le trou est ailleurs et il est double :
+`buildShopView` n'opposait `hiddenPanelIds` qu'aux panneaux **de base**, et les
+`extraPanels` étaient rendus en cartes décoratives, sans ON/OFF ni suppression,
+avec un bouton étiqueté « Ajouter le produit ». Un panneau ajouté ne pouvait donc
+ni se cacher (le clic n'existait pas, et aurait été sans effet) ni se retirer —
+et comme le serveur tronque `extraPanels` à 12, le 13ᵉ était définitivement
+inatteignable. `removePanel` rejoint le store, les deux commandes apparaissent
+sur chaque carte, `masterAddPanel`/`masterPanelAdded` remplacent les étiquettes
+héritées, et le filtre de `buildShopView` porte sur les panneaux **et** leurs
+lignes de tri.
+
+**B33** — supprimer un compte était la seule action irréversible du maître sans
+confirmation (le produit a `confirmDeleteProduct`, le comptoir a
+`confirmDeleteOrder`). Or l'effet est double : sessions purgées, commandes EN
+COURS annulées, stock rendu. La question nomme le compte, donc le bouton passe
+le client et plus son seul `id`. Deux tests de `src/lot4UI.test.js` répondent
+désormais « oui » à `window.confirm` — sans quoi ils validaient le **silence** du
+clic, pas le message d'après suppression.
+
+### G4 — B4, B15, B16, B23, B27, B30 + docs périmées
+
+- **B4** — `productsLoading` se déduisait du **résultat** (`apiProducts.length === 0`) :
+  un `masterProducts()` qui échoue laisse la liste vide, donc « en cours », donc
+  `…` pour le reste de la session, sans message ni retry. Le drapeau qui manque
+  s'appelle `productsFetch` (`{loaded, failed}`), l'échec se dit
+  (`masterProductsLoadFail`) et se rattrape (`retry`, qui incrémente `apiTick`).
+  Le scénario du rapport (rechargement pendant le chargement) était **faux** — le
+  `cancelled` y répond déjà ; le mécanisme, lui, était vrai.
+- **B15** — le comptoir proposait « code de retrait » sur une ligne `localOnly`
+  (réservation née pendant une coupure, jamais reçue par le serveur) :
+  `POST /api/orders/:code/claim` → 404 → « opération échouée ». Le bouton n'est
+  plus proposé, le badge explique (`ordersLocalOnlyHint`).
+- **B16** — `POST /api/master/products/:id/hide` écrasait tout en 400, y compris
+  le `not_found` que `updateProduct` renvoie pourtant, alors que le PUT de la même
+  fiche répond 404. Deux routes, deux grilles. Alignées, avec le catalogue rejoué
+  pour prouver que le 404 ne casse pas le masque/réaffichage normal.
+- **B23** — `deleteCustomer(id)` oubliait `encodeURIComponent` (que `deleteOrder`
+  a juste au-dessus) : un id de store local avec un point ou un `/` partait sur un
+  autre chemin.
+- **B27** — `PUT /api/me` stockait `avatar` et `accent` tels quels. Ces deux
+  champs ne sont pas du texte libre : ce sont des **clés de vocabulaire** (les
+  quatre graines de `server/db.js`), que **rien ne rend** aujourd'hui — donc une
+  valeur déconnectée était du poids dans `store.json`, chaque backup et chaque
+  export, plus un piège pour le premier rendu qui les interpolerait dans un nom de
+  classe. Allowlist + 400 nommé, **validée avant `updateDbAsync`** (un `return`
+  dans le callback d'écriture n'aurait pas répondu au client — première version du
+  correctif, corrigée dans le même commit).
+- **B30** — `scripts/neon-doctor.mjs` écrivait `✗ 0 produit public` puis sortait 0 :
+  `npm run db:doctor && vercel deploy` déployait la vitrine vide qu'il venait de
+  diagnostiquer. `bad()` lève un drapeau, le script sort 1 — et le cas « `DATABASE_URL`
+  absente » (normal en dev) sort toujours 0, vérifié par `spawnSync`.
+- Docs : le « 633 clés » du haut de `src/i18n.coverage.test.js` (déjà faux) est
+  remplacé par l'énoncé de la parité ; `.env.example` ne dit plus que l'API
+  « utilise encore `store.json` » ; `scripts/audit-crawl.mjs` ne recommande plus
+  `--experimental-loader ./scripts/jsx-test-loader.mjs` (déprécié par Node) ni la
+  langue `ar` ; `scripts/jsdom-crawl.mjs` ne renvoie plus à un `npm run crawl` qui
+  n'existe pas ; `docs/RECETTE-RESPONSIVE-DIRECTION-03.md` idem (et « 3 langues » → 2) ;
+  chiffres README remis à jour.
+
+**B18 — décision : pas de correctif.** Le rapport demandait de durcir la
+`DEMO_PASSWORD` ; le compte de démo est déjà verrouillé sans variable (`null`
+hash, `demo_locked`) et c'est précisément ce comportement que B8/G1 rend lisible
+à l'écran. Écrire du code pour une protection déjà en place aurait fait bouger
+un contrat de sécurité pour rien.
+
+### Verrous ajoutés
+
+`src/p3ClientScreens.test.js` (8), `src/p3ShopSurface.test.js` (9),
+`src/p3Panels.test.js` (8), `src/p3ServerHygiene.test.js` (11) — 36 tests de plus,
+branchés dans `scripts.test`. Sur les trois points qui se prêtent à la preuve
+négative, elle a été jouée : retirer le filtre de `buildShopView` fait tomber
+`p3Panels`, retirer la remise à zéro de `PartThumb` fait tomber
+`p3ShopSurface`, la garde `expected` de P2 en avait fait de même.
+
+Suite : **995 tests, 0 échec** (`npm run build` préalable — le scan du bundle lit
+`dist/`). i18n : parité fr/en vérifiée à chaque exécution, aucune clé morte
+(640 × 2 après le lot).
+
+### Reste ouvert après P3
+
+- **B18** : assumé sans correctif (ci-dessus).
+- `npm run test:e2e` (Playwright) ne tourne dans aucune CI. Le README le dit ;
+  l'ajouter aux workflows demande la preuve que les navigateurs s'installent dans
+  l'image de CI, pas juste une ligne de plus dans un job.
+- Relire les commentaires d'état encore datés dans les anciens fichiers de test
+  (`clientFixes`, `lot2UI`, `lot5Logic`, `lot3StorageBlocked`, `cyberDesign`) : ils
+  décrètent un dépôt qui n'est plus, mais leurs assertions, elles, tournent sur
+  `LANGS`.
+- Le plan global (P0 → P3) est épuisé : les 33 points du rapport n°4 sont soit
+  corrigés, soit réfutés avec preuve (`docs/VERIFICATION-RAPPORT-AUDIT-4.md`).

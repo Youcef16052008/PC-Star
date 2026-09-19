@@ -2,8 +2,12 @@
  * Harnais d'audit — pilote le VRAI App dans jsdom, visite chaque page et clique
  * chaque bouton, en capturant toute erreur console / exception non gérée.
  *
- * Usage : node --experimental-loader ./scripts/jsx-test-loader.mjs \
- *           --no-warnings scripts/audit-crawl.mjs [ar|fr|en]
+ * Usage : node --import ./scripts/test-env.mjs \
+ *           --import ./scripts/jsx-test-register.mjs scripts/audit-crawl.mjs [fr|en]
+ *
+ * L'ancien `--experimental-loader ./scripts/jsx-test-loader.mjs` est déprécié
+ * par Node et inutile : `jsx-test-register.mjs` enregistre le transform JSX sans
+ * loader. Et `ar` ne se sert plus — le site est en `fr` et `en`.
  *
  * Le harnais REMONTE l'application avant chaque page : un balayage qui clique
  * des centaines de boutons finit par altérer la session (OAuth, déconnexion),

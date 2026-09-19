@@ -314,3 +314,45 @@ ligne à ligne, et l'honnêteté sur les limites (« latent », « à relativise
 le scénario de B4, le « aucun workflow CI » (§4), les chiffres i18n « 611 × 3 »,
 et un total d'exécution de tests à recalibrer (857, et 1 échec tant que `dist/`
 n'est pas construit).
+
+---
+
+## 7. Application (le plan a été mené, P0 → P3)
+
+Le tableau §6 n'est pas resté une recommandation. Journal détaillé, point par
+point et grappe par grappe : **`docs/BUGS-AND-FIXES.md`**, rubriques « LOT P0 »,
+« LOT P1 », « LOT P2 », « LOT P3 ».
+
+| Grappe | Commit | Contenu |
+|---|---|---|
+| P0 | `2c6ea4a` | B1 — pool Neon : `pool.on('error')`, reconstruction paresseuse, base marquée « dégradée » |
+| P0 | `2e9cdda` | B2 (chemains dans les 500), B3 (`400 invalid_code` sur `URIError`) |
+| P1 | `a51dffd` | B13 (`desk-info` non tarifiable), B20 (`normalizeDay`, date réelle) |
+| P1 | `24b6d26` | B11 (édition prix/stock/nom au panneau master), B5 (sockets multiples acceptés) |
+| P1 | `042acc7`, `d872c2a` | Docs P23, `compatLabel` |
+| P2 | `58bbfe2` → `0c5231a` | garde-fou de câblage, B28, B7, B12, B10, B6 (table de transitions), docs P24 |
+| P3 | `e0175da` | B8, B9, B21, B17 — ce que l'écran doit dire |
+| P3 | `80c3d28` | B14, B19, B22, B24, B25, B26 — surface de la vitrine |
+| P3 | `ac94502` | B32, B33 — panneaux ajoutés, suppression de compte |
+| P3 | (G4) | B4, B15, B16, B23, B27, B30 + docs périmées |
+
+**Trois conclusions de ce suivi modifient le rapport, pas le code :**
+
+1. **B32 reposait sur un mécanisme inventé** (un `setEditing` écrit jamais lu, qui
+   n'existe ni à la base auditée ni depuis). Le défaut réel est ailleurs, et il
+   est plus gênant : le masquage des panneaux ajoutés n'était appliqué **ni au
+   panneau ni à ses lignes** dans `buildShopView`, et le maître n'avait aucun
+   bouton pour le faire. Corrigé sous la même référence.
+2. **B18 ne reçoit pas de correctif, à dessein** : le compte de démonstration est
+   déjà verrouillé en l'absence de `DEMO_PASSWORD` (`passwordHash: null`,
+   `demo_locked`) — c'est justement ce code que B8 rend lisible à l'écran. Le
+   durcir encore aurait fait bouger un contrat de sécurité sans gain mesurable.
+3. **B4 et B14 avaient le bon symptôme, mauvais déclencheur** (le rechargement
+   pendant le chargement, le webp manquant). Les deux ont été corrigés sur leur
+   mécanisme, pas sur le scénario décrit : le premier a désormais un drapeau de
+   fin de chargement et un « Réessayer », la seconde repart de zéro quand la
+   fiche change.
+
+Portes à la fin du lot : **995 tests, 0 échec** (36 verrous de plus, dont quatre
+fichiers nouveaux), parité i18n fr/en vérifiée sans clé morte, crawl
+**24 pages / 0 erreur**, audit des boutons sans erreur JS sur base non vide.

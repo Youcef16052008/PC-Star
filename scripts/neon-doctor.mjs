@@ -17,9 +17,18 @@ import { publicCatalog } from '../server/catalog.js'
 
 neonConfig.webSocketConstructor = ws
 
+// LOT P3 (B30) : le diagnostic doit servir de PORTE. Un `✗` qui sort 0
+// traverse un `npm run db:doctor && vercel deploy` comme un succès : la vitrine
+// vide était diagnostiquée, puis déployée. Le `✗` lève donc un drapeau et le
+// script sort 1 — sauf le cas « DATABASE_URL absente », état normal en dev, qui
+// sort 0 avant d'ici.
+let souci = 0
 const ok = (m) => console.log(`  \x1b[32m✓\x1b[0m ${m}`)
 const warn = (m) => console.log(`  \x1b[33m▲\x1b[0m ${m}`)
-const bad = (m) => console.log(`  \x1b[31m✗\x1b[0m ${m}`)
+const bad = (m) => {
+  souci = 1
+  console.log(`  \x1b[31m✗\x1b[0m ${m}`)
+}
 const info = (m) => console.log(`  · ${m}`)
 
 const url = dbUrlDiagnostics()
@@ -152,4 +161,4 @@ info(`commandes archivées : ${archived[0]?.n ?? 0}`)
 info(`snapshots Neon     : ${backups[0]?.n ?? 0}${backups[0]?.newest ? ` (dernier : ${new Date(backups[0].newest).toISOString()})` : ''}`)
 
 console.log('')
-process.exit(0)
+process.exit(souci ? 1 : 0)

@@ -55,6 +55,14 @@ import { normalizePhone, isDzPhone, phoneCarrier } from './phone.js'
 // P10 (P7-18) : liste connue des wilayas servies par le shop (source partagée
 // src/data.js, déjà importée côté master via PRODUCTS).
 import { PRODUCTS, SLOTS, WILAYAS_NEAR } from '../src/data.js'
+
+// LOT P3 (B27) : vocabulaire accepté par `PUT /api/me` pour les deux champs
+// décoratifs. Ce sont exactement les valeurs que posent les graines de
+// `server/db.js` (`avatar: 'chip' | 'card' | 'pad' | 'star'`,
+// `accent: 'blue' | 'gold' | 'green' | 'red'`) ; `publicUser` les renvoie telles
+// quelles. Aucun composant ne les compose aujourd'hui — voir la validation.
+const USER_AVATARS = ['chip', 'card', 'pad', 'star']
+const USER_ACCENTS = ['blue', 'gold', 'green', 'red']
 // P19 : notification du master (WhatsApp Cloud API + socket Desk).
 import { broadcastDesk, formatOrderMessage, sendWhatsApp, whatsappConfig } from './notify.js'
 // LOT 8.4 (A4) : budgets d'octets partagés avec le client (compression, garde
@@ -618,14 +626,34 @@ export async function handler(req, res) {
       // LOT 1.9 : borne identique à l'inscription et aux commandes.
       const meName = body.name == null ? null : String(body.name).trim()
       if (meName != null && meName.length > 64) return send(res, 400, { ok: false, error: 'name_too_long' })
+      // LOT P3 (B27) : `avatar` et `accent` ne sont pas du texte libre, ce sont
+      // des CLÉS DE VOCABULAIRE. Aucun composant ne les lit aujourd'hui — une
+      // valeur déconnectée était donc stockée sans jamais se voir : du poids
+      // dans store.json, dans chaque backup, dans chaque export ; et surtout un
+      // piège pour le premier rendu qui les interpolerait dans un nom de classe
+      // (`avatar-${u.avatar}`), ou une chaîne de plusieurs mégaoctets passée
+      // pour un avatar. On refuse plutôt que de tronquer : hors vocabulaire, il
+      // n'y a rien à corriger. Validation ICI, avant `updateDbAsync` — un
+      // `return` à l'intérieur du callback d'écriture ne répondrait pas au
+      // client, il abandonnerait seulement la mutation.
+      let meAvatar = null
+      if (body.avatar) {
+        meAvatar = String(body.avatar).trim().toLowerCase()
+        if (!USER_AVATARS.includes(meAvatar)) return send(res, 400, { ok: false, error: 'avatar' })
+      }
+      let meAccent = null
+      if (body.accent) {
+        meAccent = String(body.accent).trim().toLowerCase()
+        if (!USER_ACCENTS.includes(meAccent)) return send(res, 400, { ok: false, error: 'accent' })
+      }
       let user = null
       await updateDbAsync((db) => {
         const u = db.users.find((x) => x.id === auth.user.id)
         if (!u) return db
         if (meName != null) u.name = meName || u.name
         if (body.phone != null) u.phone = body.phone ? normalizePhone(body.phone) : ''
-        if (body.avatar) u.avatar = body.avatar
-        if (body.accent) u.accent = body.accent
+        if (meAvatar) u.avatar = meAvatar
+        if (meAccent) u.accent = meAccent
         if (rawWilaya != null) {
           u.wilaya = WILAYAS_NEAR.includes(rawWilaya) ? rawWilaya : (u.wilaya || 'Oran')
         }
@@ -1306,7 +1334,13 @@ export async function handler(req, res) {
         result = hideProductMaster(db, id, body.hidden !== false)
         return db
       })
-      if (!result?.ok) return send(res, 400, { ok: false, error: result?.error })
+      // LOT P3 (B16) : même grille de statuts que le PUT de la fiche, juste
+      // au-dessus. `hideProductMaster` délègue à `updateProduct`, qui répond
+      // bien `not_found` pour une id inconnue (server/masterApi.js:480) — mais
+      // cette route, elle, écrasait tout en 400 : masquer une fiche supprimée
+      // entre-temps renvoyait « requête invalide » là où le PUT dit
+      // « introuvable », et le maître ne retentait rien.
+      if (!result?.ok) return send(res, result?.error === 'not_found' ? 404 : 400, { ok: false, error: result?.error })
       return send(res, 200, { ok: true, product: result.product })
     }
 

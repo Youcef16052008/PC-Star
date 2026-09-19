@@ -173,18 +173,42 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, ma
   // P6 : la vue master API = /api/master/products — TOUS les produits
   // (masqués et rupture inclus, avec le drapeau `hidden`), contrairement au
   // catalogue public filtré. Re-chargée après chaque mutation (apiTick).
+  //
+  // LOT P3 (B4) : `productsFetch` est le drapeau qui manque. La charge était
+  // déduite de `apiProducts.length === 0`, c'est-à-dire du résultat : un
+  // `masterProducts()` qui ÉCHOUE laisse la liste vide, donc « en cours », donc
+  // trois points de suspension pour le reste de la session — sans bouton, sans
+  // message, sans nouvelle tentative possible. Le rapport d'audit appelait ça
+  // un « » … « infini » ; il avait tort sur le scénario (il le disait
+  // déclenché par un rechargement pendant le chargement — le `cancelled` y
+  // répond déjà), raison sur le mécanisme : une attente doit dire qu'elle a
+  // échoué.
+  const [productsFetch, setProductsFetch] = useState({ loaded: false, failed: false })
   useEffect(() => {
     if (!apiOnline) return undefined
     let cancelled = false
-    api.masterProducts().then((r) => {
-      if (!cancelled && r.ok && Array.isArray(r.data?.products)) setApiProducts(r.data.products)
-    })
+    // Remet l'horloge à zéro à chaque tentative (dont le « Réessayer » ci-dessous).
+    setProductsFetch({ loaded: false, failed: false })
+    api
+      .masterProducts()
+      .then((r) => {
+        if (cancelled) return
+        const produits = r.ok && Array.isArray(r.data?.products) ? r.data.products : null
+        if (produits) setApiProducts(produits)
+        setProductsFetch({ loaded: true, failed: !produits })
+      })
+      .catch(() => {
+        // `api.masterProducts()` rejette rarement (l'enveloppe renvoie
+        // `{ok:false}`), mais un `fetch` coupé au milieu le fait : sans ce
+        // `catch`, on retombe exactement dans le muet qu'on vient de fermer.
+        if (!cancelled) setProductsFetch({ loaded: true, failed: true })
+      })
     return () => {
       cancelled = true
     }
   }, [apiOnline, apiTick])
 
-  const productsLoading = apiOnline && apiProducts.length === 0
+  const productsLoading = apiOnline && !productsFetch.loaded && apiProducts.length === 0
   const productsShown = apiOnline ? apiProducts : (masterCatalog || products || [])
 
   // La fiche en cours de modification, pour l'en-tete du formulaire.
@@ -802,6 +826,14 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, ma
           <div className="col-lg-8">
             {productsLoading ? (
               <p className="text-secondary">…</p>
+            ) : productsFetch.failed && apiProducts.length === 0 ? (
+              /* LOT P3 (B4) : l'échec se dit, et se rattrape. */
+              <div className="alert alert-warning d-flex flex-wrap align-items-center gap-2">
+                <span className="me-auto">{t('masterProductsLoadFail')}</span>
+                <button type="button" className="btn btn-sm btn-outline-secondary" onClick={() => setApiTick((n) => n + 1)}>
+                  {t('retry')}
+                </button>
+              </div>
             ) : (
             <div className="d-flex flex-column gap-2">
               {productsShown.map((p) => (

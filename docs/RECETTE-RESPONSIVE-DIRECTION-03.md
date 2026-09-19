@@ -5,7 +5,8 @@
 > (`src/cyberDesign.test.js` : contraste AA, breakpoints Bootstrap, cibles
 > tactiles ≥ 44 px, clip-path/focus, couleurs en dur, RTL, impression, zoom
 > iOS — 15 tests) et le rendu DOM des **13 pages × 3 langues** est vérifié
-> sans erreur par `npm run crawl`. Ce qui reste **non automatisable** — le
+> sans erreur par `node scripts/jsdom-crawl.mjs` (après `npm run build:crawl`).
+> Ce qui reste **non automatisable** — le
 > rendu réel, le ressenti typographique, le comportement de scroll — se
 > coche ici, sur appareils réels. Une case cochée = vérifié sur un vrai
 > écran.
@@ -15,7 +16,7 @@
 ```bash
 npm ci && npm run build && npm run preview   # front sur http://localhost:4173
 node server/index.js                          # API sur :8787 (dans un 2e terminal)
-npm test && npm run crawl && npm run smoke    # les portes automatiques
+npm test && npm run build:crawl && node scripts/jsdom-crawl.mjs && npm run smoke
 ```
 
 Outils recommandés : DevTools (mode appareil + « Network throttling » pour
@@ -100,7 +101,7 @@ une fiche produit, panier, configurateur).
 | Champs ≥ 16 px sous 576 px (anti-zoom iOS) | T10 |
 | Impression : clip-path none + couches retirées + fond blanc | T11 |
 | letter-spacing 0 en RTL, casse compensée, repli Noto Naskh Arabic | T13-T15 |
-| Rendu DOM des 13 pages × 3 langues, 0 erreur JS | `npm run crawl` |
+| Rendu DOM des 13 pages × 2 langues, 0 erreur JS | `npm run build:crawl && node scripts/jsdom-crawl.mjs` |
 
 **Décisions client actées pendant l'intégration** (§ 8 du plan) :
 1. Accent **cyan** (option a) — le vert historique ne subsiste que dans

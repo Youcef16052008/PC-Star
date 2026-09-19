@@ -1,7 +1,10 @@
 // P3 — Couverture i18n : toute clé appelée par t('...') (statique ou dynamique
 // tag_*/line_*/cat_*) doit exister dans les DEUX langues du site (`fr`, `en`) :
 // la troisième (arabe) a été retirée de la vitrine, la phrase ci-dessus
-// datait d'avant. 633 clés de chaque côté, parité vérifiée à chaque exécution.
+// datait d'avant. La PARITÉ des deux dictionnaires est vérifiée à chaque
+// exécution — et aucun nombre de clés n'est écrit ici : il change à chaque lot,
+// et le « 633 » de cette ligne était déjà faux (l'audit 19/09 en a fait un
+// point, B25 : un commentaire périmé se lit comme une preuve).
 //
 // LOT 8.9 (A9) — et le sens INVERSE, qui manquait : toute clé du dictionnaire
 // doit être **référencée** par le corpus, ou appartenir à une famille dynamique

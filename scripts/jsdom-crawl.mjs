@@ -3,7 +3,9 @@
  * L2 (Direction 03 « Terminal Cyber ») — porte de validation :
  * crawl jsdom des 13 pages × 2 langues, 0 erreur JavaScript.
  *
- * Usage : `npm run build` puis `npm run crawl`.
+ * Usage : `npm run build:crawl` puis `node scripts/jsdom-crawl.mjs`.
+ * (`npm run crawl` n'existe pas dans `package.json` ; `npm run build` seul ne
+ * suffit pas : le crawl a sa propre variante, `vite.crawl.config.js`.)
  * Le script démarre et arrête LUI-MÊME l'API (:8787) et `vite preview` (:4173).
  *
  * Ce qui compte comme « erreur » : window.onerror et jsdomError (erreur de

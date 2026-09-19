@@ -183,7 +183,13 @@ export async function listCustomers() {
 }
 
 export async function deleteCustomer(id) {
-  return req(`/api/customers/${id}`, { method: 'DELETE' })
+  // LOT P3 (B23) : `encodeURIComponent`, comme `deleteOrder` juste au-dessus.
+  // Les identifiants des comptes API viennent de `crypto.randomUUID()`, mais un
+  // compte du STORE local peut porter un id hérité avec un point, un « / » ou un
+  // « % » (graines, imports) : sans encodage le DELETE partait sur un autre
+  // chemin — le maître voyait la fiche disparaître un rechargement plus tard, et
+  // le compte restait avec ses sessions ouvertes.
+  return req(`/api/customers/${encodeURIComponent(id)}`, { method: 'DELETE' })
 }
 
 export async function getMeta() {
