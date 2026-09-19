@@ -83,7 +83,7 @@ export function applyStockRestore(stockMap, items) {
 // personne ne peut déclencher depuis l'interface est une porte, pas une
 // commodité — le recul réel (une fiche marquée « prête » trop tôt) reste
 // possible par la voie honnête : le comptoir annule, la commande repasse en
-// `new` ET le stock revient.
+// `new` et le stock revient.
 export const ORDER_TRANSITIONS = {
   new: ['preparing', 'ready', 'picked', 'cancelled'],
   pending: ['preparing', 'ready', 'picked', 'cancelled'],
