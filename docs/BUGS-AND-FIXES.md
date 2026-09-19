@@ -2694,7 +2694,11 @@ l'intercepteur branché ; audit boutons **32 vérifications, 0 erreur**, `fr/ord
 dédupliquée, les entrées bizarres qui ne cassent pas la porte, la politique d'origine sur dix
 cas d'URL, un jsdom vivant qui prouve que le bundle same-origin est toujours évalué pendant
 que le tiers est neutralé sans faute, et le câblage des deux portes (un `resources: 'usable'`
-nu retrouvé fait rougir le test). Restait à relire la CI sur cette tête : si `fr/orders`
-rougeoit encore avec un **frame de notre bundle**, la panne est réelle et se répare dans
-l'application ; si le crawl passe, c'est que la porte ne dépend plus du réseau du runner, et
-l'audit boutons redevient atteint.
+nu retrouvé fait rougir le test). **Relu sur la CI (`7acffad`) — les trois portes sont vertes.** `UI audit` **succès en 7 m 29 s**
+(l'étape Crawl passe et l'audit boutons est enfin atteint, ce qui prouve que les deux sont
+tombés d'accord), `E2E smoke` **succès** (Chromium + WebKit + Firefox), `Create Neon Branch` +
+`Setup` **succès**. La panne n'était donc pas la nôtre : elle était dans une porte qui
+exécutait du code de Google Maps et dépendait de la sortie Internet du runner. Les cinq têtes
+rouges n'avaient rien de mystérieux — elles avaient juste un message qui ne disait pas où, et
+le harnais avait raison de nous faire confiance sur la forme : la faute levait bien dans un
+`<script>`, simplement pas dans le nôtre.
