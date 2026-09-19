@@ -1,6 +1,9 @@
 import { useMemo, useState } from 'react'
 import { BUILDER_SLOTS, STORE, caseFitsBoard, checkCompatibility, money, socketsMatch, specOf, splitWarnings } from './data'
 import { BUILD_PRESETS, applyPreset, buildPowerRecap } from './orderLogic.js'
+// LOT P1 (B11) : comparaison des listes de compatibilite (memoire, format) —
+// la meme regle que le controle de coherence dans `src/data.js`.
+import { compatIntersects, compatLabel } from './productMeta.js'
 import { stockLabel } from './stockLabel.js'
 import PartThumb from './PartThumb.jsx'
 import ContactButton from './ContactPicker.jsx'
@@ -47,7 +50,9 @@ export default function BuilderPage({ t, lang = 'fr', products, build, setBuild,
     let list = catalog.filter(slot.pick)
     if (slot.key === 'cpu' && board)
       list = list.filter((p) => !p.compat?.socket || !board.compat?.socket || socketsMatch(p.compat.socket, board.compat.socket))
-    if (slot.key === 'ram' && board) list = list.filter((p) => !board.compat?.memory || p.compat?.memory === board.compat.memory)
+    // LOT P1 (B11) : une carte mere qui accepte plusieurs generations de memoire
+      // (liste) ne doit plus exclure la barrette qui en porte une.
+      if (slot.key === 'ram' && board) list = list.filter((p) => !board.compat?.memory || compatIntersects(p.compat?.memory, board.compat.memory))
     if (slot.key === 'cooler' && board) {
       // LOT 6.6 (Q6) : `includes` ne tolérait qu'un ventirad multi-socket face à
       // une carte mère mono-socket, et rejetait tout ventirad dont `socket` est
@@ -90,9 +95,12 @@ export default function BuilderPage({ t, lang = 'fr', products, build, setBuild,
       const next = { ...prev, [slot.key]: product }
       if (slot.key === 'motherboard') {
         const cpuP = next.cpu
-        if (cpuP && product && cpuP.compat?.socket !== product.compat?.socket) next.cpu = null
+        // LOT P1 (B11) : sockets et memoires peuvent etre des listes ; on
+        // compare par recoupement, et seulement quand les deux cotes declarent
+        // une valeur (un composant sans etiquette n'est pas une incompatibilite).
+        if (cpuP && product && cpuP.compat?.socket && product.compat?.socket && !socketsMatch(cpuP.compat.socket, product.compat.socket)) next.cpu = null
         const ramP = next.ram
-        if (ramP && product && product.compat?.memory && ramP.compat?.memory !== product.compat.memory) next.ram = null
+        if (ramP && product && product.compat?.memory && ramP.compat?.memory && !compatIntersects(ramP.compat.memory, product.compat.memory)) next.ram = null
       }
       const gpuP = next.gpu
       if (gpuP && (slot.key === 'motherboard' || slot.key === 'cpu')) {
@@ -416,7 +424,7 @@ export default function BuilderPage({ t, lang = 'fr', products, build, setBuild,
                 <div className="alert alert-danger py-2">
                   <strong>{t('socketMismatch')}</strong>
                   <div className="small">
-                    {t('compatSocketShort', { cpu: cpu.name, cpuSocket: cpu.compat.socket, board: board.name, boardSocket: board.compat.socket })}
+                    {t('compatSocketShort', { cpu: cpu.name, cpuSocket: compatLabel(cpu.compat.socket), board: board.name, boardSocket: compatLabel(board.compat.socket) })}
                   </div>
                 </div>
               )}

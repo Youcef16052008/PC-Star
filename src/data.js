@@ -1,3 +1,6 @@
+// LOT P1 (B11) : les listes de compatibilité peuvent être des tableaux ;
+// rendu et recoupement passent par `src/productMeta.js` (une seule règle).
+import { compatIntersects, compatLabel, compatValues } from './productMeta.js'
 import { EXTRA } from './extraCatalog.js'
 import { DZ_EXTRA, DZ_GUIDES, WILAYAS_NEAR, DZ_BRANDS } from './dzCatalog.js'
 import { CATALOG_EXTENSIONS } from './catalogExtensions.js'
@@ -864,8 +867,12 @@ export function specOf(p) {
 export function caseFitsBoard(box, board) {
   const form = board?.compat?.form
   if (!form) return true
-  if (form === 'mATX') return true
-  return box?.compat?.form === 'ATX' || box?.compat?.form === form
+  // LOT P1 (B11) : `form` peut être une liste (« cette carte tient en ATX et
+  // mATX »). Une carte mATX dans la liste tient partout ; sinon il suffit
+  // qu'un format déclaré par la carte soit déclaré par le boîtier.
+  if (compatValues(form).includes('mATX')) return true
+  const boxForms = compatValues(box?.compat?.form)
+  return boxForms.includes('ATX') || compatIntersects(box?.compat?.form, form)
 }
 
 export function splitWarnings(warnings) {
@@ -901,15 +908,18 @@ export function checkCompatibility(items) {
   const rams = list.filter((i) => i.compat && i.compat.memory && i.category === 'memory')
   const gpus = list.filter((i) => i.category === 'gpu')
   const psus = list.filter((i) => i.compat && i.compat.psuWatts)
-  const coolers = list.filter((i) => i.category === 'cooling' && Array.isArray(i.compat?.socket))
-  const cases = list.filter((i) => i.category === 'case' && i.compat?.form && !i.compat?.psuWatts && !Array.isArray(i.compat?.socket))
+  // LOT P1 (B11) : le repère « est-ce un ventirad ? » n'est plus le TYPE de la
+  // donnée (tableau) mais la présence de sockets — un ventirad qui ne declare
+  // qu'un seul support etait traite comme un composant ordinaire.
+  const coolers = list.filter((i) => i.category === 'cooling' && compatValues(i.compat?.socket).length)
+  const cases = list.filter((i) => i.category === 'case' && i.compat?.form && !i.compat?.psuWatts && !compatValues(i.compat?.socket).length)
 
   if (cpus.length && boards.length) {
     cpus.forEach((cpu) => {
       boards.forEach((board) => {
         // P17 (rapport #5) : `!==` aurait signalé à tort un CPU multi-socket.
         if (cpu.compat.socket && board.compat.socket && !socketsMatch(cpu.compat.socket, board.compat.socket)) {
-          W('compatSocketMismatch', { cpu: cpu.name, cpuSocket: cpu.compat.socket, board: board.name, boardSocket: board.compat.socket }, true)
+          W('compatSocketMismatch', { cpu: cpu.name, cpuSocket: compatLabel(cpu.compat.socket), board: board.name, boardSocket: compatLabel(board.compat.socket) }, true)
         }
         const cs = specOf(cpu)
         const bs = specOf(board)
@@ -924,15 +934,17 @@ export function checkCompatibility(items) {
 
   if (cpus.length && !boards.length) {
     cpus.forEach((cpu) => {
-      W('compatNeedsBoard', { cpu: cpu.name, socket: cpu.compat.socket })
+      W('compatNeedsBoard', { cpu: cpu.name, socket: compatLabel(cpu.compat.socket) })
     })
   }
 
   if (boards.length && rams.length) {
     boards.forEach((board) => {
       rams.forEach((ram) => {
-        if (board.compat.memory && ram.compat.memory && board.compat.memory !== ram.compat.memory) {
-          W('compatRamMismatch', { ram: ram.name, ramMem: ram.compat.memory, board: board.name, boardMem: board.compat.memory }, true)
+        // LOT P1 (B11) : recoupement au lieu d'une egalite stricte — une carte
+        // qui accepte « DDR4 et DDR5 » ne doit pas faire refuser une barrette DDR4.
+        if (compatValues(board.compat.memory).length && compatValues(ram.compat.memory).length && !compatIntersects(board.compat.memory, ram.compat.memory)) {
+          W('compatRamMismatch', { ram: ram.name, ramMem: compatLabel(ram.compat.memory), board: board.name, boardMem: compatLabel(board.compat.memory) }, true)
         }
       })
     })

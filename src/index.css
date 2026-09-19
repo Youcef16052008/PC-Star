@@ -652,6 +652,21 @@ html[data-theme='light'] .text-secondary {
 .master-form-section .form-label {
   font-weight: 600;
 }
+/* LOT P1 (B11) — groupes de cases a cocher de la compatibilite : le `fieldset`
+   sert de legende accessible, pas de cadre. */
+.master-compat-group {
+  min-inline-size: 0;
+  border: 0;
+  padding: 0;
+  margin: 0 0 0.35rem;
+}
+.master-compat-group legend {
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+.master-compat-group .form-check-label {
+  cursor: pointer;
+}
 @media (max-width: 991.98px) {
   .master-product-form {
     max-height: none;
