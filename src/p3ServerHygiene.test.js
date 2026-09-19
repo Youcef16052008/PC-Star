@@ -323,3 +323,63 @@ describe('P3 — le harnais jsdom ne prête pas un trou d’API à l’applicati
     assert.equal(/isSoft\(/.test(s.slice(i, i + 320)), false, 'la rejection est devenue amollie : un clic muet redeviendrait invisible')
   })
 })
+
+describe('P3 — les moteurs du smoke et ceux installés par la CI sont les mêmes', () => {
+  // Le job e2e a été rouge une première fois pour un motif de ce genre : la
+  // config, la spec et le workflow racontaient trois histoires différentes.
+  // Un moteur déclaré sans être installé fait échouer le smoke (pas « le moteur
+  // manque ») ; un moteur installé sans être déclaré ne teste rien du tout.
+  const config = fs.readFileSync(path.join(process.cwd(), 'playwright.config.js'), 'utf8')
+  const workflow = fs.readFileSync(path.join(process.cwd(), '.github/workflows/e2e-smoke.yml'), 'utf8')
+
+  const declarés = [...config.matchAll(/\{ name: '([a-z]+)', use: \{ \.\.\.devices\['([^']+)'\] \} \}/g)].map((m) => ({
+    nom: m[1],
+    device: m[2]
+  }))
+  const installés = (workflow.match(/npx playwright install[^\n]*/g) || [])
+    .flatMap((l) => l.replace(/^.*chromium/, 'chromium').split(/\s+/))
+    .filter((m) => ['chromium', 'firefox', 'webkit'].includes(m))
+
+  it('trois moteurs, un device Playwright connu chacun', () => {
+    assert.deepEqual(
+      declarés.map((p) => p.nom),
+      ['chromium', 'webkit', 'firefox'],
+      'les projets de `playwright.config.js` ont changé de forme : ce verrou doit suivre'
+    )
+    assert.deepEqual(
+      declarés.map((p) => p.device),
+      ['Desktop Chrome', 'Desktop Safari', 'Desktop Firefox']
+    )
+  })
+
+  it('la CI installe exactement ces moteurs', () => {
+    for (const p of declarés) assert.ok(installés.includes(p.nom), `« ${p.nom} » déclaré dans la config, jamais installé par la CI`)
+    for (const m of installés) assert.ok(declarés.some((p) => p.nom === m), `« ${m} » installé par la CI mais déclaré nulle part`)
+    assert.match(workflow, /--with-deps/, 'sans `--with-deps`, WebKit et Firefox meurent sur une bibliothèque système absente')
+  })
+
+  it('chaque fichier src/*.test.js est branché dans npm test', () => {
+    // Genu : `src/lot1BaseScripts.test.js` et `src/phase5Reliability.test.js`
+    // vivaient dans le depot sans figurer dans la liste de `package.json` — treize
+    // verrous ecrits, verts, et jamais joues par la CI. La liste est explicite (et
+    // pas un glob), donc elle doit etre montree a chaque ajout : ce verrou est la
+    // seul moyen de voir le trou.
+    const pkg = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'package.json'), 'utf8'))
+    const listés = new Set(pkg.scripts.test.match(/src\/\S+\.test\.js/g))
+    const surDisque = fs.readdirSync(path.join(process.cwd(), 'src'))
+      .filter((f) => f.endsWith('.test.js'))
+      .map((f) => `src/${f}`)
+    const oublis = surDisque.filter((f) => !listés.has(f))
+    assert.deepEqual(oublis, [], `${oublis.length} fichier(s) de test jamais joues : ${oublis.join(', ')}`)
+    const fantômes = [...listés].filter((f) => !fs.existsSync(path.join(process.cwd(), f)))
+    assert.deepEqual(fantômes, [], 'la liste de npm test pointe des fichiers supprimés')
+  })
+
+  it('le resume du crawl ne reporte plus un nombre de pages a la main', () => {
+    const crawl = fs.readFileSync(path.join(process.cwd(), 'scripts/jsdom-crawl.mjs'), 'utf8')
+    assert.match(crawl, /LANGS\.length\} langues × \$\{PAGES\.length\} pages/, 'le compteur de pages est revenu à une litterale')
+    // Le « 13 pages » reste autorisé dans la prose (il explique la faute), pas dans un message.
+    const chaines = crawl.match(/`[^`]*`/gs) || []
+    assert.equal(chaines.some((c) => c.includes('13 pages')), false, 'un compteur de pages ecrit a la main est revenu dans une chaine de sortie')
+  })
+})

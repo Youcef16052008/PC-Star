@@ -1,7 +1,12 @@
 #!/usr/bin/env node
 /**
  * L2 (Direction 03 « Terminal Cyber ») — porte de validation :
- * crawl jsdom des 13 pages × 2 langues, 0 erreur JavaScript.
+ * crawl jsdom de TOUTES les pages × 2 langues, 0 erreur JavaScript.
+ * Le nombre de pages est lu sur `PAGES` (ligne 214 pour le résumé) : le
+ * « 13 pages » que ce fichier et trois docs répétaient ne correspondait plus à
+ * rien — le tableau en fait douze, et le résumé imprimait « 2 langues × 13
+ * pages » à côté de « 24 pages rendues » (24 = 12 × 2). Un compteur écrit à la
+ * main dans un message est un compteur qui ment à la première page ajoutée.
  *
  * Usage : `npm run build:crawl` puis `node scripts/jsdom-crawl.mjs`.
  * (`npm run crawl` n'existe pas dans `package.json` ; `npm run build` seul ne
@@ -43,7 +48,7 @@ async function waitFor(fn, label, timeout = 25000) {
 const buttonByText = (doc, text) =>
   [...doc.querySelectorAll('button')].find((b) => b.textContent.trim() === text)
 
-/* 13 pages : comment les atteindre + marqueur DOM de rendu réel. */
+/* Les pages du site : comment les atteindre + marqueur DOM de rendu réel. */
 const PAGES = [
   ['shop', 'nav', 'navShop', '.product-bs-card'],
   ['search', 'nav', 'navSearch', null],
@@ -211,5 +216,7 @@ if (failures.length) {
   console.error(`\nCRAWL FAILED (${failures.length}) :\n${failures.map((f) => '  ✗ ' + f).join('\n')}`)
   teardown(1)
 }
-console.log(`\nCRAWL OK — ${results.length} pages rendues (${LANGS.length} langues × 13 pages), 0 erreur`)
+console.log(
+  `\nCRAWL OK — ${results.length} pages rendues (${LANGS.length} langues × ${PAGES.length} pages), 0 erreur`
+)
 teardown(0)

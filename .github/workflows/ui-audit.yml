@@ -1,7 +1,7 @@
 name: UI audit (crawl + boutons)
 
 # P3 — porte de validation interface : le bundle public est scanné (aucun
-# secret), les 24 pages (2 langues × 13 pages) sont rendues sans UNE erreur
+# secret), toutes les pages sont rendues sans UNE erreur JavaScript (24 = 2 langues
 # JavaScript, puis TOUS les boutons des pages clés sont cliqués et les
 # formulaires vides/invalides doivent afficher une erreur visible. Complète le
 # workflow Neon (API + régression).
@@ -21,7 +21,7 @@ permissions:
 
 jobs:
   ui_audit:
-    name: Crawl 2×13 pages + clic de tous les boutons
+    name: Crawl jsdom (24 pages) + clic de tous les boutons
     runs-on: ubuntu-latest
     # Identifiants de fixture, valables seulement pour l'API locale éphémère que
     # les deux scripts démarrent eux-mêmes (jamais ceux de production).
@@ -45,7 +45,7 @@ jobs:
         run: npm run build:crawl
       # tee garde la sortie visible ET la sauvegarde pour l’artefact d’échec
       # (les logs Actions sont parfois injoignables après coup — EOF blob).
-      - name: Crawl jsdom — 13 pages × 2 langues, 0 erreur JavaScript
+      - name: Crawl jsdom — toutes les pages × 2 langues, 0 erreur JavaScript
         shell: bash
         run: set -o pipefail; node scripts/jsdom-crawl.mjs 2>&1 | tee crawl.log
       - name: Audit boutons — clics sûrs + vide/invalide → erreur affichée

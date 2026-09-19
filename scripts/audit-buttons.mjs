@@ -3,7 +3,7 @@
  * Audit boutons — « est-ce que TOUS les boutons font quelque chose de sûr,
  * et est-ce qu'un formulaire vide affiche bien une erreur ? »
  *
- * Complète scripts/jsdom-crawl.mjs (navigation 13 pages × 2 langues) :
+ * Complète scripts/jsdom-crawl.mjs (navigation de toutes les pages × 2 langues) :
  *  1. sur chaque page clé, on clique TOUS les boutons du contenu principal
  *     (désactivés exclus) et on exige ZÉRO erreur JavaScript (window.onerror /
  *     jsdomError hors « not implemented » — alert/confirm/print ne sont pas
