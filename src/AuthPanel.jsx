@@ -155,7 +155,16 @@ export default function AuthPanel({ t, users, onUsers, onSession, onClose, setTo
 
   return (
     <div className="modal fade" ref={modalElRef} tabIndex={-1} aria-labelledby="authModalLabel" aria-hidden="true">
-      <div className="modal-dialog modal-dialog-centered">
+      {/*
+        * LOT P4 (V5) — la connexion prend toute la page. Une fenetre de 500 px
+        * sur un telephone d'occasion (le parc du comptoir), c'est le clavier
+        * numerique qui mangeait le formulaire : on se connectait a moitie, puis
+        * on refermait pour relire ce qu'on avait tape. `modal-fullscreen` est la
+        * classe de Bootstrap, pas une invention locale ; le corps reste dans une
+        * colonne lisible (`.auth-sheet-body`) pour que le texte ne s'etale pas
+        * sur 1 400 px sur l'ecran du comptoir.
+        */}
+      <div className="modal-dialog modal-dialog-centered modal-fullscreen">
         <div className="modal-content border-0 shadow">
           <div className="modal-header">
             <h2 className="modal-title h5 mb-0" id="authModalLabel">
@@ -164,6 +173,7 @@ export default function AuthPanel({ t, users, onUsers, onSession, onClose, setTo
             <button type="button" className="btn-close" data-bs-dismiss="modal" aria-label={t('close')} />
           </div>
           <div className="modal-body">
+            <div className="auth-sheet-body">
             <p className="small text-secondary">{t('authSimpleNote')}</p>
             <span className={`badge mb-3 ${apiOnline ? 'text-bg-success' : 'text-bg-secondary'}`}>
               {apiOnline ? t('backendOnline') : t('backendOffline')}
@@ -316,6 +326,7 @@ export default function AuthPanel({ t, users, onUsers, onSession, onClose, setTo
                 </button>
               </form>
             )}
+            </div>
           </div>
         </div>
       </div>

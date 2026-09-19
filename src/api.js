@@ -203,6 +203,13 @@ export async function putPanels(meta) {
   return req('/api/master/panels', { method: 'PUT', body: meta })
 }
 
+// LOT P4 (V1) — le maitre ecrit sa vitrine (libelle + nombre de reparations).
+// Pas de `readyTally` ici : le compteur de commandes se lit, il ne se decree
+// pas — le serveur l'ignore s'il arrive dans le corps (voir applyVitrineEdit).
+export async function putVitrine(vitrine) {
+  return req('/api/master/vitrine', { method: 'PUT', body: vitrine })
+}
+
 export async function masterProducts() {
   return req('/api/master/products')
 }

@@ -6,6 +6,9 @@ import { PRODUCTS } from '../src/data.js'
 // P22 (bug G) : table des transitions partagée avec le client.
 // LOT 2.2 (F3 + F4) : algorithme du code de commande partagé lui aussi.
 import { ORDER_TRANSITIONS, nextOrderCode, normalizeDay } from '../src/orderLogic.js'
+// LOT P4 (V1) : la tuile « commandes » de la vitrine est comptée ici, à l’entrée
+// réelle dans le statut « prêt pour retrait » — pas par le navigateur du comptoir.
+import { bumpReadyTally } from './vitrine.js'
 
 export const ORDER_STATUSES = ['new', 'preparing', 'ready', 'picked', 'cancelled']
 
@@ -527,6 +530,12 @@ export function setOrderStatus(db, code, status, expected = null) {
   }
   order.status = status
   order.updatedAt = new Date().toISOString()
+  // LOT P4 (V1) : +1 sur la vitrine quand la commande ENTRE dans « prêt ». La
+  // table des transitions étant à sens unique, une même commande ne peut être
+  // comptée deux fois ; une annulation ultérieure ne rend pas le point (le
+  // compteur dit « combien de fois le comptoir a prévenu un client », pas
+  // « combien de cartons attendent maintenant » — c’est le choix du client).
+  if (status === 'ready' && from !== 'ready') bumpReadyTally(db)
   return { ok: true, order }
 }
 

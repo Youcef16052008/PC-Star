@@ -397,6 +397,17 @@ describe('LOT 3.5 (B8) — garde de stock dans l’updater', () => {
     // Hors-ligne : le stock affiché vient du catalogue statique.
     const m = await mountApp({}, {})
     try {
+      // LOT P4 (V3) : la grille est paginee a douze, la fiche au stock de 1 est
+      // ailleurs dans le catalogue. On l'amene par la recherche de la page — le
+      // meme chemin que le client, pas un contournement du composant.
+      const champ = m.all('.filters-bar input')[0]
+      assert.ok(champ, 'le champ de recherche de la vitrine est introuvable')
+      await act(async () => {
+        const proto = window.HTMLInputElement.prototype
+        Object.getOwnPropertyDescriptor(proto, 'value').set.call(champ, target.name)
+        champ.dispatchEvent(new window.Event('input', { bubbles: true }))
+      })
+      await settle(120)
       const card = m.all('.product-bs-card').find((c) => clean(c.querySelector('.card-title')) === target.name)
       assert.ok(card, `carte de ${target.name} introuvable`)
       const btn = card.querySelector('button.btn-success')

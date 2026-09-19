@@ -32,6 +32,7 @@ const MAX_SAVED_SEARCHES = 10
 // (cookies tiers refusés, navigation privée, quota dépassé), ils levaient un
 // `SecurityError` pendant le rendu.
 import { asSafeStorage, safeStorage } from './safeStorage.js'
+import { clampVitrine } from './vitrine.js'
 
 export function hashPass(password) {
   let h = 2166136261
@@ -113,7 +114,12 @@ function emptyMeta() {
     hiddenProductIds: [],
     extraPanels: [],
     hiddenPanelIds: [],
-    photoOverrides: {}
+    photoOverrides: {},
+    // LOT P4 (V1) — la vitrine est stockee comme les panneaux : meme cle, meme
+    // chargement, meme persistance. C'est ce qui fait qu'en mode local (sans
+    // API) la tuile saisie par le maitre survit au rechargement, et qu'en mode
+    // API la valeur du serveur la remplace, sans etat parallele a resynchroniser.
+    vitrine: clampVitrine({})
   }
 }
 

@@ -4,6 +4,10 @@ import { useEffect, useMemo, useState } from 'react'
 // références en rupture ou masquées.
 import { CATEGORIES, PRODUCTS, PRODUCT_CONDITIONS, PRODUCT_USES, money } from './data.js'
 import { addPanel, addProduct, deleteCustomer, hideProduct, removePanel, setProductPhotos, togglePanel } from './shopStore.js'
+// LOT P4 (V1) : le bornage de la vitrine est la fonction meme du serveur
+// (`src/vitrine.js`, partage) — le formulaire ne peut pas accepter ce que
+// l'API refuserait, ni l'inverse.
+import { VITRINE_LIMITS, clampVitrine } from './vitrine.js'
 import PartThumb from './PartThumb.jsx'
 import * as api from './api.js'
 import { compressDataUrl } from './photoCompress.js'
@@ -146,6 +150,14 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, ma
   const [form, setForm] = useState(() => emptyProductForm())
   const [panelTitle, setPanelTitle] = useState({ ar: '', fr: '', en: '' })
   const [panelCat, setPanelCat] = useState('accessories')
+  // LOT P4 (V1) — la tuile de la page d'accueil, ecrite par le maitre. Deux
+  // champs : le libelle et le nombre de reparations. Le troisieme compteur
+  // (« commandes ») n'a pas de champ, volontairement : il est la consequence de
+  // ce que le comptoir fait (une commande passee a « prete »), pas une valeur
+  // qu'on s'attribue au clavier.
+  const vitrine = clampVitrine(meta.vitrine)
+  const [vitrineForm, setVitrineForm] = useState({ label: vitrine.repairsLabel, count: String(vitrine.repairsDone) })
+  const [vitrineBusy, setVitrineBusy] = useState(false)
   const [editId, setEditId] = useState(null)
   const [editPhotos, setEditPhotos] = useState([])
   // LOT P1 (audit 19/09/2026, B5) — identifiant de la fiche en cours de
@@ -596,6 +608,33 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, ma
 
   const hidden = new Set(meta.hiddenPanelIds || [])
 
+  async function submitVitrine(e) {
+    e.preventDefault()
+    if (vitrineBusy) return
+    setVitrineBusy(true)
+    try {
+      if (apiOnline) {
+        const r = await api.putVitrine({ repairsLabel: vitrineForm.label, repairsDone: Number(vitrineForm.count) })
+        if (!r.ok) {
+          setToast(r.data?.error === 'vitrine_count' ? t('masterVitrineBadCount') : t('masterUpdateFail'))
+          return
+        }
+        // Regle des panneaux : c'est la reponse du serveur qui s'applique, lui
+        // seul connait le bornage et le compteur de commandes qu'il tient.
+        onMeta({ ...meta, vitrine: r.data?.vitrine || clampVitrine({ ...vitrineForm, repairsDone: Number(vitrineForm.count) }) })
+        setToast(t('masterVitrineSaved'))
+        return
+      }
+      // Mode local : la tuile est persistee dans le meme `meta` que les panneaux,
+      // donc elle survit au rechargement — et le compteur de commandes, lui,
+      // n'existe pas sans serveur : il reste a ce que la base dit (zero).
+      onMeta({ ...meta, vitrine: { ...clampVitrine({ repairsLabel: vitrineForm.label, repairsDone: Number(vitrineForm.count) }), readyTally: vitrine.readyTally } })
+      setToast(t('masterVitrineSaved'))
+    } finally {
+      setVitrineBusy(false)
+    }
+  }
+
   return (
     <main id="main-content" className="container page py-4" tabIndex={-1}>
       <button className="btn btn-outline-secondary btn-sm mb-3" type="button" onClick={onBack}>
@@ -618,10 +657,16 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, ma
       </div>
 
       <ul className="nav nav-pills gap-2 mb-4">
-        {['products', 'customers', 'panels'].map((id) => (
+        {['products', 'customers', 'panels', 'vitrine'].map((id) => (
           <li className="nav-item" key={id}>
             <button type="button" className={`nav-link ${tab === id ? 'active' : ''}`} onClick={() => setTab(id)}>
-              {id === 'products' ? t('masterProducts') : id === 'customers' ? t('masterCustomers') : t('masterPanels')}
+              {id === 'products'
+                ? t('masterProducts')
+                : id === 'customers'
+                  ? t('masterCustomers')
+                  : id === 'panels'
+                    ? t('masterPanels')
+                    : t('masterVitrine')}
             </button>
           </li>
         ))}
@@ -959,6 +1004,63 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, ma
               </div>
             ))
           )}
+        </div>
+      )}
+
+      {tab === 'vitrine' && (
+        <div className="row g-4">
+          <div className="col-lg-6">
+            <form className="card shadow-sm border-0" onSubmit={submitVitrine}>
+              <div className="card-body">
+                <h2 className="h5 mb-1">{t('masterVitrine')}</h2>
+                <p className="small text-secondary mb-3">{t('masterVitrineBody')}</p>
+                <div className="mb-2">
+                  <label className="form-label small" htmlFor="master-vitrine-label">
+                    {t('masterRepairsLabel')}
+                  </label>
+                  <input
+                    id="master-vitrine-label"
+                    className="form-control"
+                    maxLength={VITRINE_LIMITS.label}
+                    value={vitrineForm.label}
+                    onChange={(e) => setVitrineForm({ ...vitrineForm, label: e.target.value })}
+                    placeholder={t('roRepairs')}
+                  />
+                  <div className="form-text">{t('masterRepairsLabelHint')}</div>
+                </div>
+                <div className="mb-3">
+                  <label className="form-label small" htmlFor="master-vitrine-count">
+                    {t('masterRepairsCount')}
+                  </label>
+                  <input
+                    id="master-vitrine-count"
+                    className="form-control"
+                    type="number"
+                    min="0"
+                    max={VITRINE_LIMITS.count}
+                    step="1"
+                    value={vitrineForm.count}
+                    onChange={(e) => setVitrineForm({ ...vitrineForm, count: e.target.value })}
+                    required
+                  />
+                </div>
+                <button className="btn btn-success" type="submit" disabled={vitrineBusy}>
+                  {t('masterVitrineSave')}
+                </button>
+              </div>
+            </form>
+          </div>
+          <div className="col-lg-6">
+            <div className="card shadow-sm border-0">
+              <div className="card-body">
+                <h3 className="h6 mb-1">{t('masterVitrineReady')}</h3>
+                <p className="small text-secondary mb-2">{t('masterVitrineReadyBody')}</p>
+                <p className="h3 mb-0" data-testid="vitrine-ready-tally">
+                  {vitrine.readyTally}
+                </p>
+              </div>
+            </div>
+          </div>
         </div>
       )}
 

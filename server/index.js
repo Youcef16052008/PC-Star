@@ -25,6 +25,8 @@ import {
   updateDbAsync,
   verifyPass
 } from './db.js'
+// LOT P4 (V1) : la vitrine (module sans effet de bord, see server/vitrine.js).
+import { vitrineView, applyVitrineEdit } from './vitrine.js'
 import {
   completeDemo,
   completeOAuthCallback,
@@ -1535,7 +1537,12 @@ export async function handler(req, res) {
         meta: {
           extraPanels: meta.extraPanels || [],
           hiddenPanelIds: meta.hiddenPanelIds || []
-        }
+        },
+        // LOT P4 (V1) — les trois compteurs de la vitrine, projetes par
+        // `vitrineView` : la page d'accueil n'a besoin que de ca, et surtout pas
+        // du reste de `db.meta` (produits masques, overrides, identifiants de
+        // seed). Un champ ajoute a `meta` ne devient pas public par accident.
+        vitrine: vitrineView(db)
       })
     }
 
@@ -1544,6 +1551,25 @@ export async function handler(req, res) {
       const auth = await userFromReq(req)
       if (!auth || auth.user.role !== 'master') return send(res, 403, { ok: false, error: 'forbidden' })
       return send(res, 200, { ok: true, meta: (await readDbAsync()).meta })
+    }
+
+    // LOT P4 (V1) — le maitre ecrit sa vitrine : le libelle et le nombre de
+    // reparations. Validation et bornage vivent dans `applyVitrineEdit`
+    // (server/vitrine.js), partages avec `normalizeDb` — une seule borne pour la
+    // lecture et pour l'ecriture, sinon le formulaire se reecrit lui-meme a
+    // chaque sauvegarde. `readyTally` est volontairement hors d'atteinte : il est
+    // compte par le serveur a chaque commande passee a « prete ».
+    if (req.method === 'PUT' && pathname === '/api/master/vitrine') {
+      const auth = await userFromReq(req)
+      if (!auth || auth.user.role !== 'master') return send(res, 403, { ok: false, error: 'forbidden' })
+      const body = await readBody(req)
+      let out = null
+      await updateDbAsync((db) => {
+        out = applyVitrineEdit(db, body)
+        return db
+      })
+      if (!out?.ok) return send(res, 400, { ok: false, error: out?.error || 'vitrine' })
+      return send(res, 200, { ok: true, vitrine: out.vitrine })
     }
 
     // P9 (P7-8) : PUT /api/meta SUPPRIMÉ — l'écriture `db.meta = {...db.meta,

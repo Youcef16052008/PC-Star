@@ -68,7 +68,7 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true
 const React = (await import('react')).default
 const { act } = await import('react')
 const { createRoot } = await import('react-dom/client')
-const { default: App } = await import('./App.jsx')
+const { default: App, SHOP_PAGE_SIZE } = await import('./App.jsx')
 const { dict } = await import('./i18n.js')
 const { PRODUCTS } = await import('./data.js')
 const { isStorageBlocked, storageMode } = await import('./safeStorage.js')
@@ -110,7 +110,14 @@ describe('LOT 3.1 (F7 + F8) — stockage navigateur bloqué : l’app monte quan
     try {
       assert.equal(renderError, null, `le rendu ne doit pas lever : ${renderError}`)
       // L'ErrorBoundary ne doit pas avoir pris la main.
-      assert.ok(host.querySelectorAll('.product-bs-card').length > 50, 'la boutique affiche ses produits')
+      // LOT P4 (V3) : la boutique est paginee a douze. « Affiche ses produits »
+      // se mesure donc a la premiere page ET a la ligne qui annonce un catalogue
+      // plus long qu'elle — sans quoi une grille vide passerait pour un
+      // catalogue vide, ce que ce test doit justement distinguer.
+      assert.equal(host.querySelectorAll('.product-bs-card').length, SHOP_PAGE_SIZE, 'la boutique n\u2019affiche pas sa premiere page')
+      const annonce = host.querySelector('#catalog')?.nextElementSibling
+      assert.ok(annonce, 'la ligne d\u2019annonce du compte est absente de la vitrine')
+      assert.match(annonce.textContent.replace(/\s+/g, ' '), /page 1 sur [2-9]\d*/, 'le catalogue tient sur une page : la pagination n\u2019est pas exercee')
       assert.equal(isStorageBlocked(), true, 'le stockage est bien détecté comme bloqué')
       assert.equal(storageMode(), 'memory')
       const status = host.querySelector('.alert-secondary[role="status"]')
