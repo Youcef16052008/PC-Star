@@ -1,6 +1,18 @@
 # Plan d'intégration — Direction 03 « Terminal Cyber »
 
-> **Statut :** plan validé, non démarré. Rien dans `src/` n'est encore modifié.
+> **Journal daté — ses chiffres sont ceux du jour, pas l'état du dépôt.** Ce
+> document est une trace : on ne le réécrit pas quand il est contredit plus tard,
+> parce qu'effacer une conclusion fausse efface aussi la raison pour laquelle
+> elle était fausse.
+> Au fil des lots, plusieurs nombres et commandes ci-dessous ont été
+> dépassés. L'état mesuré d'aujourd'hui est dans
+> [`../../README.md`](../../README.md) (« État mesuré »), la suite des sessions
+> dans [`BUGS-AND-FIXES.md`](BUGS-AND-FIXES.md). Les docs **exécutables** (guides,
+> recettes, prompts d'agent, `docs/README.md`) ont, elles, été corrigées — c'est
+> `src/p3DocsAging.test.js` qui verrouille les deux régimes.
+
+
+> **Statut :** plan validé, non démarré. *(statut à la date du plan : il a depuis été mené lot par lot, L0 → L7 — la suite est dans `BUGS-AND-FIXES.md`)* Rien dans `src/` n'est encore modifié.
 > **Référence visuelle :** `design-mockups/03-terminal-cyber.html`
 > **Contrainte explicite du client :** le site doit être **responsive téléphone et PC**.
 > Ce plan consacre donc une section entière (n° 4) au responsive, et chaque lot

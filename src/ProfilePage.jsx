@@ -121,17 +121,41 @@ export default function ProfilePage({ t, user, users, onUsers, onUser, setToast,
     }
   }
 
+  // LOT P3 (B9) : ces deux fonctions ne disaient RIEN en cas d'échec. Or le
+  // serveur refuse explicitement (`master_oauth_forbidden`, `identity_linked`,
+  // `demo_enabled`, `provider_not_configured`) : le clic ne produisait aucun
+  // effet visible, et l'utilisateur ne pouvait pas savoir si c'était son
+  // navigateur, le magasin ou le fournisseur. Un motif refusé doit se lire.
   async function link(provider) {
-    const r = await api.oauthStart(provider, { intent: 'link', returnUrl: window.location.origin + '/' })
-    if (r.ok && r.data?.authorizeUrl) window.location.href = r.data.authorizeUrl
+    setErr('')
+    let r = null
+    try {
+      r = await api.oauthStart(provider, { intent: 'link', returnUrl: window.location.origin + '/' })
+    } catch {
+      r = null
+    }
+    if (r?.ok && r.data?.authorizeUrl) {
+      window.location.href = r.data.authorizeUrl
+      return
+    }
+    setErr(t('oauthLinkFail'))
   }
 
   async function unlink(provider) {
+    // Détacher coupe le seul moyen de se connecter quand le mot de passe du
+    // compte est vide : c'est irréversible du point de vue de l'utilisateur,
+    // ça se confirme (même règle que la suppression d'un compte client au
+    // panneau maître, B33).
+    if (!window.confirm(t('oauthUnlinkAsk', { provider: provider === 'google' ? 'Google' : 'Meta' }))) return undefined
+    setErr('')
     const r = await api.oauthUnlink(provider)
     if (r.ok && r.data?.user) {
       onUser(r.data.user)
       setToast(t('profileSaved'))
+      return undefined
     }
+    setErr(t('oauthUnlinkFail'))
+    return undefined
   }
 
   return (
@@ -263,7 +287,13 @@ export default function ProfilePage({ t, user, users, onUsers, onUser, setToast,
             </div>
           )}
 
-          {apiOnline && mode === 'api' && (
+          {/* LOT P3 (B9) : le bloc était rendu pour TOUT utilisateur connecté en
+              mode API, maître compris — or le serveur refuse le rattachement du
+              compte magasin à quatre endroits (`server/oauth.js:200, 289, 304,
+              548`) et `startOAuth` ne délivre même plus de state de rattachement
+              à un maître authentifié : deux boutons qui ne peuvent qu'échouer.
+              Le mot de passe, lui, reste modifiable par le maître (bloc au-dessus). */}
+          {apiOnline && mode === 'api' && user?.role !== 'master' && (
             <div className="card shadow-sm border-0 mt-3">
               <div className="card-body p-4">
                 <h2 className="h6 mb-3">{t('linkedAccounts')}</h2>

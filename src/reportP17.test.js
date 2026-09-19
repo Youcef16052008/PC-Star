@@ -1,5 +1,7 @@
 import { describe, it, before, after } from 'node:test'
 import assert from 'node:assert/strict'
+import fs from 'node:fs'
+import path from 'node:path'
 import { JSDOM } from 'jsdom'
 
 // P17 — vérification du rapport d'analyse du 13/09.
@@ -117,11 +119,70 @@ describe('P17 (#2) — le SKU généré ne dégénère jamais en « PS- »', () 
   })
 })
 
-describe('P17 (#3) — le filtre « En stock » explique ce qu’il fait', () => {
-  it('la clé inStoreOnlyHint existe dans les 3 langues', () => {
+describe('P17 (#3) — le filtre « En stock » : documenté hier, retiré aujourd’hui', () => {
+  /*
+   * Le P17 avait mesuré le problème : en mode API, `publicCatalog` ne contient
+   * que du stock > 0, donc « En magasin seulement » ne retirait jamais rien —
+   * d'où le tooltip qui l'expliquait. Le LOT P4 (V4) a tranché autrement, sur
+   * demande du client : le filtre est supprimé, la place prise par le rayon du
+   * catalogue. Ce verrou n'est pas supprimé avec le filtre, il est RETOURNÉ :
+   * il interdit désormais que la clé revienne sans que personne ne lise l'état
+   * du stock, ce qui était le défaut d'origine.
+   */
+  const sansCommentaires = (fichier) =>
+    fs
+      .readFileSync(path.join(process.cwd(), fichier), 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, ' ')
+      .replace(/(^|[^:\w])\/\/[^\n]*/g, '$1')
+
+  it('les clés sont absentes des deux langues, et la page ne les lit plus', () => {
     for (const lang of ['fr', 'en']) {
-      const v = dict?.[lang]?.inStoreOnlyHint
-      assert.ok(typeof v === 'string' && v.length > 10, `${lang} : inStoreOnlyHint manquant`)
+      for (const cle of ['inStoreOnly', 'inStoreOnlyHint']) {
+        assert.equal(cle in (dict?.[lang] || {}), false, `${lang} : la cle ${cle} est revenue, sans lecteur pour l'afficher`)
+      }
+    }
+    for (const fichier of ['src/SearchPage.jsx', 'src/App.jsx']) {
+      const code = sansCommentaires(fichier)
+      for (const motif of ['inStoreOnly', 'in-stock-hint', 'm-stock']) {
+        assert.equal(code.includes(motif), false, `${fichier} lit encore « ${motif} » : le filtre fantome est revenu`)
+      }
+    }
+  })
+
+  it('le retrait est cohérent : la case à cocher n’est plus rendue à l’écran', async () => {
+    await import('jsdom')
+    const { default: SearchPage } = await import('./SearchPage.jsx')
+    const React = (await import('react')).default
+    const { act } = await import('react')
+    const { createRoot } = await import('react-dom/client')
+    const { PART_LINES } = await import('./data.js')
+    const t = (k) => dict.fr[k] ?? k
+    const hote = window.document.createElement('div')
+    window.document.body.appendChild(hote)
+    const racine = createRoot(hote)
+    try {
+      await act(async () => {
+        racine.render(
+          React.createElement(SearchPage, {
+            t,
+            products: [{ id: 'gpu-x', name: 'Carte X', brand: 'Asus', category: 'gpu', price: 1000, stock: 1 }],
+            lines: PART_LINES,
+            panels: [],
+            lang: 'fr',
+            liveStock: () => 1,
+            onAdd: () => {},
+            onOpen: () => {}
+          })
+        )
+      })
+      await act(async () => new Promise((r) => setTimeout(r, 40)))
+      const champs = [...window.document.querySelectorAll('input[type="checkbox"]')].map((i) => i.id)
+      assert.equal(champs.includes('m-stock'), false, `case mobile encore rendue : ${champs.join(',')}`)
+      assert.equal(/En magasin seulement/.test(hote.textContent), false, 'le filtre retire est affiche')
+      assert.match(hote.textContent.replace(/\s+/g, ' '), /Catalogue/, "le rayon du catalogue n'a pas pris la place dans le panneau")
+    } finally {
+      act(() => racine.unmount())
+      hote.remove()
     }
   })
 })

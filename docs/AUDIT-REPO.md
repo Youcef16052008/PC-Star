@@ -1,5 +1,17 @@
 # Audit complet du repository PC Star — 11/09/2026
 
+> **Journal daté — ses chiffres sont ceux du jour, pas l'état du dépôt.** Ce
+> document est une trace : on ne le réécrit pas quand il est contredit plus tard,
+> parce qu'effacer une conclusion fausse efface aussi la raison pour laquelle
+> elle était fausse.
+> Au fil des lots, plusieurs nombres et commandes ci-dessous ont été
+> dépassés. L'état mesuré d'aujourd'hui est dans
+> [`../../README.md`](../../README.md) (« État mesuré »), la suite des sessions
+> dans [`BUGS-AND-FIXES.md`](BUGS-AND-FIXES.md). Les docs **exécutables** (guides,
+> recettes, prompts d'agent, `docs/README.md`) ont, elles, été corrigées — c'est
+> `src/p3DocsAging.test.js` qui verrouille les deux régimes.
+
+
 Audit ligne par ligne, fichier par fichier : `src/*` (21 fichiers), `server/*` (7), `api/*` (1),
 `scripts/*` (4), config (`index.html`, `vite.config.js`, `vercel.json`, `.gitignore`, `.env.example`,
 `.vercelignore`, `package.json`), 5 fichiers de test, 1800 photos (`public/photos`).

@@ -1,5 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
-import { PRICE_PRESETS, PRODUCT_CONDITIONS, PRODUCT_USES, SOCKETS, STORE, conditionOf, money, starText, usesOf } from './data'
+// LOT P4 (V4) : `PRODUCT_USES`/`usesOf` ne sortent plus de cette page — le
+// filtre « usage » a été retiré sur demande du client (le rayon se choisit dans
+// le catalogue, un usage ne filtre rien que le rayon ne filtre déjà).
+import { PRICE_PRESETS, PRODUCT_CONDITIONS, SOCKETS, STORE, conditionOf, money, starText } from './data'
 import { loadSavedSearches, saveSavedSearches } from './shopStore.js'
 import { stockLabel } from './stockLabel.js'
 import PartThumb from './PartThumb.jsx'
@@ -16,9 +19,7 @@ const EMPTY = {
   brands: [],
   socket: 'all',
   condition: 'all',
-  use: 'all',
   price: 'any',
-  inStock: false,
   sort: 'featured'
 }
 
@@ -77,28 +78,19 @@ export default function SearchPage({ t, products, lines, panels, lang, liveStock
     const key = PRODUCT_CONDITIONS.find((condition) => condition.id === id)?.labelKey
     return key ? t(key) : id
   }
-  const useLabel = (id) => {
-    if (id === 'all') return t('useAny')
-    const key = PRODUCT_USES.find((use) => use.id === id)?.labelKey
-    return key ? t(key) : id
-  }
-
   const results = useMemo(() => {
     if (!line) return []
     const q = filters.q.trim().toLowerCase()
     let list = (products || []).filter((p) => {
       if (!line.match(p)) return false
-      const left = liveStock(p)
       if (filters.brands.length && !filters.brands.includes(p.brand)) return false
       if (filters.condition !== 'all' && conditionOf(p) !== filters.condition) return false
-      if (filters.use !== 'all' && !usesOf(p).includes(filters.use)) return false
       if (showSocket && filters.socket !== 'all') {
         const sock = p.compat && p.compat.socket
         const ok = Array.isArray(sock) ? sock.includes(filters.socket) : sock === filters.socket
         if (!ok) return false
       }
       if (p.price < preset.min || p.price > preset.max) return false
-      if (filters.inStock && left <= 0) return false
       if (q) {
         // Les champs enrichis par le maître font partie de l'index : un mot-clé,
         // une référence fabricant ou une caractéristique doit réellement aider
@@ -121,17 +113,13 @@ export default function SearchPage({ t, products, lines, panels, lang, liveStock
   const activeChips = []
   if (filters.socket !== 'all') activeChips.push({ key: 'socket', label: filters.socket })
   if (filters.condition !== 'all') activeChips.push({ key: 'condition', label: conditionLabel(filters.condition) })
-  if (filters.use !== 'all') activeChips.push({ key: 'use', label: useLabel(filters.use) })
   if (filters.price !== 'any') activeChips.push({ key: 'price', label: t(PRICE_KEYS[filters.price] || 'price_any') })
-  if (filters.inStock) activeChips.push({ key: 'inStock', label: t('inStoreOnly') })
   filters.brands.forEach((b) => activeChips.push({ key: `brand-${b}`, label: b, brand: b }))
 
   function clearChip(chip) {
     if (chip.key === 'socket') set('socket', 'all')
     else if (chip.key === 'condition') set('condition', 'all')
-    else if (chip.key === 'use') set('use', 'all')
     else if (chip.key === 'price') set('price', 'any')
-    else if (chip.key === 'inStock') set('inStock', false)
     else if (chip.brand) toggleBrand(chip.brand)
   }
 
@@ -229,7 +217,7 @@ export default function SearchPage({ t, products, lines, panels, lang, liveStock
         />
       </div>
 
-      <div className="mb-4">
+      <div className="mb-4 d-lg-none">
         {allPanels.map((panel) => (
           <div key={panel.id} className="mb-2">
             <div className="small fw-semibold text-secondary mb-1">{panelTitle(panel)}</div>
@@ -269,6 +257,34 @@ export default function SearchPage({ t, products, lines, panels, lang, liveStock
                   {t('reset')}
                 </button>
               </div>
+
+              {/* LOT P4 (V4) — le rayon du catalogue est un filtre comme les
+                  autres : il est dans le panneau, pas seulement dans la rangee
+                  du haut (qui, elle, reste le raccourci visible sur telephone). */}
+              <fieldset className="mb-3">
+                <legend className="form-label fw-semibold small">{t('catalog')}</legend>
+                {allPanels.map((panel) => (
+                  <div key={panel.id} className="mb-2">
+                    <div className="small fw-semibold text-secondary">{panelTitle(panel)}</div>
+                    {allLines
+                      .filter((l) => l.group === panel.id)
+                      .map((l) => (
+                        <label key={l.id} className="form-check">
+                          <input
+                            className="form-check-input"
+                            type="radio"
+                            name="search-line"
+                            checked={filters.line === l.id}
+                            onChange={() => set('line', l.id)}
+                          />
+                          <span className="form-check-label small">
+                            {t(`line_${l.id}`) !== `line_${l.id}` ? t(`line_${l.id}`) : l.label}
+                          </span>
+                        </label>
+                      ))}
+                  </div>
+                ))}
+              </fieldset>
 
               <button type="button" className="btn btn-outline-success btn-sm w-100 mb-2" onClick={saveSearch}>
                 {t('saveSearch')}
@@ -317,20 +333,6 @@ export default function SearchPage({ t, products, lines, panels, lang, liveStock
                 ))}
               </fieldset>
 
-              <fieldset className="mb-3">
-                <legend className="form-label fw-semibold small">{t('use')}</legend>
-                <label className="form-check">
-                  <input className="form-check-input" type="radio" name="product-use" checked={filters.use === 'all'} onChange={() => set('use', 'all')} />
-                  <span className="form-check-label small">{t('useAny')}</span>
-                </label>
-                {PRODUCT_USES.map((use) => (
-                  <label key={use.id} className="form-check">
-                    <input className="form-check-input" type="radio" name="product-use" checked={filters.use === use.id} onChange={() => set('use', use.id)} />
-                    <span className="form-check-label small">{t(use.labelKey)}</span>
-                  </label>
-                ))}
-              </fieldset>
-
               {showSocket && (
                 <fieldset className="mb-3">
                   <legend className="form-label fw-semibold small">{t('socket')}</legend>
@@ -357,19 +359,15 @@ export default function SearchPage({ t, products, lines, panels, lang, liveStock
                 ))}
               </fieldset>
 
-              <fieldset>
-                <legend className="form-label fw-semibold small">{t('availability')}</legend>
-                <label className="form-check" title={t('inStoreOnlyHint')}>
-                  {/* P17 (rapport #3) : en mode API le catalogue public ne contient
-                      déjà QUE du stock > 0 (`publicCatalog`), donc ce filtre ne
-                      change rien tant que le panier est vide. Le tooltip le dit
-                      au lieu de laisser croire à un filtre cassé. */}
-                  <input className="form-check-input" type="checkbox" checked={filters.inStock} onChange={(e) => set('inStock', e.target.checked)} aria-describedby="in-stock-hint" />
-                  <span className="form-check-label small">{t('inStoreOnly')}</span>
-                  <span id="in-stock-hint" className="d-block text-secondary" style={{ fontSize: '0.72rem' }}>{t('inStoreOnlyHint')}</span>
-                </label>
-              </fieldset>
-            </div>
+              {/*
+                * LOT P4 (V4) : le filtre « En magasin seulement » a été retiré sur
+                * demande du client — et le P17 (rapport #3) avait déjà démontré
+                * pourquoi il était vide : en mode API, `publicCatalog` ne contient
+                * QUE ce qui est en stock, donc le case à cocher ne retirait rien.
+                * Un filtre qui ne filtre rien est une promesse non tenue ; le
+                * rayon du catalogue, lui, est devenu un vrai filtre (ci-dessus).
+                */}
+                            </div>
           </div>
         </aside>
 
@@ -501,18 +499,6 @@ export default function SearchPage({ t, products, lines, panels, lang, liveStock
                   <option value="all">{t('conditionAny')}</option>
                   {PRODUCT_CONDITIONS.map((condition) => <option key={condition.id} value={condition.id}>{t(condition.labelKey)}</option>)}
                 </select>
-              </div>
-              <div className="mb-3">
-                <label className="form-label small">{t('use')}</label>
-                <select className="form-select" value={filters.use} onChange={(e) => set('use', e.target.value)}>
-                  <option value="all">{t('useAny')}</option>
-                  {PRODUCT_USES.map((use) => <option key={use.id} value={use.id}>{t(use.labelKey)}</option>)}
-                </select>
-              </div>
-              <div className="form-check mb-3">
-                <input className="form-check-input" type="checkbox" id="m-stock" checked={filters.inStock} onChange={(e) => set('inStock', e.target.checked)} aria-describedby="m-in-stock-hint" />
-                <label className="form-check-label" htmlFor="m-stock">{t('inStoreOnly')}</label>
-                <span id="m-in-stock-hint" className="d-block text-secondary" style={{ fontSize: '0.72rem' }}>{t('inStoreOnlyHint')}</span>
               </div>
               <div className="mb-3">
                 <div className="small fw-semibold mb-1">{t('brands')}</div>

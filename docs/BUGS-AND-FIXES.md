@@ -1,5 +1,13 @@
 # PC Star — Bugs trouvés & corrections (audit 10/09/2026)
 
+> **Journal courant, append-only.** Une section par jour de session, la plus récente
+> en bas. Ce qui est écrit dans une section est l'état du dépôt **ce jour-là** : on
+> ne remonte pas corriger une conclusion d'il y a trois sessions : on ouvre une
+> section nouvelle. Les sections les plus récentes portent leur date dans leur titre
+> (« LOT P3 — … (audit du 19/09/2026) ») ; celles du haut datent de l'audit du 10/09
+> et décrivent 24 bugs (B1–B24) sur un dépôt qui en a vu d'autres depuis.
+> Pour l'état d'aujourd'hui : [`../../README.md`](../../README.md).
+
 Audit **ligne par ligne, fichier par fichier** (`src/*`, `server/*`, `api/*`, `scripts/*`,
 configs) conduit à **24 bugs** (B1–B24). Tous les bugs de code ont été corrigés en
 **5 phases**, chacune = un commit sur la branche `5d6f736` (PR #2), tests verts avant
@@ -29,6 +37,7 @@ commit. Une **6e phase (P6)** a traité les 7 bugs reportés en conditions réel
 | **P16** | (13/09) | #8, #12-#21, #25, #26 | **Lot 4 (durcissement)** : démos ressuscitées, rate-limit effacé, mot de passe modifiable sans l'ancien, reset `client31`, patch produit non validé, statuts de commande, historique écrasé, CORS `*`, store.json versionné 🟠 |
 | **P15** | (13/09) | #5, #6, #7 | **Lot 3** : recherches sauvées jamais écrites, vignette effacée du DOM, photos SKU fantômes (3 × 404) 🔴 |
 | P14 | (13/09) | #1, #3, #4 | **Lot 2** : inscriptions empoisonnées, WhatsApp du comptoir mort, écran blanc du Builder 🔴 |
+| **P23** | (19/09) | rapport n°4 — P0 + P1 | **6 bugs vérifiés puis corrigés** : panne de pool Neon qui tuait le processus 🔴, fuites du 500, URI mal encodée en 500, commande à 0 DA acceptée, dates inexistantes validées par regex, fiches non éditables ni multi-sockets 🟠 |
 
 L'audit initial et le plan détaillé : [`AUDIT-REPO.md`](./AUDIT-REPO.md).
 B18/B22/B23 : jugés **non-bugs** (contraintes de conception démo, documentées).
@@ -1736,3 +1745,905 @@ module n'expose plus d'objet `MASTER` et le garde-fou serveur
 devient `masterAccount()` — l'invariant réel (« l'empreinte est produite par une
 fonction déclarée avant elle », plus de dépendance au hoisting) est conservé.
 
+---
+
+## P23 (19/09/2026) — vérification du rapport d'audit n°4, puis correctifs P0 et P1
+
+Le rapport n°4 a d'abord été **contre-vérifié claim par claim** : verdict et
+mesures dans [`VERIFICATION-RAPPORT-AUDIT-4.md`](./VERIFICATION-RAPPORT-AUDIT-4.md)
+(27 bugs confirmés à l'identique, 4 sur-évalués, 1 caduc, 4 affirmations hors code
+fausses). Les corrections suivent les priorités établies par cette vérification,
+et **non** l'ordre du rapport : P0 = B1 seul, P1 = B2+B3, B13, B20, B11, B5.
+Un commit par grappe, `npm test` vert à chaque étape.
+
+### P0 / B1 — une panne de connexion Neon tuait le processus (🔴)
+
+Le pool `pg` était créé sans auditeur `'error'`. Une coupure du serveur
+intermédiaire WebSocket émet un `error` sur un client **idle** — sans auditeur,
+Node lève et le **processus meurt** : tout le site tombe pour une minute de
+réseau. Rejoué en direct (faux serveur PG) : `exit 1` avant, processus vivant et
+pool reconstruit après.
+
+- auditeur `'error'` journalisé + invalident du pool sur rotation de `DATABASE_URL` ;
+- `releaseQuietly()` au `finally` des quatre chemins transactionnels (une
+  `release` sur une connexion morte ne doit pas masquer l'erreur d'origine) ;
+- diagnostic exposé : `db.pool` dans `/api/db/status` (`created`, `idleErrors`,
+  `lastError`, `errorListeners`) — un pool qui n'a plus d'auditeur se voit ;
+- verrou : `src/p0NeonPool.test.js` (5 tests, dont l'invariant texte
+  « chaque `release` est silencieuse »).
+
+### P1 / B2 — le 500 racontait le serveur (🟠)
+
+Mesuré : une écriture impossible répondait
+`{"error":"server","message":"EACCES: permission denied, open '/chemin/absolu/store.json.tmp'"}` —
+arborescence offerte à un appelant anonyme, y compris sur les routes publiques.
+Le `catch` global de `server/index.js` et le filet de `api/index.js` (Vercel) ne
+renvoient plus que `{ ok: false, error: 'server' }` ; le détail part en journal.
+
+`src/deskStatusFail.test.js` **exigeait** le champ `message` : ce test verrouillait
+la fuite. Il vérifie maintenant l'absence de détail interne et la journalisation.
+
+### P1 / B3 — une URI mal encodée répondait 500 (🟠)
+
+Dix `decodeURIComponent` à l'air libre dans le `try` géant du handler :
+`/api/orders/%E0%A4%A` levait un `URIError` → 500. Ajout de `pathSegment()`
+(retourne `null` sur segment indécodable) branché sur ces dix sites **et** sur
+les deux routes qui ne décodent pas du tout (`GET /api/stock/:id`,
+`DELETE /api/customers/:id` — incohérence relevée au passage : la recherche
+portait sur `foo%20bar` là où les autres routes voyaient `foo bar`). Réponse :
+**400** `invalid_code` / `invalid_id`, plus un filet `URIError` → 400 `invalid_uri`
+pour les décodages hors du handler. L'autorisation garde la priorité (403 avant 400).
+
+### P1 / B13 — une ligne sans prix fabriquait une commande à 0 DA (🟠)
+
+`priceOf()` renvoie `null` pour un id inconnu (déjà refusé en `unknown_product`)
+mais **0** pour un produit légitime dont le prix a été saisi en texte ou remis à
+zéro ; la normalisation `price == null ? 0 : price` en faisait un article gratuit,
+commande acceptée et stock décrémenté. Reproduit : `{items:[{id:'desk-info'}]}` →
+201, `total: 0`.
+
+- serveur : toute ligne dont le prix de référence n'est pas un nombre **strictement
+  positif** est refusée — `{ ok: false, error: 'unpriced', unpriced: [{id,name}] }`,
+  mappée en 400 avec les lignes en cause, même atomicité que les autres refus
+  (rien n'est décrémenté) ;
+- client : `orderApiFailure` classe `unpriced`, `App.jsx` la traite comme un refus
+  définitif (message qui nomme les lignes, retrait du panier, les autres lignes
+  restent commandables) ;
+- i18n : `orderUnpriced` / `orderUnpricedDetail` en **fr et en** — `i18n.coverage`
+  refuse une clé d'un seul côté comme une clé morte.
+
+### P1 / B20 — une regex tenait lieu de validation de date (🟡)
+
+`^\d{4}-\d{2}-\d{2}$`, recopiée **cinq fois**, acceptait `2026-02-31`,
+`2026-13-01`, `0000-00-00`. Une journée inexistante entrait dans `order.day`,
+dans le code `PS-20260231-0001`, dans le nom de l'export CSV et dans le filtre du
+comptoir — commande introuvable dès qu'on changeait de jour. Le rapport imputait
+aussi à `nextOrderCode` un `new Date(day).toISOString()` (décalage de fuseau) :
+**vérifié faux**, les composants sont passés un par un depuis le lot P9.
+
+`normalizeDay()` (dans `src/orderLogic.js`, seule fonction de validation du
+projet) valide la date réelle par aller-retour dans un `Date` ; branchée sur
+`day`, `pickupDate`, `setOrderPickupDate`, `nextOrderCode` et l'export CSV. Une
+journée fausse à la commande retombe sur la journée locale du client ; un
+`pickupDate` faux est refusé (400 `pickup_date`) au lieu de déborder sur le mois
+suivant.
+
+### P1 / B11 — la compatibilité refusait les listes qu'elle lit partout ailleurs (🟡)
+
+`normalizeProductCompat()` n'admettait qu'une chaîne exacte :
+`{socket:['AM5','LGA1700']}` → `null` → `error: 'compat'` → fiche non enregistrée.
+Or les ventirads du catalogue portent déjà `compat.socket` en tableau,
+`socketsMatch()` sait les comparer, la recherche et le configurateur filtrent
+dessus. Effets mesurés : éditer un ventirad depuis le panneau maître **perdait ses
+supports**, un CPU double socket était **impossible à saisir**, et une carte mère
+déclarant `memory: ['DDR4','DDR5']` aurait fait **refuser** une barrette DDR4.
+
+- `compatValues()` / `compatIntersects()` / `compatLabel()` dans `src/productMeta.js` :
+  chaîne, liste ou chaîne à virgules ; dédupliqué, remis dans l'ordre de la liste
+  de référence (un ré-enregistrement ne modifie plus le store), une valeur unique
+  reste une **chaîne** (format historique), terme inconnu = refus ;
+- `src/data.js` (`caseFitsBoard`, avertissements socket/RAM, détection des
+  ventirads) et `src/BuilderPage.jsx` (filtres, purge du panier au changement de
+  carte) comparent maintenant par **recoupement**, plus par `===` ;
+- `SpecBadges` de la fiche produit rend la liste (`AM4/AM5`) ;
+- panneau maître : les trois listes déroulantes uniques deviennent des **cases à
+  cocher** (socket, mémoire, format) — sans cela le correctif serveur restait
+  inatteignable depuis l'interface.
+
+### P1 / B5 — le maître ne pouvait pas corriger une fiche (🟡)
+
+`masterUpdateProduct()` n'était appelé dans `MasterPage.jsx` qu'avec
+`{ photos }` : nom, prix, stock, catégorie, garantie, compatibilité s'écrivaient
+uniquement à la **création**. Une fiche au prix erroné ne pouvait donc pas être
+corrigée — il fallait la masquer et la recréer, donc changer d'identifiant, donc
+perdre photos liées et historique de stock. Le serveur, lui, applique tout
+(`sanitizeProductPatch`, `meta.productOverrides` pour les 301 fiches du catalogue
+de base) : c'était un trou d'interface.
+
+- mappages extraits dans `src/masterForm.js` (`emptyProductForm`,
+  `productFormFromProduct`, `productPayloadFromForm`) : testables hors React, et
+  un ré-enregistrement est idempotent (vérifié sur 40 fiches du catalogue) ;
+- bouton « Modifier la fiche » par ligne, en-tête du formulaire qui bascule,
+  annulation qui réinitialise, mêmes règles d'erreur qu'à la création
+  (`sku_taken`, `price`, `compare_at_price`) ;
+- prix : `min="1"` sur le champ (le serveur refuse 0 depuis le LOT 1.12 parce
+  que ça rend la ligne incommandable — cf. B13) ;
+- mode **API uniquement** : le store local n'a pas de fonction de mise à jour, le
+  bouton y est désactivé avec une explication (`masterEditApiOnly`) plutôt que
+  de promettre un enregistrement qui ne persisterait pas.
+
+### Verrous ajoutés
+
+`src/p1HttpErrors.test.js` (7), `src/p1OrderGuards.test.js` (16),
+`src/p1CompatLists.test.js` (17), `src/p1MasterEdit.test.js` (13) — serveur HTTP
+réel lancé à chaque grappe, donc 400/403/500 vérifiés sur le chemin complet.
+Suite : **915 tests, 0 échec** (`npm run build` préalable : `bundleSecrets` scanne
+le bundle).
+
+### Reste ouvert (priorités P2 et P3 du rapport de vérification)
+
+P2 : B6 (table partagée du comptoir, aucun bouton retour), B7 (lien OAuth des
+démos), B10, B12 (divergence POST/PUT sur `name`), B28 (rate-limit, dont
+`reset-password`). P3 : B4, B8, B9, B15-B19, B21-B27, B30, B32, B33, plus la
+documentation du README (nombre de produits, nombre de tests et sa pré-condition
+`dist/`, langue arabe retirée) et `npm run test:e2e` qui ne tourne dans aucune CI.
+
+## P24 (19/09/2026) — P2 : le garde-fou qui a manqué, puis B28, B7, B12, B10, B6
+
+Le lot P1 s'est terminé sur un constat désagréable : une `ReferenceError` au rendu
+d'une page (un import oublié) a traversé `node --check`, le bundle esbuild et les
+917 tests `node:test`. Seul le crawl de la CI l'a vue — et par un marqueur absent,
+jamais par une erreur explicite. P2 commence donc par là, puis traite les cinq
+items restants à portée de preuve.
+
+### D'abord le trou : `src/moduleWiring.test.js`
+
+Deux vérifications statiques, 0,8 s, sans navigateur :
+
+1. **chaque module de `src/`, `server/`, `api/` doit se charger** — un
+   `import { x } from './m'` pour une exportation absente est une erreur de
+   liaison ESM, elle crève ici au lieu de vivre jusqu'au rendu ;
+2. **aucun nom exporté par un module déjà importé ne peut être appelé dans le
+   fichier sans être importé** — le cas exact de `compatLabel` dans
+   `src/ProductPage.jsx` : la ligne d'import était restée à deux noms quand
+   `productMeta.js` en a pris un troisième. La restriction aux modules déjà
+   importés, plus le retrait des commentaires et des liaisons locales (props,
+   paramètres, destructuration), donne **zéro faux positif** sur les 90 modules.
+
+Preuve négative : retirer l'import de `compatLabel` fait échouer le test avec le
+nom, le fichier et le module d'origine ; le remettre le fait passer. Constat fait
+en écrivant le garde-fou : toutes les pages sont **déjà** montées en jsdom dans la
+suite, sauf `ErrorBoundary` et `LegalPage` — la couverture de rendu existait,
+c'est le chemin non exercé qui était aveugle.
+
+### P2 / B28 — le 429 était neuf réponses différentes, et la route la plus chère n'en avait pas
+
+Compté : 9 blocs `rateLimit`, dont **deux** écrivant leur refus à la main
+(`error: 'rate_limited'`, sans `retryAfter` ni en-tête) — or `orderApiFailure`
+(`src/orderLogic.js:230`) clé sur le statut 429 mais lit `data.retryAfter` pour
+annoncer la durée : ces deux-là disaient « attendez » sans chiffre. Et `POST
+/api/master/customers/:id/reset-password` **n'était pas limitée** : chaque appel
+coûte deux `hashPassAsync` (scrypt, ~50 ms de CPU) sur le thread partagé avec les
+commandes.
+
+- `tooManyRequests(res, rl)` dans `server/index.js` ; les 9 sites y passent,
+  `send(res, 429` a disparu du routeur ;
+- limite `60 s / 5` sur le reset, posée **avant** `userFromReq` comme sur `/api/me`
+  (un flot non authentifié ne doit pas coûter une lecture de base par requête) ;
+- `src/p2RateLimits.test.js` (5) : le nombre de `rateLimit(` doit rester égal au
+  nombre de réponses du helper — une route ne peut plus se limiter à sa façon ;
+  et, serveur live, les cinq premières requêtes atteignent le 403 d'accès, la
+  sixième reçoit 429 + `Retry-After` + `retryAfter` au corps.
+
+### P2 / B7 — un compte de démonstration revendiqué par OAuth restait un compte de démonstration
+
+`server/oauth.js` posait `demo: false` à la **création** de l'utilisateur, jamais
+dans les deux branches de **rattachement**. Trois conséquences écrites noir sur
+blanc dans le code : `normalizeDb` remet l'empreinte sur `DEMO_PASSWORD` à chaque
+lecture (le mot de passe partagé est dans le bundle par conception du mode démo) ;
+la garde S2 croit le compte encore démonstratif et laisse un callback **non
+vérifié** y recoller une identité ; `/api/auth/login` répond `demo_locked` à son
+propre titulaire.
+
+`claimDemoAccount(db, user)` applique les deux règles d'un seul endroit, **uniquement
+quand l'identité a été vérifiée auprès du fournisseur** (`trusted`) : marqueur retiré,
+`passwordHash` à `null` (l'état « aucun mot de passe ne fonctionne », déjà prévu pour
+les fixtures verrouillées — le maître peut en poser un), sessions ouvertes avec le mot
+de passe partagé coupées. Sous `OAUTH_DEMO=1`, rien n'est touché : les fixtures restent
+ouvrables.
+
+`src/p2OAuthClaim.test.js` (6) dont le montage du chemin complet contre un faux fournisseur
+Google (`email_verified: true`, `server/oauth.js:440`), la garde de stabilité après un
+re-relu de la base, et la preuve que le S2 refuse désormais l'intrus. Neutraliser les
+deux appels du helper fait échouer 4 des 6 tests.
+
+### P2 / B12 — une fiche produit a les mêmes bornes à ses trois portes
+
+Nom, marque et raccourci n'étaient bornés qu'à **une** porte, en dur dans
+`sanitizeProductPatch` (`> 120`, `slice(0, 60)`, `slice(0, 200)`) : `createProduct`
+testait `if (!name)`, `shopStore.addProduct` rien du tout et acceptait `price: 0`.
+Fiche au nom de 5 000 caractères créée en 201, puis le **même** produit refusait le
+moindre `PUT` en `name_too_long` — la correction passait par une suppression, donc
+par la perte de l'historique de stock (le trou que P1/B11 visait).
+
+- `NAME_LIMIT` / `BRAND_LIMIT` / `SHORT_LIMIT` dans `src/productMeta.js`, auprès des
+  `MODEL_LIMIT` & co déjà partagés ; les trois portes les lisent ;
+- refus (`name_too_long`) pour le champ qui identifie la fiche, troncature pour les
+  champs descriptifs ; `brand: ''` au patch reste un **effacement** ;
+- `shopStore.addProduct` : `price <= 0` refusé, nom mesuré — le mode local ne peut
+  plus produire une fiche que l'API refuserait ;
+- `maxLength` sur les trois champs du formulaire maître, comme description (2000)
+  et note d'état (500) le faisaient déjà ;
+- `src/p2ProductLimits.test.js` (11) : table champ × porte, plus `POST
+  /api/master/products` réel (400 sur le nom, 201 et marque relue à 60 caractères).
+
+### P2 / B10 — une fiche sans `compat` faisait tomber le configurateur
+
+Le rapport visait `BuilderPage.jsx:419` et le disait « latent ». Mesuré : le défaut
+vivait **neuf fois**, dont huit dans `src/data.js` (`cpu.compat.socket`,
+`board.compat.memory`, `gpu.compat.psuMin`, les gardes à moitié écrites
+`i.compat && i.compat.memory`) — et `checkCompatibility` est appelé **dans le
+rendu** (`BuilderPage.jsx:26`), donc le `TypeError` produit un écran blanc, pas un
+message. Les 301 produits du catalogue portent bien un `compat` ; un produit créé en
+mode local ou relu d'une sauvegarde ancienne, non.
+
+`?.` aux neuf sites. `src/p2CompatNull.test.js` (6) : matrice des formes réelles de
+la donnée (absente, `null`, `{}`, clés à `null`, chaînes vides, liste) croisée CPU ×
+carte mère × {barrette, GPU, alimentation, ventirad, boîtier}, plus deux **montages
+jsdom** du configurateur. Double preuve négative : inverser seulement `data.js` fait
+échouer 4 tests sur 6 ; inverser seulement le site de l'alerte fait échouer les deux
+montages avec `TypeError: Cannot read properties of undefined (reading 'socket')`.
+
+### P2 / B6 — la table des statuts ne connaît plus que l'avant, et un écran doit dire ce qu'il voit
+
+`preparing → new` et `ready → preparing` répondaient 200. Aucun bouton du comptoir ne
+les propose (`DeskPage.jsx:250-285`) : seul un appelant sans l'état courant les
+atteint — un onglet resté ouvert, un ancien client, un script. Un aller-retour ne
+touche pas le stock (re-vérifié : `4 = 5 − 1` dans les deux sens), mais la ligne
+sort de la file « prêtes à retirer » et le client lit un statut faux.
+
+- les deux arrières sont retirés de la table **unique** (le serveur l'importe, et un
+  test de `src/p22UI.test.js` verrouillait le choix inverse : il est réécrit pour
+  exiger la fermeture des deux côtés, tout en gardant le contrôle d'accord
+  intégral client/serveur) ;
+- `setOrderStatus(db, code, status, expected)` : le statut que l'écran **affiche**
+  accompagne l'écriture ; désaccord → `stale`, avec l'objet commande au corps pour
+  que la carte se recale. La garde court avant l'annulation, que la table ne
+  contrôle pas ;
+- `PATCH /api/orders/:code` répond **409** `stale` (+ `current`, `order`) — 409 et
+  non 400 : la requête est correcte, c'est l'état de l'appelant qui ne l'est pas ;
+  absent, le champ laisse le comportement d'avant pour les clients anciens ;
+- `api.patchOrder(code, status, expectedStatus)` et `handleOrderStatus` qui lit la
+  valeur affichée dans sa propre liste (`reservationsRef`), applique la vérité du
+  serveur en cas de 409 et dit `deskStatusStale` (633 × 2 clés, aucune morte).
+
+`src/p2OrderTransitions.test.js` (11) : table, accord client/serveur, garde pure, et
+commande **réelle** conduite au comptoir — 200, 409 avec statut courant, 200 après
+relecture, puis 400 `transition` sur les deux arrières même à jour. Neutraliser la
+garde fait échouer 3 tests sur 11.
+
+### Verrous ajoutés
+
+`src/moduleWiring.test.js` (3), `src/p2RateLimits.test.js` (5),
+`src/p2OAuthClaim.test.js` (6), `src/p2ProductLimits.test.js` (11),
+`src/p2CompatNull.test.js` (6), `src/p2OrderTransitions.test.js` (11) — 42 tests de
+plus. Suite : **959 tests, 0 échec**, `npm run build` préalable (le scan du bundle
+lit `dist/`). Crawl : **CRAWL OK — 24 pages, 0 erreur**.
+
+### Reste ouvert (P3)
+
+B4, B8, B9, B15-B19, B21-B27, B30, B32, B33. Côté documentation : README corrigé sur
+le nombre de tests, sa pré-condition `dist/`, les deux langues, la table de
+statuts, et ajout d'un bloc « État mesuré » ; commentaires « trois langues »
+corrigés dans `src/i18n.coverage.test.js` et `src/i18n.js`. Reste à relire les
+derniers qui traînent dans les anciens fichiers de test (`clientFixes`, `lot2UI`,
+`lot4UI`, `lot5Logic`, `lot3StorageBlocked`, `cyberDesign` — ils décrètent un état
+du dépôt qui n'est plus, leurs assertions tournent déjà sur `LANGS`). Et
+`npm run test:e2e` (Playwright) ne tourne toujours dans aucune CI.
+
+---
+
+## LOT P3 — « ce que l'écran doit dire » (audit du 19/09/2026, 18 points)
+
+`docs/VERIFICATION-RAPPORT-AUDIT-4.md` §6 : la liste P3 est menée en quatre
+grappes, un commit chacune. Le fil du lot n'est pas la donnée (aucune écriture
+de commande, de stock ou de meta n'a changé de résultat) mais **ce que l'écran
+renvoie quand ça rate** : un code brut, un clic muet, un « … » sans fin, un 400
+là où le PUT dit 404.
+
+### G1 — `e0175da` : B8, B9, B21, B17
+
+- **B8** — `401 demo_locked` n'était pas dans `AUTH_ERRORS` (`src/AuthPanel.jsx`) :
+  `fail()` fait `t(code)`, l'écran affichait `demo_locked`. Table exportée (elle
+  était locale au module, donc un test qui la recopiait ne pouvait rien voir),
+  clé `authErrorDemoLocked` dans les deux dictionnaires, et le test vérifie que
+  ** chaque** code mappé existe en fr **et** en en, et ne se traduit pas par son
+  propre nom. Le serveur est rejoué pour de vrai (compte démo verrouillé, sans
+  `DEMO_PASSWORD`) pour prouver que le code est bien celui de la table.
+- **B9** — `ProfilePage` rendait le bloc « comptes rattachés » **au maître**, que
+  le serveur refuse quatre fois sur quatre ; `link()`/`unlink()` ne disaient
+  rien sur un refus. Le bloc est masqué (`role !== 'master'`), les deux actions
+  annoncent l'échec (`authOAuthFail`), et le déliaison demande confirmation
+  (`oauthUnlinkAsk`) — c'est la seule action du profil qui défait un login.
+- **B21** — « Mes commandes » de l'écran de confirmation menait au **profil**,
+  d'où « Mes commandes » est sorti depuis le LOT 5.x : le client qui vient de
+  réserver tombe sur un écran sans sa commande. CTA → `go('orders')`.
+- **B17** — annuler une commande du serveur sans session affichait « Commande
+  annulée — stock rétabli » alors que rien n'était annulé. `cancelMyOrder` refuse
+  maintenant explicitement (`orderCancelNeedsLogin`) **sans toucher la copie
+  locale** : ce qui est réservé hors ligne reste annulable, c'est le serveur qui
+  n'a pas de session.
+
+Le correctif a d'abord atterri sur le **mauvais bloc** (l'ancre `{apiOnline &&
+mode === 'api' && (` se répète dans le JSX, le remplacements a saisi la carte du
+mot de passe) — retiré, reposé sur une ancre unique (`<h2>{t('linkedAccounts')}</h2>`),
+revérifié au `grep -n`. Piège consigné : une trame JSX répétée ne se remplace pas
+à l'aveugle.
+
+### G2 — `80c3d28` : B14, B19, B22, B24, B25, B26
+
+- **B19** — `setQty` : vouloir monter la quantité d'une ligne déjà en rupture
+  faisait `Math.min(0, Math.max(1, qty))` → 1… puis le `.filter(qty > 0)`
+  **retranchait la ligne**. Le refus est posé avant l'écriture (`outOfStock`), et
+  descendre à zéro reste le seul moyen de retirer une ligne.
+- **B14** — le compteur d'essais ratés de `PartThumb` vivait sur l'**installation**,
+  pas sur la fiche. Réinitialisation pendante pendant le rendu (`vu` comparé à
+  `product?.id`) — pas d'`useEffect` : le badge de catégorie doit être levé **au
+  premier rendu** de la nouvelle fiche, pas après un repaint.
+- **B22** — `openExternal(url, '_blank', 'noopener')` : le 3ᵉ argument ne borne pas
+  seulement `opener`, il fait retourner `null` à `window.open` dans la plupart des
+  navigateurs, et le repli naviguait **l'onglet même** vers un lien de paiement.
+  `w.opener = null` rend le même service sans l'effet de bord.
+- **B24** — `prevOrderCount` : un `useRef` écrit à chaque pull du comptoir, lu
+  nulle part (le badge de nouveautés vient de `markDeskOrdersSeen`). Supprimé.
+- **B25** — `BRANDS` (67 marques « curatées ») n'était lu par personne : la
+  recherche et la boutique déduisent les marques du catalogue. Retiré de
+  `src/data.js`, et un helper pur `brandsOnSale` (`src/productMeta.js`) croise
+  `BRANDS_DZ_PRIORITY` avec l'inventaire — une marque sans produit en rayon ne
+  propose plus de puce qui filtre à vide, les marques hors liste restent
+  joignables. Insertion ratée une première fois (le `useMemo` posé **avant**
+  `catalog` → TDZ, tout le montage d'`App` tombait : 10 fichiers de test rouges) ;
+  déplacé après `catalog`, avec le commentaire qui dit pourquoi.
+- **B26** — `deskAudioCtx.resume()` sans `await` ni `catch` : un refus de reprise
+  (onglet en arrière-plan) jetait en l'air. Repli silencieux assumé — le bip est
+  un confort.
+
+### G3 — `ac94502` : B32, B33 (et B32 rectifié)
+
+**B32 d'abord démêlé** : le rapport parlait d'un `setEditing({kind:'client'…})`
+écrit jamais lu (`MasterPage.jsx:193`). Il n'existe pas — `git log -S setEditing`
+est vide, y compris à la base auditée. Le trou est ailleurs et il est double :
+`buildShopView` n'opposait `hiddenPanelIds` qu'aux panneaux **de base**, et les
+`extraPanels` étaient rendus en cartes décoratives, sans ON/OFF ni suppression,
+avec un bouton étiqueté « Ajouter le produit ». Un panneau ajouté ne pouvait donc
+ni se cacher (le clic n'existait pas, et aurait été sans effet) ni se retirer —
+et comme le serveur tronque `extraPanels` à 12, le 13ᵉ était définitivement
+inatteignable. `removePanel` rejoint le store, les deux commandes apparaissent
+sur chaque carte, `masterAddPanel`/`masterPanelAdded` remplacent les étiquettes
+héritées, et le filtre de `buildShopView` porte sur les panneaux **et** leurs
+lignes de tri.
+
+**B33** — supprimer un compte était la seule action irréversible du maître sans
+confirmation (le produit a `confirmDeleteProduct`, le comptoir a
+`confirmDeleteOrder`). Or l'effet est double : sessions purgées, commandes EN
+COURS annulées, stock rendu. La question nomme le compte, donc le bouton passe
+le client et plus son seul `id`. Deux tests de `src/lot4UI.test.js` répondent
+désormais « oui » à `window.confirm` — sans quoi ils validaient le **silence** du
+clic, pas le message d'après suppression.
+
+### G4 — B4, B15, B16, B23, B27, B30 + docs périmées
+
+- **B4** — `productsLoading` se déduisait du **résultat** (`apiProducts.length === 0`) :
+  un `masterProducts()` qui échoue laisse la liste vide, donc « en cours », donc
+  `…` pour le reste de la session, sans message ni retry. Le drapeau qui manque
+  s'appelle `productsFetch` (`{loaded, failed}`), l'échec se dit
+  (`masterProductsLoadFail`) et se rattrape (`retry`, qui incrémente `apiTick`).
+  Le scénario du rapport (rechargement pendant le chargement) était **faux** — le
+  `cancelled` y répond déjà ; le mécanisme, lui, était vrai.
+- **B15** — le comptoir proposait « code de retrait » sur une ligne `localOnly`
+  (réservation née pendant une coupure, jamais reçue par le serveur) :
+  `POST /api/orders/:code/claim` → 404 → « opération échouée ». Le bouton n'est
+  plus proposé, le badge explique (`ordersLocalOnlyHint`).
+- **B16** — `POST /api/master/products/:id/hide` écrasait tout en 400, y compris
+  le `not_found` que `updateProduct` renvoie pourtant, alors que le PUT de la même
+  fiche répond 404. Deux routes, deux grilles. Alignées, avec le catalogue rejoué
+  pour prouver que le 404 ne casse pas le masque/réaffichage normal.
+- **B23** — `deleteCustomer(id)` oubliait `encodeURIComponent` (que `deleteOrder`
+  a juste au-dessus) : un id de store local avec un point ou un `/` partait sur un
+  autre chemin.
+- **B27** — `PUT /api/me` stockait `avatar` et `accent` tels quels. Ces deux
+  champs ne sont pas du texte libre : ce sont des **clés de vocabulaire** (les
+  quatre graines de `server/db.js`), que **rien ne rend** aujourd'hui — donc une
+  valeur déconnectée était du poids dans `store.json`, chaque backup et chaque
+  export, plus un piège pour le premier rendu qui les interpolerait dans un nom de
+  classe. Allowlist + 400 nommé, **validée avant `updateDbAsync`** (un `return`
+  dans le callback d'écriture n'aurait pas répondu au client — première version du
+  correctif, corrigée dans le même commit).
+- **B30** — `scripts/neon-doctor.mjs` écrivait `✗ 0 produit public` puis sortait 0 :
+  `npm run db:doctor && vercel deploy` déployait la vitrine vide qu'il venait de
+  diagnostiquer. `bad()` lève un drapeau, le script sort 1 — et le cas « `DATABASE_URL`
+  absente » (normal en dev) sort toujours 0, vérifié par `spawnSync`.
+- Docs : le « 633 clés » du haut de `src/i18n.coverage.test.js` (déjà faux) est
+  remplacé par l'énoncé de la parité ; `.env.example` ne dit plus que l'API
+  « utilise encore `store.json` » ; `scripts/audit-crawl.mjs` ne recommande plus
+  `--experimental-loader ./scripts/jsx-test-loader.mjs` (déprécié par Node) ni la
+  langue `ar` ; `scripts/jsdom-crawl.mjs` ne renvoie plus à un `npm run crawl` qui
+  n'existe pas ; `docs/RECETTE-RESPONSIVE-DIRECTION-03.md` idem (et « 3 langues » → 2) ;
+  chiffres README remis à jour.
+
+**B18 — décision : pas de correctif.** Le rapport demandait de durcir la
+`DEMO_PASSWORD` ; le compte de démo est déjà verrouillé sans variable (`null`
+hash, `demo_locked`) et c'est précisément ce comportement que B8/G1 rend lisible
+à l'écran. Écrire du code pour une protection déjà en place aurait fait bouger
+un contrat de sécurité pour rien.
+
+### Verrous ajoutés
+
+`src/p3ClientScreens.test.js` (8), `src/p3ShopSurface.test.js` (9),
+`src/p3Panels.test.js` (8), `src/p3ServerHygiene.test.js` (11) — 36 tests de plus,
+branchés dans `scripts.test`. Sur les trois points qui se prêtent à la preuve
+négative, elle a été jouée : retirer le filtre de `buildShopView` fait tomber
+`p3Panels`, retirer la remise à zéro de `PartThumb` fait tomber
+`p3ShopSurface`, la garde `expected` de P2 en avait fait de même.
+
+Suite : **995 tests, 0 échec** (`npm run build` préalable — le scan du bundle lit
+`dist/`). i18n : 646 clés × 2 langues, parité vérifiée à chaque exécution dans les deux sens,
+aucune clé morte.
+
+### Reste ouvert après P3
+
+- **B18** : assumé sans correctif (ci-dessus).
+- `npm run test:e2e` (Playwright) ne tourne dans aucune CI. Le README le dit ;
+  l'ajouter aux workflows demande la preuve que les navigateurs s'installent dans
+  l'image de CI, pas juste une ligne de plus dans un job. **— refermé dans la
+  suite du lot : voir « Portes de CI » ci-dessous.**
+- Relire les commentaires d'état encore datés dans les anciens fichiers de test
+  (`clientFixes`, `lot2UI`, `lot5Logic`, `lot3StorageBlocked`, `cyberDesign`) : ils
+  décrètent un dépôt qui n'est plus, mais leurs assertions, elles, tournent sur
+  `LANGS`.
+- Le plan global (P0 → P3) est épuisé : les 33 points du rapport n°4 sont soit
+  corrigés, soit réfutés avec preuve (`docs/VERIFICATION-RAPPORT-AUDIT-4.md`).
+
+### Portes de CI — le smoke Playwright rejoint la branche (suite de P3)
+
+Le dépôt contenait déjà tout sauf le job : `playwright.config.js` (un seul
+`webServer`, `scripts/dev-all.mjs`), `e2e/smoke.spec.js` (trois parcours),
+`@playwright/test` en devDependency et `npm run test:e2e` au script. Autant dire
+que le smoke « la vitrine répond / le client se connecte / la session survit au
+rechargement » n'était joué que sur la machine de qui y pensait — et les deux
+workflows existants (Neon, crawl jsdom) ne peuvent pas le dire : jsdom ne charge
+ni les polices ni le layout, et le crawl se refuse exprès les clics destructeurs.
+
+Nouveau `.github/workflows/e2e-smoke.yml` (à l'état de `ui-audit.yml` : `pull_request`
++ `push` sur `main`, Node 22, `npm ci`, artifact en cas d'échec). Deux décisions
+valent d'être écrites :
+
+- `npx playwright install --with-deps chromium` : c'est L'ÉTAPE qui manquait à
+  l'ajout d'un job e2e. Sans navigateur, `playwright test` meurt sur
+  « Executable doesn't exist » et le job ne dit plus rien de l'application. Un
+  seul moteur (Chromium) : le smoke n'a pas besoin de WebKit et Firefox, et
+  chaque moteur ajouté est un minuteur de plus sur chaque PR.
+- `DEMO_PASSWORD` est posé en fixture, et ce n'est pas un ornement : la 2ᵉ spec
+  **se saute** sans la variable (le compte démo est verrouillé à dessein, lot
+  1.19) mais la 3ᵉ, elle, ne se saute pas — sans mot de passe elle échouerait sur
+  un état voulu. Un workflow qui laisse les deux « passer » (un sauté, un rouge)
+  est pire que pas de workflow.
+
+`playwright.config.js` gagne `screenshot: 'only-on-failure'` : l'artefact du
+workflow ne contient sinon que le texte de l'assertion, et « le bouton n'est pas
+visible » ne se débriefe pas à l'aveugle. Rien de payant quand tout passe.
+
+**Ce qui n'est PAS prouvé ici** : la suite n'a pas pu être jouée dans ce bac à
+sable — le téléchargement du navigateur y échoue (`Failed to download Chrome for
+Testing`, CDN joignable partiellement), et aucun navigateur n'y est préinstallé.
+Le YAML est parse (js-yaml), les chemins et les scripts cités existent, et
+`scripts/dev-all.mjs` démarre API + front comme l'attend `webServer` ; l'étape
+`install` est la réponse exacte au doute qui faisait tenir ce point ouvert. Le
+premier `push` sur la branche le dira, et l'artefact le montrera.
+
+### Balayage des commentaires d'état (suite de P3)
+
+Dernier reste de P3 : les titres de tests qui décrètent un dépôt qui n'est plus.
+Quatorze occurrences de « dans les 3 langues » / « les trois langues »
+(`clientFixes`, `lot2UI`, `lot4UI`, `lot5Logic`, `lot5UI`, `lot8Claimable`,
+`lot8Logic`, `lot8Product`, `notifyP19`, `reportP17`, `aboutWhatsApp`,
+`lot3StorageBlocked`, plus `App.jsx:1761` et `scripts/audit-crawl.mjs`) — les
+assertions, elles, itéraient déjà sur `LANGS` ou sur `['fr','en']` : **le
+mensonge était dans le titre, pas dans le test**. Un titre faux se cite comme une
+preuve. Les tournages au passé (« `navProfile` existait dans les 3 langues sans
+jamais être rendue ») sont laissés tels quels : ils décrivent l'état d'avant,
+qui est exactement ce qu'ils racontent.
+
+Repris aussi : `README.md` — le nombre de clés i18n est mesuré (**646 × 2**) au
+lieu du « 633 » publié ; `ui-audit.yml` — « les 26 pages » → 24 ;
+`docs/RECETTE-RESPONSIVE-DIRECTION-03.md` — « 13 pages × 3 langues » → × 2.
+
+Portes après ce balayage : suite complète **995/995**, `npm run build` + scan du
+bundle propres, `src/i18n.coverage.test.js` vert dans les deux sens.
+
+
+### Le job e2e, joué pour de vrai : deux défauts du harnais, pas de l'app
+
+Le commit précédent ajoutait `.github/workflows/e2e-smoke.yml` sans avoir pu le
+jouer (pas de navigateur dans le bac à sable). Le premier run l'a fait à ma
+place, et il a raison — sur les deux specs de connexion :
+
+```
+1) e2e/smoke.spec.js:28 › demo customer can open login and authenticate
+2) e2e/smoke.spec.js:54 › demo session survives a page reload
+   Error: expect(locator).toBeVisible() failed
+   Locator: getByRole('button', { name: /Karim B\./i })   → element(s) not found
+1 passed
+```
+
+La cause n'est ni le serveur, ni la session, ni Playwright : c'est le **sélecteur
+du bouton d'envoi**. La spec faisait
+`getByRole('button', { name: /connexion|login|دخول/i }).last()`. En anglais,
+l'en-tête et le formulaire portent le même texte (« Log in », « Log in »), donc
+`.last()` tombe sur le bouton d'envoi. En français, l'en-tête dit « Connexion »
+et le formulaire « **Se connecter** » : le motif ne trouve que l'en-tête, le clic
+rouvre la boîte de dialogue au lieu de soumettre, aucune session n'apparait, et
+l'assertion suivante meurt 5 s plus tard. Le runner a un Chromium `en-US` mais
+l'application démarre en `fr` (aucune préférence en mémoire) — le test était donc
+**vrai sur une machine, faux sur l'autre**, et il n'avait jamais été joué en CI :
+sans `DEMO_PASSWORD`, la 2ᵉ spec se sautait (la 3ᵉ, elle, n'avait même pas de
+garde — un job « vert » qui ne testait rien, exactement le piège que ce journal
+registre ailleurs).
+
+Corrigé côté spec, pas côté application (`e2e/smoke.spec.js`) :
+
+- la spec **fixe la langue** (`localStorage.pcstar-lang` posé en `addInitScript`,
+  avant la navigation) : un test qui cherche un bouton par son libellé ne doit
+  pas dépendre du locale du navigateur qui le exécute ;
+- les libellés viennent du **dictionnaire** (`dict[LANG].navLogin`,
+  `authSubmitLogin`, `authEmail`, `authPassword`) et non d'un regex maison, avec
+  `exact: true` ;
+- chaque localisateur est **scopé à la boîte de dialogue**
+  (`.modal-content` `has: #auth-email`) : « un bouton dans tout le document » est
+  déjà le bug ;
+- les deux specs de connexion partagent la même garde `besoinDemo()` : soit elles
+  tournent, soit elles se sautent, mais jamais l'une sautée et l'autre rouge.
+
+Et trois verrous dans `src/p3ServerHygiene.test.js` : `navLogin !== authSubmitLogin`
+en FR mais égaux en EN (si cette parité bouge, la leçon du lot doit être relue),
+l'ancre `#auth-email`/`.modal-content` toujours là où la spec la cherche, et
+`/connexion|login/` **absent** de la spec — plus le nombre de gardes `DEMO_PASSWORD`.
+
+Le même run a sorti l'autre étape du couple :
+
+```
+AUDIT FAILED (1) : ✗ rejection non gérée : performance.getEntriesByType is not a function
+```
+
+(et, sur le run d'avant, la même classe de bruit avait tué le crawl à la 16ᵉ
+seconde). `window.performance` de jsdom n'expose que `now`, `toJSON`,
+`timeOrigin` — vérifié, pas supposé. Le bundle, lui, sonde la Resource Timing API
+(react-dom, `typeof performance.getEntriesByType == "function"`, puis lecture des
+entrées de ressource pour suivre les `<link>`), et le harnais compte UNE
+`unhandledRejection` comme une faute : un trou du **harnais** est imputé à
+l'application, d'autant qu'il ne se reproduit qu'à un certain rythme de requêtes
+(deux rejouaisons locales — base vide, base pleine — ne le montrent pas).
+
+Le choix était entre amollir le collecteur (le rendre « soft » comme `isSoft()`
+l'est pour `alert`/`confirm`) et combler le trou. Le premier est refusé : c'est
+précisément le mécanisme qui a laissé passer des clics muets pendant des lots.
+Donc `scripts/jsdom-perf-gaps.mjs` — `getEntriesByType`/`getEntriesByName`/
+`mark`/`measure` inertes, posés en `beforeParse` des deux portes, avant que le
+bundle ne tourne — et un test qui vérifie que le collecteur de rejections n'a
+PAS été amolli. Le crawl rejoué localement avec le shim : **24 pages, 0 erreur**.
+
+Comment ces deux messages ont été récupérés alors que la CI est muette ici :
+`gh run view --log`, `--log-failed` et `gh run download` passent par
+`results-receiver` puis `productionresultssaNN.blob.core.windows.net`, qui
+répondent `EOF` depuis ce bac à sable — l'artefact `ui-audit-logs` était bien
+produit, et inutilisable. D'où l'étape « queue du journal en annotation » du
+commit précédent (`::error::` + le `github` reporter de Playwright) : les
+annotations vivent dans l'API Checks, qui répond. **Une porte rouge qui ne dit
+pas pourquoi n'est pas une porte** — c'est la deuxième fois du lot que la valeur
+ajoutée est dans le rapport d'échec, pas dans le correctif.
+
+Portes : suite **1002 tests, 0 échec** (+7 : quatre verrous sur les leçons de la
+spec dans `src/p3ClientScreens.test.js`, trois sur le shim dans
+`src/p3ServerHygiene.test.js`), crawl **24 pages / 0 erreur** avec le shim,
+`npm run build` propre. L'audit boutons n'a pas été rejoué localement après
+le shim (8 min 20 ; les deux étapes CI le font) — le test verrouille l'import et
+le placement du shim dans les deux scripts.
+
+### Issue : les trois portes CI sont vertes sur la branche
+
+Run du `70e225c` (PR #9) :
+
+| Porte | Résultat | Durée | Ce qu'elle jouait |
+|---|---|---|---|
+| `Create Neon Branch` (migrations, verrou de concurrence, backup/restore, **suite complète**) | pass | 2m34s | 1002 tests sur Node 22, base Neon éphémère |
+| `Crawl 2×13 pages + clic de tous les boutons` | pass | 8m27s | 24 pages rendues, 0 erreur JS ; puis les boutons de 10 pages × 2 langues et les cinq scénarios « vide → erreur » — **l'étape qui était rouge sur `performance.getEntriesByType` est verte depuis le shim** |
+| `Chromium — vitrine, connexion, session au rechargement` | pass | 49s | les trois parcours e2e, y compris la connexion au compte de démonstration et la session après rechargement — **l'étape qui était rouge sur le bouton d'envoi introuvable est verte depuis la spec scopée** |
+
+Le rappel du lot, en une ligne : les deux échecs n'étaient pas dans
+l'application, et les 995 tests verts de la veille ne pouvaient pas les voir —
+l'un parce que la spec e2e ne s'était jamais jouée sans `DEMO_PASSWORD`,
+l'autre parce qu'il n'existe que dans le jsdom d'un runner. Ce qui a rendu les
+deux réparables, ce n'est pas un correctif de plus : c'est le fait d'avoir écrit
+le journal dans une annotation que l'API Checks pouvait relà.
+
+---
+
+## LOT P3 (suite, 19/09/2026) — deux angles morts assumés : les moteurs du smoke, et les docs qui décrètent un état révolu
+
+Demande explicite : couvrir **ce qui restait non couvert** après la PR #9. Deux
+chantiers, et un troisième trouvé en route.
+
+### 1. Le smoke ne regardait qu'un seul moteur
+
+`playwright.config.js` déclarait **un** projet chromium, et `.github/workflows/e2e-smoke.yml`
+n'installait que chromium. Le smoke est le seul contrôle du dépôt qui rende
+l'application dans un moteur avec mise en page, polices et clavier réels — jsdom n'a
+rien de tout ça, et le crawl se refuse exprès les clics destructeurs. Vérifié avant de
+toucher : **aucun `src/*.test.js` ne lisait `playwright.config.js`** (`grep playwright
+src/*.test.js` → 0), donc aucun verrou à satisfaire ; il a fallu en créer un, sinon la
+config et le workflow redivergent — c'est exactement le motif qui avait rendu le job muet.
+
+- Trois projets : `chromium` (`Desktop Chrome`), `webkit` (`Desktop Safari`), `firefox`
+  (`Desktop Firefox`). Le parc du magasin est android (Chrome et WebView partagent un
+  moteur, donc un seul suffit) ; **iOS ne peut être servi que par WebKit** et Firefox
+  Android est Gecko — les deux navigateurs pour lesquels « ça marche sur ma machine »
+  ne veut rien dire.
+- `npx playwright install --with-deps chromium firefox webkit`, puis
+  `--forbid-only` sur la commande du job : un `.only` oublié fait passer le smoke **en
+  vert sans rien tester**, et un moteur déclaré mais non installé fait échouer le smoke
+  sans jamais dire « le moteur manque ».
+- Verrous ajoutés dans `src/p3ServerHygiene.test.js` : la liste des projets de la config
+  est exactement celle que le workflow installe (dans les deux sens), chaque projet pointe
+  un `devices[...]` connu, `--with-deps` est présent, et le résumé du crawl ne peut plus
+  réciter un nombre de pages à la main.
+- **Ce que ça ne couvre toujours pas**, écrit dans `README.md` pour que la limite soit
+  lue : des desktops émuls, pas les viewport téléphones (c'est la recette responsive),
+  et aucune comparaison de captures d'écran.
+
+### 2. Neuf phrases des docs vivaient dans une époque révolue
+
+Règle du dépôt : un **journal daté ne se réécrit pas**. Les journaux d'audit
+(`AUDIT-P22`, `AUDIT-REPO`, `PLAN-CORRECTIONS`, `ROADMAP-10`, les `VERIFICATION-RAPPORT-*`,
+`SECURITY-AUDIT`…) énoncent tous un état du dépôt dépassé — « 3 langues », « 36 pages
+rendues », « 251 SKU », `--experimental-loader`, « 4 026 clics ». Chiffre à leur date,
+donc conservé, **plus** une bannière « Journal daté » en tête des **14** journaux (et une
+note append-only sur `BUGS-AND-FIXES.md`).
+
+Corrigés, eux, parce qu'on les **exécute** :
+
+| Doc | Ce qu'elle affirmait | Réalité mesurée |
+|---|---|---|
+| `docs/README.md` | index de 9 docs, « `npm test` # 34 tests », « thème, langues » dans le guide de démo | index des **28** fichiers, classés **datés / vivants**, aucun chiffre recopié |
+| `docs/ARCHITECTURE.md` | « 251 SKU de base / 249 publics » ×4, « ☀/☾/◐ », « 34 tests » | 301 produits, 300 exposés ; thème fixé à `light` (`App.jsx:296`), tokens sombres en veille et toujours verrouillés par `cyberDesign.test.js` T2 ; le compte n'est plus écrit ici |
+| `docs/GUIDE-DEMO.md` | le vendeur doit montrer « **ع / FR / EN** » et le sélecteur de thème | les deux commandes ont été retirées sur demande du client — la démo n'a plus ces boutons à cocher |
+| `docs/GUIDE-DEMO-AR.md` | — | note en tête : le document est en arabe, **la vitrine se sert en FR/EN** |
+| `docs/PORTFOLIO.md` | § 4 : « 1800 fichiers photos », « ~12 000 lignes », « **zéro dépendance côté API** », « 113 pass », « ~30 endpoints » | 2 308 fichiers, ~19 000 lignes hors tests, API sans framework avec **deux** dépendances (`ws`, `@neondatabase/serverless`), 1 025 tests, ~40 endpoints ; table des lots marquée « chiffres du jour du lot » |
+| `docs/SECURITY-AUDIT.md` | (ligne que j'avais « corrigée » en 301 produits) | **rendue à sa date** (251) — une trace datée se bannière, elle ne s'amende pas |
+| `docs/PROMPT-AGENT-DEPLOIEMENT.md` | « 36 pages rendues (3 langues × 13) », « 856 tests » | 24 pages (2 × 12) ; plus aucun nombre de tests dans un prompt d'agent |
+| `docs/RECETTE-RESPONSIVE-DIRECTION-03.md` | 5 lignes de checklist **arabe/RTL** à cocher sur un écran, « 13 pages × 2 langues » | lignes arabe repliées dans un `<details>` « sans objet tant que la langue ne revient pas », grille FR/EN en face ; rangée « glyphes de thème ☀ ☾ ◐ » marquée sans objet |
+| `README.md` (racine) | « `npm run test:e2e` existe mais ne tourne dans **aucune** CI » | faux depuis la session précédente : le job existe, est vert, et couvre trois moteurs |
+| `scripts/jsdom-crawl.mjs` | imprimait « 2 langues × **13** pages » **à côté de** « **24** pages rendues » | le résumé calcule `PAGES.length` : 24 = 12 × 2. Un compteur écrit à la main dans un message de porte est un compteur qui ment à la première page ajoutée ; `ui-audit.yml` (nom du job ×3) suivi |
+
+Un test de structure rend la règle exécutable : **`src/p3DocsAging.test.js`** (6 verrous) —
+tout `docs/*.md` est classé (ajouter un doc sans le classer rougit le test), tout journal
+porte sa bannière, aucune doc exécutable ne recopie un nombre de tests / une langue
+retirée / « 13 pages » / l'ancien invocateur `--experimental-loader`, et `docs/README.md`
+cite chaque fichier du dossier.
+
+### 3. Trouvé en route : treize verrous écrits, verts, et jamais joués
+
+En branchant `src/p3DocsAging.test.js` dans `package.json`, l'inventaire a montré
+**deux fichiers de test absents de la liste explicite** : `src/lot1BaseScripts.test.js`
+et `src/phase5Reliability.test.js`. joués à la main : **13/13 verts**. Ils n'avaient
+jamais tourné en CI — même famille de panne que le job e2e muet : la porte existe, le
+capteur est bon, rien ne l'appelle. Un verrou de branchement a été ajouté dans
+`src/p3ServerHygiene.test.js` (tout `src/*.test.js` du disque est dans `npm test`, et
+tout ce que `npm test` liste existe).
+
+### Portes rejouées après ces modifications
+
+| Porte | Résultat | Détail |
+|---|---|---|
+| `npm test` | **1025 / 1025, 0 échec** (142 s) | 1002 + 6 (`p3DocsAging`) + 13 (les deux orphans) + 4 (`p3ServerHygiene`) |
+| `npm run build` → `build:crawl` → `jsdom-crawl` | **CRAWL OK — 24 pages (2 langues × 12), 0 erreur** | résumé désormais calculé |
+| `audit-buttons` | **AUDIT OK — 32 vérifications**, 0 erreur JS | 496 s en local (10 pages × 2 langues + 5 scénarios vide→erreur) |
+| YAML | les deux workflows parseés (`js-yaml`) | — |
+
+**Ce que le bac à sable ne peut pas prouver** : aucun navigateur n'est installé ici
+(`playwright install` échoue sur les paquets système), donc les neuf tests sur trois
+moteurs ne sont pas joués localement — c'est le run de la PR qui le dira. Si WebKit ou
+Firefox casse, la règle reste la même : on répare le harnais ou l'assertion dépendante
+du moteur, **on n'amollit pas la porte** (ne pas retirer un moteur de la config pour
+faire passer le vert : ce serait le chemin exact vers la porte muette).
+
+### 4. Dans la foulée, en CI : une porte rouge qui ne dit rien, et un ordre de balisage qui la rendait possible
+
+Les trois premiers lots de cette session poussés, la CI a rendu : **e2e vert sur les
+trois moteurs** (chromium + webkit + firefox, 9 tests), **crawl rouge** sur
+`✗ fr/orders : jsdomError: Uncaught [TypeError: Cannot read properties of undefined
+(reading 'querySelector')]`. Rejoué cinq fois localement (dont deux sous saturation CPU
+volontaire, 2 cœurs) : **jamais reproduit**. Trois courses disaient donc : rouge sur
+`fd3d221` (qui ne touchait que des documents), vert sur `70e225c`, rouge ici.
+
+Deux choses faites, dans cet ordre :
+
+1. **Le harnais rend sa pile.** Le collecteur ne gardait que `e.message` ; il garde
+   maintenant la tête de pile **et** les frames qui touchent `dist-crawl`/`assets/` — une
+   ligne, donc lisible dans l'annotation `::error::` du job (le blob store des logs
+   Actions est injoignable depuis ce bac à sable, vérifié : `gh api …/jobs/<id>/logs`
+   meurt sur le transport, `--log-failed` rend du vide). J'ai par ailleurs écrit, puis
+   **effacé**, un motif Popper ajouté à la liste des fautes excusées pour faire passer
+   le vert : la ligne qui ferme cette liste dans `scripts/jsdom-crawl.mjs` explique
+   maintenant pourquoi elle reste fermée.
+2. **Un hazard réel trouvé en cherchant.** `scripts/fix-crawl-html.mjs` retire
+   `type="module"` de l'`index.html` du crawl (jsdom n'exécute pas les modules) — donc
+   il transformait un script **différé** en script **classique**, laissé dans `<head>`.
+   Or `src/main.jsx` fait `createRoot(document.getElementById('root'))`, et `#root` est
+   dans le `<body>` : un script classique du `<head>` est, spec HTML, bloquant, donc
+   évalué avant que le conteneur existe. Mesuré avec le bundle réel du crawl dans jsdom :
+
+   | position du script | erreurs | contenu rendu dans `#root` |
+   |---|---|---|
+   | dans `<head>` (avant) | 1 — `Minified React error #299` | 0 caractère |
+   | après `<div id="root">`, avec `defer` (après) | 0 | 373 300 caractères |
+
+   Le générateur déplace maintenant le(s) script(s) après le conteneur **et** pose
+   `defer` ; `src/p3ServerHygiene.test.js` verrouille les deux (et le refus d'un
+   `index.html` inattendu). La prod n'a jamais eu ce problème : son script est un
+   module, différé par spéculation de parsing — c'est bien pour ça que le bug ne vivait
+   que dans le harnais de la porte. Est-ce *la* cause du rouge `fr/orders` ? Pas prouvé :
+   le message n'est pas #299. Ce qui est prouvé, c'est qu'une page rendue par cette porte
+   dépendait de la vitesse à laquelle le serveur de preview répond — et qu'une porte dont
+   le verdict dépend du cache est une porte qui ment.
+
+Enfin, le **rouge e2e** de la même course (une seule fois, chromium, sur la reprise de
+session après rechargement : le nom du compte attendu absent pendant 5 s) est une course
+de la spec, pas de l'application : le test attendait un délai, il attend maintenant un
+événement — `waitForResponse` sur la réponse de session, puis l'assertion de rendu.
+Le verrou `6.9 (Q9)` de `src/lot6Quality.test.js`, qui découpait le fichier sur la
+première occurrence du texte `page.reload()`, a été durci au passage : il retirait mal
+les commentaires de suite (une phrase qui *nommait* l'appel déplaçait la découpe) ; il
+découpe maintenant sur le dernier rechargement du code, commentaires exclus — un
+commentaire ne peut plus ni satisfaire ni saboter ce verrou.
+
+Portes rejouées après tout ça : `npm test` **1025 / 1025**, crawl **24 pages, 0 erreur**,
+audit boutons en cours, `build:crawl` propre.
+
+> **Note d'interruption (19/09/2026, fin de session).** Les deux derniers commits de
+> cette série — `ea178e6` (le smoke attend la réponse de session au lieu d'un délai) et
+> `1a07714` (le bundle du crawl est évalué après `#root`, et la porte rend sa pile) —
+> sont **locaux** : la connexion GitHub du bac à sable est morte en fin de session
+> (`GH_TOKEN` révoqué, `git push` et `gh api` répondent « Bad credentials »), donc ni
+> poussés ni relus en CI. Ce qui est vérifié sur le dépôt distant à ce point : les trois
+> moteurs e2e **verts** sur `cfb677a` (9 tests, chromium + webkit + firefox), et deux
+> rouges ouverts — `UI audit` sur `✗ fr/orders` (le rouge dont parle le § 4 ci-dessus,
+> que le remplacement du script après `#root` est censé fermer) et le job Neon sur
+> `cfb677a` (le branchement manquant de `p3DocsAging`, corrigé dans `8f64e81`). À faire
+> à la reprise : pousser, relire les trois portes en CI, et mettre à jour le corps de
+> la PR #9 avec les durées mesurées.
+
+## 19/09/2026 (soir) — LOT P4 : la vitrine du comptoir, deux boutons, le catalogue en pages, la pleine page
+
+> **Note de reprise (même jour).** La « note d'interruption » du lot précédent se ferme
+> ici : `ea178e6`, `1a07714` et `01851ff` sont poussés avec `68e2077`, la connexion GitHub
+> du bac à sable étant revenue. Les portes locales du lot P4 ont été rejouées sur l'arbre
+> complet avant d'être poussées (`npm test` 1057 / 1057, crawl 24 pages 0 erreur, audit boutons
+> 32 vérifications 0 erreur) ; la relecture CI est relatée en fin de section.
+
+Le client est revenu avec trois captures d'écran et une phrase qui les résume toutes :
+« un pro le fait en grande page ». Cinq points, traités dans l'ordre où ils apparaissent à
+l'écran.
+
+**V1 — la tuile qui mentait.** Le hero affichait « 301 références » — un comptage du
+catalogue, donc un chiffre de stock interne que personne n'était venu chercher — et
+« 0 DA — paiement au retrait », un **zéro écrit en dur** sous un libellé qui prétendait
+annoncer un prix. (Le lot P0 avait déjà condamné ce `0 DA` ; il est repassé par une autre
+porte, la preuve est qu'il faut verrouiller la *forme* du bloc, pas sa valeur.)
+
+La tuile devient une **vitrine à trois valeurs** :
+
+| Valeur | Qui l'écrit | Où |
+| --- | --- | --- |
+| `repairsLabel` | le maître | page Admin → Vitrine |
+| `repairsDone` | le maître | page Admin → Vitrine |
+| `readyTally` | **le serveur** | chaque entrée réelle dans « prêt pour retrait » |
+
+Trois décisions valent d'être écrites, parce qu'elles sont tout le lot :
+
+1. *Le compteur de commandes ne se décrète pas.* `PUT /api/master/vitrine` ignore un
+   `readyTally` reçu du corps — le test l'envoie à 500 et vérifie qu'il n'est pas écrit,
+   puis qu'il n'apparaît pas à la relecture suivante. Le point est posé par
+   `setOrderStatus`, à la transition, et retiré de rien : une annulation ultérieure ne
+   rend pas le point (le compteur répond à « combien de fois le comptoir a prévenu un
+   client », pas à « combien de cartons attendent maintenant » — choix du client, consigne
+   de ce tour).
+2. *Une seule échelle pour les deux côtés.* Le bornage vit dans `src/vitrine.js` et
+   `server/vitrine.js` le **ré-exporte** au lieu de le redéfinir ; `server/db.js` pareil.
+   Un test lit le texte des deux fichiers serveur et échoue dès qu'un `function
+   clampVitrine` y réapparaît — parce qu'une règle écrite deux fois finit par avoir deux
+   bornes, et que le premier symptôme visible est un formulaire qui réécrit la base à
+   chaque sauvegarde (le client voit un nombre qui n'est jamais celui qu'il a tapé).
+3. *La projection est une liste blanche.* `GET /api/meta` renvoie `vitrine` et non `meta` :
+   demain un champ ajouté au stock du comptoir ne deviendra pas public par accident. Le
+   test l'affirme sur la réponse HTTP, pas sur l'intention du code.
+
+Lecture et écriture sont dissymétriques : la lecture est publique (c'est une vitrine),
+l'écriture est au rôle maître, client authentifié compris — 403 mesuré sur
+`PUT /api/master/vitrine` **et** sur la route des panneaux. Côté base, `normalizeDb`
+recalle une vitrine absente : une base créée avant ce lot se lit sans migration, et une
+vitrine menteuse (`-5` réparations, étiquette de 900 caractères, clé de stock glissée
+dedans) rentre dans ses bornes sans que le compteur déjà en base soit remis à zéro.
+
+**V2 — le mur de puces.** Soixante-sept marques dressées avant le premier produit, ce qui
+fait, sur les téléphones du comptoir, une page entière de pouce avant le catalogue. Deux
+boutons, chacun ouvrant son panneau, et le bouton **porte la valeur choisie**
+(« Marques · Corsair ») pour que le filtre reste lisible une fois refermé. Le panneau est
+plafonné à 45 vh et scrolle ; sa recherche ne filtre **que** la liste des marques — si elle
+avait filtré aussi le catalogue, fermer le panneau aurait changé des résultats que personne n'avait
+demandés. Mesure après correctif : le verrou de rendu vérifie que le panneau est
+absent du document tant qu'il est fermé, que « Corsair » réduit 67 lignes à 1, et que le
+catalogue suit (une seule marque dans la grille).
+
+**V3 — le faux devis.** Le bloc « configurateur » de la page d'accueil récitait cinq lignes
+de composants (Ryzen 5 7600 · 42 000, B650 · AM5 · 28 000, RTX 4060 · 54 000, 16 Go ·
+45 000, 650 W 80+ · 48 000) pour un total de « 177 000 DA » et une consommation
+« est. 410 W » : des nombres **écrits à la main dans le JSX**, qui ne venaient ni du
+catalogue ni d'une configuration, posés à côté de contrôles de compatibilité simulés
+(« [OK] Socket AM5 accepté »). Le client voyait un devis qui n'en était pas un, sur une
+page dont c'était le seul bloc chiffré. Tout est retiré ; le configurateur reste à un clic
+(au passage, la flèche que porte déjà la clé `openBuilder` était doublée à l'écran —
+défaut introduit par ce lot, corrigé dans le même commit).
+
+Le catalogue **enchaîne en pages de douze** (`SHOP_PAGE_SIZE`) : la maquette du client
+disait dix, douze tient deux par trois sur l'écran du comptoir et ne laisse pas de colonne
+orpheline. Le verrou n'est pas le nombre, c'est la coupe : page 1 → 2 → 3, trois captures
+du même catalogue qui ne se recoupent pas, « Précédent » qui ramène, et les deux boutons de
+bord désactivés aux extrémités.
+
+**V4 — à la page Recherche.** « Usage » et « En magasin seulement » ne filtraient rien,
+pour deux raisons différentes : le premier parce qu'un usage ne retire rien que le rayon ne
+retire déjà, le second parce qu'il **ne pouvait** rien retirer — le catalogue public ne
+contient que du stock (mesure P17 du rapport n°3, qui avait documenté le défaut par un
+tooltip). Un filtre qui ne filtre rien est une promesse non tenue ; les deux sont partis,
+desktop et offcanvas, et le rayon du catalogue est entré dans le panneau des filtres à la
+place. Le verrou du P17 n'a pas été effacé avec le filtre : il est **retourné** et interdit
+désormais que la clé revienne sans que personne ne lise l'état du stock.
+
+**V5 — pleine page.** Le menu déroulant empilait six liens de 40 px sous la barre et la
+modale de connexion faisait 500 px avec le clavier numérique par-dessus. Le menu devient
+une feuille qui couvre la page, avec sa **propre fermeture** — la feuille masque le bouton
+☰, donc sans en-tête on serait coincé dedans, ce qui est exactement le genre de détail
+à 19 h 40 qu'aucune maquette ne montre ; la connexion prend `modal-fullscreen` (la classe
+de Bootstrap, pas un custom) en gardant son formulaire dans une colonne de 520 px, pleine
+page ne voulant pas dire texte sur 1 400. Cibles à 44 px, comme le reste du tactile.
+
+**Harnais.** Deux tests étaient cassés par la pagination, et les deux ont été réparés sans
+amollir l'attente : `lot3UI` 3.5 (B8) amène maintenant la fiche au stock de 1 par la
+recherche de la page — le même chemin que le client, pas un contournement du composant —
+et `lot3StorageBlocked` 3.1 mesure la première page *et* la ligne d'annonce (« page 1 sur
+N », N ≥ 2), au lieu de compter trente fois plus de cartes qu'une page n'en montre jamais.
+S'y ajoute un piège trouvé en écrivant le test du maître : le champ `type="number"` avec
+`step="1"` **refuse** 12,7 au navigateur, qui ne soumet pas le formulaire — la borne du
+modèle (`Math.floor`) reste vérifiée par l'API, où le client qui contourne le champ
+reçoit quand même 342 pour « 342.9 ». Les deux niveaux sont verrouillés, pas seulement
+le premier.
+
+**Portes mesurées sur cet arbre.** `npm test` **1057 / 1057** (78 fichiers, 291 suites,
+dont 31 tests dans le nouveau `src/p3Vitrine.test.js` : bornage, module serveur, routes
+HTTP, rendu client, onglet maître) ; `npm run build` + scan anti-secret sur 9 artefacts,
+aucun secret ; `build:crawl` propre (script différé replacé après `#root`) ; crawl jsdom
+**24 pages rendues (2 langues × 12), 0 erreur** ; audit boutons **32 vérifications,
+0 erreur**, dont 150 boutons cliqués sur `/master` — l'onglet Vitrine est donc ouvert,
+saisi et soumis sous jsdom sans exception. Dictionnaire : **13 clés mortes retirées,
+22 ajoutées** dans les deux langues, garde de couverture verte (aucune clé lue sans
+traduction, aucune traduction sans lecteur).
+
+**Relecture CI, telle qu'elle a été lue (et pas telle qu'elle était espérée).** Sur la série qui précédait ce lot, deux rouges restaient ouverts sur `dfebbac` : `UI audit` sur `✗ fr/orders` (le script du bundle évalué avant `#root`, corrigé dans `1a07714`) et le smoke e2e sur `smoke.spec.js:102` (la reprise de session attendait un délai au lieu de la réponse, corrigé dans `ea178e6`). Relancées sur `b427df4`, qui contient ces deux correctifs et le lot P4 :
+
+| Porte CI | Verdict lu | Détail |
+| --- | --- | --- |
+| E2E smoke | **succès** (1 m 33 s) | trois moteurs, `--forbid-only` ; le rouge de la reprise de session ne revient pas |
+| UI audit — crawl jsdom | **succès** | 24 pages, 0 erreur : `fr/orders` n'est plus jamais blâmé |
+| UI audit — audit boutons | **échec** (2 rejets, un par langue) | `performance.getEntriesByType is not a function` |
+
+Le tiers restant mérite son propre paragraphe, parce que sa forme est trompeuse. Le message désignait l'application, le harnais appelait bien son shim, et neuf exécutions locales ne le donnaient pas. En le reproduisant en trente secondes on a trouvé le vrai coupable : **le shim ne vivait que dans le realm principal**. Une iframe a son propre `window.performance`, avec les mêmes méthodes absentes — et la page « à propos » monte sa carte Google Maps *après* le premier rendu, donc après `beforeParse`. Le collecteur de rejections étant branché sur le processus, une promesse laissée par un realm non comblé devient une faute de l'app, et seule une machine assez lente pour que l'ordre des microtâches change le montre. Réparé côté harnais (le shim descend dans les frames, y compris celles qui apparaissent ensuite), sans rien ajouter à la liste des excuses du crawl ni relâcher le collecteur ; deux verrous dans `src/p3ServerHygiene.test.js`, dont celui qui rejoue le message de la CI. Après ça : crawl **24 pages / 0 erreur**, audit **32 vérifications / 0 erreur**, `npm test` **1059 / 1059**.

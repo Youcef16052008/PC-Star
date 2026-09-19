@@ -21,7 +21,7 @@ import * as api from './api.js'
 import { createDeskStream } from './deskStream.js'
 import { notifyNewOrder, requestNotificationPermission } from './notify.js'
 import { ensureProductPhotos } from './productPhotos.js'
-import { discountPercent, hasSale } from './productMeta.js'
+import { brandsOnSale, discountPercent, hasSale } from './productMeta.js'
 import SearchPage from './SearchPage.jsx'
 import BuilderPage from './BuilderPage.jsx'
 import PartThumb from './PartThumb.jsx'
@@ -48,6 +48,7 @@ import {
   shortageMessage
 } from './orderLogic.js'
 import { isStorageBlocked, safeStorage } from './safeStorage.js'
+import { clampVitrine } from './vitrine.js'
 import { t as translate, labelOr, LANGS, langMeta } from './i18n.js'
 import {
   applyDocumentChrome,
@@ -109,6 +110,17 @@ const OAUTH_ME_RETRY_MS = 700
  * produire 20 notifications. Le toast, lui, donne le compte exact.
  */
 const MAX_MISSED_NOTIFY = 3
+
+/*
+ * LOT P4 (V3) — taille d'une page du catalogue de la vitrine. 12, et pas 24 :
+ * la grille est en `col-6 col-md-4 col-xl-3`, donc 12 fiches remplissent
+ * exactement deux largeurs de grille sur un téléphone (2 par ligne) comme sur
+ * un grand écran (4 par ligne) — pas de dernière ligne à moitié vide, et le
+ * client qui cherche voit six lignes de produits au lieu d'un mur de trente.
+ * Exportée pour que `src/p3Vitrine.test.js` verrouille la valeur au lieu de la
+ * recopier : un nombre de pages écrit dans un test est un nombre qui ment.
+ */
+export const SHOP_PAGE_SIZE = 12
 
 /**
  * LOT 3.16 (B19) — âge lisible d'un horodatage, dans la langue de l'interface.
@@ -201,7 +213,12 @@ export function deskBeep() {
     if (!AC) return
     if (!deskAudioCtx || deskAudioCtx.state === 'closed') deskAudioCtx = new AC()
     // autoplay : un contexte peut naître « suspended » → le réveiller.
-    if (deskAudioCtx.state === 'suspended') deskAudioCtx.resume()
+    // LOT P3 (B26) : `resume()` renvoie une promesse. Le `try` de cette
+    // fonction est SYNCHRONE, donc un refus du navigateur (aucun geste
+    // utilisateur) partait en `unhandledrejection` : un bruit de console à
+    // chaque commande annoncée, sans conséquence ailleurs — mais le `catch`
+    // ne coûte rien et le bruit coûtait un diagnostic à chaque audit.
+    if (deskAudioCtx.state === 'suspended') deskAudioCtx.resume().catch(() => {})
     const o = deskAudioCtx.createOscillator()
     const g = deskAudioCtx.createGain()
     o.connect(g)
@@ -248,7 +265,23 @@ function openExternal(e, href) {
   } catch {
     w = null
   }
-  if (!w) window.location.href = href
+  // LOT P3 (B22) : `window.open` ne beneficie PAS du `noopener` implicite des
+  // `<a target="_blank">` — la page ouverte garde `window.opener` sur le
+  // boutique et peut la rediriger. Passer `'noopener'` en 3e argument etait
+  // la refonte refusee ici (voir `ContactPicker.jsx:56-69`) : il fait renvoyer
+  // `null`, ce qui declencherait la navigation meme onglet pour TOUTE
+  // ouverture reussie. Couper le lien apres coup donne la meme protection sans
+  // perdre le sens de `w`.
+  if (w) {
+    try {
+      w.opener = null
+    } catch {
+      /* environnement qui refuse d'ecrire sur l'objet fenetre */
+    }
+    return undefined
+  }
+  window.location.href = href
+  return undefined
 }
 
 // LOT 5.7 (U7) : `cartMessage` vivait ici, sans garde de longueur. La
@@ -298,6 +331,15 @@ export default function App() {
   const [apiUser, setApiUser] = useState(null)
   const [authMode, setAuthMode] = useState('local')
   const [brandFilter, setBrandFilter] = useState(null)
+  // LOT P4 (V2) — les filtres de la vitrine sont deux panneaux fermables ; une
+  // seule ouverture à la fois (deux panneaux ouverts = le même écran qui se
+  // contredit). `brandQuery` ne filtre QUE la liste des marques du panneau : il
+  // ne filtre pas le catalogue, sinon « fermer le panneau » changerait les
+  // résultats sans que personne l'ait demandé.
+  const [shopSheet, setShopSheet] = useState(null)
+  const [brandQuery, setBrandQuery] = useState('')
+  const [shopPage, setShopPage] = useState(1)
+
   const [stockMap, setStockMap] = useState({}) // id -> live server stock
   const [serverCatalog, setServerCatalog] = useState([]) // produits complets servis par l'API (mode API)
   // P10 (P7-11) : le catalogue reçu du serveur est la vérité — mais seulement
@@ -320,7 +362,6 @@ export default function App() {
   useEffect(() => {
     reservationKeyRef.current = null
   }, [cart])
-  const prevOrderCount = useRef(0)
   // P19 : codes déjà vus — la détection par longueur ratait une commande
   // arrivée en même temps qu'une suppression.
   const seenOrderCodes = useRef(null)
@@ -410,6 +451,15 @@ export default function App() {
   }
 
   const shopView = useMemo(() => buildShopView(PRODUCTS, PART_LINES, BASE_PANELS, meta), [meta])
+  /*
+   * LOT P4 (V1) — la vitrine lue par la page d'accueil. Derivée du même `meta`
+   * que les panneaux, et non d'un état parallèle : un compteur qui vivrait dans
+   * son propre `useState` serait différent selon l'onglet qui a écrit le
+   * dernier. Le bornage est la fonction même que côté serveur (`clampVitrine`, :
+   * une clé tapée à la main dans le stockage, ou revenue d'un cache ancien, ne
+   * doit pas afficher `NaN` ni un nombre de 12 chiffres.
+   */
+  const vitrine = clampVitrine(meta.vitrine)
   // Mode API : le catalogue serveur est la source de vérité (masquages et
   // créations du master, stock live, overrides de prix). Offline : repli
   // sur le catalogue statique + meta local.
@@ -424,6 +474,12 @@ export default function App() {
   }, [apiOnline, serverCatalogReady, serverCatalog, shopView.products, stockMap])
   // Le produit affiché peut sortir du catalogue pendant la visite (rupture /
   // masquage) : on garde la dernière référence pour ne pas vider la PDP.
+  // LOT P3 (B25) : ordre de la priorité Algérie, mais uniquement des marques
+  // réellement en rayon (les autres marques du catalogue suivent, triées).
+  // Déclaré ici, après `catalog` : posé plus haut, il lisait une constante en
+  // zone morte de déclaration (TDZ) et faisait tomber tout le montage de `App`.
+  const marquesVendues = useMemo(() => brandsOnSale(catalog, BRANDS_DZ_PRIORITY), [catalog])
+
   const selectedFound = catalog.find((p) => p.id === selectedId)
   const selectedRef = useRef(null)
   if (selectedFound) selectedRef.current = selectedFound
@@ -542,12 +598,21 @@ export default function App() {
         // P12 (B25) : jamais en mode dégradé — l'API renverrait des panneaux
         // vides par défaut et écraserait le cache local.
         const m = await api.getMeta()
+        // LOT P4 (V1) : la vitrine voyage avec les panneaux — même requête, même
+        // rafraîchissement, et surtout le MÊME chemin de persistance (voir
+        // `persistMeta` plus bas). `degraded` = l'API a répondu « je n'ai pas la
+        // base » : on garde ce qui est à l'écran au lieu de remettre des zéros
+        // qui feraient croire au client que le comptoir n'a rien livré.
         if (!cancelled && m.ok && !m.data?.degraded && m.data?.meta) {
           const sm = m.data.meta
           persistMeta({
             ...loadMeta(storage),
             hiddenPanelIds: Array.isArray(sm.hiddenPanelIds) ? sm.hiddenPanelIds : [],
-            extraPanels: Array.isArray(sm.extraPanels) ? sm.extraPanels : []
+            extraPanels: Array.isArray(sm.extraPanels) ? sm.extraPanels : [],
+            // LOT P4 (V1) : le serveur est la source de vérité des trois
+            // compteurs comme il l'est des panneaux — la vitrine est la même sur
+            // tous les écrans du magasin, pas celle du dernier navigateur ouvert.
+            vitrine: m.data.vitrine || loadMeta(storage).vitrine
           })
         }
       }
@@ -741,7 +806,10 @@ export default function App() {
   async function handleOrderStatus(code, status) {
     if (apiOnline && authMode === 'api' && isMaster) {
       try {
-        const r = await api.patchOrder(code, status)
+        // LOT P2 (B6) : le statut que CET écran affiche. Fourni au serveur, il
+        // refuse l'écriture obsolète au lieu de l'appliquer à l'aveugle.
+        const visible = reservationsRef.current.find((o) => o?.code === code)?.status || null
+        const r = await api.patchOrder(code, status, visible)
         if (r.ok && r.data?.order) {
           // P21 : horodatage AVANT la mise à jour d'état, pour que la fusion
           // du polling suivant sache que ce statut est plus récent.
@@ -753,6 +821,16 @@ export default function App() {
         // Commande inconnue du serveur (créée en mode local), session non
         // API ou réseau tombé : on bascule sur le repli local au lieu de
         // laisser le bureau bloqué sur « Could not update status ».
+        // Refus pour état dépassé : la vérité est dans la réponse, on la
+        // réapplique à la carte — l'écran ne doit pas rester sur le statut
+        // qu'il vient de perdre.
+        if (r.status === 409 && r.data?.error === 'stale') {
+          if (r.data.order) {
+            syncReservations((prev) => prev.map((o) => (o.code === code ? { ...o, ...r.data.order } : o)))
+          }
+          setToast(t('deskStatusStale'))
+          return false
+        }
         const err = r.data?.error
         if (!r.offline && err !== 'not_found' && err !== 'forbidden') {
           setToast(t('deskStatusFail'))
@@ -824,6 +902,17 @@ export default function App() {
     // jamais cette exception.
     if (!canCancelHere(target, { allowGuest: !user })) {
       setToast(t('orderOnlyNew'))
+      return false
+    }
+    // LOT P3 (B17) : une commande qui VIT SUR LE SERVEUR ne s'annule pas en
+    // local. Avant : l'écran affichait « Commande annulée — stock rétabli »
+    // pendant que la ligne restait `new` au comptoir, et le prochain
+    // `mergeServerOrders` (`src/orderLogic.js:545`) ramenait le statut serveur —
+    // la commande réapparaissait chez le client comme au bureau. Le faux succès
+    // était donc en plus temporaire. Sans session, la seule voie honnête est de
+    // le dire, et la copie locale n'est pas touchée.
+    if (apiOnline && target.localOnly !== true && !user) {
+      setToast(t('orderCancelNeedsLogin'))
       return false
     }
     commitReservations((prev) =>
@@ -969,7 +1058,6 @@ export default function App() {
         }
       }
       seenOrderCodes.current = new Set(server.map((o) => o.code))
-      prevOrderCount.current = server.length
       // LOT 3.11 (B16) : horodatage persisté du dernier pull réussi — pris AVANT
       // l'envoi, donc toute commande créée pendant la requête sera vue comme
       // « arrivée depuis » au prochain démarrage à froid.
@@ -1120,6 +1208,39 @@ export default function App() {
 
 
 
+  const catLabel = (id) => {
+    const c = CATEGORIES.find((x) => x.id === id)
+    return c ? labelOr(t, `cat_${c.id}`, c.label || c.id) : id
+  }
+  const marquesFiltrees = useMemo(() => {
+    const q = brandQuery.trim().toLowerCase()
+    return q ? marquesVendues.filter((b) => b.toLowerCase().includes(q)) : marquesVendues
+  }, [marquesVendues, brandQuery])
+  // Le numero de page est borne a la lecture, pas a l'ecriture : un filtre qui
+  // réduit la liste pendant qu'on est page 4 doit ramener page 1 sans que
+  // l'appelant ait pensé à réinitialiser l'état.
+  const shopPages = Math.max(1, Math.ceil(list.length / SHOP_PAGE_SIZE))
+  const shopPageSure = Math.min(Math.max(1, shopPage), shopPages)
+  const pageProduits = list.slice((shopPageSure - 1) * SHOP_PAGE_SIZE, shopPageSure * SHOP_PAGE_SIZE)
+
+  useEffect(() => {
+    setShopPage(1)
+  }, [category, brandFilter, query])
+
+  function gotoPage(n) {
+    const next = Math.min(Math.max(1, n), shopPages)
+    setShopPage(next)
+    document.getElementById('catalog')?.scrollIntoView({ behavior: 'smooth' })
+  }
+
+  function resetShopFilters() {
+    setCategory('all')
+    setBrandFilter(null)
+    setQuery('')
+    setBrandQuery('')
+    setShopPage(1)
+  }
+
   function liveStock(product) {
     const base = stockMap[product.id] != null ? stockMap[product.id] : product.stock
     const inCart = cart.find((i) => i.id === product.id)
@@ -1167,6 +1288,18 @@ export default function App() {
     // P5 (B20) inchangé : plafond = stock VRAIMENT disponible (`stockMap`), pas
     // le `product.stock` statique ; produit sorti du catalogue → plafond 1.
     const max = product ? (stockMap[id] != null ? stockMap[id] : product.stock) : 1
+    // LOT P3 (B19) : avec un stock a zero, `Math.min(0, Math.max(1, 2))`
+    // rendait 0, et le `.filter(qty > 0)` du bas faisait disparaitre la LIGNE :
+    // un clic sur « + » supprimait le produit du panier, sans un mot. Une
+    // montee au-dessus de ce qui reste se refuse et se dit ; la descendre a 0
+    // reste le moyen prevu de retirer la ligne (et fonctionne aussi en rupture).
+    if (max < 1) {
+      const deja = (cart.find((i) => i.id === id) || {}).qty || 0
+      if (Number(qty) > deja) {
+        setToast(t('outOfStock'))
+        return
+      }
+    }
     setCart((prev) =>
       prev
         .map((i) => (i.id === id ? { ...i, qty: Math.min(max, Math.max(1, qty)) } : i))
@@ -1300,6 +1433,9 @@ export default function App() {
         await refreshStock()
         return
       }
+      // LOT P1 (B13) : `unpriced` rejoint les deux refus ci-dessous — un article
+      // sans prix exploitable côté serveur ne reviendra pas par un nouvel envoi
+      // du panier, il faut donc le retirer comme les autres.
       // LOT 8.1 (A1) + LOT 8.2 (A2) : refus DÉFINITIF du serveur sur certaines
       // lignes — produit retiré de la vente par le maître, ou id inconnu du
       // catalogue (onglet ouvert avant un changement de catalogue, commande
@@ -1307,7 +1443,7 @@ export default function App() {
       // le reste reste commandable : sans cela l'utilisateur renvoyait la même
       // commande en boucle sur un échec identique — et le repli hors-ligne
       // pouvait finir par créer une commande locale sur un article fantôme.
-      if (fail.kind === 'unavailable' || fail.kind === 'unknown') {
+      if (fail.kind === 'unavailable' || fail.kind === 'unknown' || fail.kind === 'unpriced') {
         setToast(orderBlockedMessage(fail.lines, t, fail.kind))
         const kept = dropCartLines(cart, fail.lines)
         setCart(kept)
@@ -1541,7 +1677,23 @@ export default function App() {
               <span className="navbar-toggler-icon" />
             </button>
           </div>
-          <div className={`collapse navbar-collapse ${navOpen ? 'show' : ''}`}>
+          {/*
+            * LOT P4 (V5) — le menu latéral prend toute la page. L'ancien
+            * `collapse` déroulait six liens hauts de 40 px sous la barre : sur un
+            * téléphone, la moitié du menu restait sous le clavier ou sous la
+            * ligne de flottaison, et le client qui voulait « se connecter »
+            * voyait un bouton coupé. `.nav-sheet` (voir src/index.css) transforme
+            * ce panneau en feuille pleine page, avec son propre en-tête de
+            * fermeture — indispensable : la feuille couvre la barre, donc le
+            * bouton ☰ n'est plus atteignable une fois ouvert.
+            */}
+          <div className={`collapse navbar-collapse nav-sheet ${navOpen ? 'show' : ''}`}>
+            <div className="nav-sheet-head">
+              <strong>{t('navMenu')}</strong>
+              <button type="button" className="btn btn-sm btn-outline-secondary" onClick={() => setNavOpen(false)}>
+                ✕ {t('close')}
+              </button>
+            </div>
             <ul className="navbar-nav me-auto mb-2 mb-lg-0 align-items-lg-center gap-lg-1">
               {[
                 ['shop', t('navShop'), page === 'shop' || page === 'product'],
@@ -1641,10 +1793,22 @@ export default function App() {
                 {t('pcBuilder')}
               </button>
             </div>
+            {/*
+              * LOT P4 (V1) — deux des quatre compteurs changent de nature.
+              * « références » (301 fiches) ne regardait personne : c'est un
+              * chiffre de stock interne. La vitrine dit desormais ce qui se passe
+              * AU comptoir : combien de commandes ont ete prevenues « pretes »
+              * (compte par le serveur, jamais saisi), et — a la demande du
+              * maitre — le nombre de reparations faites, dont il ecrit
+              * lui-meme le libelle et le chiffre (page Admin → Vitrine). Les
+              * clients lisent, ils ne touchent a rien : l'API d'ecriture est
+              * reservee au role maitre, et le troisieme champ n'est pas
+              * ecrasable depuis le navigateur.
+              */}
             <div className="readout">
               <div className="ro">
-                <b>{catalog.length}</b>
-                <span>{t('roRefs')}</span>
+                <b>{vitrine.readyTally}</b>
+                <span>{t('roOrders')}</span>
               </div>
               <div className="ro">
                 <b>{catalog.filter((p) => p.category === 'gpu').length}</b>
@@ -1655,8 +1819,8 @@ export default function App() {
                 <span>{t('roLaptops')}</span>
               </div>
               <div className="ro">
-                <b dir="ltr">0 DA</b>
-                <span>{t('roPay')}</span>
+                <b>{vitrine.repairsDone}</b>
+                <span>{vitrine.repairsLabel || t('roRepairs')}</span>
               </div>
             </div>
           </section>
@@ -1667,156 +1831,211 @@ export default function App() {
 
           {/* P11 : section « Configs Star » + ses cartes supprimées sur demande. */}
 
-          <div className="d-flex flex-wrap gap-2 align-items-center mb-3">
-            {/* P21 : libellé « ماركات جزائرية شائعة » supprimé (filtres conservés). */}
-            <button type="button" className={`btn btn-sm ${!brandFilter ? 'btn-success' : 'btn-outline-secondary'}`} onClick={() => setBrandFilter(null)}>
-              {t('cat_all')}
-            </button>
-            {BRANDS_DZ_PRIORITY.map((b) => (
-              <button key={b} type="button" className={`btn btn-sm ${brandFilter === b ? 'btn-success' : 'btn-outline-secondary'}`} onClick={() => setBrandFilter(brandFilter === b ? null : b)}>
-                {b}
+          {/*
+            * LOT P4 (V2) — les filtres de la vitrine. L'ancienne rangee dressait
+            * TOUTES les marques vendues en puces avant meme le premier produit :
+            * sur un telephone, une page entiere a scroller pour arriver au
+            * catalogue. Chaque filtre devient un bouton qui ouvre son panneau, et
+            * le bouton porte la valeur choisie (« Marques · Raidmax ») — le filtre
+            * reste lisible une fois ferme. Le champ de recherche du panneau
+            * marques ne filtre QUE la liste des marques : s'il filtrait aussi le
+            * catalogue, fermer le panneau aurait change les resultats sans que
+            * personne ne l'ait demande.
+            */}
+          <div className="filters-bar mb-3" id="catalog">
+            <div className="d-flex flex-wrap gap-2 align-items-center">
+              <button
+                type="button"
+                className={`btn btn-sm ${brandFilter ? 'btn-success' : 'btn-outline-success'}`}
+                onClick={() => setShopSheet(shopSheet === 'brands' ? null : 'brands')}
+                aria-expanded={shopSheet === 'brands'}
+                aria-controls="sheet-brands"
+              >
+                {t('filterBrands')}
+                {brandFilter ? ` · ${brandFilter}` : ''}
               </button>
-            ))}
+              <button
+                type="button"
+                className={`btn btn-sm ${category !== 'all' ? 'btn-success' : 'btn-outline-success'}`}
+                onClick={() => setShopSheet(shopSheet === 'catalog' ? null : 'catalog')}
+                aria-expanded={shopSheet === 'catalog'}
+                aria-controls="sheet-catalog"
+              >
+                {t('filterCatalog')}
+                {category !== 'all' ? ` · ${catLabel(category)}` : ''}
+              </button>
+              {(brandFilter || category !== 'all' || query.trim()) && (
+                <button type="button" className="btn btn-sm btn-link" onClick={resetShopFilters}>
+                  {t('reset')}
+                </button>
+              )}
+              <input
+                className="form-control form-control-sm ms-lg-auto"
+                style={{ maxWidth: 280 }}
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder={t('searchPlaceholder')}
+                aria-label={t('navSearch')}
+              />
+            </div>
+
+            {shopSheet === 'brands' && (
+              <div className="filter-sheet" id="sheet-brands">
+                <input
+                  className="form-control form-control-sm mb-2"
+                  value={brandQuery}
+                  onChange={(e) => setBrandQuery(e.target.value)}
+                  placeholder={t('brandSearchPh')}
+                  aria-label={t('brandSearchPh')}
+                />
+                <div className="filter-sheet-grid">
+                  <button
+                    type="button"
+                    className={`btn btn-sm ${!brandFilter ? 'btn-success' : 'btn-outline-secondary'}`}
+                    onClick={() => { setBrandFilter(null); setShopSheet(null) }}
+                  >
+                    {t('cat_all')}
+                  </button>
+                  {marquesFiltrees.map((b) => (
+                    <button
+                      key={b}
+                      type="button"
+                      className={`btn btn-sm ${brandFilter === b ? 'btn-success' : 'btn-outline-secondary'}`}
+                      onClick={() => { setBrandFilter(brandFilter === b ? null : b); setShopSheet(null) }}
+                    >
+                      {b}
+                    </button>
+                  ))}
+                </div>
+                {marquesFiltrees.length === 0 && <p className="small text-secondary mb-0">{t('noBrands')}</p>}
+              </div>
+            )}
+            {shopSheet === 'catalog' && (
+              <div className="filter-sheet" id="sheet-catalog">
+                <div className="filter-sheet-grid">
+                  {CATEGORIES.map((c) => (
+                    <button
+                      key={c.id}
+                      type="button"
+                      className={`btn btn-sm cat-${c.id} ${category === c.id ? 'btn-success' : 'btn-outline-secondary'}`}
+                      onClick={() => { setCategory(c.id); setShopSheet(null) }}
+                    >
+                      {/* LOT 5.6 (U6) : repli explicite — `t()` renvoie la clé quand
+                          la traduction manque. Une catégorie master ajoutée sans
+                          traduction ne doit pas fuiter jusqu'à l'écran. */}
+                      {labelOr(t, `cat_${c.id}`, c.label || c.id)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
-          <div className="cats mb-4" id="catalog">
-            {CATEGORIES.map((c) => (
-              <button key={c.id} type="button" className={`btn btn-sm cat-${c.id} ${category === c.id ? 'btn-success' : 'btn-outline-secondary'}`} onClick={() => setCategory(c.id)}>
-                {/* LOT 5.6 (U6) : repli explicite — `t()` renvoie la clé quand
-                    la traduction manque, et `cat_ssd` se retrouverait affiché
-                    tel quel. `BuilderPage`/`SearchPage` avaient déjà le motif,
-                    pas la vitrine. Aucune clé ne manque aujourd'hui (13
-                    catégories × 3 langues), mais une catégorie master ajoutée
-                    sans traduction ne doit pas fuiter jusqu'à l'écran. */}
-                {labelOr(t, `cat_${c.id}`, c.label || c.id)}
-              </button>
-            ))}
-            <input
-              className="form-control form-control-sm ms-lg-auto"
-              style={{ maxWidth: 280 }}
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder={t('searchPlaceholder')}
-              aria-label={t('navSearch')}
-            />
-          </div>
+          <p className="small text-secondary mb-2">
+            {t('shopCount', { n: list.length })}
+            {shopPages > 1 ? t('shopPageOf', { page: shopPageSure, pages: shopPages }) : ''}
+          </p>
 
           {list.length === 0 ? (
             <div className="empty-state">
               <strong>{t('noProducts')}</strong>
-              <button type="button" className="btn btn-sm btn-outline-success mt-2" onClick={() => { setCategory('all'); setBrandFilter(null); setQuery('') }}>
+              <button type="button" className="btn btn-sm btn-outline-success mt-2" onClick={resetShopFilters}>
                 {t('reset')}
               </button>
             </div>
           ) : (
-            <div className="row g-3">
-              {list.map((p) => {
-                const left = liveStock(p)
-                const st = stockLabel(left, t)
-                return (
-                  <div className="col-6 col-md-4 col-xl-3" key={p.id}>
-                    <div className="card h-100 shadow-sm product-bs-card">
-                      <button className="btn p-0 border-0 position-relative" type="button" onClick={() => openProduct(p.id)} aria-label={p.name}>
-                        <div className="ratio ratio-4x3 photo-frame overflow-hidden">
-                          <PartThumb product={p} />
-                        </div>
-                        <span className={`badge position-absolute top-0 start-0 m-2 ${st.cls}`}>
-                          {st.text}
-                        </span>
-                        {p.photoMode === 'category' && <span className="badge text-bg-light border position-absolute top-0 end-0 m-2">{t('categoryIllustrationBadge')}</span>}
-                      </button>
-                      {/* Corps de carte photocopié sur la maquette :
-                          marque → titre → specs → ligne prix / + panier. */}
-                      <div className="card-body d-flex flex-column">
-                        <span className="cbrand">{p.brand}</span>
-                        <h3 className="h6 card-title">{p.name}</h3>
-                        <div className="specs">
-                          {specRows(p, t).slice(2, 6).map((r) => (
-                            <span className="d-block" key={r.label}>
-                              <i>{r.label}</i> {r.value}
-                            </span>
-                          ))}
-                        </div>
-                        <div className="card-row mt-auto d-flex justify-content-between align-items-center gap-2">
-                          <span className="d-flex flex-column">
-                            <span className="price text-success">{money(p.price, lang)}</span>
-                            {hasSale(p) && <small className="text-danger"><del>{money(p.compareAtPrice, lang)}</del> · −{discountPercent(p)}%</small>}
+            <>
+              <div className="row g-3">
+                {pageProduits.map((p) => {
+                  const left = liveStock(p)
+                  const st = stockLabel(left, t)
+                  return (
+                    <div className="col-6 col-md-4 col-xl-3" key={p.id}>
+                      <div className="card h-100 shadow-sm product-bs-card">
+                        <button className="btn p-0 border-0 position-relative" type="button" onClick={() => openProduct(p.id)} aria-label={p.name}>
+                          <div className="ratio ratio-4x3 photo-frame overflow-hidden">
+                            <PartThumb product={p} />
+                          </div>
+                          <span className={`badge position-absolute top-0 start-0 m-2 ${st.cls}`}>
+                            {st.text}
                           </span>
-                          <button className="btn btn-sm btn-success" type="button" disabled={left <= 0} onClick={() => add(p)}>
-                            {left <= 0 ? t('soldOut') : t('add')}
-                          </button>
+                          {p.photoMode === 'category' && <span className="badge text-bg-light border position-absolute top-0 end-0 m-2">{t('categoryIllustrationBadge')}</span>}
+                        </button>
+                        {/* Corps de carte photocopié sur la maquette :
+                            marque → titre → specs → ligne prix / + panier. */}
+                        <div className="card-body d-flex flex-column">
+                          <span className="cbrand">{p.brand}</span>
+                          <h3 className="h6 card-title">{p.name}</h3>
+                          <div className="specs">
+                            {specRows(p, t).slice(2, 6).map((r) => (
+                              <span className="d-block" key={r.label}>
+                                <i>{r.label}</i> {r.value}
+                              </span>
+                            ))}
+                          </div>
+                          <div className="card-row mt-auto d-flex justify-content-between align-items-center gap-2">
+                            <span className="d-flex flex-column">
+                              <span className="price text-success">{money(p.price, lang)}</span>
+                              {hasSale(p) && <small className="text-danger"><del>{money(p.compareAtPrice, lang)}</del> · −{discountPercent(p)}%</small>}
+                            </span>
+                            <button className="btn btn-sm btn-success" type="button" disabled={left <= 0} onClick={() => add(p)}>
+                              {left <= 0 ? t('soldOut') : t('add')}
+                            </button>
+                          </div>
                         </div>
                       </div>
                     </div>
-                  </div>
-                )
-              })}
-            </div>
+                  )
+                })}
+              </div>
+
+              {shopPages > 1 && (
+                // LOT P4 (V3) — la suite du catalogue en pages, pas en mur : la
+                // page 2 suit la page 1 sous les yeux du client, et le nombre de
+                // pages se lit sur la ligne au-dessus.
+                <nav className="pager d-flex flex-wrap gap-1 align-items-center mt-4" aria-label={t('pagerLabel')}>
+                  <button type="button" className="btn btn-sm btn-outline-secondary" onClick={() => gotoPage(shopPageSure - 1)} disabled={shopPageSure <= 1}>
+                    ‹ {t('prevPage')}
+                  </button>
+                  {Array.from({ length: shopPages }, (_, k) => k + 1).map((n) => (
+                    <button
+                      key={n}
+                      type="button"
+                      className={`btn btn-sm ${n === shopPageSure ? 'btn-success' : 'btn-outline-secondary'}`}
+                      onClick={() => gotoPage(n)}
+                      aria-current={n === shopPageSure ? 'page' : undefined}
+                    >
+                      {n}
+                    </button>
+                  ))}
+                  <button type="button" className="btn btn-sm btn-outline-secondary" onClick={() => gotoPage(shopPageSure + 1)} disabled={shopPageSure >= shopPages}>
+                    {t('nextPage')} ›
+                  </button>
+                </nav>
+              )}
+            </>
           )}
 
-          {/* ── Configurateur : panneau « split » de la maquette ── */}
-          <section className="py-5">
-            <div className="mb-4">
-              <h2 className="h4 mb-1">{t('pcBuilder')}</h2>
-              <p className="small text-secondary mb-0">{t('builderBody', { address: STORE.address })}</p>
-            </div>
-            <div className="split">
+          {/* ── Configurateur : un acces, plus de tableau decoratif ──
+              LOT P4 (V3) : le panneau « split » de la maquette recitait cinq
+              lignes de composants (Ryzen 5 7600 · 42 000, B650 · AM5 · 28 000 …)
+              et un total de 177 000 DA — des nombres ECRITS EN DUR dans le JSX,
+              qui ne venaient ni du catalogue ni d'une vraie configuration, a
+              cote d'une liste de controles de compatibilite simules
+              (« [OK] socket AM5 »). Le client voyait un devis qui n'en etait
+              pas un. Le tout est retire : le catalogue continue en pages
+              au-dessus, et le configurateur reste a un clic. */}
+          <section className="py-4">
+            <div className="d-flex flex-wrap align-items-center justify-content-between gap-2 border-top pt-3">
               <div>
-                <h3 className="h5">{t('builderCheckTitle')}</h3>
-                <p className="small">{t('builderCheckBody')}</p>
-                <div className="check">
-                  <div>
-                    <span className="m" dir="ltr">[OK]</span> {t('chkOkSocket')}
-                  </div>
-                  <div>
-                    <span className="m" dir="ltr">[OK]</span> {t('chkOkRam')}
-                  </div>
-                  <div>
-                    <span className="m" dir="ltr">[OK]</span> {t('chkOkPsu')}
-                  </div>
-                  <div>
-                    <span className="w" dir="ltr">[!]</span> {t('chkWarnCase')}
-                  </div>
-                </div>
-                <div className="d-flex gap-2 mt-4">
-                  <button className="btn btn-success" type="button" onClick={() => go('builder')}>
-                    {t('openBuilder')}
-                  </button>
-                </div>
+                <h2 className="h5 mb-1">{t('pcBuilder')}</h2>
+                <p className="small text-secondary mb-0">{t('builderBody', { address: STORE.address })}</p>
               </div>
-              <div>
-                <div className="slots">
-                  <div className="slot">
-                    <span className="k" dir="ltr">cpu</span>
-                    <span className="v">Ryzen 5 7600</span>
-                    <span className="p" dir="ltr">42 000</span>
-                  </div>
-                  <div className="slot">
-                    <span className="k" dir="ltr">board</span>
-                    <span className="v">B650 · AM5</span>
-                    <span className="p" dir="ltr">28 000</span>
-                  </div>
-                  <div className="slot">
-                    <span className="k" dir="ltr">ram</span>
-                    <span className="v">32 Go DDR5</span>
-                    <span className="p" dir="ltr">19 000</span>
-                  </div>
-                  <div className="slot">
-                    <span className="k" dir="ltr">gpu</span>
-                    <span className="v">RTX 4060 8 Go</span>
-                    <span className="p" dir="ltr">72 000</span>
-                  </div>
-                  <div className="slot">
-                    <span className="k" dir="ltr">psu</span>
-                    <span className="v">750 W 80+ Bronze</span>
-                    <span className="p" dir="ltr">16 000</span>
-                  </div>
-                </div>
-                <div className="total">
-                  <span dir="ltr">est. 410 W</span>
-                  <b dir="ltr">177 000 DA</b>
-                </div>
-              </div>
+              {/* La cle porte deja sa fleche (« Ouvrir le configurateur → ») :
+                  l'ajouter ici la doublait a l'ecran. */}
+              <button className="btn btn-success" type="button" onClick={() => go('builder')}>
+                {t('openBuilder')}
+              </button>
             </div>
           </section>
 
@@ -2176,7 +2395,12 @@ export default function App() {
                     onClick={() => {
                       setReserved(null)
                       setCartOpen(false)
-                      go('profile')
+                      // LOT P3 (B21) : le libellé dit « Mes commandes » et
+                      // envoyait sur le profil. Depuis le LOT 5.x, « Mes
+                      // commandes » est SORTI du profil (`src/OrdersPage.jsx`,
+                      // que `ProfilePage.jsx:6-7` cite lui-même) : le bouton
+                      // menait donc à un écran qui n'affiche aucune commande.
+                      go('orders')
                     }}
                   >
                     {t('viewMyOrders')}

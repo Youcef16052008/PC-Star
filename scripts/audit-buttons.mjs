@@ -3,7 +3,7 @@
  * Audit boutons — « est-ce que TOUS les boutons font quelque chose de sûr,
  * et est-ce qu'un formulaire vide affiche bien une erreur ? »
  *
- * Complète scripts/jsdom-crawl.mjs (navigation 13 pages × 2 langues) :
+ * Complète scripts/jsdom-crawl.mjs (navigation de toutes les pages × 2 langues) :
  *  1. sur chaque page clé, on clique TOUS les boutons du contenu principal
  *     (désactivés exclus) et on exige ZÉRO erreur JavaScript (window.onerror /
  *     jsdomError hors « not implemented » — alert/confirm/print ne sont pas
@@ -20,6 +20,7 @@ import { existsSync } from 'node:fs'
 import { JSDOM, VirtualConsole } from 'jsdom'
 import { dict } from '../src/i18n.js'
 import { masterCredentials } from './masterEnv.mjs'
+import { patchPerformanceGaps } from './jsdom-perf-gaps.mjs'
 
 const FRONT = 'http://127.0.0.1:4173'
 const API = 'http://127.0.0.1:8787'
@@ -106,6 +107,11 @@ function openSession(lang, token) {
       pretendToBeVisual: true,
       virtualConsole: vc,
       beforeParse(w) {
+        // Les trous d'API de jsdom sont combles AVANT le premier script : sans
+        // Resource Timing, react-dom et le collecteur de rejections du harnais
+        // fabriquent une faute qui n'existe pas dans un navigateur (voir
+        // scripts/jsdom-perf-gaps.mjs).
+        patchPerformanceGaps(w)
         w.localStorage.setItem('pcstar-lang', lang)
         if (token) w.localStorage.setItem('pcstar-api-token', token)
         w.fetch = (input, init) =>

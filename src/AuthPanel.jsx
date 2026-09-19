@@ -3,7 +3,14 @@ import { Modal } from 'bootstrap'
 import { isDzPhone, loginEmail, registerEmail } from './shopStore.js'
 import * as api from './api.js'
 
-const ERR = {
+/**
+ * Table des codes d'erreur serveur vers clés i18n. Exportée (LOT P3, B8) pour
+ * que `src/p3ClientScreens.test.js` vérifie la complétude de la table au lieu
+ * de la re-déclarer : B8 était précisément un TROU de cette table
+ * (`demo_locked` absent, donc la clé brute à l'écran), et une copie dans le
+ * test n'aurait rien vu.
+ */
+export const AUTH_ERRORS = {
   email: 'authErrorEmail',
   password: 'authErrorPassword',
   // LOT 1.9 : sans cette entrée, `fail(code)` affichait la clé brute
@@ -12,7 +19,14 @@ const ERR = {
   exists: 'authErrorExists',
   auth: 'authErrorAuth',
   phone: 'authErrorPhone',
-  rate: 'authErrorRate'
+  rate: 'authErrorRate',
+  // LOT P3 (B8) : `POST /api/auth/login` répond `401 demo_locked` quand le
+  // compte de démonstration existe mais n'a **aucun** mot de passe (aucun
+  // `DEMO_PASSWORD` posé, `server/index.js:555`). Sans entrée ici, `fail(code)`
+  // faisait `t('demo_locked')` : la CLÉ BRUTE à l'écran, en français comme en
+  // anglais — exactement le défaut que le LOT 1.9 avait corrigé pour
+  // `name_too_long`.
+  demo_locked: 'authErrorDemoLocked'
 }
 
 export default function AuthPanel({ t, users, onUsers, onSession, onClose, setToast, apiOnline, onApiUser }) {
@@ -53,7 +67,7 @@ export default function AuthPanel({ t, users, onUsers, onSession, onClose, setTo
   }, [])
 
   function fail(code) {
-    setError(t(ERR[code] || code))
+    setError(t(AUTH_ERRORS[code] || code))
   }
 
   function succeedLocal(user, nextUsers, msgKey) {
@@ -141,7 +155,16 @@ export default function AuthPanel({ t, users, onUsers, onSession, onClose, setTo
 
   return (
     <div className="modal fade" ref={modalElRef} tabIndex={-1} aria-labelledby="authModalLabel" aria-hidden="true">
-      <div className="modal-dialog modal-dialog-centered">
+      {/*
+        * LOT P4 (V5) — la connexion prend toute la page. Une fenetre de 500 px
+        * sur un telephone d'occasion (le parc du comptoir), c'est le clavier
+        * numerique qui mangeait le formulaire : on se connectait a moitie, puis
+        * on refermait pour relire ce qu'on avait tape. `modal-fullscreen` est la
+        * classe de Bootstrap, pas une invention locale ; le corps reste dans une
+        * colonne lisible (`.auth-sheet-body`) pour que le texte ne s'etale pas
+        * sur 1 400 px sur l'ecran du comptoir.
+        */}
+      <div className="modal-dialog modal-dialog-centered modal-fullscreen">
         <div className="modal-content border-0 shadow">
           <div className="modal-header">
             <h2 className="modal-title h5 mb-0" id="authModalLabel">
@@ -150,6 +173,7 @@ export default function AuthPanel({ t, users, onUsers, onSession, onClose, setTo
             <button type="button" className="btn-close" data-bs-dismiss="modal" aria-label={t('close')} />
           </div>
           <div className="modal-body">
+            <div className="auth-sheet-body">
             <p className="small text-secondary">{t('authSimpleNote')}</p>
             <span className={`badge mb-3 ${apiOnline ? 'text-bg-success' : 'text-bg-secondary'}`}>
               {apiOnline ? t('backendOnline') : t('backendOffline')}
@@ -302,6 +326,7 @@ export default function AuthPanel({ t, users, onUsers, onSession, onClose, setTo
                 </button>
               </form>
             )}
+            </div>
           </div>
         </div>
       </div>

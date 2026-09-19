@@ -1,5 +1,17 @@
 # Plan de correction consolidé — tous les bugs, de A à Z
 
+> **Journal daté — ses chiffres sont ceux du jour, pas l'état du dépôt.** Ce
+> document est une trace : on ne le réécrit pas quand il est contredit plus tard,
+> parce qu'effacer une conclusion fausse efface aussi la raison pour laquelle
+> elle était fausse.
+> Au fil des lots, plusieurs nombres et commandes ci-dessous ont été
+> dépassés. L'état mesuré d'aujourd'hui est dans
+> [`../../README.md`](../../README.md) (« État mesuré »), la suite des sessions
+> dans [`BUGS-AND-FIXES.md`](BUGS-AND-FIXES.md). Les docs **exécutables** (guides,
+> recettes, prompts d'agent, `docs/README.md`) ont, elles, été corrigées — c'est
+> `src/p3DocsAging.test.js` qui verrouille les deux régimes.
+
+
 **Date :** 15/09/2026 · **Base :** `fdbd778` · **Branche :** `arena/01a0a55c-pc-star`
 **Sources :** rapport d'audit « deux passes », rapport « consolidé final », et
 leurs vérifications (`docs/VERIFICATION-RAPPORT-AUDIT.md`,

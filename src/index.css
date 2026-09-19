@@ -652,6 +652,21 @@ html[data-theme='light'] .text-secondary {
 .master-form-section .form-label {
   font-weight: 600;
 }
+/* LOT P1 (B11) — groupes de cases a cocher de la compatibilite : le `fieldset`
+   sert de legende accessible, pas de cadre. */
+.master-compat-group {
+  min-inline-size: 0;
+  border: 0;
+  padding: 0;
+  margin: 0 0 0.35rem;
+}
+.master-compat-group legend {
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+.master-compat-group .form-check-label {
+  cursor: pointer;
+}
 @media (max-width: 991.98px) {
   .master-product-form {
     max-height: none;
@@ -660,4 +675,100 @@ html[data-theme='light'] .text-secondary {
 }
 .product-description {
   white-space: pre-line;
+}
+
+/* ── LOT P4 (V2) — filtres de la vitrine : deux boutons, deux panneaux ──────
+   L'ancienne rangée dressait une puce par marque vendue avant le premier
+   produit : sur un téléphone, le catalogue commençait une page plus bas. Le
+   filtre est maintenant un bouton qui ouvre son panneau, et le bouton porte la
+   valeur choisie (« Marques · Raidmax ») pour que le filtre reste lisible une
+   fois refermé. Le panneau est plafonné et scrolle : la liste des marques peut
+   faire 67 entrées, l'écran du client, non.
+   Cibles à 44 px — la même exigence que la grille de recette responsive, et
+   ce sont des pouces, pas des souris. */
+.filters-bar {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.filter-sheet {
+  border: 1px solid var(--line, #dee2e6);
+  border-radius: 0.5rem;
+  padding: 0.75rem;
+  background: var(--card, #fff);
+}
+
+.filter-sheet-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.375rem;
+  max-height: 45vh;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.filter-sheet-grid .btn,
+.filters-bar > div > .btn {
+  min-height: 44px;
+}
+
+/* ── LOT P4 (V3) — la suite du catalogue en pages ─────────────────────────── */
+.pager {
+  justify-content: center;
+}
+
+.pager .btn {
+  min-width: 44px;
+  min-height: 44px;
+}
+
+/* ── LOT P4 (V5) — le menu latéral et la connexion en pleine page ─────────── */
+.nav-sheet-head {
+  display: none;
+}
+
+@media (max-width: 991.98px) {
+  /* La feuille couvre la barre : le bouton ☰ n'est plus atteignable une fois
+     ouvert, donc la feuille porte sa PROPRE fermeture. Sans cet en-tête, le
+     seul moyen de sortir du menu serait de choisir une page. */
+  .nav-sheet.show {
+    position: fixed;
+    inset: 0;
+    z-index: 1080;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    padding: 0.75rem 1rem 2rem;
+    overflow-y: auto;
+    background: var(--card, #fff);
+  }
+
+  .nav-sheet-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    padding-bottom: 0.75rem;
+    margin-bottom: 0.5rem;
+    border-bottom: 1px solid var(--line, #dee2e6);
+  }
+
+  .nav-sheet-head .btn {
+    min-height: 44px;
+  }
+
+  /* Le pouce d'abord : six lignes de menu lisibles de près, pas huit en petit. */
+  .nav-sheet .navbar-nav .nav-link {
+    font-size: 1.125rem;
+    min-height: 48px;
+    display: flex;
+    align-items: center;
+  }
+}
+
+/* Le formulaire de connexion reste dans une colonne lisible, même quand la
+   fenêtre occupe tout l'écran : pleine page ne veut pas dire texte sur 1 400 px. */
+.auth-sheet-body {
+  width: min(100%, 520px);
+  margin-inline: auto;
 }

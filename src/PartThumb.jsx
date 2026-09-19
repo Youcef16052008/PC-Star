@@ -78,6 +78,16 @@ export default function PartThumb({ product, alt, eager = false, className = '' 
   const src = product?.photos && product.photos[0]
   const cands = src ? photoCandidates(src) : []
   const [attempt, setAttempt] = useState(0)
+  // LOT P3 (B14) : `attempt` etait l'etat d'une INSTALLATION, pas d'un produit.
+  // Une vignette deja tombee au badge de categorie y restait si le meme noeud
+  // recevait une autre fiche (le composant n'est pas remonte par une cle quand
+  // la page produit change de reference sans demontage). Regle React : on
+  // recoupe l'etat pendant le rendu quand la prop d'identite change.
+  const [vu, setVu] = useState(product?.id)
+  if (vu !== product?.id) {
+    setVu(product?.id)
+    setAttempt(0)
+  }
 
   if (!cands.length || attempt >= cands.length) return <CategoryMark product={product} label={label} />
 

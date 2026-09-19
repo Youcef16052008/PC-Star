@@ -1,5 +1,17 @@
 # Vérification du second rapport d'audit — 15/09/2026
 
+> **Journal daté — ses chiffres sont ceux du jour, pas l'état du dépôt.** Ce
+> document est une trace : on ne le réécrit pas quand il est contredit plus tard,
+> parce qu'effacer une conclusion fausse efface aussi la raison pour laquelle
+> elle était fausse.
+> Au fil des lots, plusieurs nombres et commandes ci-dessous ont été
+> dépassés. L'état mesuré d'aujourd'hui est dans
+> [`../../README.md`](../../README.md) (« État mesuré »), la suite des sessions
+> dans [`BUGS-AND-FIXES.md`](BUGS-AND-FIXES.md). Les docs **exécutables** (guides,
+> recettes, prompts d'agent, `docs/README.md`) ont, elles, été corrigées — c'est
+> `src/p3DocsAging.test.js` qui verrouille les deux régimes.
+
+
 **Objet :** vérification du rapport « consolidé final » (52 items numérotés +
 22 findings lettrés + 3 items d'environnement #53–#55).
 **Base :** `fdbd778`, branche `arena/01a0a55c-pc-star`, dépôt non modifié.

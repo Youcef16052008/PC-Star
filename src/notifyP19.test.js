@@ -479,7 +479,7 @@ describe('P19 — notification navigateur', () => {
 // -------------------------------------------------------------------- i18n
 
 describe('P19 — clés i18n', () => {
-  it('les 5 nouvelles clés existent dans les 3 langues', () => {
+  it('les 5 nouvelles clés existent dans les deux langues du site', () => {
     const keys = ['deskDelete', 'deskDeleteFail', 'confirmDeleteOrder', 'deskNotifyTitle', 'orderDeleted']
     for (const lang of ['fr', 'en']) {
       for (const k of keys) assert.ok(k in dict[lang], `${lang}.${k} manquante`)

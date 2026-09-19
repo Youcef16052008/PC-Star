@@ -148,8 +148,14 @@ export async function listOrders() {
   return req('/api/orders')
 }
 
-export async function patchOrder(code, status) {
-  return req(`/api/orders/${encodeURIComponent(code)}`, { method: 'PATCH', body: { status } })
+/**
+ * `expectedStatus` (LOT P2, B6) : le statut que l'écran affiche au moment du
+ * clic. Fourni, le serveur refuse l'écriture s'il a entre-temps changé (409
+ * `stale`) au lieu d'appliquer un mouvement à l'aveugle.
+ */
+export async function patchOrder(code, status, expectedStatus = null) {
+  const body = expectedStatus ? { status, expectedStatus } : { status }
+  return req(`/api/orders/${encodeURIComponent(code)}`, { method: 'PATCH', body })
 }
 
 // Le comptoir fixe ou décale la date de retrait (sans toucher au statut).
@@ -177,7 +183,13 @@ export async function listCustomers() {
 }
 
 export async function deleteCustomer(id) {
-  return req(`/api/customers/${id}`, { method: 'DELETE' })
+  // LOT P3 (B23) : `encodeURIComponent`, comme `deleteOrder` juste au-dessus.
+  // Les identifiants des comptes API viennent de `crypto.randomUUID()`, mais un
+  // compte du STORE local peut porter un id hérité avec un point, un « / » ou un
+  // « % » (graines, imports) : sans encodage le DELETE partait sur un autre
+  // chemin — le maître voyait la fiche disparaître un rechargement plus tard, et
+  // le compte restait avec ses sessions ouvertes.
+  return req(`/api/customers/${encodeURIComponent(id)}`, { method: 'DELETE' })
 }
 
 export async function getMeta() {
@@ -189,6 +201,13 @@ export async function getMeta() {
 
 export async function putPanels(meta) {
   return req('/api/master/panels', { method: 'PUT', body: meta })
+}
+
+// LOT P4 (V1) — le maitre ecrit sa vitrine (libelle + nombre de reparations).
+// Pas de `readyTally` ici : le compteur de commandes se lit, il ne se decree
+// pas — le serveur l'ignore s'il arrive dans le corps (voir applyVitrineEdit).
+export async function putVitrine(vitrine) {
+  return req('/api/master/vitrine', { method: 'PUT', body: vitrine })
 }
 
 export async function masterProducts() {

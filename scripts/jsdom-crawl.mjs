@@ -1,9 +1,16 @@
 #!/usr/bin/env node
 /**
  * L2 (Direction 03 « Terminal Cyber ») — porte de validation :
- * crawl jsdom des 13 pages × 2 langues, 0 erreur JavaScript.
+ * crawl jsdom de TOUTES les pages × 2 langues, 0 erreur JavaScript.
+ * Le nombre de pages est lu sur `PAGES` (ligne 214 pour le résumé) : le
+ * « 13 pages » que ce fichier et trois docs répétaient ne correspondait plus à
+ * rien — le tableau en fait douze, et le résumé imprimait « 2 langues × 13
+ * pages » à côté de « 24 pages rendues » (24 = 12 × 2). Un compteur écrit à la
+ * main dans un message est un compteur qui ment à la première page ajoutée.
  *
- * Usage : `npm run build` puis `npm run crawl`.
+ * Usage : `npm run build:crawl` puis `node scripts/jsdom-crawl.mjs`.
+ * (`npm run crawl` n'existe pas dans `package.json` ; `npm run build` seul ne
+ * suffit pas : le crawl a sa propre variante, `vite.crawl.config.js`.)
  * Le script démarre et arrête LUI-MÊME l'API (:8787) et `vite preview` (:4173).
  *
  * Ce qui compte comme « erreur » : window.onerror et jsdomError (erreur de
@@ -17,6 +24,7 @@ import { existsSync } from 'node:fs'
 import { JSDOM, VirtualConsole } from 'jsdom'
 import { dict } from '../src/i18n.js'
 import { masterCredentials } from './masterEnv.mjs'
+import { patchPerformanceGaps } from './jsdom-perf-gaps.mjs'
 
 const FRONT = 'http://127.0.0.1:4173'
 const API = 'http://127.0.0.1:8787'
@@ -40,7 +48,7 @@ async function waitFor(fn, label, timeout = 25000) {
 const buttonByText = (doc, text) =>
   [...doc.querySelectorAll('button')].find((b) => b.textContent.trim() === text)
 
-/* 13 pages : comment les atteindre + marqueur DOM de rendu réel. */
+/* Les pages du site : comment les atteindre + marqueur DOM de rendu réel. */
 const PAGES = [
   ['shop', 'nav', 'navShop', '.product-bs-card'],
   ['search', 'nav', 'navSearch', null],
@@ -119,8 +127,32 @@ for (const lang of LANGS) {
   vc.on('jsdomError', (e) => {
     // Non fatal : ressources EXTERNES injoignables en sandbox (Google Fonts,
     // iframe Google Maps de la page about) — le rendu DOM n'en dépend pas.
+    // (La liste des excuses est close : rien n'est filtré d'autre que les
+    // ressources externes. Ajouter un motif ici pour faire passer un rouge est
+    // exactement comment une porte devient muette.)
     if (/Could not load (link|iframe)/i.test(e.message)) return
-    errors.push(`jsdomError: ${e.message}`)
+    // La PILE, pas seulement le message. Une faute intermittent du type
+    // « Cannot read properties of undefined (reading 'querySelector') » ne se
+    // laisse pas diagnostiquer depuis un journal GitHub (le blob store des logs
+    // est souvent injoignable — les annotations restent le seul canal) : sans
+    // frame, on ne peut ni reproduire ni réparer, et la porte devient un mur.
+    // `e.stack` est la pile de JSdom (reportException → processJavaScript) : elle
+    // ne dit rien de la faute. La pile de LA PAGE est sur `e.error.stack` — c'est
+    // elle qui porte le frame du bundle, donc le nom de la fonction qui a lancé.
+    // Sans elle, une porte rouge en CI est indiagnosticable depuis le seul canal
+    // qui reste quand le blob store des logs est injoignable : l'annotation.
+    const stackPage = e.error && e.error.stack ? String(e.error.stack) : ''
+    const frames = (stackPage || e.stack || '').split('\n').map((l) => l.trim()).filter(Boolean)
+    // Les frames de jsdom (`reportException`, `processJavaScript`, …) ne disent
+    // rien : la première course en CI n'a montré que ça. On garde la tête de
+    // pile ET les frames qui touchent le bundle — c'est là que vit la faute.
+    const nôtres = frames.filter((l) => /dist-crawl|assets\/|src\//.test(l)).slice(0, 3)
+    // Sans frame du bundle (faute levée hors d'une pile exploitable), on cite la
+    // ligne de pile utile la plus proche : un `undefined` muet ne suffit plus.
+    const utiles = nôtres.length ? nôtres : frames.filter((l) => !/jsdom\/lib/.test(l)).slice(0, 2)
+
+    const pile = [...new Set([...frames.slice(0, stackPage ? 1 : 2), ...utiles])].join(' ← ')
+    errors.push(`jsdomError: ${e.message}${pile ? ` [${pile}]` : ''}`)
   })
 
   const dom = await JSDOM.fromURL(`${FRONT}/`, {
@@ -129,6 +161,11 @@ for (const lang of LANGS) {
     pretendToBeVisual: true,
     virtualConsole: vc,
     beforeParse(w) {
+      // Les trous d'API de jsdom sont combles AVANT le premier script : sans
+      // Resource Timing, react-dom et le collecteur de rejections du harnais
+      // fabriquent une faute qui n'existe pas dans un navigateur (voir
+      // scripts/jsdom-perf-gaps.mjs).
+      patchPerformanceGaps(w)
       w.localStorage.setItem('pcstar-lang', lang)
       w.localStorage.setItem('pcstar-api-token', login.token)
       // Polyfills : le bundle doit tourner dans jsdom comme en navigateur.
@@ -203,5 +240,7 @@ if (failures.length) {
   console.error(`\nCRAWL FAILED (${failures.length}) :\n${failures.map((f) => '  ✗ ' + f).join('\n')}`)
   teardown(1)
 }
-console.log(`\nCRAWL OK — ${results.length} pages rendues (${LANGS.length} langues × 13 pages), 0 erreur`)
+console.log(
+  `\nCRAWL OK — ${results.length} pages rendues (${LANGS.length} langues × ${PAGES.length} pages), 0 erreur`
+)
 teardown(0)

@@ -1,5 +1,17 @@
 # PC Star — Plan d’amélioration jusqu’à 10/10
 
+> **Journal daté — ses chiffres sont ceux du jour, pas l'état du dépôt.** Ce
+> document est une trace : on ne le réécrit pas quand il est contredit plus tard,
+> parce qu'effacer une conclusion fausse efface aussi la raison pour laquelle
+> elle était fausse.
+> Au fil des lots, plusieurs nombres et commandes ci-dessous ont été
+> dépassés. L'état mesuré d'aujourd'hui est dans
+> [`../../README.md`](../../README.md) (« État mesuré »), la suite des sessions
+> dans [`BUGS-AND-FIXES.md`](BUGS-AND-FIXES.md). Les docs **exécutables** (guides,
+> recettes, prompts d'agent, `docs/README.md`) ont, elles, été corrigées — c'est
+> `src/p3DocsAging.test.js` qui verrouille les deux régimes.
+
+
 **Date :** 2026-09-10  
 **Statut :** **P0–P6 livrés** — score code final **~9.5–9.7** (état final de ce plan)  
 **Cible :** un shop pickup Oran **exploitable en vrai magasin**, pas un clone Amazon.

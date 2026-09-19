@@ -2,8 +2,12 @@
  * Harnais d'audit — pilote le VRAI App dans jsdom, visite chaque page et clique
  * chaque bouton, en capturant toute erreur console / exception non gérée.
  *
- * Usage : node --experimental-loader ./scripts/jsx-test-loader.mjs \
- *           --no-warnings scripts/audit-crawl.mjs [ar|fr|en]
+ * Usage : node --import ./scripts/test-env.mjs \
+ *           --import ./scripts/jsx-test-register.mjs scripts/audit-crawl.mjs [fr|en]
+ *
+ * L'ancien `--experimental-loader ./scripts/jsx-test-loader.mjs` est déprécié
+ * par Node et inutile : `jsx-test-register.mjs` enregistre le transform JSX sans
+ * loader. Et `ar` ne se sert plus — le site est en `fr` et `en`.
  *
  * Le harnais REMONTE l'application avant chaque page : un balayage qui clique
  * des centaines de boutons finit par altérer la session (OAuth, déconnexion),
@@ -151,7 +155,7 @@ const PRE = {
 // masquaient les pages réservées au maître.
 const ONLY = process.argv[3]
 // Le bouton « profil » affiche user.name, pas t('navProfile') : la clé i18n
-// navProfile existe dans les 3 langues mais n'est jamais rendue par App.jsx.
+// navProfile existe dans les deux langues du site mais n'est jamais rendue par App.jsx.
 const OVERRIDE = process.argv[4] || null
 const NAV = ONLY ? ALL_NAV.filter(([n]) => n === ONLY) : ALL_NAV
 

@@ -1,5 +1,17 @@
 # Rapport de vérification — le « lot 0 » annoncé sur `arena/01a090f7-pc-star`
 
+> **Journal daté — ses chiffres sont ceux du jour, pas l'état du dépôt.** Ce
+> document est une trace : on ne le réécrit pas quand il est contredit plus tard,
+> parce qu'effacer une conclusion fausse efface aussi la raison pour laquelle
+> elle était fausse.
+> Au fil des lots, plusieurs nombres et commandes ci-dessous ont été
+> dépassés. L'état mesuré d'aujourd'hui est dans
+> [`../../README.md`](../../README.md) (« État mesuré »), la suite des sessions
+> dans [`BUGS-AND-FIXES.md`](BUGS-AND-FIXES.md). Les docs **exécutables** (guides,
+> recettes, prompts d'agent, `docs/README.md`) ont, elles, été corrigées — c'est
+> `src/p3DocsAging.test.js` qui verrouille les deux régimes.
+
+
 **Objet.** Vérifier, commande par commande, le rapport d'exécution du lot 0
 (« changement des comptes / mots de passe ») annoncé sur la branche
 `arena/01a090f7-pc-star`, commit `2880c2a256b6c7e3ce4f816de6447f931514f400`

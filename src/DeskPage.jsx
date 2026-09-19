@@ -211,7 +211,7 @@ export default function DeskPage({ t, lang, reservations, onStatus, onPickupDate
                             dans l'export CSV, ni visible des autres appareils :
                             le maître doit le voir sur la carte, pas le deviner. */}
                         {r.localOnly === true && (
-                          <span className="badge text-bg-warning" title={t('ordersLocalOnly')}>
+                          <span className="badge text-bg-warning" title={t('ordersLocalOnlyHint')}>
                             {t('ordersLocalOnly')}
                           </span>
                         )}
@@ -316,7 +316,13 @@ export default function DeskPage({ t, lang, reservations, onStatus, onPickupDate
                           {t('deskCancel')}
                         </button>
                       )}
-                      {st !== 'cancelled' && st !== 'picked' && r.userId == null && (
+                      {/* LOT P3 (B15) : `localOnly` = réservation née pendant
+                          une coupure, que le serveur n'a jamais reçue. Le code
+                          de retrait passe par `POST /api/orders/:code/claim` →
+                          404 → « opération échouée », sans que le comptoir
+                          comprenne qu'il n'y a rien à émettre. Le bouton n'est
+                          plus proposé ; le badge, lui, dit pourquoi. */}
+                      {st !== 'cancelled' && st !== 'picked' && r.userId == null && r.localOnly !== true && (
                         <button
                           type="button"
                           className="btn btn-sm btn-outline-primary"
