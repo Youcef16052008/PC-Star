@@ -2820,4 +2820,11 @@ lecture, compteurs refusés et admis, code de la route, constantes du formulaire
 crawl jsdom **24 pages rendues, 0 erreur** avec l'intercepteur de sous-ressources en place ;
 audit boutons **32 vérifications, 0 erreur** (150 boutons cliqués par page et par langue,
 `/master` compris — donc les deux `textarea` et le champ vitrine modifiés sont bien ouverts,
-saisis et soumis sous jsdom) ; reste à relire la CI sur la tête poussée.
+saisis et soumis sous jsdom).
+
+**Relu sur la CI (`afd85da`) — tout est vert, et les trois portes avec.** `UI audit`
+**succès en 7 m 31 s** (les deux étapes, crawl puis audit boutons), `E2E smoke` **succès**
+(1 m 27 s, trois moteurs), `Create Neon Branch` + `Setup` **succès**, Vercel **succès**. Deux
+heads de suite vertes à cette porte : la déterminité gagnée sur le harnais n'a pas masqué les
+défauts de l'application — les quatre ci-dessus ont été trouvés **après**, en sondant le
+serveur, et non en attendant qu'une porte rougeoie.
