@@ -29,6 +29,7 @@ commit. Une **6e phase (P6)** a traité les 7 bugs reportés en conditions réel
 | **P16** | (13/09) | #8, #12-#21, #25, #26 | **Lot 4 (durcissement)** : démos ressuscitées, rate-limit effacé, mot de passe modifiable sans l'ancien, reset `client31`, patch produit non validé, statuts de commande, historique écrasé, CORS `*`, store.json versionné 🟠 |
 | **P15** | (13/09) | #5, #6, #7 | **Lot 3** : recherches sauvées jamais écrites, vignette effacée du DOM, photos SKU fantômes (3 × 404) 🔴 |
 | P14 | (13/09) | #1, #3, #4 | **Lot 2** : inscriptions empoisonnées, WhatsApp du comptoir mort, écran blanc du Builder 🔴 |
+| **P23** | (19/09) | rapport n°4 — P0 + P1 | **6 bugs vérifiés puis corrigés** : panne de pool Neon qui tuait le processus 🔴, fuites du 500, URI mal encodée en 500, commande à 0 DA acceptée, dates inexistantes validées par regex, fiches non éditables ni multi-sockets 🟠 |
 
 L'audit initial et le plan détaillé : [`AUDIT-REPO.md`](./AUDIT-REPO.md).
 B18/B22/B23 : jugés **non-bugs** (contraintes de conception démo, documentées).
@@ -1736,3 +1737,145 @@ module n'expose plus d'objet `MASTER` et le garde-fou serveur
 devient `masterAccount()` — l'invariant réel (« l'empreinte est produite par une
 fonction déclarée avant elle », plus de dépendance au hoisting) est conservé.
 
+---
+
+## P23 (19/09/2026) — vérification du rapport d'audit n°4, puis correctifs P0 et P1
+
+Le rapport n°4 a d'abord été **contre-vérifié claim par claim** : verdict et
+mesures dans [`VERIFICATION-RAPPORT-AUDIT-4.md`](./VERIFICATION-RAPPORT-AUDIT-4.md)
+(27 bugs confirmés à l'identique, 4 sur-évalués, 1 caduc, 4 affirmations hors code
+fausses). Les corrections suivent les priorités établies par cette vérification,
+et **non** l'ordre du rapport : P0 = B1 seul, P1 = B2+B3, B13, B20, B11, B5.
+Un commit par grappe, `npm test` vert à chaque étape.
+
+### P0 / B1 — une panne de connexion Neon tuait le processus (🔴)
+
+Le pool `pg` était créé sans auditeur `'error'`. Une coupure du serveur
+intermédiaire WebSocket émet un `error` sur un client **idle** — sans auditeur,
+Node lève et le **processus meurt** : tout le site tombe pour une minute de
+réseau. Rejoué en direct (faux serveur PG) : `exit 1` avant, processus vivant et
+pool reconstruit après.
+
+- auditeur `'error'` journalisé + invalident du pool sur rotation de `DATABASE_URL` ;
+- `releaseQuietly()` au `finally` des quatre chemins transactionnels (une
+  `release` sur une connexion morte ne doit pas masquer l'erreur d'origine) ;
+- diagnostic exposé : `db.pool` dans `/api/db/status` (`created`, `idleErrors`,
+  `lastError`, `errorListeners`) — un pool qui n'a plus d'auditeur se voit ;
+- verrou : `src/p0NeonPool.test.js` (5 tests, dont l'invariant texte
+  « chaque `release` est silencieuse »).
+
+### P1 / B2 — le 500 racontait le serveur (🟠)
+
+Mesuré : une écriture impossible répondait
+`{"error":"server","message":"EACCES: permission denied, open '/chemin/absolu/store.json.tmp'"}` —
+arborescence offerte à un appelant anonyme, y compris sur les routes publiques.
+Le `catch` global de `server/index.js` et le filet de `api/index.js` (Vercel) ne
+renvoient plus que `{ ok: false, error: 'server' }` ; le détail part en journal.
+
+`src/deskStatusFail.test.js` **exigeait** le champ `message` : ce test verrouillait
+la fuite. Il vérifie maintenant l'absence de détail interne et la journalisation.
+
+### P1 / B3 — une URI mal encodée répondait 500 (🟠)
+
+Dix `decodeURIComponent` à l'air libre dans le `try` géant du handler :
+`/api/orders/%E0%A4%A` levait un `URIError` → 500. Ajout de `pathSegment()`
+(retourne `null` sur segment indécodable) branché sur ces dix sites **et** sur
+les deux routes qui ne décodent pas du tout (`GET /api/stock/:id`,
+`DELETE /api/customers/:id` — incohérence relevée au passage : la recherche
+portait sur `foo%20bar` là où les autres routes voyaient `foo bar`). Réponse :
+**400** `invalid_code` / `invalid_id`, plus un filet `URIError` → 400 `invalid_uri`
+pour les décodages hors du handler. L'autorisation garde la priorité (403 avant 400).
+
+### P1 / B13 — une ligne sans prix fabriquait une commande à 0 DA (🟠)
+
+`priceOf()` renvoie `null` pour un id inconnu (déjà refusé en `unknown_product`)
+mais **0** pour un produit légitime dont le prix a été saisi en texte ou remis à
+zéro ; la normalisation `price == null ? 0 : price` en faisait un article gratuit,
+commande acceptée et stock décrémenté. Reproduit : `{items:[{id:'desk-info'}]}` →
+201, `total: 0`.
+
+- serveur : toute ligne dont le prix de référence n'est pas un nombre **strictement
+  positif** est refusée — `{ ok: false, error: 'unpriced', unpriced: [{id,name}] }`,
+  mappée en 400 avec les lignes en cause, même atomicité que les autres refus
+  (rien n'est décrémenté) ;
+- client : `orderApiFailure` classe `unpriced`, `App.jsx` la traite comme un refus
+  définitif (message qui nomme les lignes, retrait du panier, les autres lignes
+  restent commandables) ;
+- i18n : `orderUnpriced` / `orderUnpricedDetail` en **fr et en** — `i18n.coverage`
+  refuse une clé d'un seul côté comme une clé morte.
+
+### P1 / B20 — une regex tenait lieu de validation de date (🟡)
+
+`^\d{4}-\d{2}-\d{2}$`, recopiée **cinq fois**, acceptait `2026-02-31`,
+`2026-13-01`, `0000-00-00`. Une journée inexistante entrait dans `order.day`,
+dans le code `PS-20260231-0001`, dans le nom de l'export CSV et dans le filtre du
+comptoir — commande introuvable dès qu'on changeait de jour. Le rapport imputait
+aussi à `nextOrderCode` un `new Date(day).toISOString()` (décalage de fuseau) :
+**vérifié faux**, les composants sont passés un par un depuis le lot P9.
+
+`normalizeDay()` (dans `src/orderLogic.js`, seule fonction de validation du
+projet) valide la date réelle par aller-retour dans un `Date` ; branchée sur
+`day`, `pickupDate`, `setOrderPickupDate`, `nextOrderCode` et l'export CSV. Une
+journée fausse à la commande retombe sur la journée locale du client ; un
+`pickupDate` faux est refusé (400 `pickup_date`) au lieu de déborder sur le mois
+suivant.
+
+### P1 / B11 — la compatibilité refusait les listes qu'elle lit partout ailleurs (🟡)
+
+`normalizeProductCompat()` n'admettait qu'une chaîne exacte :
+`{socket:['AM5','LGA1700']}` → `null` → `error: 'compat'` → fiche non enregistrée.
+Or les ventirads du catalogue portent déjà `compat.socket` en tableau,
+`socketsMatch()` sait les comparer, la recherche et le configurateur filtrent
+dessus. Effets mesurés : éditer un ventirad depuis le panneau maître **perdait ses
+supports**, un CPU double socket était **impossible à saisir**, et une carte mère
+déclarant `memory: ['DDR4','DDR5']` aurait fait **refuser** une barrette DDR4.
+
+- `compatValues()` / `compatIntersects()` / `compatLabel()` dans `src/productMeta.js` :
+  chaîne, liste ou chaîne à virgules ; dédupliqué, remis dans l'ordre de la liste
+  de référence (un ré-enregistrement ne modifie plus le store), une valeur unique
+  reste une **chaîne** (format historique), terme inconnu = refus ;
+- `src/data.js` (`caseFitsBoard`, avertissements socket/RAM, détection des
+  ventirads) et `src/BuilderPage.jsx` (filtres, purge du panier au changement de
+  carte) comparent maintenant par **recoupement**, plus par `===` ;
+- `SpecBadges` de la fiche produit rend la liste (`AM4/AM5`) ;
+- panneau maître : les trois listes déroulantes uniques deviennent des **cases à
+  cocher** (socket, mémoire, format) — sans cela le correctif serveur restait
+  inatteignable depuis l'interface.
+
+### P1 / B5 — le maître ne pouvait pas corriger une fiche (🟡)
+
+`masterUpdateProduct()` n'était appelé dans `MasterPage.jsx` qu'avec
+`{ photos }` : nom, prix, stock, catégorie, garantie, compatibilité s'écrivaient
+uniquement à la **création**. Une fiche au prix erroné ne pouvait donc pas être
+corrigée — il fallait la masquer et la recréer, donc changer d'identifiant, donc
+perdre photos liées et historique de stock. Le serveur, lui, applique tout
+(`sanitizeProductPatch`, `meta.productOverrides` pour les 301 fiches du catalogue
+de base) : c'était un trou d'interface.
+
+- mappages extraits dans `src/masterForm.js` (`emptyProductForm`,
+  `productFormFromProduct`, `productPayloadFromForm`) : testables hors React, et
+  un ré-enregistrement est idempotent (vérifié sur 40 fiches du catalogue) ;
+- bouton « Modifier la fiche » par ligne, en-tête du formulaire qui bascule,
+  annulation qui réinitialise, mêmes règles d'erreur qu'à la création
+  (`sku_taken`, `price`, `compare_at_price`) ;
+- prix : `min="1"` sur le champ (le serveur refuse 0 depuis le LOT 1.12 parce
+  que ça rend la ligne incommandable — cf. B13) ;
+- mode **API uniquement** : le store local n'a pas de fonction de mise à jour, le
+  bouton y est désactivé avec une explication (`masterEditApiOnly`) plutôt que
+  de promettre un enregistrement qui ne persisterait pas.
+
+### Verrous ajoutés
+
+`src/p1HttpErrors.test.js` (7), `src/p1OrderGuards.test.js` (16),
+`src/p1CompatLists.test.js` (17), `src/p1MasterEdit.test.js` (13) — serveur HTTP
+réel lancé à chaque grappe, donc 400/403/500 vérifiés sur le chemin complet.
+Suite : **915 tests, 0 échec** (`npm run build` préalable : `bundleSecrets` scanne
+le bundle).
+
+### Reste ouvert (priorités P2 et P3 du rapport de vérification)
+
+P2 : B6 (table partagée du comptoir, aucun bouton retour), B7 (lien OAuth des
+démos), B10, B12 (divergence POST/PUT sur `name`), B28 (rate-limit, dont
+`reset-password`). P3 : B4, B8, B9, B15-B19, B21-B27, B30, B32, B33, plus la
+documentation du README (nombre de produits, nombre de tests et sa pré-condition
+`dist/`, langue arabe retirée) et `npm run test:e2e` qui ne tourne dans aucune CI.
