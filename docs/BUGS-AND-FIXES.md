@@ -2638,9 +2638,12 @@ saisi et soumis sous jsdom sans exception. Dictionnaire : **13 clés mortes reti
 22 ajoutées** dans les deux langues, garde de couverture verte (aucune clé lue sans
 traduction, aucune traduction sans lecteur).
 
-**Relecture CI (relatée telle que vue).** Sur la série qui précédait ce lot, deux rouges
-restaient ouverts sur `dfebbac` : `UI audit` sur `✗ fr/orders` (le script du bundle évalué
-trop tôt, corrigé dans `1a07714`) et le smoke e2e sur `smoke.spec.js:102` (la reprise de
-session attendait un délai au lieu de la réponse, corrigé dans `ea178e6`). Les deux portes
-sont relancées sur `68e2077`, qui contient ces deux correctifs **et** le lot P4 ; le
-résultat est noté ici au moment où il est lu, pas au moment où il est espéré.
+**Relecture CI, telle qu'elle a été lue (et pas telle qu'elle était espérée).** Sur la série qui précédait ce lot, deux rouges restaient ouverts sur `dfebbac` : `UI audit` sur `✗ fr/orders` (le script du bundle évalué avant `#root`, corrigé dans `1a07714`) et le smoke e2e sur `smoke.spec.js:102` (la reprise de session attendait un délai au lieu de la réponse, corrigé dans `ea178e6`). Relancées sur `b427df4`, qui contient ces deux correctifs et le lot P4 :
+
+| Porte CI | Verdict lu | Détail |
+| --- | --- | --- |
+| E2E smoke | **succès** (1 m 33 s) | trois moteurs, `--forbid-only` ; le rouge de la reprise de session ne revient pas |
+| UI audit — crawl jsdom | **succès** | 24 pages, 0 erreur : `fr/orders` n'est plus jamais blâmé |
+| UI audit — audit boutons | **échec** (2 rejets, un par langue) | `performance.getEntriesByType is not a function` |
+
+Le tiers restant mérite son propre paragraphe, parce que sa forme est trompeuse. Le message désignait l'application, le harnais appelait bien son shim, et neuf exécutions locales ne le donnaient pas. En le reproduisant en trente secondes on a trouvé le vrai coupable : **le shim ne vivait que dans le realm principal**. Une iframe a son propre `window.performance`, avec les mêmes méthodes absentes — et la page « à propos » monte sa carte Google Maps *après* le premier rendu, donc après `beforeParse`. Le collecteur de rejections étant branché sur le processus, une promesse laissée par un realm non comblé devient une faute de l'app, et seule une machine assez lente pour que l'ordre des microtâches change le montre. Réparé côté harnais (le shim descend dans les frames, y compris celles qui apparaissent ensuite), sans rien ajouter à la liste des excuses du crawl ni relâcher le collecteur ; deux verrous dans `src/p3ServerHygiene.test.js`, dont celui qui rejoue le message de la CI. Après ça : crawl **24 pages / 0 erreur**, audit **32 vérifications / 0 erreur**, `npm test` **1059 / 1059**.
