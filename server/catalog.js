@@ -493,10 +493,25 @@ export function deleteOrder(db, code) {
   return { ok: true, code, status: order.status || 'new', restocked: order.status !== 'cancelled' && order.status !== 'picked' }
 }
 
-export function setOrderStatus(db, code, status) {
+/**
+ * `expected` (LOT P2, B6) : le statut que l'écran qui écrit **croyait** voir.
+ * Facultatif — son absence laisse le comportement d'avant, pour les appelants
+ * qui n'ont pas la valeur sous la main. Fournie, elle refuse l'écriture
+ * obsolète au lieu de l'appliquer : la table des transitions ne dit pas si
+ * l'émetteur était à jour, et un onglet resté ouvert peut ainsi écrire un
+ * mouvement pourtant légal (`new → ready`) sur une commande déjà plus haut.
+ */
+export function setOrderStatus(db, code, status, expected = null) {
   if (!ORDER_STATUSES.includes(status)) return { ok: false, error: 'status' }
   const order = (db.orders || []).find((o) => o.code === code)
   if (!order) return { ok: false, error: 'not_found' }
+
+  const actuel = order.status || 'new'
+  if (expected != null && expected !== '' && String(expected) !== actuel) {
+    // Le `order` voyage avec le refus : le comptoir se recale sur la vérité au
+    // lieu de rester affiché sur l'état qu'il vient de perdre.
+    return { ok: false, error: 'stale', expected: String(expected), from: actuel, order }
+  }
 
   if (status === 'cancelled' && order.status !== 'cancelled') {
     return cancelOrder(db, code)

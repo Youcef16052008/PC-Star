@@ -430,6 +430,10 @@ export const dict = {
     deskMarkPicked: 'Remis',
     deskCancel: 'Annuler + restock',
     deskStatusFail: 'Mise à jour impossible',
+    // LOT P2 (B6) : le serveur a refusé l'écriture parce que l'état
+    // affiché n'était plus le bon. Le dire évite à l'opérateur de croire à une
+    // panne et de cliquer une deuxième fois.
+    deskStatusStale: 'La commande a changé entre-temps — état actualisé',
     deskDelete: 'Supprimer',
     deskDeleteFail: 'Suppression impossible',
     confirmDeleteOrder: 'Supprimer définitivement cette commande ? Action irréversible, le stock sera rétabli.',
@@ -1071,6 +1075,7 @@ export const dict = {
     deskMarkPicked: 'Handed over',
     deskCancel: 'Cancel + restock',
     deskStatusFail: 'Could not update status',
+    deskStatusStale: 'The order changed in the meantime — state refreshed',
     deskDelete: 'Delete',
     deskDeleteFail: 'Could not delete the order',
     confirmDeleteOrder: 'Permanently delete this order? This cannot be undone, and the stock will be restored.',

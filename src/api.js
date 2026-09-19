@@ -148,8 +148,14 @@ export async function listOrders() {
   return req('/api/orders')
 }
 
-export async function patchOrder(code, status) {
-  return req(`/api/orders/${encodeURIComponent(code)}`, { method: 'PATCH', body: { status } })
+/**
+ * `expectedStatus` (LOT P2, B6) : le statut que l'écran affiche au moment du
+ * clic. Fourni, le serveur refuse l'écriture s'il a entre-temps changé (409
+ * `stale`) au lieu d'appliquer un mouvement à l'aveugle.
+ */
+export async function patchOrder(code, status, expectedStatus = null) {
+  const body = expectedStatus ? { status, expectedStatus } : { status }
+  return req(`/api/orders/${encodeURIComponent(code)}`, { method: 'PATCH', body })
 }
 
 // Le comptoir fixe ou décale la date de retrait (sans toucher au statut).

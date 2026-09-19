@@ -741,7 +741,10 @@ export default function App() {
   async function handleOrderStatus(code, status) {
     if (apiOnline && authMode === 'api' && isMaster) {
       try {
-        const r = await api.patchOrder(code, status)
+        // LOT P2 (B6) : le statut que CET écran affiche. Fourni au serveur, il
+        // refuse l'écriture obsolète au lieu de l'appliquer à l'aveugle.
+        const visible = reservationsRef.current.find((o) => o?.code === code)?.status || null
+        const r = await api.patchOrder(code, status, visible)
         if (r.ok && r.data?.order) {
           // P21 : horodatage AVANT la mise à jour d'état, pour que la fusion
           // du polling suivant sache que ce statut est plus récent.
@@ -753,6 +756,16 @@ export default function App() {
         // Commande inconnue du serveur (créée en mode local), session non
         // API ou réseau tombé : on bascule sur le repli local au lieu de
         // laisser le bureau bloqué sur « Could not update status ».
+        // Refus pour état dépassé : la vérité est dans la réponse, on la
+        // réapplique à la carte — l'écran ne doit pas rester sur le statut
+        // qu'il vient de perdre.
+        if (r.status === 409 && r.data?.error === 'stale') {
+          if (r.data.order) {
+            syncReservations((prev) => prev.map((o) => (o.code === code ? { ...o, ...r.data.order } : o)))
+          }
+          setToast(t('deskStatusStale'))
+          return false
+        }
         const err = r.data?.error
         if (!r.offline && err !== 'not_found' && err !== 'forbidden') {
           setToast(t('deskStatusFail'))

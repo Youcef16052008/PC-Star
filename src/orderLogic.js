@@ -69,11 +69,26 @@ export function applyStockRestore(stockMap, items) {
  * La table vit ici et `server/catalog.js` l'importe : une seule définition,
  * donc plus de divergence possible.
  */
+// LOT P2 (B6) — les deux arrières sont retirés.
+//
+// Mesuré avant correctif, serveur live : `preparing → new` et `ready →
+// preparing` répondaient **200**. Aucun bouton du comptoir ne les propose
+// (`DeskPage.jsx:250-285` : new→preparing, new/preparing→ready, ready→picked) :
+// ces deux arrières n'étaient donc atteignables QUE par un appelant qui n'a pas
+// l'état courant — un onglet resté ouvert, un ancien client, un script. Chacun
+// remet la commande en arrière sans rien annuler ni rien rendre : le stock
+// n'est pas touché par un aller-retour (vérifié : 4 = 5 − 1, dans les deux
+// sens), mais la ligne disparaît de la file « prêtes à retirer » et le client
+// reçoit un statut faux. Une table de statut qui autorise un mouvement que
+// personne ne peut déclencher depuis l'interface est une porte, pas une
+// commodité — le recul réel (une fiche marquée « prête » trop tôt) reste
+// possible par la voie honnête : le comptoir annule, la commande repasse en
+// `new` ET le stock revient.
 export const ORDER_TRANSITIONS = {
   new: ['preparing', 'ready', 'picked', 'cancelled'],
   pending: ['preparing', 'ready', 'picked', 'cancelled'],
-  preparing: ['new', 'ready', 'picked', 'cancelled'],
-  ready: ['preparing', 'picked', 'cancelled'],
+  preparing: ['ready', 'picked', 'cancelled'],
+  ready: ['picked', 'cancelled'],
   picked: [],
   cancelled: []
 }

@@ -1142,11 +1142,13 @@ export async function handler(req, res) {
       const status = String(body.status || '')
       const hasPickup = body.pickupDate != null
       if (!status && !hasPickup) return send(res, 400, { ok: false, error: 'status' })
+      // LOT P2 (B6) : le statut que l'écran affichait au moment du clic.
+      const expectedStatus = body.expectedStatus == null ? null : String(body.expectedStatus)
       let result = null
       await updateDbAsync((db) => {
         result = null
         if (status) {
-          result = setOrderStatus(db, code, status)
+          result = setOrderStatus(db, code, status, expectedStatus)
           // Statut + date en un seul aller-retour (le « prêt » annonce la date).
           if (result?.ok && hasPickup) {
             const pd = setOrderPickupDate(db, code, String(body.pickupDate))
@@ -1158,6 +1160,12 @@ export async function handler(req, res) {
         return db
       })
       if (!result?.ok) {
+        // 409 et non 400 pour `stale` : la requête est correcte, c'est l'état
+        // de l'appelant qui ne l'est pas — le comptoir doit relire, pas corriger
+        // sa saisie.
+        if (result.error === 'stale') {
+          return send(res, 409, { ok: false, error: 'stale', current: result.from, order: result.order })
+        }
         const codeHttp = result?.error === 'not_found' ? 404 : 400
         return send(res, codeHttp, { ok: false, error: result?.error || 'status' })
       }
