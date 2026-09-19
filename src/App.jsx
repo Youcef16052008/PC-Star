@@ -839,6 +839,17 @@ export default function App() {
       setToast(t('orderOnlyNew'))
       return false
     }
+    // LOT P3 (B17) : une commande qui VIT SUR LE SERVEUR ne s'annule pas en
+    // local. Avant : l'écran affichait « Commande annulée — stock rétabli »
+    // pendant que la ligne restait `new` au comptoir, et le prochain
+    // `mergeServerOrders` (`src/orderLogic.js:545`) ramenait le statut serveur —
+    // la commande réapparaissait chez le client comme au bureau. Le faux succès
+    // était donc en plus temporaire. Sans session, la seule voie honnête est de
+    // le dire, et la copie locale n'est pas touchée.
+    if (apiOnline && target.localOnly !== true && !user) {
+      setToast(t('orderCancelNeedsLogin'))
+      return false
+    }
     commitReservations((prev) =>
       prev.map((o) => (o.code === code ? { ...o, status: 'cancelled', cancelledAt: new Date().toISOString() } : o))
     )
@@ -2192,7 +2203,12 @@ export default function App() {
                     onClick={() => {
                       setReserved(null)
                       setCartOpen(false)
-                      go('profile')
+                      // LOT P3 (B21) : le libellé dit « Mes commandes » et
+                      // envoyait sur le profil. Depuis le LOT 5.x, « Mes
+                      // commandes » est SORTI du profil (`src/OrdersPage.jsx`,
+                      // que `ProfilePage.jsx:6-7` cite lui-même) : le bouton
+                      // menait donc à un écran qui n'affiche aucune commande.
+                      go('orders')
                     }}
                   >
                     {t('viewMyOrders')}

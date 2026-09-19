@@ -28,8 +28,23 @@ const staticKeys = new Set()
 const tagPrefix = new Set()
 const tagValues = new Set()
 
+/**
+ * Les commentaires sont retirés AVANT extraction des appels : une prose qui
+ * cite `t('une_clé')` pour expliquer un historique n'est pas un appel. Sans
+ * cela, un commentaire documentant un code d'erreur absent du dictionnaire
+ * faisait échouer ce test pour un faux motif (constaté au LOT P3 en écrivant la
+ * note sur `demo_locked` dans `AuthPanel.jsx`). Le balayage INVERSE, lui, garde
+ * les commentaires : une clé qui n'apparaît que dans une note n'est pas pour
+ * autant référencée par le code, mais ce test-ci ne juge que les appels.
+ */
+function sansCommentaires(src) {
+  return src
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .replace(/(^|[^:\w])\/\/[^\n]*/g, '$1')
+}
+
 for (const f of files) {
-  const src = readFileSync(join(SRC, f), 'utf8')
+  const src = sansCommentaires(readFileSync(join(SRC, f), 'utf8'))
   for (const m of src.matchAll(/(?<![A-Za-z0-9_$.])t\(\s*'([^']+)'/g)) staticKeys.add(m[1])
   for (const m of src.matchAll(/(?<![A-Za-z0-9_$.])t\(\s*"([^"]+)"/g)) staticKeys.add(m[1])
   for (const m of src.matchAll(/(?<![A-Za-z0-9_$.])t\(\s*`((?:tag|line|cat)_)\$\{/g)) tagPrefix.add(m[1])
@@ -50,7 +65,7 @@ PRODUCTS.forEach((p) => (p.tags || []).forEach((v) => tagValues.add(v)))
 
 const allKeys = new Set([...staticKeys, ...dynamicKeys])
 
-test(`i18n: ${allKeys.size} clés statiques + dynamiques toutes présentes en ar/fr/en`, () => {
+test(`i18n: ${allKeys.size} clés statiques + dynamiques toutes présentes en ${LANGS.map((l) => l.id).join('/')}`, () => {
   const missing = []
   for (const key of allKeys) {
     for (const { id } of LANGS) {

@@ -91,6 +91,9 @@ export const dict = {
     authErrorExists: 'E-mail déjà inscrit',
     authErrorAuth: 'E-mail ou mot de passe incorrect',
     authErrorRate: 'Trop de tentatives, réessayez dans une minute',
+    // LOT P3 (B8) : le compte de démonstration verrouillé doit le dire — le
+    // code serveur `demo_locked` arrive directement à l'utilisateur.
+    authErrorDemoLocked: 'Compte de démonstration verrouillé par le magasin',
     authErrorPhone: 'Mobile DZ invalide (05/06/07)',
     authOk: 'Connecté',
     sessionExpired: 'Session expirée — reconnectez-vous',
@@ -520,6 +523,12 @@ export const dict = {
     legalTermsL2: 'La réservation en ligne prépare la commande ; confirmation finale au comptoir.',
     legalTermsL3: 'Compatibilité (CPU/carte/GPU) revérifiée en magasin avant paiement.',
     seoDescription: 'PC Star Oran — PC neufs et occasion, laptops, imprimantes, réseau, accessoires et réparation. Retrait El Makari Les Castors.',
+    // LOT P3 (B9) : `link()` et `unlink()` ne disaient rien quand le serveur
+    // refusait (`master_oauth_forbidden`, `identity_linked`, `demo_enabled`) —
+    // le clic ne produisait aucun effet visible.
+    oauthLinkFail: 'Liaison impossible — réessayez, ou prévenez le magasin.',
+    oauthUnlinkFail: 'Détachement impossible — le compte reste lié.',
+    oauthUnlinkAsk: 'Délier ce compte {provider} ? Vous pourrez le relier plus tard.',
     oauthNote: 'Google/Meta : mode démo local, ou clés OAuth en prod (OAUTH_DEMO=0).',
     myOrders: 'Mes commandes',
     myOrdersEmpty: 'Pas encore de commande',
@@ -536,6 +545,9 @@ export const dict = {
     orderOnlyNew: 'Seules les commandes « neuves » peuvent être annulées',
     orderNotClaimable: 'Passée sans compte — annulation au comptoir uniquement',
     orderCancelNotMine: "Cette commande n'est pas rattachée à votre compte : annulation impossible ici",
+    // LOT P3 (B17) : ce qui est enregistré chez le magasin ne s'efface pas
+    // d'un appareil. Le dire vaut mieux qu'un « Commande annulée » mensonger.
+    orderCancelNeedsLogin: 'Commande enregistrée chez le magasin : connectez-vous pour l’annuler, ou prévenez-le au comptoir.',
     orderRetryConflict: 'Le panier a changé pendant la tentative. Confirmez de nouveau la réservation.',
     orderClaimTitle: 'Vous avez un code de retrait du comptoir ?',
     orderClaimPlaceholder: 'Code (ex. AB2C-9D4F)',
@@ -739,6 +751,7 @@ export const dict = {
     authErrorExists: 'Email already registered',
     authErrorAuth: 'Wrong email or password',
     authErrorRate: 'Too many attempts, try again in a minute',
+    authErrorDemoLocked: 'Demo account locked by the store',
     authErrorPhone: 'Invalid DZ mobile (05/06/07)',
     authOk: 'Signed in',
     sessionExpired: 'Session expired — please sign in again',
@@ -1162,6 +1175,9 @@ export const dict = {
     legalTermsL2: 'Online reservation prepares the order; final confirm at the desk.',
     legalTermsL3: 'Compatibility (CPU/board/GPU) is rechecked in store before payment.',
     seoDescription: 'PC Star Oran — new and used PCs, laptops, printers, network, accessories and repair. Pickup El Makari Les Castors.',
+    oauthLinkFail: 'Cannot link this account — try again, or ask the store.',
+    oauthUnlinkFail: 'Cannot unlink — the account stays linked.',
+    oauthUnlinkAsk: 'Unlink this {provider} account? You can link it again later.',
     oauthNote: 'Google/Meta: local demo mode, or real OAuth keys in prod (OAUTH_DEMO=0).',
     myOrders: 'My orders',
     myOrdersEmpty: 'No orders yet',
@@ -1178,6 +1194,7 @@ export const dict = {
     orderOnlyNew: 'Only "new" orders can be cancelled',
     orderNotClaimable: 'Placed without an account — cancel at the desk only',
     orderCancelNotMine: 'This order is not linked to your account: it cannot be cancelled here',
+    orderCancelNeedsLogin: 'This order is on the store server: sign in to cancel it, or tell the counter.',
     orderRetryConflict: 'The cart changed during the attempt. Please confirm the reservation again.',
     orderClaimTitle: 'Got a pickup code from the desk?',
     orderClaimPlaceholder: 'Code (e.g. AB2C-9D4F)',

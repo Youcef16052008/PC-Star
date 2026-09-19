@@ -3,7 +3,14 @@ import { Modal } from 'bootstrap'
 import { isDzPhone, loginEmail, registerEmail } from './shopStore.js'
 import * as api from './api.js'
 
-const ERR = {
+/**
+ * Table des codes d'erreur serveur vers clés i18n. Exportée (LOT P3, B8) pour
+ * que `src/p3ClientScreens.test.js` vérifie la complétude de la table au lieu
+ * de la re-déclarer : B8 était précisément un TROU de cette table
+ * (`demo_locked` absent, donc la clé brute à l'écran), et une copie dans le
+ * test n'aurait rien vu.
+ */
+export const AUTH_ERRORS = {
   email: 'authErrorEmail',
   password: 'authErrorPassword',
   // LOT 1.9 : sans cette entrée, `fail(code)` affichait la clé brute
@@ -12,7 +19,14 @@ const ERR = {
   exists: 'authErrorExists',
   auth: 'authErrorAuth',
   phone: 'authErrorPhone',
-  rate: 'authErrorRate'
+  rate: 'authErrorRate',
+  // LOT P3 (B8) : `POST /api/auth/login` répond `401 demo_locked` quand le
+  // compte de démonstration existe mais n'a **aucun** mot de passe (aucun
+  // `DEMO_PASSWORD` posé, `server/index.js:555`). Sans entrée ici, `fail(code)`
+  // faisait `t('demo_locked')` : la CLÉ BRUTE à l'écran, en français comme en
+  // anglais — exactement le défaut que le LOT 1.9 avait corrigé pour
+  // `name_too_long`.
+  demo_locked: 'authErrorDemoLocked'
 }
 
 export default function AuthPanel({ t, users, onUsers, onSession, onClose, setToast, apiOnline, onApiUser }) {
@@ -53,7 +67,7 @@ export default function AuthPanel({ t, users, onUsers, onSession, onClose, setTo
   }, [])
 
   function fail(code) {
-    setError(t(ERR[code] || code))
+    setError(t(AUTH_ERRORS[code] || code))
   }
 
   function succeedLocal(user, nextUsers, msgKey) {
