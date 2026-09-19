@@ -127,8 +127,17 @@ for (const lang of LANGS) {
   vc.on('jsdomError', (e) => {
     // Non fatal : ressources EXTERNES injoignables en sandbox (Google Fonts,
     // iframe Google Maps de la page about) — le rendu DOM n'en dépend pas.
+    // (La liste des excuses est close : rien n'est filtré d'autre que les
+    // ressources externes. Ajouter un motif ici pour faire passer un rouge est
+    // exactement comment une porte devient muette.)
     if (/Could not load (link|iframe)/i.test(e.message)) return
-    errors.push(`jsdomError: ${e.message}`)
+    // La PILE, pas seulement le message. Une faute intermittent du type
+    // « Cannot read properties of undefined (reading 'querySelector') » ne se
+    // laisse pas diagnostiquer depuis un journal GitHub (le blob store des logs
+    // est souvent injoignable — les annotations restent le seul canal) : sans
+    // frame, on ne peut ni reproduire ni réparer, et la porte devient un mur.
+    const pile = (e.stack || '').split('\n').slice(1, 5).map((l) => l.trim()).join(' ← ')
+    errors.push(`jsdomError: ${e.message}${pile ? ` [${pile}]` : ''}`)
   })
 
   const dom = await JSDOM.fromURL(`${FRONT}/`, {
