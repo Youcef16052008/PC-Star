@@ -424,7 +424,10 @@ export default function BuilderPage({ t, lang = 'fr', products, build, setBuild,
                 <div className="alert alert-danger py-2">
                   <strong>{t('socketMismatch')}</strong>
                   <div className="small">
-                    {t('compatSocketShort', { cpu: cpu.name, cpuSocket: compatLabel(cpu.compat.socket), board: board.name, boardSocket: compatLabel(board.compat.socket) })}
+                    {/* LOT P2 (B10) : ce bloc se rend précisément quand
+                        `socketOk` est faux — donc aussi quand le CPU ne declare
+                        AUCUN socket, le cas ou `cpu.compat.socket` jetait. */}
+                    {t('compatSocketShort', { cpu: cpu.name, cpuSocket: compatLabel(cpu.compat?.socket), board: board.name, boardSocket: compatLabel(board.compat?.socket) })}
                   </div>
                 </div>
               )}

@@ -905,9 +905,13 @@ export function checkCompatibility(items) {
   const list = (items || []).filter(Boolean)
   const cpus = list.filter((i) => i.category === 'cpu')
   const boards = list.filter((i) => i.category === 'motherboard')
-  const rams = list.filter((i) => i.compat && i.compat.memory && i.category === 'memory')
+  // LOT P2 (B10) : `i.compat && i.compat.memory` ne protégeait que la moitié du
+  // chemin — `compat: null` passe `i.compat &&` mais casse à `compatValues` en
+  // aval. Le chaînage court est la seule écriture qui tolère l'absence, la
+  // valeur vide et le champ jamais posé, sans dupliquer la garde.
+  const rams = list.filter((i) => i.compat?.memory && i.category === 'memory')
   const gpus = list.filter((i) => i.category === 'gpu')
-  const psus = list.filter((i) => i.compat && i.compat.psuWatts)
+  const psus = list.filter((i) => i.compat?.psuWatts)
   // LOT P1 (B11) : le repère « est-ce un ventirad ? » n'est plus le TYPE de la
   // donnée (tableau) mais la présence de sockets — un ventirad qui ne declare
   // qu'un seul support etait traite comme un composant ordinaire.
@@ -918,8 +922,12 @@ export function checkCompatibility(items) {
     cpus.forEach((cpu) => {
       boards.forEach((board) => {
         // P17 (rapport #5) : `!==` aurait signalé à tort un CPU multi-socket.
-        if (cpu.compat.socket && board.compat.socket && !socketsMatch(cpu.compat.socket, board.compat.socket)) {
-          W('compatSocketMismatch', { cpu: cpu.name, cpuSocket: compatLabel(cpu.compat.socket), board: board.name, boardSocket: compatLabel(board.compat.socket) }, true)
+        // LOT P2 (B10) : `cpu.compat.socket` levait un `TypeError` pour une
+        // fiche sans objet `compat` — exactement le cas d'un produit créé par le
+        // maître ou restauré d'une sauvegarde ancienne, et `checkCompatibility`
+        // tourne DANS le rendu (`BuilderPage.jsx:26`) : toute la page retombait.
+        if (cpu.compat?.socket && board.compat?.socket && !socketsMatch(cpu.compat.socket, board.compat.socket)) {
+          W('compatSocketMismatch', { cpu: cpu.name, cpuSocket: compatLabel(cpu.compat?.socket), board: board.name, boardSocket: compatLabel(board.compat?.socket) }, true)
         }
         const cs = specOf(cpu)
         const bs = specOf(board)
@@ -934,7 +942,7 @@ export function checkCompatibility(items) {
 
   if (cpus.length && !boards.length) {
     cpus.forEach((cpu) => {
-      W('compatNeedsBoard', { cpu: cpu.name, socket: compatLabel(cpu.compat.socket) })
+      W('compatNeedsBoard', { cpu: cpu.name, socket: compatLabel(cpu.compat?.socket) })
     })
   }
 
@@ -943,8 +951,8 @@ export function checkCompatibility(items) {
       rams.forEach((ram) => {
         // LOT P1 (B11) : recoupement au lieu d'une egalite stricte — une carte
         // qui accepte « DDR4 et DDR5 » ne doit pas faire refuser une barrette DDR4.
-        if (compatValues(board.compat.memory).length && compatValues(ram.compat.memory).length && !compatIntersects(board.compat.memory, ram.compat.memory)) {
-          W('compatRamMismatch', { ram: ram.name, ramMem: compatLabel(ram.compat.memory), board: board.name, boardMem: compatLabel(board.compat.memory) }, true)
+        if (compatValues(board.compat?.memory).length && compatValues(ram.compat?.memory).length && !compatIntersects(board.compat.memory, ram.compat.memory)) {
+          W('compatRamMismatch', { ram: ram.name, ramMem: compatLabel(ram.compat?.memory), board: board.name, boardMem: compatLabel(board.compat?.memory) }, true)
         }
       })
     })
@@ -953,8 +961,8 @@ export function checkCompatibility(items) {
   if (gpus.length && psus.length) {
     gpus.forEach((gpu) => {
       psus.forEach((psu) => {
-        if (gpu.compat.psuMin && psu.compat.psuWatts < gpu.compat.psuMin) {
-          W('compatPsuWeak', { gpu: gpu.name, min: gpu.compat.psuMin, psu: psu.name, watts: psu.compat.psuWatts }, true)
+        if (gpu.compat?.psuMin && psu.compat?.psuWatts < gpu.compat.psuMin) {
+          W('compatPsuWeak', { gpu: gpu.name, min: gpu.compat.psuMin, psu: psu.name, watts: psu.compat?.psuWatts }, true)
         }
       })
     })
@@ -962,7 +970,7 @@ export function checkCompatibility(items) {
 
   if (gpus.length && !psus.length) {
     gpus.forEach((gpu) => {
-      if (gpu.compat.psuMin) W('compatNeedsPsu', { gpu: gpu.name, min: gpu.compat.psuMin })
+      if (gpu.compat?.psuMin) W('compatNeedsPsu', { gpu: gpu.name, min: gpu.compat?.psuMin })
     })
   }
 
