@@ -5,6 +5,17 @@
  * le même produit créé via l'API gardent donc le même format, les mêmes bornes
  * et les mêmes champs visibles sur la fiche publique.
  */
+// LOT P2 (B12) — les trois champs qui portaient encore leur borne en DUR dans
+// `sanitizeProductPatch` (120 / 60 / 200) et aucune borne du tout à la création.
+// Une fiche `POST /api/master/products` avec un nom de 5 000 caractères passait,
+// puis le MÊME produit refusait `PUT` avec `name_too_long` : la règle doit vivre
+// un seul endroit, sinon le chemin d'entrée décide de la validité.
+// `name` se REFUSE (une tronquer changerait l'identité de la fiche), `brand` et
+// `short` se TRONQUENT (des champs descriptifs, jamais une clé).
+export const NAME_LIMIT = 120
+export const BRAND_LIMIT = 60
+export const SHORT_LIMIT = 200
+
 export const DETAIL_LIMIT = 12
 export const DETAIL_LABEL_LIMIT = 48
 export const DETAIL_VALUE_LIMIT = 160

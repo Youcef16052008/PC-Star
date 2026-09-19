@@ -14,7 +14,16 @@ import { MAX_INPUT_BYTES, MAX_PHOTOS, MAX_UPLOAD_BODY_BYTES, payloadOverBudget, 
 // LOT P1 (B5) : mappages du formulaire produit extraits et testables hors React.
 import { emptyProductForm, productFormFromProduct, productPayloadFromForm } from './masterForm.js'
 import { labelOr } from './i18n.js'
-import { COMPAT_FORMS, COMPAT_MEMORY, COMPAT_SOCKETS, compatValues, isValidBarcode } from './productMeta.js'
+import {
+  BRAND_LIMIT,
+  COMPAT_FORMS,
+  COMPAT_MEMORY,
+  COMPAT_SOCKETS,
+  NAME_LIMIT,
+  SHORT_LIMIT,
+  compatValues,
+  isValidBarcode
+} from './productMeta.js'
 
 /**
  * Traduit une réponse d'API en message utilisateur.
@@ -591,7 +600,7 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, ma
                   <legend>{t('masterIdentity')}</legend>
                   <div className="mb-2">
                     <label className="form-label small" htmlFor="master-product-name">{t('masterName')}</label>
-                    <input id="master-product-name" className="form-control" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required />
+                    <input id="master-product-name" className="form-control" maxLength={NAME_LIMIT} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required />
                   </div>
                   <div className="row g-2">
                     <div className="col-md-6">
@@ -659,11 +668,11 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, ma
                   </div>
                   <div className="mb-2">
                     <label className="form-label small" htmlFor="master-product-brand">{t('masterBrand')}</label>
-                    <input id="master-product-brand" className="form-control" value={form.brand} onChange={(e) => setForm({ ...form, brand: e.target.value })} />
+                    <input id="master-product-brand" className="form-control" maxLength={BRAND_LIMIT} value={form.brand} onChange={(e) => setForm({ ...form, brand: e.target.value })} />
                   </div>
                   <div className="mb-2">
                     <label className="form-label small" htmlFor="master-product-short">{t('masterShort')}</label>
-                    <input id="master-product-short" className="form-control" value={form.short} onChange={(e) => setForm({ ...form, short: e.target.value })} />
+                    <input id="master-product-short" className="form-control" maxLength={SHORT_LIMIT} value={form.short} onChange={(e) => setForm({ ...form, short: e.target.value })} />
                   </div>
                   <div className="mb-2">
                     <label className="form-label small" htmlFor="master-product-description">{t('masterDescription')}</label>

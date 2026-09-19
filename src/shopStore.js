@@ -75,9 +75,12 @@ export { normalizePhone, isDzPhone, phoneCarrier }
 import { isKnownCategory, isKnownCondition, isKnownUse, kindForCategory } from './data.js'
 import {
   BARCODE_LIMIT,
+  BRAND_LIMIT,
   CONDITION_NOTE_LIMIT,
   DESCRIPTION_LIMIT,
   MODEL_LIMIT,
+  NAME_LIMIT,
+  SHORT_LIMIT,
   cleanProductText,
   isValidBarcode,
   normalizeProductCompat,
@@ -372,7 +375,14 @@ function skuSlug(title) {
 export function addProduct(meta, { name, price, category, brand, stock, short, photos, sku, condition, uses, warrantyMonths, model, barcode, description, conditionNote, compareAtPrice, lowStockAt, details, tags, compat } = {}, knownSkus = []) {
   const title = String(name || '').trim()
   const n = Number(price)
-  if (!title || !Number.isFinite(n) || n < 0) return { ok: false, error: 'product' }
+  if (!title || !Number.isFinite(n)) return { ok: false, error: 'product' }
+  // LOT P2 (B12) : la règle locale doit être LA règle de l'API, sinon le mode
+  // local enregistre une fiche que le serveur refuserait dès qu'on la rejoue en
+  // `POST` — et deux bornes manquaient ici : `price` à 0 DA (le catalogue
+  // public vend alors à 0, bug corrigé côté patch au LOT 1.12 mais pas ici) et
+  // le nom non mesuré.
+  if (n <= 0) return { ok: false, error: 'price' }
+  if (title.length > NAME_LIMIT) return { ok: false, error: 'name_too_long' }
   // Absent → repli `accessories` ; présent mais hors liste (chaîne vide
   // comprise) → refus, comme à l'API : la même règle des deux côtés.
   const cat = category == null ? 'accessories' : String(category)
@@ -421,8 +431,10 @@ export function addProduct(meta, { name, price, category, brand, stock, short, p
     // ces caractères et on retombe sur un suffixe horodaté — jamais « PS- » seul.
     sku: manualSku || uniqueSku(`PS-${skuSlug(title)}`, [...(meta.extraProducts || []), ...knownSkus]),
     name: title,
-    short: String(short || title),
-    brand: String(brand || 'PC Star'),
+    // LOT P2 (B12) : mêmes bornes qu'au serveur (le repli sur le titre reste
+    // sous `SHORT_LIMIT`, puisque `NAME_LIMIT` est plus petit).
+    short: cleanProductText(short || title, SHORT_LIMIT),
+    brand: cleanProductText(brand || 'PC Star', BRAND_LIMIT),
     category: cat,
     condition: productCondition,
     uses: productUses,
