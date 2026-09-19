@@ -2340,3 +2340,20 @@ spec dans `src/p3ClientScreens.test.js`, trois sur le shim dans
 `npm run build` propre. L'audit boutons n'a pas été rejoué localement après
 le shim (8 min 20 ; les deux étapes CI le font) — le test verrouille l'import et
 le placement du shim dans les deux scripts.
+
+### Issue : les trois portes CI sont vertes sur la branche
+
+Run du `70e225c` (PR #9) :
+
+| Porte | Résultat | Durée | Ce qu'elle jouait |
+|---|---|---|---|
+| `Create Neon Branch` (migrations, verrou de concurrence, backup/restore, **suite complète**) | pass | 2m34s | 1002 tests sur Node 22, base Neon éphémère |
+| `Crawl 2×13 pages + clic de tous les boutons` | pass | 8m27s | 24 pages rendues, 0 erreur JS ; puis les boutons de 10 pages × 2 langues et les cinq scénarios « vide → erreur » — **l'étape qui était rouge sur `performance.getEntriesByType` est verte depuis le shim** |
+| `Chromium — vitrine, connexion, session au rechargement` | pass | 49s | les trois parcours e2e, y compris la connexion au compte de démonstration et la session après rechargement — **l'étape qui était rouge sur le bouton d'envoi introuvable est verte depuis la spec scopée** |
+
+Le rappel du lot, en une ligne : les deux échecs n'étaient pas dans
+l'application, et les 995 tests verts de la veille ne pouvaient pas les voir —
+l'un parce que la spec e2e ne s'était jamais jouée sans `DEMO_PASSWORD`,
+l'autre parce qu'il n'existe que dans le jsdom d'un runner. Ce qui a rendu les
+deux réparables, ce n'est pas un correctif de plus : c'est le fait d'avoir écrit
+le journal dans une annotation que l'API Checks pouvait relà.
