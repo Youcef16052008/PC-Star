@@ -63,7 +63,11 @@ export default function ProfilePage({ t, user, users, onUsers, onUser, setToast,
       }
       const res = updateUser(users, user.id, { name, phone, wilaya })
       if (!res.ok) {
-        setErr(t('authErrorAuth'))
+        // LOT P5 : le mode local refuse le nom trop long comme l'API (il ne la
+        // devance plus au merge) — il doit donc le DIRE avec les mêmes mots que
+        // la branche API juste au-dessus, pas noyer le refus dans l'erreur
+        // d'authentification.
+        setErr(res.error === 'name_too_long' ? t('authErrorName') : t('authErrorAuth'))
         return
       }
       onUsers(res.users)

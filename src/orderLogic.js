@@ -1,4 +1,6 @@
 import { STORE, money, specOf } from './data.js'
+// LOT P5 : la troncature de secours du message se fait avec `clipChars`.
+import { clipChars } from './textClip.js'
 
 /**
  * Pure order helpers (shared client tests + local fallback).
@@ -406,7 +408,10 @@ export function buildWaMessage(cart, total, pickup, t, { limit = WA_TEXT_LIMIT, 
   // Cas pathologique : une seule ligne dépasse déjà (nom de produit énorme).
   // On tronque alors brutalement — un message coupé et signalé vaut mieux qu'un
   // lien `wa.me` qui ne s'ouvre pas.
-  if (msg.length > limit) msg = `${msg.slice(0, Math.max(0, limit - 1))}…`
+  // LOT P5 : `clipChars` et non `slice` — la troncature de secours tapait au
+  // milieu d'une paire de substituts et laissait une moitié d'emoji collée
+  // devant le « … », dans le message que le comptoir reçoit sur WhatsApp.
+  if (msg.length > limit) msg = `${clipChars(msg, Math.max(0, limit - 1))}…`
   return msg
 }
 

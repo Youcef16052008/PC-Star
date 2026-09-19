@@ -2828,3 +2828,78 @@ saisis et soumis sous jsdom).
 heads de suite vertes à cette porte : la déterminité gagnée sur le harnais n'a pas masqué les
 défauts de l'application — les quatre ci-dessus ont été trouvés **après**, en sondant le
 serveur, et non en attendant qu'une porte rougeoie.
+
+### Relecture : mes propres correctifs portaient le défaut que je corrigeais
+
+Relire le lot P5 après coup, en retournant cette fois le regard vers **mon** travail et non
+vers l'application d'origine, a rapporté six choses. Elles sont écrites ici dans l'ordre où
+elles ont été trouvées, avec la mesure à côté de chacune.
+
+1. **J'avais remplacé un `O(1)` par un `O(n)` pour dire non.** Le compte intégral
+   (`countChars(saisie) > LIMITE`) parcourt tout le corps reçu avant de le refuser — là où le
+   `.length` fautif qu'il remplaçait était gratuit. Un refus se décide **avant** écriture, sur
+   une entrée que l'appelant choisit : la mesure faite ce jour, refuser un nom de 4 Mio coûtait
+   le parcours des 4 Mio. D'où `excedeChars(value, max)` dans `src/textClip.js` : `s.length`
+   écarte en O(1) ce qui ne peut pas dépasser (N unités = au plus N caractères), sinon arrêt au
+   premier caractère de trop. Coût borné par `max`, jamais par la taille du corps. Les sept sites
+   de refus y sont passés (commande, profil, inscription, nom produit au `create` et au `sanitize`,
+   `addProduct` du mode local). Un verrou compare `excedeChars` au compte intégral sur un
+   échantillon mêlé — y compris une saisie finissant sur une **tête de paire orpheline**, le cas
+   où une borne mal écrite *inventerait* un refus — et un autre chronomètre : refuser 4 Mio en
+   `< 5 ms`. `countChars` reste l'oracle de ce verrou, plus le moyen, pour un test ou un
+   diagnostic, de dire combien de signes il y a dans un texte ; le module le dit, pour qu'il ne
+   soit pas pris pour un export mort.
+
+2. **Deux autres plafonds de nom comptaient encore en unités**, dans la même famille, hors des
+   trois lignes que j'avais verrouillées : l'inscription (`regName.length > 64`) et le profil
+   (`meName.length > 64`). Un prénom en emoji y valait le double de sa taille réelle — 33 emoji
+   étaient refusés à l'inscription alors qu'ils passent à la commande. Les deux sont passés à
+   `excedeChars(regName, 64)` / `excedeChars(meName, 64)`, et le verrou de grep ne cite plus des
+   lignes : il exige **trois** `excedeChars(` dans `server/index.js` et interdit qu'un
+   `…Name.length > N` ou qu'un `trim().slice(0, N)` subsistent dans la porte.
+
+3. **La wilaya du profil était coupée en unités** (`String(body.wilaya).trim().slice(0, 32)`),
+   c'est-à-dire 16 emoji, avec la moitié d'une paire laissée en fin de chaîne. Repartie comme le
+   reste du lot : `clipChars(..., 32)`.
+
+4. **Le mode local n'était pas à la même règle que l'API.** `updateUser` bornait la wilaya et
+   laissait le **nom** sans plafond : le profil se remplissait hors ligne, et c'est au `PUT` de
+   fusion que l'utilisateur découvrait le refus. La borne de 64 est reprise à l'identique côté
+   local (refus `name_too_long`, pas troncature), la wilaya locale se coupe en caractères, et
+   `ProfilePage` affiche `authErrorName` dans les deux branches — avant, le même refus local
+   noyait l'utilisateur dans le message d'erreur d'authentification. Un verrou joue la
+   parité bout-en-bout : 33 emoji passent à l'API (et le `GET /api/me` rend 33 caractères) et en
+   local, 65 caractères refusent des deux côtés.
+   *Asymétrie laissée, sans conséquence* : le plafond de wilaya est 32 à l'API, 40 en local — un
+   nom de wilaya réel tient dans les deux, et c'est la liste `WILAYAS_NEAR` qui tranche à la
+   commande.
+
+5. **La troncature de secours du message WhatsApp séparait une paire.** Elle repartait de
+   `msg.slice(0, limit - 1) + '…'` ; `slice` compte des unités, donc coupait un emoji en deux et
+   laissait la moitié orpheline collée devant le « … » du message que lit le commerçant. Sur les
+   21 valeurs de borne balayées par le nouveau verrou, l'ancienne formule produisait **6 fois**
+   une moitié de paire ; `clipChars` **0 fois**, et la borne continue d'être tenue (21/21). La
+   garde de longueur, elle, reste délibérément en unités : ce qui est en jeu ici est la taille
+   de l'URL `wa.me`, pas le nombre de signes visibles.
+
+6. **Le style de mon propre lot était fautif.** Six fichiers portaient des fautes que j'avais
+   écrites dans des commentaires et des messages de test (`regue`, `nest plus`, `nimporte`,
+   `sest `, accents perdus), et deux verrous de constantes citaient des valeurs en dur que
+   `MasterPage` écrivait déjà via les constantes partagées — le commentaire a été aligné sur le
+   code, pas l'inverse.
+
+Vérifié **sans rien trouver** pendant la même relecture : les coupes `slice(0, …)` restantes ne
+portent pas sur du texte affiché (`media.js` plafonne des listes de produits, `blobStore` un nom
+de fichier déjà filtré à l'ASCII, `neonStore`/`oauth` des jetons opaques) ; marque et résumé
+passent par `cleanProductText`, donc par la même coupe en caractères ; le backoff de
+`src/deskStream.js` est borné (abandon après `maxReconnectFails`, repli polling, aucun
+enchevauchement de tentatives).
+
+**Quatre verrous de plus** sur cet arbre : `src/lot2Logic.test.js` 31 → **33** (coût de la borne,
+échantillon mêlé, moitiés de paire, sweep de la troncature WhatsApp, grep élargi aux trois routes),
+`src/p2ProductLimits.test.js` 11 → **13** (parité API/local du nom, wilaya locale coupée en
+caractères).
+
+**Portes mesurées après relecture.** `npm test` **1085 / 1085** (299 suites) ; `npm run build`
+**489,99 kB** pour le bundle principal, scan anti-secret sur 9 artefacts, aucun secret ; crawl
+jsdom **24 pages, 0 erreur** ; audit boutons **32 vérifications, 0 erreur**.

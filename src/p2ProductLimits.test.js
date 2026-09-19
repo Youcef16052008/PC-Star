@@ -142,12 +142,13 @@ describe('P2/B12 — le mode local ne peut plus accepter ce que l’API refuse',
     assert.equal(/\.slice\(0, ?(?:60|200)\)/.test(api), false, 'une troncature littérale est réapparue côté serveur')
     assert.equal(/name\.length > 120/.test(api), false, 'un 120 en dur est réapparu côté serveur')
     assert.equal((api.match(/NAME_LIMIT/g) || []).length >= 2, true, 'createProduct et sanitizeProductPatch doivent lire la même constante')
-    // LOT P5 : l'exigence est la meme (le nom est mesure a la creation, en local
-    // comme a l'API) mais la regle de compte a change — compter des unites UTF-16
-    // refusait un nom de 60 emoji que le serveur acceptait. Les deux cotes doivent
-    // lire la meme regue, donc le verrou porte desormais sur `countChars`.
-    assert.equal(/countChars\(title\) > /.test(sansCommentaires(STORE)), true, 'addProduct ne mesure plus le nom')
-    assert.equal(/title\.length > NAME_LIMIT/.test(sansCommentaires(STORE)), false, 'le nom local est recompte en unites UTF-16 : deux verdicts pour un meme texte')
+    // LOT P5 : l'exigence est la même (le nom est mesuré à la création, en local
+    // comme à l'API) mais la règle de compte a changé — compter des unités UTF-16
+    // refusait un nom de 60 emoji que le serveur acceptait. Les deux côtés lisent
+    // la même règle, donc le verrou porte désormais sur `excedeChars` (et non sur
+    // un `.length`, qui est précisément le compte qui mentait).
+    assert.match(sansCommentaires(STORE), /excedeChars\(title, NAME_LIMIT\)/, 'addProduct ne mesure plus le nom comme l\'API')
+    assert.equal(/title\.length > NAME_LIMIT/.test(sansCommentaires(STORE)), false, 'le nom local est recompté en unités UTF-16 : deux verdicts pour un même texte')
   })
 
   it('le formulaire borne la saisie sur les trois champs', () => {
@@ -197,5 +198,53 @@ describe('P2/B12 — en direct sur l’API', () => {
     const corps = await relus.json()
     const dansListe = corps.products.find((p) => p.id === product.id)
     assert.equal(dansListe.brand.length, BRAND_LIMIT, 'la liste maître relit une autre longueur')
+  })
+})
+
+describe('P5 — la borne du nom d’utilisateur se compte en caractères, des deux côtés', () => {
+  /*
+   * Le lot P5 a traité le nom du produit ; le nom de la PERSONNE portait le même
+   * défaut, sur une autre route : `PUT /api/me` bornait à `meName.length > 64`
+   * (donc 33 emoji = 66 unités = refus), et `updateUser` du mode local ne bornait
+   * pas le nom du tout — le profil se remplissait hors ligne, puis le `PUT` du
+   * merge le refusait. Une borne doit dire la même chose en local et à l'API,
+   * sinon l'utilisateur découvre le refus après coup.
+   */
+  const EMOJI = '\u{1F9F0}'
+  const putMe = (payload) =>
+    fetch(`${base}/api/me`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${masterToken}` },
+      body: JSON.stringify(payload)
+    })
+
+  it('33 emoji passent à l’API comme en local, 65 caractères refusent des deux côtés', async () => {
+    const { updateUser } = await import('./shopStore.js')
+    const ok = await putMe({ name: EMOJI.repeat(33) })
+    assert.equal(ok.status, 200, `l'API refuse un nom de 33 caractères (66 unités) : ${await ok.text()}`)
+    const relance = await fetch(`${base}/api/me`, { headers: { Authorization: `Bearer ${masterToken}` } })
+    assert.equal([...((await relance.json()).user?.name || '')].length, 33, 'le nom stocké n’est plus les 33 caractères envoyés')
+
+    const users = [{ id: 'u1', name: 'ancien', email: 'u1@x.dz', wilaya: 'Oran' }]
+    const local = updateUser(users, 'u1', { name: EMOJI.repeat(33) })
+    assert.equal(local.ok, true, JSON.stringify(local))
+    assert.equal([...local.user.name].length, 33)
+
+    const refusApi = await putMe({ name: 'x'.repeat(65) })
+    assert.equal(refusApi.status, 400, "l'API accepte un nom de 65 caractères")
+    assert.equal((await refusApi.json()).error, 'name_too_long')
+    assert.deepEqual(updateUser(users, 'u1', { name: 'x'.repeat(65) }), { ok: false, error: 'name_too_long' }, 'le mode local laisse passer ce que l’API refuse')
+    assert.equal(updateUser(users, 'u1', { name: 'a'.repeat(64) }).ok, true, 'la borne elle-même doit passer (64 = accepté)')
+  })
+
+  it('la wilaya locale se coupe en caractères, sans laisser de moitié de paire', async () => {
+    const { updateUser } = await import('./shopStore.js')
+    const users = [{ id: 'u2', name: 'Ali', email: 'u2@x.dz', wilaya: 'Oran' }]
+    const r = updateUser(users, 'u2', { wilaya: 'a' + EMOJI.repeat(60) })
+    assert.equal(r.ok, true)
+    assert.equal([...r.user.wilaya].length, 40, 'la borne de 40 ne compte plus des unités')
+    const dernier = r.user.wilaya.charCodeAt(r.user.wilaya.length - 1)
+    assert.equal(dernier >= 0xd800 && dernier <= 0xdbff, false, 'la wilaya stockée se termine par une tête de paire orpheline')
+    assert.equal(updateUser(users, 'u2', { wilaya: '   ' }).user.wilaya, 'Oran', 'une wilaya vide doit retomber sur la précédente, pas sur le vide')
   })
 })

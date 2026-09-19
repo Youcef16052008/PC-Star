@@ -467,5 +467,83 @@ describe('LOT P5 — la coupe de texte ne sépare jamais un caractère en deux',
     assert.equal(/orderName\.length > 64/.test(index), false, 'le nom de commande est recompte en unites')
     const master = fs.readFileSync('server/masterApi.js', 'utf8')
     assert.equal(/name\.length > NAME_LIMIT/.test(master), false, 'le nom produit est recompte en unites')
+    // Et elles comparent via `excedeChars` (arret au premier caractere de trop),
+    // pas `countChars(...) >` qui parcourt tout le corps recu pour dire non.
+    for (const [nom, source] of [['server/index.js', index], ['server/masterApi.js', master], ['src/shopStore.js', fs.readFileSync('src/shopStore.js', 'utf8')]]) {
+      assert.match(source, /excedeChars\(/, `${nom} ne borne plus la longueur en caracteres`)
+      assert.equal(/countChars\([^)]*\) > /.test(source), false, `${nom} mesure la totalite d'une saisie pour la refuser`)
+    }
+
+    // A la relecture, deux autres plafonds du meme texte libre comptaient encore
+    // des unites : l'inscription (`regName.length > 64`) et la wilaya du profil
+    // (`String(...).trim().slice(0, 32)`). La regle ne vaut pas pour trois lignes
+    // citees mais pour tout le texte saisi qui entre par la porte.
+    const propre = (src) => src.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:\w])\/\/[^\n]*/g, '$1')
+    assert.equal((index.match(/excedeChars\(/g) || []).length, 3, 'une route de la porte borne encore un nom en unites')
+    assert.equal(/\b\w*[Nn]ame\.length > \d/.test(propre(index)), false, 'un nom est encore compare a une borne en unites UTF-16')
+    assert.equal(/trim\(\)\.slice\(0, *\d+\)/.test(propre(index)), false, 'un texte libre est encore coupe en unites UTF-16 dans la porte')
+  })
+
+  it('la troncature de secours du message WhatsApp ne sépare pas une paire', async () => {
+    /*
+     * Le message que recoit le comptoir est borne en caracteres pour tenir dans
+     * une URL `wa.me`, et la troncature de secours (un seul article énorme)
+     * faisait `msg.slice(0, limit - 1) + '…'` : `slice` compte des unités, donc
+     * coupait un emoji en deux et laissait la moitié orpheline juste devant le « … ».
+     * La borne de longueur, elle, reste en unités : c'est la taille de l'URL qui
+     * est en jeu ici, pas le nombre de signes visibles — d'ou deux mesures
+     * differentes, volontairement.
+     */
+    const { buildWaMessage } = await import('./orderLogic.js')
+    const { repairPaires } = await import('./textClip.js')
+    const EMOJI = '\u{1F9F0}'
+    const t = (k, v) => (v ? Object.values(v).map((x) => String(x ?? '')).join(' | ') : k)
+    const cart = [{ qty: 1, name: 'Ryzen 7 ' + EMOJI.repeat(40), sku: 'cpu-7800x3d' }]
+    const pickup = { name: 'Ali', phone: '0770650387', slot: '19/09 14:00' }
+    let vue = 0
+    for (let limit = 20; limit <= 80; limit += 3) {
+      const msg = buildWaMessage(cart, 260000, pickup, t, { limit, lang: 'fr' })
+      assert.equal(repairPaires(msg), msg, `le message tronque a ${limit} contient une moitie de paire`)
+      assert.equal(msg.length <= limit, true, `la borne de ${limit} n'est plus respectee`)
+      if (msg.length === limit) vue += 1
+    }
+    assert.ok(vue > 0, 'aucun cas ne touchait la troncature : le verrou ne regardait rien')
+  })
+
+  it('excedeChars : meme reponse que le compte, sans le cout du compte', async () => {
+    const { excedeChars, countChars } = await import('./textClip.js')
+    const EMOJI = '\u{1F9F0}'
+    assert.equal(excedeChars('', 64), false)
+    assert.equal(excedeChars(null, 64), false)
+    assert.equal(excedeChars('a'.repeat(64), 64), false, 'a la borne exactement : on passe')
+    assert.equal(excedeChars('a'.repeat(65), 64), true, 'un de plus : on refuse')
+    assert.equal(excedeChars(EMOJI.repeat(33), 64), false, '33 emoji = 66 unites, mais 33 caracteres')
+    assert.equal(excedeChars(EMOJI.repeat(65), 64), true)
+    assert.equal(excedeChars('abc', 0), true, 'une borne nulle ne laisse rien passer')
+    assert.equal(excedeChars('', 0), false, 'rien a dire sur une chaine vide')
+    assert.equal(excedeChars('abc', NaN), false, "une borne invalide n'invente pas un refus")
+
+    // Accord parfait avec le compte integral sur un echantillon mele.
+    for (let n = 0; n < 120; n += 7) {
+      const t = 'a'.repeat(n % 3) + EMOJI.repeat(n)
+      assert.equal(excedeChars(t, 50), countChars(t) > 50, `divergence a n=${n}`)
+      assert.equal(excedeChars(t, 1), countChars(t) > 1, `divergence a n=${n} (borne 1)`)
+    }
+
+    // Une saisie qui FINIT sur une tete de paire orpheline est le cas ou une borne
+    // mal ecrite INVENTERAIT un refus (2 unites vues la ou il y a 1 caractere) :
+    // la reponse doit rester celle du compte.
+    for (const bout of ['a'.repeat(50) + '\\uD83E', 'a'.repeat(49) + '\\uD83E', 'a'.repeat(51) + '\\uD83E']) {
+      assert.equal(excedeChars(bout, 50), countChars(bout) > 50, 'divergence sur une saisie terminee par une moitie de paire')
+    }
+
+    // Le propriete qui justifie l'existence de la fonction : refuser ne doit pas
+    // couter le prix du texte refuse. 4 Mo de « a » (le maximum qu'un corps de
+    // requete peut raisonnablement porter ici) compares a 64 en O(64).
+    const enormissime = 'a'.repeat(4 * 1024 * 1024)
+    const t0 = process.hrtime.bigint()
+    assert.equal(excedeChars(enormissime, 64), true)
+    const ms = Number(process.hrtime.bigint() - t0) / 1e6
+    assert.ok(ms < 5, `${ms.toFixed(1)} ms pour refuser un nom de 4 Mo : la borne parcourt le corps de la requete`)
   })
 })

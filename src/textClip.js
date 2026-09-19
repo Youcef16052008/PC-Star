@@ -31,7 +31,13 @@
  * caractère en deux.
  */
 
-/** Nombre de caractères (points de code) d'une chaîne — pas le nombre d'unités UTF-16. */
+/**
+ * Nombre de caractères (points de code) d'une chaîne — pas le nombre d'unités
+ * UTF-16. Les refus de longueur passent par `excedeChars` (ci-dessous) ; ce
+ * compte-là reste l'oracle des verrous, ceux qui vérifient que la réponse
+ * « trop long » ne change pas entre les deux formes — et le seul moyen, pour un
+ * test ou un diagnostic, de dire combien de signes il y a dans un texte.
+ */
 export function countChars(value) {
   const s = String(value ?? '')
   // Chemin rapide : en dessous de U+0800 il ne peut pas y avoir de paire de
@@ -88,6 +94,31 @@ export function repairPaires(value) {
     }
   }
   return out
+}
+
+/**
+ * `true` quand `value` dépasse `max` **caractères** (points de code).
+ *
+ * Le test d'usure du correctif P5 : refuser un texte trop long se fait avant
+ * toute écriture, donc sur des entrées que l'attaquant choisit — mesurer la
+ * longueur complète d'un nom de 4 Mo pour découvrir qu'il dépasse 64 signes
+ * coûterait plus cher que le refus qu'il prépare. `s.length` (O(1)) écarte d'abord
+ * les cas où il est mathématiquement impossible de dépasser (une chaîne de N
+ * unités compte au plus N caractères), puis on s'arrête au premier caractère de
+ * trop : le coût ne dépend plus que de `max`, jamais de la taille du corps reçu.
+ */
+export function excedeChars(value, max) {
+  const s = String(value ?? '')
+  const seuil = Math.floor(Number(max))
+  if (!Number.isFinite(seuil)) return false
+  if (s.length <= seuil) return false
+  let n = 0
+  for (let i = 0; i < s.length; ) {
+    n += 1
+    if (n > seuil) return true
+    i += s.codePointAt(i) > 0xffff ? 2 : 1
+  }
+  return false
 }
 
 /**

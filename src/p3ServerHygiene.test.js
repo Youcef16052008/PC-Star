@@ -461,7 +461,7 @@ describe('P4 — la porte rend la pile de la page, pas celle du moteur', () => {
     // La tete de la pile de la page suffit a dire d'ou vient la faute : l'evaluation
     // d'un script (`processJavaScript`), pas un clic ni un effet du harnais.
     assert.match(pile, /processJavaScript/, 'la tete de pile ne dit plus que la faute leve pendant l evaluation du script')
-    assert.equal((pile.match(/index-2KbYsC/g) || []).length, 1, 'frames dupliqués : le résumé nest plus lisible')
+    assert.equal((pile.match(/index-2KbYsC/g) || []).length, 1, 'frames dupliqués : le résumé n\'est plus lisible')
   })
 
   it('sans cause exploitable la pile reçue reste rendue, et une entrée bizarre ne casse pas la porte', async () => {
@@ -487,13 +487,13 @@ describe('P4 — la porte rend la pile de la page, pas celle du moteur', () => {
   it('les deux portes sont branchées sur le module, et ne réimprovisent pas la pile', async () => {
     for (const f of ['scripts/jsdom-crawl.mjs', 'scripts/audit-buttons.mjs']) {
       const s = fs.readFileSync(path.join(process.cwd(), f), 'utf8')
-      assert.match(s, /import \{ pileDeFaute \} from '\.\/jsdom-error-pile\.mjs'/, `${f} nimporte pas le module de pile`)
+      assert.match(s, /import \{ pileDeFaute \} from '\.\/jsdom-error-pile\.mjs'/, `${f} n'importe pas le module de pile`)
       assert.match(s, /pileDeFaute\(e\)/, `${f} n'appelle pas pileDeFaute sur la faute`)
       assert.equal(/const frames = /.test(s), false, `${f} recompose une pile à la main : le tri forke en deux endroits`)
     }
     // Le module ne connaît aucune liste d'excuses : il ne peut pas amollir une porte.
     const mod = fs.readFileSync(path.join(process.cwd(), 'scripts/jsdom-error-pile.mjs'), 'utf8')
-    assert.equal(/isSoft|Could not load/.test(mod), false, 'le module de pile sest mis à filtrer des erreurs')
+    assert.equal(/isSoft|Could not load/.test(mod), false, 'le module de pile s\'est mis à filtrer des erreurs')
   })
 })
 
@@ -534,7 +534,7 @@ describe('P4 — la porte ne charge pas le code des tiers', () => {
     const modBrut = fs.readFileSync(path.join(process.cwd(), 'scripts/jsdom-subresources.mjs'), 'utf8')
     const code = modBrut.replace(/\/\*[\s\S]*?\*\//g, '')
     assert.match(code, /export function/, 'le retrait des blocs de commentaire a mangé le module')
-    assert.equal(/Could not load|isSoft|querySelector|Uncaught/.test(code), false, 'le module sest mis à raisonner sur les messages derreur')
+    assert.equal(/Could not load|isSoft|querySelector|Uncaught/.test(code), false, 'le module s\'est mis à raisonner sur les messages derreur')
   })
 
   it('le bundle same-origin est évalué, le script tiers est neutralé sans faute', async () => {
@@ -564,7 +564,7 @@ describe('P4 — la porte ne charge pas le code des tiers', () => {
     try {
       await new Promise((r) => setTimeout(r, 800))
       const w = dom.window
-      assert.equal(w.__bundle, 1, 'le bundle same-origin nest plus évalué : la porte est devenue muette')
+      assert.equal(w.__bundle, 1, 'le bundle same-origin n\'est plus évalué : la porte est devenue muette')
       assert.equal(w.__err, undefined, 'la sous-ressource distante lève une erreur délément : le chemin de refus dépend du réseau du runner')
       assert.equal(w.__cssErr, undefined, 'idem pour la feuille de style distante')
       assert.equal(w.__mapsVivant, undefined, 'le tiers est neutralisé mais son callback est quand même appelé : réponse synthétique mal formée')
@@ -578,7 +578,7 @@ describe('P4 — la porte ne charge pas le code des tiers', () => {
   it('les deux portes partagent la politique (plus de `resources: "usable"` nu)', () => {
     for (const f of ['scripts/jsdom-crawl.mjs', 'scripts/audit-buttons.mjs']) {
       const s = fs.readFileSync(path.join(process.cwd(), f), 'utf8')
-      assert.match(s, /import \{ ressourcesDeLaPorte \} from '\.\/jsdom-subresources\.mjs'/, `${f} nimporte pas la politique de sous-ressources`)
+      assert.match(s, /import \{ ressourcesDeLaPorte \} from '\.\/jsdom-subresources\.mjs'/, `${f} n'importe pas la politique de sous-ressources`)
       assert.match(s, /resources: ressourcesDeLaPorte\(\)/, `${f} ne passe pas resourcesDeLaPorte() au JSDOM`)
       assert.equal(/resources: 'usable'/.test(s), false, `${f} a retrouvé un resources: 'usable' nu : le flake du tiers revient`)
     }

@@ -33,7 +33,7 @@ const MAX_SAVED_SEARCHES = 10
 // `SecurityError` pendant le rendu.
 import { asSafeStorage, safeStorage } from './safeStorage.js'
 import { clampVitrine } from './vitrine.js'
-import { countChars } from './textClip.js'
+import { clipChars, excedeChars } from './textClip.js'
 
 export function hashPass(password) {
   let h = 2166136261
@@ -300,14 +300,21 @@ export function updateUser(users, id, patch) {
   const idx = users.findIndex((u) => u.id === id)
   if (idx < 0) return { ok: false, error: 'missing' }
   const allowed = {}
-  if (patch.name != null) allowed.name = String(patch.name).trim() || users[idx].name
+  // LOT P5 : le mode local ne doit rien laisser passer que l'API refuserait au
+  // merge — `PUT /api/me` borne le nom a 64 caracteres (et le refus est le meme),
+  // et la « wilaya » se coupe en caracteres, pas en unites UTF-16.
+  if (patch.name != null) {
+    const nom = String(patch.name).trim()
+    if (nom && excedeChars(nom, 64)) return { ok: false, error: 'name_too_long' }
+    allowed.name = nom || users[idx].name
+  }
   if (patch.phone != null) {
     const p = String(patch.phone).trim()
     allowed.phone = p ? normalizePhone(p) : ''
   }
   // P16 : longueur bornée — une « wilaya » de 100 000 caractères partait en
   // base et ressortait dans chaque export CSV du comptoir.
-  if (patch.wilaya != null) allowed.wilaya = String(patch.wilaya).trim().slice(0, 40) || users[idx].wilaya || 'Oran'
+  if (patch.wilaya != null) allowed.wilaya = clipChars(String(patch.wilaya).trim(), 40) || users[idx].wilaya || 'Oran'
 
   const user = { ...users[idx], ...allowed }
   const next = users.slice()
@@ -389,10 +396,12 @@ export function addProduct(meta, { name, price, category, brand, stock, short, p
   // public vend alors à 0, bug corrigé côté patch au LOT 1.12 mais pas ici) et
   // le nom non mesuré.
   if (n <= 0) return { ok: false, error: 'price' }
-  // LOT P5 : `countChars`, pas `title.length` — la regue du serveur compte des
-  // caracteres, et un nom de 60 emoji (120 unites, 60 caracteres) etait refuse
-  // ici alors que l'API l'accepte : le meme texte, deux verdicts selon le mode.
-  if (countChars(title) > NAME_LIMIT) return { ok: false, error: 'name_too_long' }
+  // LOT P5 : une mesure en CARACTÈRES (points de code), pas en unités UTF-16 —
+  // un nom de 60 emoji (120 unités, 60 caractères) était refusé ici alors que
+  // l'API l'accepte : le même texte, deux verdicts selon le mode. `excedeChars`
+  // plutôt qu'un compte intégral : la borne se teste avant écriture, sur une
+  // saisie que l'appelant choisit — elle ne doit pas la parcourir pour dire non.
+  if (excedeChars(title, NAME_LIMIT)) return { ok: false, error: 'name_too_long' }
   // Absent → repli `accessories` ; présent mais hors liste (chaîne vide
   // comprise) → refus, comme à l'API : la même règle des deux côtés.
   const cat = category == null ? 'accessories' : String(category)

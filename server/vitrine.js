@@ -36,11 +36,11 @@ export function applyVitrineEdit(db, body) {
   const done = body?.repairsDone
   if (label != null && typeof label !== 'string') return { ok: false, error: 'vitrine_label' }
   // LOT P5 : la garde etait `Number.isFinite(Number(done))`, qui validait donc
-  // tout ce que JS sait convertir — mesuree le 19/09/2026 : `true` enregistrait
+  // tout ce que JS sait convertir — mesurée le 19/09/2026 : `true` enregistrait
   // 1, `[12]` enregistrait 12, `'1e3'` enregistrait 1000, et une valeur au-dessus
-  // du plafond etait ramenee a 9 999 999 sans un mot. `estCompteurVitrine` est la
-  // regue du contrat (nombre fini ou chaine d'entiers, dans la borne) : ce qui ne
-  // la respecte pas est REFUSE, et le maitre voit ce qu'il a tape.
+  // du plafond était ramenée à 9 999 999 sans un mot. `estCompteurVitrine` est la
+  // règle du contrat (nombre fini ou chaîne de chiffres, dans la borne) : ce qui
+  // ne la respecte pas est REFUSÉ, et le maître voit ce qu'il a tapé.
   if (done != null && !estCompteurVitrine(done)) return { ok: false, error: 'vitrine_count' }
   const current = clampVitrine(db.meta?.vitrine)
   const next = clampVitrine({

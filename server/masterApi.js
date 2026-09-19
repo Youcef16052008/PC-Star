@@ -23,7 +23,7 @@ import {
   normalizeProductTags
 } from '../src/productMeta.js'
 // LOT P5 : compter et couper en caracteres (points de code), pas en unites UTF-16.
-import { clipChars, countChars } from '../src/textClip.js'
+import { clipChars, excedeChars } from '../src/textClip.js'
 import { uploadBlob, deleteBlob, isManagedUploadUrl, MAX_BYTES, MAX_PHOTOS } from './blobStore.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -162,7 +162,7 @@ export function createProduct(db, body, id) {
   // LOT P2 (B12) : le nom était la seule borne que le patch refusait et que la
   // création ignorait. Refus, pas troncature : le nom est ce qui identifie la
   // fiche sur l'étiquette, dans le CSV et dans les recherches.
-  if (countChars(name) > NAME_LIMIT) return { ok: false, error: 'name_too_long' }
+  if (excedeChars(name, NAME_LIMIT)) return { ok: false, error: 'name_too_long' }
   // `Math.max(0, Number(value) || 0)` laissait passer Infinity à la création,
   // contrairement aux patches. Une valeur non finie finirait sérialisée en
   // `null` et rendrait une fiche impossible à vendre; on refuse avant écriture.
@@ -294,7 +294,7 @@ export function sanitizeProductPatch(patch = {}) {
   if (patch.name != null) {
     const name = String(patch.name).trim()
     if (!name) return { ok: false, error: 'name' }
-    if (countChars(name) > NAME_LIMIT) return { ok: false, error: 'name_too_long' }
+    if (excedeChars(name, NAME_LIMIT)) return { ok: false, error: 'name_too_long' }
     out.name = name
   }
   if (patch.price != null) {

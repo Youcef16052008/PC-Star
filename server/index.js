@@ -72,7 +72,7 @@ import { broadcastDesk, formatOrderMessage, sendWhatsApp, whatsappConfig } from 
 import { LOCAL_MAX_BODY_BYTES, MAX_UPLOAD_BODY_BYTES, VERCEL_MAX_BODY_BYTES } from '../src/limits.js'
 // LOT P1 (B20) : une seule validation de « journée » pour tout le projet.
 import { normalizeDay } from '../src/orderLogic.js'
-import { countChars } from '../src/textClip.js'
+import { clipChars, excedeChars } from '../src/textClip.js'
 import { IS_SERVERLESS, safeUploadName } from './blobStore.js'
 import { attachDeskSocket } from './deskSocket.js'
 import {
@@ -500,7 +500,10 @@ export async function handler(req, res) {
       // commandes (64) : c'est le même nom, affiché aux mêmes endroits
       // (comptoir, export CSV, WhatsApp).
       const regName = String(body.name || '').trim()
-      if (regName.length > 64) return send(res, 400, { ok: false, error: 'name_too_long' })
+      // LOT P5 : 64 CARACTERES comme la commande et le profil — ce plafond-là
+      // comptait encore des unités UTF-16 (un prénom en emoji, c'est la moitié
+      // de la place) — et se teste avec `excedeChars`, sans parcourir le corps.
+      if (excedeChars(regName, 64)) return send(res, 400, { ok: false, error: 'name_too_long' })
       let token = null
       let user = null
       // P14 (#1) : l'erreur passe par une variable de closure. Avant, elle
@@ -625,10 +628,15 @@ export async function handler(req, res) {
       // P10 (P7-18) : wilaya bornée — liste connue (le select client ne propose
       // que ces valeurs) + troncature 32 ; sinon on garde l'existant/'Oran'.
       // Avant : n'importe quelle chaîne libre était stockée.
-      const rawWilaya = body.wilaya == null ? null : String(body.wilaya).trim().slice(0, 32)
+      // LOT P5 : `clipChars` — la wilaya est du texte libre cote client, et un
+      // `slice(0, 32)` comptait en unites UTF-16 (32 unites = 16 emoji, et une
+      // coupe au milieu d'une paire laissait un caractere corrompu en base).
+      const rawWilaya = body.wilaya == null ? null : clipChars(String(body.wilaya).trim(), 32)
       // LOT 1.9 : borne identique à l'inscription et aux commandes.
       const meName = body.name == null ? null : String(body.name).trim()
-      if (meName != null && meName.length > 64) return send(res, 400, { ok: false, error: 'name_too_long' })
+      // LOT P5 : 64 CARACTERES, pas 64 unites UTF-16, et via `excedeChars` (le
+      // nom vient du corps de la requete : le refuser ne doit pas le parcourir).
+      if (meName != null && excedeChars(meName, 64)) return send(res, 400, { ok: false, error: 'name_too_long' })
       // LOT P3 (B27) : `avatar` et `accent` ne sont pas du texte libre, ce sont
       // des CLÉS DE VOCABULAIRE. Aucun composant ne les lit aujourd'hui — une
       // valeur déconnectée était donc stockée sans jamais se voir : du poids
@@ -1089,7 +1097,9 @@ export async function handler(req, res) {
       const orderName = String(body.name || '').trim()
       // LOT P5 : 64 CARACTERES (points de code), pas 64 unités UTF-16 — un nom de
       // 33 emoji en comptait 66 et était refusé alors qu'il tient en 33 signes.
-      if (!orderName || countChars(orderName) > 64) return send(res, 400, { ok: false, error: 'name' })
+      // `excedeChars` plutôt qu'un compte intégral : la borne se teste sur un corps
+      // que l'appelant choisit, elle ne doit pas le parcourir pour dire non.
+      if (!orderName || excedeChars(orderName, 64)) return send(res, 400, { ok: false, error: 'name' })
       const rawOrderWilaya = body.wilaya == null ? '' : String(body.wilaya).trim()
       const orderWilaya = rawOrderWilaya ? (WILAYAS_NEAR.includes(rawOrderWilaya) ? rawOrderWilaya : null) : 'Oran'
       if (orderWilaya == null) return send(res, 400, { ok: false, error: 'wilaya' })
