@@ -63,7 +63,10 @@ jobs:
       - name: Install Chromium (et ses dépendances système)
         run: npx playwright install --with-deps chromium
       - name: Run the smoke suite (API + front démarrés par Playwright)
-        run: npm run test:e2e
+        # Le reporter `github` (en plus de `list`) écrit chaque test en échec en
+        # ANNOTATION de check-run : lisible via l'API Checks même quand le blob des
+        # logs est injoignable, et positionnée sur la ligne de la spec.
+        run: npm run test:e2e -- --reporter=list,github
       - name: Journaux et captures en artefact si échec
         if: failure()
         uses: actions/upload-artifact@v4

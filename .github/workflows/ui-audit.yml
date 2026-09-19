@@ -51,6 +51,23 @@ jobs:
       - name: Audit boutons — clics sûrs + vide/invalide → erreur affichée
         shell: bash
         run: set -o pipefail; node scripts/audit-buttons.mjs 2>&1 | tee audit.log
+      # Le blob store des logs Actions (results-receiver / productionresultssa*.
+      # blob.core.windows.net) n'est pas joignable depuis tous les environnements
+      # de relecture — un agent en bac à sable, un réseau d'entreprise, un simple
+      # EOF momentané : l'artefact ci-dessous devient alors inutile et l'échec
+      # n'est plus lisible. Une annotation `::error::` vit dans l'API Checks, elle,
+      # et se relit avec `gh api repos/…/check-runs/<id>/annotations` — donc on y
+      # recopie la queue du journal, sur une ligne, avec les trois échappements
+      # qu'exige le format de workflow command (`%`, CR, sauts de ligne).
+      - name: Queue du journal en annotation si échec
+        if: failure()
+        shell: bash
+        run: |
+          for f in crawl.log audit.log; do
+            [ -s "$f" ] || continue
+            line=$(tail -c 3000 "$f" | tr '\n\r' '||' | sed 's/%/%25/g')
+            echo "::error file=$f::$line"
+          done
       - name: Journaux en artefact si échec
         if: failure()
         uses: actions/upload-artifact@v4
