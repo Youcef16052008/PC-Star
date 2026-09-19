@@ -9,13 +9,13 @@ npm install
 npm run start:api   # :8787 multi-device orders + auth
 npm run dev         # :5173 site (proxies /api)
 npm run build       # vite build, then scans dist/ for secrets — fails if any landed there
-npm test            # 995 tests (node:test) — run `npm run build` first: bundleSecrets scans dist/
+npm test            # 1002 tests (node:test) — run `npm run build` first: bundleSecrets scans dist/
 npm run check:bundle # re-run only the dist/ secret scan (lot 7.3)
 ```
 
 ## État mesuré (19/09/2026)
 
-- `npm test` : **995 tests, 0 échec**. La suite scanne le bundle publié
+- `npm test` : **1002 tests, 0 échec**. La suite scanne le bundle publié
   (`src/bundleSecrets.test.js`) : sans `dist/`, elle échoue en cascade — le build
   est une pré-condition, pas une étape optionnelle.
 - `npm run build:crawl && node scripts/jsdom-crawl.mjs` : 24 pages rendues en
@@ -32,7 +32,7 @@ npm run check:bundle # re-run only the dist/ secret scan (lot 7.3)
   `expectedStatus` pour refuser une écriture obsolète (409 `stale`) au lieu de la
   voir s'appliquer.
 - `npm run test:e2e` (Playwright) existe mais ne tourne dans **aucune** CI du
-  dépôt : ce ne sont ni `build:crawl`, ni `jsdom-crawl`, ni les 995 tests qui le
+  dépôt : ce ne sont ni `build:crawl`, ni `jsdom-crawl`, ni les 1002 tests qui le
   remplacent — le parcours navigateur réel reste à lancer à la main.
 
 ## Demo accounts (click in Login, or type)

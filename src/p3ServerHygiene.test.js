@@ -283,3 +283,43 @@ describe('P3/B23, B15, B30 — encodage, bouton, porte', () => {
     assert.equal(r.status, 0, `un dev sans base ne doit pas être une porte fermée : ${r.stdout}`)
   })
 })
+
+describe('P3 — le harnais jsdom ne prête pas un trou d’API à l’application', () => {
+  // CI, run 35446572476 : l’audit boutons échouait sur
+  // « rejection non gérée : performance.getEntriesByType is not a function »,
+  // et le run d’avant avait tué le crawl à la 16ᵉ seconde pour la même raison.
+  // jsdom n’implémente pas la Resource Timing API ; le bundle, lui, la sonde.
+  it('le shim comble les méthodes qui manquent, sans écraser celles qui existent', async () => {
+    const { patchPerformanceGaps } = await import('../scripts/jsdom-perf-gaps.mjs')
+    const dom = new JSDOM('', {})
+    const w = dom.window
+    assert.equal(typeof w.performance.getEntriesByType, 'undefined', 'jsdom a changé : le shim ne sert plus à rien, le retirer')
+    assert.equal(patchPerformanceGaps(w), true, 'le shim n’a rien ajouté')
+    assert.deepEqual(w.performance.getEntriesByType('resource'), [])
+    assert.deepEqual(w.performance.getEntriesByName('x'), [])
+    assert.equal(typeof w.performance.mark('m'), 'object')
+    assert.equal(typeof w.performance.measure('mm'), 'object')
+    const avant = w.performance.getEntriesByType
+    assert.equal(patchPerformanceGaps(w), false, 'deuxième passe : le shim écrase ce qui est déjà posé')
+    assert.equal(w.performance.getEntriesByType, avant)
+    assert.equal(patchPerformanceGaps(null), false, 'une fenêtre absente ne doit pas faire tomber l’audit')
+    dom.window.close()
+  })
+
+  it('les deux portes de rendu l’appliquent avant le premier script', () => {
+    for (const f of ['scripts/jsdom-crawl.mjs', 'scripts/audit-buttons.mjs']) {
+      const s = fs.readFileSync(path.join(process.cwd(), f), 'utf8')
+      const i = s.indexOf('beforeParse')
+      assert.ok(i > 0, `${f} : plus de beforeParse`)
+      assert.ok(s.indexOf('patchPerformanceGaps', i) < s.indexOf('localStorage', i), `${f} : le shim doit être posé avant que le bundle ne tourne`)
+      assert.match(s, /import \{ patchPerformanceGaps \} from '\.\/jsdom-perf-gaps\.mjs'/, `${f} : import absent`)
+    }
+  })
+
+  it('le collecteur de rejections reste strict', () => {
+    const s = fs.readFileSync(path.join(process.cwd(), 'scripts/audit-buttons.mjs'), 'utf8')
+    const i = s.indexOf("process.on('unhandledRejection'")
+    assert.ok(i > 0)
+    assert.equal(/isSoft\(/.test(s.slice(i, i + 320)), false, 'la rejection est devenue amollie : un clic muet redeviendrait invisible')
+  })
+})

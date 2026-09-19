@@ -250,3 +250,40 @@ describe('P3/B21 + B17 — destination du bouton et annulation mensongère', () 
     }
   })
 })
+
+describe('P3 — le smoke e2e ne cherche pas un bouton par un motif ambigu', () => {
+  // Le job CI `e2e-smoke.yml` est passé au rouge à la première exécution réelle
+  // (les specs ne tournaient jamais sans `DEMO_PASSWORD`) : `getByRole('button',
+  // { name: /connexion|login/i }).last()` désignait le CTA d'en-tête en français
+  // et le bouton d'envoi en anglais. La spec est donc dépendante de la langue,
+  // et le dépôt doit le dire — sinon le motif reviendra au prochain lot.
+  const spec = fs.readFileSync(path.join(process.cwd(), 'e2e/smoke.spec.js'), 'utf8')
+  const auth = fs
+    .readFileSync(path.join(process.cwd(), 'src/AuthPanel.jsx'), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+
+  it('les deux libellés diffèrent en français et se ressemblent en anglais', () => {
+    assert.notEqual(dict.fr.navLogin, dict.fr.authSubmitLogin, 'le CTA et la soumission portent le même texte : la spec ne peut plus les distinguer')
+    assert.equal(dict.en.navLogin, dict.en.authSubmitLogin, 'les textes anglais ont changé : relire la note du lot P3')
+  })
+
+  it('la modale s’ancre sur un champ, pas sur un texte', () => {
+    assert.match(auth, /id="auth-email"/, "`#auth-email` n'existe plus : `.modal-content` n'a plus d'ancre dans la spec")
+    assert.match(auth, /id="auth-pass"/, '`#auth-pass` n’existe plus')
+    assert.match(auth, /className="modal-content/, 'la modale a changé de conteneur')
+    assert.match(spec, /\.modal-content/, 'la spec ne scope plus sur la boîte de dialogue')
+    assert.match(spec, /locator\('\.modal-content', \{ has: page\.locator\('#auth-email'\) \}\)/, "l'ancrage de la modale n'est plus celui vérifié ici")
+  })
+
+  it('la spec fixe la langue et ne soumet plus au regex du CTA', () => {
+    assert.match(spec, /localStorage\.setItem\('pcstar-lang', 'fr'\)/, 'la spec suit la langue du navigateur du runner')
+    assert.match(spec, /getByRole\('button', \{ name: L\('authSubmitLogin'\), exact: true \}\)/, 'le clic d’envoi n’est plus libellé depuis le dictionnaire')
+    assert.equal(/getByRole\('button', \{ name: \/\s*connexion/i.test(spec), false, 'le motif /connexion|login/ est réapparu : il désigne deux boutons selon la langue')
+    assert.equal(/getByLabel\(\/e-mail/.test(spec), false, 'le libellé d’input est redevenu un regex non scopé')
+  })
+
+  it('les deux specs de connexion se sautent sans mot de passe, pas une seule', () => {
+    const gardes = spec.match(/besoinDemo\(\)/g) || []
+    assert.equal(gardes.length, 2, 'les specs conditionnées à DEMO_PASSWORD ne sont plus au nombre de deux')
+  })
+})

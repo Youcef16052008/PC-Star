@@ -11,10 +11,13 @@ name: E2E smoke (Playwright)
 #
 # Ce job n'ajoute PAS de secret : l'API et le front sont démarrés sur la machine
 # du runner par `scripts/dev-all.mjs` (via `webServer` de la config Playwright),
-# avec des identifiants de fixture. `DEMO_PASSWORD` est posé parce que la
-# 2ᵉ et 3ᵉ spec se connectent au compte de démonstration — sans la variable, le
-# serveur seed le compte VERROUILLÉ (401 `demo_locked`, lot 1.19), la 2ᵉ se
-# saute et la 3ᵉ échouerait sur un état voulu : la fixture est donc le sujet.
+# avec des identifiants de fixture. `DEMO_PASSWORD` est posé parce que les deux
+# specs de connexion se branchent sur le compte de démonstration : sans la
+# variable, le serveur seed le compte VERROUILLÉ (401 `demo_locked`, lot 1.19)
+# et les deux se sautent en le disant. AVEC la variable, elles tournent pour de
+# vrai — c'est ce qui a révélé, au premier run du job, que la spec cherchait le
+# bouton d'envoi au mot près et le ratait en français (corrigée depuis, voir
+# `e2e/smoke.spec.js`).
 on:
   pull_request:
     types:

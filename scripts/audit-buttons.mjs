@@ -20,6 +20,7 @@ import { existsSync } from 'node:fs'
 import { JSDOM, VirtualConsole } from 'jsdom'
 import { dict } from '../src/i18n.js'
 import { masterCredentials } from './masterEnv.mjs'
+import { patchPerformanceGaps } from './jsdom-perf-gaps.mjs'
 
 const FRONT = 'http://127.0.0.1:4173'
 const API = 'http://127.0.0.1:8787'
@@ -106,6 +107,11 @@ function openSession(lang, token) {
       pretendToBeVisual: true,
       virtualConsole: vc,
       beforeParse(w) {
+        // Les trous d'API de jsdom sont combles AVANT le premier script : sans
+        // Resource Timing, react-dom et le collecteur de rejections du harnais
+        // fabriquent une faute qui n'existe pas dans un navigateur (voir
+        // scripts/jsdom-perf-gaps.mjs).
+        patchPerformanceGaps(w)
         w.localStorage.setItem('pcstar-lang', lang)
         if (token) w.localStorage.setItem('pcstar-api-token', token)
         w.fetch = (input, init) =>

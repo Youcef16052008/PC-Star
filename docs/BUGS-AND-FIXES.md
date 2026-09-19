@@ -2253,3 +2253,90 @@ lieu du « 633 » publié ; `ui-audit.yml` — « les 26 pages » → 24 ;
 Portes après ce balayage : suite complète **995/995**, `npm run build` + scan du
 bundle propres, `src/i18n.coverage.test.js` vert dans les deux sens.
 
+
+### Le job e2e, joué pour de vrai : deux défauts du harnais, pas de l'app
+
+Le commit précédent ajoutait `.github/workflows/e2e-smoke.yml` sans avoir pu le
+jouer (pas de navigateur dans le bac à sable). Le premier run l'a fait à ma
+place, et il a raison — sur les deux specs de connexion :
+
+```
+1) e2e/smoke.spec.js:28 › demo customer can open login and authenticate
+2) e2e/smoke.spec.js:54 › demo session survives a page reload
+   Error: expect(locator).toBeVisible() failed
+   Locator: getByRole('button', { name: /Karim B\./i })   → element(s) not found
+1 passed
+```
+
+La cause n'est ni le serveur, ni la session, ni Playwright : c'est le **sélecteur
+du bouton d'envoi**. La spec faisait
+`getByRole('button', { name: /connexion|login|دخول/i }).last()`. En anglais,
+l'en-tête et le formulaire portent le même texte (« Log in », « Log in »), donc
+`.last()` tombe sur le bouton d'envoi. En français, l'en-tête dit « Connexion »
+et le formulaire « **Se connecter** » : le motif ne trouve que l'en-tête, le clic
+rouvre la boîte de dialogue au lieu de soumettre, aucune session n'apparait, et
+l'assertion suivante meurt 5 s plus tard. Le runner a un Chromium `en-US` mais
+l'application démarre en `fr` (aucune préférence en mémoire) — le test était donc
+**vrai sur une machine, faux sur l'autre**, et il n'avait jamais été joué en CI :
+sans `DEMO_PASSWORD`, la 2ᵉ spec se sautait (la 3ᵉ, elle, n'avait même pas de
+garde — un job « vert » qui ne testait rien, exactement le piège que ce journal
+registre ailleurs).
+
+Corrigé côté spec, pas côté application (`e2e/smoke.spec.js`) :
+
+- la spec **fixe la langue** (`localStorage.pcstar-lang` posé en `addInitScript`,
+  avant la navigation) : un test qui cherche un bouton par son libellé ne doit
+  pas dépendre du locale du navigateur qui le exécute ;
+- les libellés viennent du **dictionnaire** (`dict[LANG].navLogin`,
+  `authSubmitLogin`, `authEmail`, `authPassword`) et non d'un regex maison, avec
+  `exact: true` ;
+- chaque localisateur est **scopé à la boîte de dialogue**
+  (`.modal-content` `has: #auth-email`) : « un bouton dans tout le document » est
+  déjà le bug ;
+- les deux specs de connexion partagent la même garde `besoinDemo()` : soit elles
+  tournent, soit elles se sautent, mais jamais l'une sautée et l'autre rouge.
+
+Et trois verrous dans `src/p3ServerHygiene.test.js` : `navLogin !== authSubmitLogin`
+en FR mais égaux en EN (si cette parité bouge, la leçon du lot doit être relue),
+l'ancre `#auth-email`/`.modal-content` toujours là où la spec la cherche, et
+`/connexion|login/` **absent** de la spec — plus le nombre de gardes `DEMO_PASSWORD`.
+
+Le même run a sorti l'autre étape du couple :
+
+```
+AUDIT FAILED (1) : ✗ rejection non gérée : performance.getEntriesByType is not a function
+```
+
+(et, sur le run d'avant, la même classe de bruit avait tué le crawl à la 16ᵉ
+seconde). `window.performance` de jsdom n'expose que `now`, `toJSON`,
+`timeOrigin` — vérifié, pas supposé. Le bundle, lui, sonde la Resource Timing API
+(react-dom, `typeof performance.getEntriesByType == "function"`, puis lecture des
+entrées de ressource pour suivre les `<link>`), et le harnais compte UNE
+`unhandledRejection` comme une faute : un trou du **harnais** est imputé à
+l'application, d'autant qu'il ne se reproduit qu'à un certain rythme de requêtes
+(deux rejouaisons locales — base vide, base pleine — ne le montrent pas).
+
+Le choix était entre amollir le collecteur (le rendre « soft » comme `isSoft()`
+l'est pour `alert`/`confirm`) et combler le trou. Le premier est refusé : c'est
+précisément le mécanisme qui a laissé passer des clics muets pendant des lots.
+Donc `scripts/jsdom-perf-gaps.mjs` — `getEntriesByType`/`getEntriesByName`/
+`mark`/`measure` inertes, posés en `beforeParse` des deux portes, avant que le
+bundle ne tourne — et un test qui vérifie que le collecteur de rejections n'a
+PAS été amolli. Le crawl rejoué localement avec le shim : **24 pages, 0 erreur**.
+
+Comment ces deux messages ont été récupérés alors que la CI est muette ici :
+`gh run view --log`, `--log-failed` et `gh run download` passent par
+`results-receiver` puis `productionresultssaNN.blob.core.windows.net`, qui
+répondent `EOF` depuis ce bac à sable — l'artefact `ui-audit-logs` était bien
+produit, et inutilisable. D'où l'étape « queue du journal en annotation » du
+commit précédent (`::error::` + le `github` reporter de Playwright) : les
+annotations vivent dans l'API Checks, qui répond. **Une porte rouge qui ne dit
+pas pourquoi n'est pas une porte** — c'est la deuxième fois du lot que la valeur
+ajoutée est dans le rapport d'échec, pas dans le correctif.
+
+Portes : suite **1002 tests, 0 échec** (+7 : quatre verrous sur les leçons de la
+spec dans `src/p3ClientScreens.test.js`, trois sur le shim dans
+`src/p3ServerHygiene.test.js`), crawl **24 pages / 0 erreur** avec le shim,
+`npm run build` propre. L'audit boutons n'a pas été rejoué localement après
+le shim (8 min 20 ; les deux étapes CI le font) — le test verrouille l'import et
+le placement du shim dans les deux scripts.
