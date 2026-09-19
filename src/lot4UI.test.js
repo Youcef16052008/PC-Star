@@ -233,6 +233,10 @@ describe('4.3 (F16) — MasterPage réel : supprimer un client annonce les comma
 
       const delBtn = [...host.querySelectorAll('button.btn-outline-danger')].find((b) => clean(b) === t('masterDelete'))
       assert.ok(delBtn, 'bouton supprimer introuvable')
+      // LOT P3 (B33) : la suppression d'un compte est désormais confirmée à
+      // l'écran ; jsdom répond `undefined` à `window.confirm`, donc on répond
+      // « oui » — c'est le message d'après suppression qui est testé ici.
+      window.confirm = () => true
       await act(async () => delBtn.click())
       await settle(30)
 
@@ -269,6 +273,7 @@ describe('4.3 (F16) — MasterPage réel : supprimer un client annonce les comma
       await act(async () => tabBtn.click())
       await settle(20)
       const delBtn = [...host.querySelectorAll('button.btn-outline-danger')].find((b) => clean(b) === t('masterDelete'))
+      window.confirm = () => true // voir le lot P3 (B33) plus haut
       await act(async () => delBtn.click())
       await settle(30)
       assert.equal(toasts.length, 1, JSON.stringify(toasts))

@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from 'react'
 // stock ni par masquage. C'est la seule source qui contient les SKU des
 // références en rupture ou masquées.
 import { CATEGORIES, PRODUCTS, PRODUCT_CONDITIONS, PRODUCT_USES, money } from './data.js'
-import { addPanel, addProduct, deleteCustomer, hideProduct, setProductPhotos, togglePanel } from './shopStore.js'
+import { addPanel, addProduct, deleteCustomer, hideProduct, removePanel, setProductPhotos, togglePanel } from './shopStore.js'
 import PartThumb from './PartThumb.jsx'
 import * as api from './api.js'
 import { compressDataUrl } from './photoCompress.js'
@@ -465,7 +465,16 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, ma
     setToast(t('masterDeleted'))
   }
 
-  function doDeleteCustomer(id) {
+  function doDeleteCustomer(c) {
+    // LOT P3 (B33) : la suppression d'un compte est la seule action
+    // IRRÉVERSIBLE du maître qui partait sans un mot — le produit, lui, est
+    // confirmé (`confirmDeleteProduct`), et le comptoir aussi (`DeskPage.jsx`,
+    // `confirmDeleteOrder`). Ici l'effet est double : le compte disparaît, ses
+    // sessions sont purgées et ses commandes EN COURS sont annulées avec retour
+    // du stock. Un clic de souris ne vaut pas une décision comme celle-là.
+    const id = c?.id
+    if (!id) return
+    if (!window.confirm(t('confirmDeleteCustomer', { name: c.name || c.email || id }))) return
     if (apiOnline) {
       // Suppression côté serveur (sessions purgées, commandes détachées).
       api.deleteCustomer(id).then((r) => {
@@ -537,7 +546,28 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, ma
       onMeta(res.meta)
     }
     setPanelTitle({ ar: '', fr: '', en: '' })
-    setToast(t('masterAdded'))
+    setToast(t('masterPanelAdded'))
+  }
+
+  // LOT P3 (B32) : supprimer un panneau que le maître a créé lui-même (les
+  // panneaux de base ne se suppriment pas, ils se masquent).
+  async function doDeletePanel(id) {
+    if (!window.confirm(t('confirmDeletePanel'))) return
+    const next = removePanel(meta, id)
+    if (apiOnline) {
+      const r = await api.putPanels({ extraPanels: next.extraPanels || [] })
+      if (!r.ok) {
+        errToast(setToast, t, r, 'masterActionFail')
+        return
+      }
+      // Meme regle que `doTogglePanel` / `submitPanel` : c'est la réponse du
+      // serveur qui fait foi, pas le calcul local.
+      onMeta({ ...meta, extraPanels: next.extraPanels, ...(r.data?.meta || {}) })
+      setToast(t('masterPanelGone'))
+      return
+    }
+    onMeta(next)
+    setToast(t('masterPanelGone'))
   }
 
   const hidden = new Set(meta.hiddenPanelIds || [])
@@ -889,7 +919,7 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, ma
                         {c.email || '—'} · {c.phone || '—'}
                       </div>
                     </div>
-                    <button type="button" className="btn btn-sm btn-outline-danger" onClick={() => doDeleteCustomer(c.id)}>
+                    <button type="button" className="btn btn-sm btn-outline-danger" onClick={() => doDeleteCustomer(c)}>
                       {t('masterDelete')}
                     </button>
                   </div>
@@ -930,7 +960,9 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, ma
                   </select>
                 </div>
                 <button className="btn btn-success w-100" type="submit">
-                  {t('masterAddProduct')}
+                  {/* LOT P3 (B32) : le formulaire crée un PANNEAU ; le bouton
+                      héritait de l'étiquette « Ajouter le produit ». */}
+                  {t('masterAddPanel')}
                 </button>
               </div>
             </form>
@@ -953,16 +985,40 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, ma
                   </div>
                 )
               })}
-              {(meta.extraPanels || []).map((p) => (
-                <div className="col-md-6" key={p.id}>
-                  <div className="card shadow-sm">
-                    <div className="card-body">
-                      <strong>{p.titles?.[lang] || p.titles?.en || p.id}</strong>
-                      <div className="small text-secondary">{(p.categories || []).join(', ')}</div>
+              {/* LOT P3 (B32) : un panneau ajouté se masque et se supprime
+                  comme un panneau de base ; il n'était que décoratif. */}
+              {(meta.extraPanels || []).map((p) => {
+                const on = !hidden.has(p.id)
+                return (
+                  <div className="col-md-6" key={p.id}>
+                    <div className="card shadow-sm">
+                      <div className="card-body d-flex justify-content-between align-items-center gap-2">
+                        <div>
+                          <strong>{p.titles?.[lang] || p.titles?.en || p.id}</strong>
+                          <div className="small text-secondary">{(p.categories || []).join(', ')}</div>
+                        </div>
+                        <div className="d-flex gap-1">
+                          <button
+                            type="button"
+                            className={`btn btn-sm ${on ? 'btn-success' : 'btn-outline-secondary'}`}
+                            onClick={() => doTogglePanel(p.id, !on)}
+                          >
+                            {on ? 'ON' : 'OFF'}
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-sm btn-outline-danger"
+                            title={t('masterDelete')}
+                            onClick={() => doDeletePanel(p.id)}
+                          >
+                            ×
+                          </button>
+                        </div>
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
+                )
+              })}
             </div>
           </div>
         </div>

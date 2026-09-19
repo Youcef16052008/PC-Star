@@ -515,6 +515,20 @@ export function togglePanel(meta, id, on) {
   return { ...meta, hiddenPanelIds: [...hidden] }
 }
 
+/**
+ * LOT P3 (B32) : retirer un panneau AJOUTÉ. Les panneaux de base se masquent,
+ * ils ne se suppriment pas (ils portent le rayon du catalogue) ; un panneau
+ * créé par le maître, lui, doit pouvoir disparaître — avant, `extraPanels` ne
+ * s'agrandissait jamais, et la troncature serveur à 12 rendait le 13ᵉ
+ * inatteignable : impossible de faire de la place.
+ */
+export function removePanel(meta, id) {
+  const extraPanels = (meta.extraPanels || []).filter((p) => p.id !== id)
+  const hidden = new Set(meta.hiddenPanelIds || [])
+  hidden.delete(id) // une id supprimée ne doit pas rester dans les masques
+  return { ...meta, extraPanels, hiddenPanelIds: [...hidden] }
+}
+
 export function buildShopView(baseProducts, baseLines, basePanels, meta) {
   const hiddenIds = new Set(meta.hiddenProductIds || [])
   const overrides = meta.photoOverrides || {}
@@ -530,7 +544,12 @@ export function buildShopView(baseProducts, baseLines, basePanels, meta) {
     ...(meta.extraProducts || []).filter((p) => !hiddenIds.has(p.id)).map(withPhotos)
   ]
   const hiddenPanels = new Set(meta.hiddenPanelIds || [])
-  const extraLines = (meta.extraPanels || []).flatMap((panel) =>
+  // LOT P3 (B32) : un panneau ajouté masqué doit disparaître du rayonnage
+  // COMME ses lignes. Avant, `hiddenPanelIds` n'était opposé qu'aux panneaux
+  // de base : le maître pouvait cliquer « OFF » sur un panneau ajouté (le
+  // bouton n'existait d'ailleurs pas), la vitrine continuait de l'afficher.
+  const visibles = (meta.extraPanels || []).filter((panel) => !hiddenPanels.has(panel.id))
+  const extraLines = visibles.flatMap((panel) =>
     panel.categories.map((cat) => ({
       id: `${panel.id}-${cat}`,
       label: cat,
@@ -538,7 +557,7 @@ export function buildShopView(baseProducts, baseLines, basePanels, meta) {
       match: (p) => p.category === cat
     }))
   )
-  const extraPanels = (meta.extraPanels || []).map((panel) => ({
+  const extraPanels = visibles.map((panel) => ({
     id: panel.id,
     titleKey: null,
     titles: panel.titles,
