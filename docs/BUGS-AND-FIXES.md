@@ -2521,3 +2521,126 @@ audit boutons en cours, `build:crawl` propre.
 > `cfb677a` (le branchement manquant de `p3DocsAging`, corrigé dans `8f64e81`). À faire
 > à la reprise : pousser, relire les trois portes en CI, et mettre à jour le corps de
 > la PR #9 avec les durées mesurées.
+
+## 19/09/2026 (soir) — LOT P4 : la vitrine du comptoir, deux boutons, le catalogue en pages, la pleine page
+
+> **Note de reprise (même jour).** La « note d'interruption » du lot précédent se ferme
+> ici : `ea178e6`, `1a07714` et `01851ff` sont poussés avec `68e2077`, la connexion GitHub
+> du bac à sable étant revenue. Les portes locales du lot P4 ont été rejouées sur l'arbre
+> complet avant d'être poussées (`npm test` 1057 / 1057, crawl 24 pages 0 erreur, audit boutons
+> 32 vérifications 0 erreur) ; la relecture CI est relatée en fin de section.
+
+Le client est revenu avec trois captures d'écran et une phrase qui les résume toutes :
+« un pro le fait en grande page ». Cinq points, traités dans l'ordre où ils apparaissent à
+l'écran.
+
+**V1 — la tuile qui mentait.** Le hero affichait « 301 références » — un comptage du
+catalogue, donc un chiffre de stock interne que personne n'était venu chercher — et
+« 0 DA — paiement au retrait », un **zéro écrit en dur** sous un libellé qui prétendait
+annoncer un prix. (Le lot P0 avait déjà condamné ce `0 DA` ; il est repassé par une autre
+porte, la preuve est qu'il faut verrouiller la *forme* du bloc, pas sa valeur.)
+
+La tuile devient une **vitrine à trois valeurs** :
+
+| Valeur | Qui l'écrit | Où |
+| --- | --- | --- |
+| `repairsLabel` | le maître | page Admin → Vitrine |
+| `repairsDone` | le maître | page Admin → Vitrine |
+| `readyTally` | **le serveur** | chaque entrée réelle dans « prêt pour retrait » |
+
+Trois décisions valent d'être écrites, parce qu'elles sont tout le lot :
+
+1. *Le compteur de commandes ne se décrète pas.* `PUT /api/master/vitrine` ignore un
+   `readyTally` reçu du corps — le test l'envoie à 500 et vérifie qu'il n'est pas écrit,
+   puis qu'il n'apparaît pas à la relecture suivante. Le point est posé par
+   `setOrderStatus`, à la transition, et retiré de rien : une annulation ultérieure ne
+   rend pas le point (le compteur répond à « combien de fois le comptoir a prévenu un
+   client », pas à « combien de cartons attendent maintenant » — choix du client, consigne
+   de ce tour).
+2. *Une seule échelle pour les deux côtés.* Le bornage vit dans `src/vitrine.js` et
+   `server/vitrine.js` le **ré-exporte** au lieu de le redéfinir ; `server/db.js` pareil.
+   Un test lit le texte des deux fichiers serveur et échoue dès qu'un `function
+   clampVitrine` y réapparaît — parce qu'une règle écrite deux fois finit par avoir deux
+   bornes, et que le premier symptôme visible est un formulaire qui réécrit la base à
+   chaque sauvegarde (le client voit un nombre qui n'est jamais celui qu'il a tapé).
+3. *La projection est une liste blanche.* `GET /api/meta` renvoie `vitrine` et non `meta` :
+   demain un champ ajouté au stock du comptoir ne deviendra pas public par accident. Le
+   test l'affirme sur la réponse HTTP, pas sur l'intention du code.
+
+Lecture et écriture sont dissymétriques : la lecture est publique (c'est une vitrine),
+l'écriture est au rôle maître, client authentifié compris — 403 mesuré sur
+`PUT /api/master/vitrine` **et** sur la route des panneaux. Côté base, `normalizeDb`
+recalle une vitrine absente : une base créée avant ce lot se lit sans migration, et une
+vitrine menteuse (`-5` réparations, étiquette de 900 caractères, clé de stock glissée
+dedans) rentre dans ses bornes sans que le compteur déjà en base soit remis à zéro.
+
+**V2 — le mur de puces.** Soixante-sept marques dressées avant le premier produit, ce qui
+fait, sur les téléphones du comptoir, une page entière de pouce avant le catalogue. Deux
+boutons, chacun ouvrant son panneau, et le bouton **porte la valeur choisie**
+(« Marques · Corsair ») pour que le filtre reste lisible une fois refermé. Le panneau est
+plafonné à 45 vh et scrolle ; sa recherche ne filtre **que** la liste des marques — si elle
+avait filtré aussi le catalogue, fermer le panneau aurait changé des résultats que personne n'avait
+demandés. Mesure après correctif : le verrou de rendu vérifie que le panneau est
+absent du document tant qu'il est fermé, que « Corsair » réduit 67 lignes à 1, et que le
+catalogue suit (une seule marque dans la grille).
+
+**V3 — le faux devis.** Le bloc « configurateur » de la page d'accueil récitait cinq lignes
+de composants (Ryzen 5 7600 · 42 000, B650 · AM5 · 28 000, RTX 4060 · 54 000, 16 Go ·
+45 000, 650 W 80+ · 48 000) pour un total de « 177 000 DA » et une consommation
+« est. 410 W » : des nombres **écrits à la main dans le JSX**, qui ne venaient ni du
+catalogue ni d'une configuration, posés à côté de contrôles de compatibilité simulés
+(« [OK] Socket AM5 accepté »). Le client voyait un devis qui n'en était pas un, sur une
+page dont c'était le seul bloc chiffré. Tout est retiré ; le configurateur reste à un clic
+(au passage, la flèche que porte déjà la clé `openBuilder` était doublée à l'écran —
+défaut introduit par ce lot, corrigé dans le même commit).
+
+Le catalogue **enchaîne en pages de douze** (`SHOP_PAGE_SIZE`) : la maquette du client
+disait dix, douze tient deux par trois sur l'écran du comptoir et ne laisse pas de colonne
+orpheline. Le verrou n'est pas le nombre, c'est la coupe : page 1 → 2 → 3, trois captures
+du même catalogue qui ne se recoupent pas, « Précédent » qui ramène, et les deux boutons de
+bord désactivés aux extrémités.
+
+**V4 — à la page Recherche.** « Usage » et « En magasin seulement » ne filtraient rien,
+pour deux raisons différentes : le premier parce qu'un usage ne retire rien que le rayon ne
+retire déjà, le second parce qu'il **ne pouvait** rien retirer — le catalogue public ne
+contient que du stock (mesure P17 du rapport n°3, qui avait documenté le défaut par un
+tooltip). Un filtre qui ne filtre rien est une promesse non tenue ; les deux sont partis,
+desktop et offcanvas, et le rayon du catalogue est entré dans le panneau des filtres à la
+place. Le verrou du P17 n'a pas été effacé avec le filtre : il est **retourné** et interdit
+désormais que la clé revienne sans que personne ne lise l'état du stock.
+
+**V5 — pleine page.** Le menu déroulant empilait six liens de 40 px sous la barre et la
+modale de connexion faisait 500 px avec le clavier numérique par-dessus. Le menu devient
+une feuille qui couvre la page, avec sa **propre fermeture** — la feuille masque le bouton
+☰, donc sans en-tête on serait coincé dedans, ce qui est exactement le genre de détail
+à 19 h 40 qu'aucune maquette ne montre ; la connexion prend `modal-fullscreen` (la classe
+de Bootstrap, pas un custom) en gardant son formulaire dans une colonne de 520 px, pleine
+page ne voulant pas dire texte sur 1 400. Cibles à 44 px, comme le reste du tactile.
+
+**Harnais.** Deux tests étaient cassés par la pagination, et les deux ont été réparés sans
+amollir l'attente : `lot3UI` 3.5 (B8) amène maintenant la fiche au stock de 1 par la
+recherche de la page — le même chemin que le client, pas un contournement du composant —
+et `lot3StorageBlocked` 3.1 mesure la première page *et* la ligne d'annonce (« page 1 sur
+N », N ≥ 2), au lieu de compter trente fois plus de cartes qu'une page n'en montre jamais.
+S'y ajoute un piège trouvé en écrivant le test du maître : le champ `type="number"` avec
+`step="1"` **refuse** 12,7 au navigateur, qui ne soumet pas le formulaire — la borne du
+modèle (`Math.floor`) reste vérifiée par l'API, où le client qui contourne le champ
+reçoit quand même 342 pour « 342.9 ». Les deux niveaux sont verrouillés, pas seulement
+le premier.
+
+**Portes mesurées sur cet arbre.** `npm test` **1057 / 1057** (78 fichiers, 291 suites,
+dont 31 tests dans le nouveau `src/p3Vitrine.test.js` : bornage, module serveur, routes
+HTTP, rendu client, onglet maître) ; `npm run build` + scan anti-secret sur 9 artefacts,
+aucun secret ; `build:crawl` propre (script différé replacé après `#root`) ; crawl jsdom
+**24 pages rendues (2 langues × 12), 0 erreur** ; audit boutons **32 vérifications,
+0 erreur**, dont 150 boutons cliqués sur `/master` — l'onglet Vitrine est donc ouvert,
+saisi et soumis sous jsdom sans exception. Dictionnaire : **13 clés mortes retirées,
+22 ajoutées** dans les deux langues, garde de couverture verte (aucune clé lue sans
+traduction, aucune traduction sans lecteur).
+
+**Relecture CI (relatée telle que vue).** Sur la série qui précédait ce lot, deux rouges
+restaient ouverts sur `dfebbac` : `UI audit` sur `✗ fr/orders` (le script du bundle évalué
+trop tôt, corrigé dans `1a07714`) et le smoke e2e sur `smoke.spec.js:102` (la reprise de
+session attendait un délai au lieu de la réponse, corrigé dans `ea178e6`). Les deux portes
+sont relancées sur `68e2077`, qui contient ces deux correctifs **et** le lot P4 ; le
+résultat est noté ici au moment où il est lu, pas au moment où il est espéré.
