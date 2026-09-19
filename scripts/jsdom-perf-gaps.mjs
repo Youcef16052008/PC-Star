@@ -41,6 +41,30 @@ const GAPS = {
  * @returns {boolean} true si au moins une méthode a été ajoutée (pour le test)
  */
 export function patchPerformanceGaps(window) {
+  if (!window || window.__pcstarPerfGaps) return false
+  const ajoute = combler(window)
+  // Un realm enfant n'hérite d'aucun shim : chaque fenêtre imbriquée (l'iframe
+  // Google Maps de la page « about », par exemple) a SON objet `performance`,
+  // avec les mêmes trous. Le harnais ne mesure aucune performance — il vérifie
+  // des erreurs — donc un realm non comblé fabrique une faute que aucun
+  // navigateur n'afficherait, et le collecteur de rejections, branché sur le
+  // processus, ne peut pas savoir qu'elle vient d'un trou du harnais.
+  const drapele = comblerLesRealmsEnfants(window)
+  if (ajoute || drapele) {
+    try {
+      window.__pcstarPerfGaps = true
+    } catch {
+      /* fenêtre gelée : le shim reste posé, c'est l'essentiel */
+    }
+  }
+  return ajoute || drapele
+}
+
+/**
+ * Comble les méthodes manquantes sur l'objet `performance` d'une fenêtre.
+ * @returns {boolean} true si au moins une méthode a été ajoutée
+ */
+function combler(window) {
   const perf = window?.performance
   if (!perf || typeof perf.now !== 'function') return false
   let ajouté = 0
@@ -55,4 +79,51 @@ export function patchPerformanceGaps(window) {
     }
   }
   return ajouté > 0
+}
+
+/**
+ * Evene les frames deja la, puis regarde le document : une iframe inseree plus
+ * tard (le cas reel : la carte de la page « a propos », montee par React apres
+ * le premier rendu) est comblee a son apparition, pas au souvenir du harnais.
+ */
+function comblerLesRealmsEnfants(window) {
+  let fait = false
+  const voir = (doc) => {
+    if (!doc) return false
+    let touche = false
+    for (const f of [...doc.querySelectorAll?.('iframe') || []]) {
+      let w = null
+      try {
+        w = f.contentWindow
+      } catch {
+        /* realm inatteignable (origine croisee) : rien a combler ici */
+      }
+      if (w && !w.__pcstarPerfGaps) {
+        combler(w)
+        try {
+          w.__pcstarPerfGaps = true
+        } catch {
+          /* gelé apres close() */
+        }
+        touche = true
+      }
+    }
+    return touche
+  }
+  voir(window.document)
+  if (typeof window.MutationObserver === 'function' && window.document) {
+    try {
+      new window.MutationObserver(() => voir(window.document)).observe(window.document, { childList: true, subtree: true })
+      fait = true
+    } catch {
+      /* pas d'observateur (document detache) : les frames existantes sont quand meme combles */
+    }
+  }
+  return fait
+}
+
+/** Le prototype de l'objet `performance` de la fenêtre, s'il est exploitable. */
+function prototypeShim(perf) {
+  const p = Object.getPrototypeOf(perf)
+  return p && p !== Object.prototype ? p : perf
 }

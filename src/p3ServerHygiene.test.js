@@ -306,6 +306,54 @@ describe('P3 — le harnais jsdom ne prête pas un trou d’API à l’applicati
     dom.window.close()
   })
 
+  it('le shim comble aussi les realms enfants : l’iframe du harnais ne prête plus sa faute à l’app', async () => {
+    /*
+     * CI, run 35456319900 : `rejection non gerree : performance.getEntriesByType
+     * is not a function`, deux fois — une par langue — alors que les deux portes
+     * appelaient bien `patchPerformanceGaps(w)` en `beforeParse`. Le trou n'etait
+     * pas la fenetre principale, comblee, mais un realm fils : chaque iframe a SON
+     * objet `performance`, avec les memes methodes absentes, et le harnais ne la
+     * voyait jamais. Reproduit ici en trente secondes (et jamais en local sur la
+     * machine de dev, d'ou quatre rouges CI pour un meme message) : une iframe
+     * inseree apres le patch, un appel a `getEntriesByType`, et le message est
+     * mot pour mot celui de l'annotation.
+     */
+    const { patchPerformanceGaps } = await import('../scripts/jsdom-perf-gaps.mjs')
+    const d = new JSDOM('<body></body>', {
+      runScripts: 'dangerously',
+      beforeParse(w) {
+        patchPerformanceGaps(w)
+      }
+    })
+    const w = d.window
+    assert.equal(typeof w.performance.getEntriesByType, 'function', 'le realm principal n’est pas comblé')
+    // L'iframe apparait APRES le patch : c'est le cas réel (React monte la carte
+    // de la page « à propos » après le premier rendu).
+    w.document.body.innerHTML = '<iframe src="about:blank"></iframe>'
+    await new Promise((r) => setTimeout(r, 40))
+    const cw = w.document.querySelector('iframe').contentWindow
+    assert.ok(cw, 'le realm de l’iframe n’est pas joignable dans ce jsdom : le verrou ne prouverait rien')
+    assert.equal(typeof cw.performance.getEntriesByType, 'function', 'le realm de l’iframe n’est pas comblé : la faute de CI revient')
+    assert.deepEqual(cw.performance.getEntriesByType('resource'), [], 'le shim de l’iframe ne doit rien mesurer')
+    assert.equal(cw.performance.mark('apres-insertion').name, 'apres-insertion')
+    // Inerte ne veut pas dire silencieux : une vraie faute du realm reste levee.
+    assert.equal(typeof cw.Error, 'function')
+    d.window.close()
+  })
+
+  it('le shim est posé une fois : un second appel ne le redécore pas', async () => {
+    const { patchPerformanceGaps } = await import('../scripts/jsdom-perf-gaps.mjs')
+    const d = new JSDOM('', {})
+    assert.equal(patchPerformanceGaps(d.window), true)
+    assert.equal(patchPerformanceGaps(d.window), false, 'deuxième passe : le harnais repose ses propres méthodes')
+    assert.equal(patchPerformanceGaps(null), false, 'une fenêtre absente ne doit pas faire tomber l’audit')
+    d.window.close()
+    // Apres fermeture, le collecteur du processus voit encore les promesses de la
+    // page : `performance` doit rester appeable, sinon la fermeture fabrique une
+    // faute que le navigateur ne montrerait jamais.
+    assert.deepEqual(d.window.performance.getEntriesByType('resource'), [])
+  })
+
   it('les deux portes de rendu l’appliquent avant le premier script', () => {
     for (const f of ['scripts/jsdom-crawl.mjs', 'scripts/audit-buttons.mjs']) {
       const s = fs.readFileSync(path.join(process.cwd(), f), 'utf8')
