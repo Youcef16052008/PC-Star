@@ -354,5 +354,14 @@ point et grappe par grappe : **`docs/BUGS-AND-FIXES.md`**, rubriques « LOT P0 �
    fiche change.
 
 Portes à la fin du lot : **995 tests, 0 échec** (36 verrous de plus, dont quatre
-fichiers nouveaux), parité i18n fr/en vérifiée sans clé morte, crawl
+fichiers nouveaux), parité i18n fr/en vérifiée sans clé morte (646 × 2), crawl
 **24 pages / 0 erreur**, audit des boutons sans erreur JS sur base non vide.
+
+Le dernier point ouvert de ma propre liste — `npm run test:e2e` absent de la CI —
+est refermé par `.github/workflows/e2e-smoke.yml` (Chromium, identifiants de
+fixture dont `DEMO_PASSWORD`, artéfact en cas d'échec). Ce que le bac à sable de
+correction n'a pas pu prouver : le navigateur n'y télécharge pas, donc le job
+n'a pas été JOUÉ ici — le YAML est parse et tous les chemins qu'il invoque
+existent. Le reste des commentaires d'état périmés (quatorze titres de tests qui
+disaient « 3 langues » là où les assertions portaient déjà sur `LANGS`) est
+repris dans le même mouvement.

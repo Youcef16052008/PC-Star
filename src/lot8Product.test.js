@@ -510,7 +510,7 @@ describe('LOT 8.10 (A10) — routes réelles : 400 explicite, 201 quand c’est 
   })
 })
 
-describe('LOT 8.10 (A10) — le refus est dit au maître, dans les trois langues', () => {
+describe('LOT 8.10 (A10) — le refus est dit au maître, dans les deux langues', () => {
   it('`errToast` mappe `category` et `kind` sur des messages dédiés', () => {
     for (const { id: lang } of LANGS) {
       const vus = []
@@ -524,7 +524,7 @@ describe('LOT 8.10 (A10) — le refus est dit au maître, dans les trois langues
     }
   })
 
-  it('les deux clés existent et ne sont pas vides dans les trois langues', () => {
+  it('les deux clés existent et ne sont pas vides dans les deux langues', () => {
     for (const { id: lang } of LANGS) {
       for (const key of ['masterCategoryInvalid', 'masterKindInvalid']) {
         const v = dict[lang][key]

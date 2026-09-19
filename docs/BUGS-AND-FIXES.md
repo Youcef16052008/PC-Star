@@ -2179,18 +2179,77 @@ négative, elle a été jouée : retirer le filtre de `buildShopView` fait tombe
 `p3ShopSurface`, la garde `expected` de P2 en avait fait de même.
 
 Suite : **995 tests, 0 échec** (`npm run build` préalable — le scan du bundle lit
-`dist/`). i18n : parité fr/en vérifiée à chaque exécution, aucune clé morte
-(640 × 2 après le lot).
+`dist/`). i18n : 646 clés × 2 langues, parité vérifiée à chaque exécution dans les deux sens,
+aucune clé morte.
 
 ### Reste ouvert après P3
 
 - **B18** : assumé sans correctif (ci-dessus).
 - `npm run test:e2e` (Playwright) ne tourne dans aucune CI. Le README le dit ;
   l'ajouter aux workflows demande la preuve que les navigateurs s'installent dans
-  l'image de CI, pas juste une ligne de plus dans un job.
+  l'image de CI, pas juste une ligne de plus dans un job. **— refermé dans la
+  suite du lot : voir « Portes de CI » ci-dessous.**
 - Relire les commentaires d'état encore datés dans les anciens fichiers de test
   (`clientFixes`, `lot2UI`, `lot5Logic`, `lot3StorageBlocked`, `cyberDesign`) : ils
   décrètent un dépôt qui n'est plus, mais leurs assertions, elles, tournent sur
   `LANGS`.
 - Le plan global (P0 → P3) est épuisé : les 33 points du rapport n°4 sont soit
   corrigés, soit réfutés avec preuve (`docs/VERIFICATION-RAPPORT-AUDIT-4.md`).
+
+### Portes de CI — le smoke Playwright rejoint la branche (suite de P3)
+
+Le dépôt contenait déjà tout sauf le job : `playwright.config.js` (un seul
+`webServer`, `scripts/dev-all.mjs`), `e2e/smoke.spec.js` (trois parcours),
+`@playwright/test` en devDependency et `npm run test:e2e` au script. Autant dire
+que le smoke « la vitrine répond / le client se connecte / la session survit au
+rechargement » n'était joué que sur la machine de qui y pensait — et les deux
+workflows existants (Neon, crawl jsdom) ne peuvent pas le dire : jsdom ne charge
+ni les polices ni le layout, et le crawl se refuse exprès les clics destructeurs.
+
+Nouveau `.github/workflows/e2e-smoke.yml` (à l'état de `ui-audit.yml` : `pull_request`
++ `push` sur `main`, Node 22, `npm ci`, artifact en cas d'échec). Deux décisions
+valent d'être écrites :
+
+- `npx playwright install --with-deps chromium` : c'est L'ÉTAPE qui manquait à
+  l'ajout d'un job e2e. Sans navigateur, `playwright test` meurt sur
+  « Executable doesn't exist » et le job ne dit plus rien de l'application. Un
+  seul moteur (Chromium) : le smoke n'a pas besoin de WebKit et Firefox, et
+  chaque moteur ajouté est un minuteur de plus sur chaque PR.
+- `DEMO_PASSWORD` est posé en fixture, et ce n'est pas un ornement : la 2ᵉ spec
+  **se saute** sans la variable (le compte démo est verrouillé à dessein, lot
+  1.19) mais la 3ᵉ, elle, ne se saute pas — sans mot de passe elle échouerait sur
+  un état voulu. Un workflow qui laisse les deux « passer » (un sauté, un rouge)
+  est pire que pas de workflow.
+
+`playwright.config.js` gagne `screenshot: 'only-on-failure'` : l'artefact du
+workflow ne contient sinon que le texte de l'assertion, et « le bouton n'est pas
+visible » ne se débriefe pas à l'aveugle. Rien de payant quand tout passe.
+
+**Ce qui n'est PAS prouvé ici** : la suite n'a pas pu être jouée dans ce bac à
+sable — le téléchargement du navigateur y échoue (`Failed to download Chrome for
+Testing`, CDN joignable partiellement), et aucun navigateur n'y est préinstallé.
+Le YAML est parse (js-yaml), les chemins et les scripts cités existent, et
+`scripts/dev-all.mjs` démarre API + front comme l'attend `webServer` ; l'étape
+`install` est la réponse exacte au doute qui faisait tenir ce point ouvert. Le
+premier `push` sur la branche le dira, et l'artefact le montrera.
+
+### Balayage des commentaires d'état (suite de P3)
+
+Dernier reste de P3 : les titres de tests qui décrètent un dépôt qui n'est plus.
+Quatorze occurrences de « dans les 3 langues » / « les trois langues »
+(`clientFixes`, `lot2UI`, `lot4UI`, `lot5Logic`, `lot5UI`, `lot8Claimable`,
+`lot8Logic`, `lot8Product`, `notifyP19`, `reportP17`, `aboutWhatsApp`,
+`lot3StorageBlocked`, plus `App.jsx:1761` et `scripts/audit-crawl.mjs`) — les
+assertions, elles, itéraient déjà sur `LANGS` ou sur `['fr','en']` : **le
+mensonge était dans le titre, pas dans le test**. Un titre faux se cite comme une
+preuve. Les tournages au passé (« `navProfile` existait dans les 3 langues sans
+jamais être rendue ») sont laissés tels quels : ils décrivent l'état d'avant,
+qui est exactement ce qu'ils racontent.
+
+Repris aussi : `README.md` — le nombre de clés i18n est mesuré (**646 × 2**) au
+lieu du « 633 » publié ; `ui-audit.yml` — « les 26 pages » → 24 ;
+`docs/RECETTE-RESPONSIVE-DIRECTION-03.md` — « 13 pages × 3 langues » → × 2.
+
+Portes après ce balayage : suite complète **995/995**, `npm run build` + scan du
+bundle propres, `src/i18n.coverage.test.js` vert dans les deux sens.
+

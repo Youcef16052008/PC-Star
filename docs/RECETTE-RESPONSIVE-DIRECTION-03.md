@@ -4,7 +4,7 @@
 > navigateur : tout ce qui est **calculable** a été automatisé
 > (`src/cyberDesign.test.js` : contraste AA, breakpoints Bootstrap, cibles
 > tactiles ≥ 44 px, clip-path/focus, couleurs en dur, RTL, impression, zoom
-> iOS — 15 tests) et le rendu DOM des **13 pages × 3 langues** est vérifié
+> iOS — 15 tests) et le rendu DOM des **13 pages × 2 langues** est vérifié
 > sans erreur par `node scripts/jsdom-crawl.mjs` (après `npm run build:crawl`).
 > Ce qui reste **non automatisable** — le
 > rendu réel, le ressenti typographique, le comportement de scroll — se

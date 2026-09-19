@@ -1,0 +1,75 @@
+name: E2E smoke (Playwright)
+
+# LOT P3 — reste ouvert refermé. Le dépôt contenait déjà `playwright.config.js`,
+# `e2e/smoke.spec.js` et `@playwright/test` en devDependency, mais AUCUN job ne
+# jouait `npm run test:e2e` : le smoke « la vitrine répond / le client se
+# connecte / la session survit au rechargement » n'était vérifié que sur la
+# machine de qui y pensait. Les deux workflows existants couvrent l'API (Neon)
+# et le rendu jsdom ; eux ne peuvent pas dire qu'un VRAI navigateur affiche la
+# boutique — jsdom ne charge ni les polices ni le layout, et le crawl se refuse
+# exprès aux clics destructeurs.
+#
+# Ce job n'ajoute PAS de secret : l'API et le front sont démarrés sur la machine
+# du runner par `scripts/dev-all.mjs` (via `webServer` de la config Playwright),
+# avec des identifiants de fixture. `DEMO_PASSWORD` est posé parce que la
+# 2ᵉ et 3ᵉ spec se connectent au compte de démonstration — sans la variable, le
+# serveur seed le compte VERROUILLÉ (401 `demo_locked`, lot 1.19), la 2ᵉ se
+# saute et la 3ᵉ échouerait sur un état voulu : la fixture est donc le sujet.
+on:
+  pull_request:
+    types:
+      - opened
+      - reopened
+      - synchronize
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    name: Chromium — vitrine, connexion, session au rechargement
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      MASTER_EMAIL: master-ci@test.pcstar.local
+      MASTER_PASSWORD: ci-master-password-not-for-production
+      DEMO_PASSWORD: ci-demo-password-not-for-production
+      # `CI` : la config Playwright passe `reuseExistingServer` à false — pas de
+      # serveur orphelin réutilisé d'un job précédent.
+      CI: '1'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          # Node 22, comme les deux autres workflows (jsdom 30 exige 22).
+          node-version: 22
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      # L'étape qui manque est là, pas dans le YAML : sans navigateur installé,
+      # `playwright test` échoue sur « Executable doesn't exist » et le job ne
+      # dit rien de l'application. `--with-deps` pose aussi les bibliothèques
+      # système (le runner Ubuntu a sudo gratuit) ; Chromium seul, pas les trois
+      # moteurs — le smoke n'a pas besoin de WebKit et Firefox.
+      - name: Install Chromium (et ses dépendances système)
+        run: npx playwright install --with-deps chromium
+      - name: Run the smoke suite (API + front démarrés par Playwright)
+        run: npm run test:e2e
+      - name: Journaux et captures en artefact si échec
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-logs
+          path: |
+            test-results
+            playwright-report
+          if-no-files-found: ignore

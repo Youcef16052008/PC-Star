@@ -24,7 +24,9 @@ npm run check:bundle # re-run only the dist/ secret scan (lot 7.3)
   et tous les tests `node:test`) ; `src/moduleWiring.test.js` en garde une partie
   en secondes.
 - Catalogue de base : **301 produits, 767 photos**. i18n : **2 langues**
-  (`fr`, `en`) et **633 clés** chacune, parité vérifiée à chaque test.
+  (`fr`, `en`) et **646 clés** chacune — la parité est vérifiée à chaque
+  exécution par `src/i18n.coverage.test.js`, dans les deux sens (aucune clé appelée sans
+  traduction, aucune traduction sans appel).
 - Statuts de commande : table **à sens unique** (`new → preparing → ready →
   picked`, annulation libre avant `picked`) ; un écran qui écrit peut passer
   `expectedStatus` pour refuser une écriture obsolète (409 `stale`) au lieu de la

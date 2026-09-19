@@ -116,7 +116,7 @@ describe('LOT 3.1 (F7 + F8) — stockage navigateur bloqué : l’app monte quan
       const status = host.querySelector('.alert-secondary[role="status"]')
       assert.ok(status, 'le bandeau « stockage bloqué » doit être présent')
       // La langue affichée dépend de la détection du navigateur (ici `ar`) :
-      // on accepte le libellé dans l'une des trois langues du site.
+      // on accepte le libellé dans l'une des deux langues du site.
       const note = clean(status)
       const known = ['fr', 'en'].map((l) => dict[l].storageBlockedNote)
       assert.ok(known.includes(note), `texte inattendu : ${note}`)

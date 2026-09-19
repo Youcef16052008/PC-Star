@@ -1,9 +1,10 @@
 name: UI audit (crawl + boutons)
 
 # P3 — porte de validation interface : le bundle public est scanné (aucun
-# secret), les 26 pages sont rendues sans UNE erreur JavaScript, puis TOUS les
-# boutons des pages clés sont cliqués et les formulaires vides/invalides doivent
-# afficher une erreur visible. Complète le workflow Neon (API + régression).
+# secret), les 24 pages (2 langues × 13 pages) sont rendues sans UNE erreur
+# JavaScript, puis TOUS les boutons des pages clés sont cliqués et les
+# formulaires vides/invalides doivent afficher une erreur visible. Complète le
+# workflow Neon (API + régression).
 on:
   pull_request:
     types:

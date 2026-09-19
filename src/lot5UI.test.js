@@ -209,7 +209,7 @@ describe('5.1 (U1) — l’indicateur d’état dit la vérité', () => {
     await m.unmount()
   })
 
-  it('les 3 états sont traduits dans les 3 langues', () => {
+  it('les 3 états sont traduits dans les deux langues', () => {
     for (const lang of ['fr', 'en']) {
       for (const state of ['online', 'degraded', 'offline']) {
         assert.ok(dict[lang][`sysState_${state}`], `${lang}.sysState_${state} manque`)

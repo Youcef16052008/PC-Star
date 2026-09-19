@@ -86,7 +86,7 @@ describe('5.2 (U2) — shortageMessage nomme le manque', () => {
     assert.doesNotMatch(msg, /null/)
   })
 
-  it('les 3 langues ont les clés du détail', () => {
+  it('les deux langues ont les clés du détail', () => {
     for (const lang of LANGS.map((l) => l.id)) {
       for (const key of ['stockShort', 'stockShortDetail', 'stockShortLine', 'stockShortMore']) {
         assert.ok(dict[lang][key], `${lang}.${key} manque`)
@@ -147,7 +147,7 @@ describe('5.6 (U6) — labelOr : repli explicite', () => {
     assert.equal(labelOr(tfr, 'cat_inexistant', null), 'cat_inexistant')
   })
 
-  it('les 13 catégories du catalogue sont traduites dans les 3 langues', async () => {
+  it('les 13 catégories du catalogue sont traduites dans les deux langues', async () => {
     const { CATEGORIES } = await import('./data.js')
     for (const lang of LANGS.map((l) => l.id)) {
       for (const c of CATEGORIES) {
@@ -231,7 +231,7 @@ describe('5.7 (U7) — buildWaMessage tient dans la limite wa.me', () => {
     assert.ok(WA_TEXT_LIMIT < 4096)
   })
 
-  it('les 3 langues ont la mention de troncature', () => {
+  it('les deux langues ont la mention de troncature', () => {
     for (const lang of LANGS.map((l) => l.id)) assert.ok(dict[lang].waTruncated, `${lang}.waTruncated manque`)
   })
 })

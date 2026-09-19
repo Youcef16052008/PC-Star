@@ -11,7 +11,13 @@ export default defineConfig({
   reporter: 'list',
   use: {
     baseURL: process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:5173',
-    trace: 'on-first-retry'
+    trace: 'on-first-retry',
+    // LOT P3 (CI e2e) — le workflow .github/workflows/e2e-smoke.yml téléverse
+    // `test-results/` en artefact : sans capture, un échec sur le runner ne
+    // laisse que le texte de l'assertion, et un « le bouton n'est pas visible »
+    // ne se débriefe pas à l'aveugle. `only-on-failure` : rien de payant quand
+    // tout passe.
+    screenshot: 'only-on-failure'
   },
   webServer: {
     command: 'node scripts/dev-all.mjs',

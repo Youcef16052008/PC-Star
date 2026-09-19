@@ -155,7 +155,7 @@ const PRE = {
 // masquaient les pages réservées au maître.
 const ONLY = process.argv[3]
 // Le bouton « profil » affiche user.name, pas t('navProfile') : la clé i18n
-// navProfile existe dans les 3 langues mais n'est jamais rendue par App.jsx.
+// navProfile existe dans les deux langues du site mais n'est jamais rendue par App.jsx.
 const OVERRIDE = process.argv[4] || null
 const NAV = ONLY ? ALL_NAV.filter(([n]) => n === ONLY) : ALL_NAV
 

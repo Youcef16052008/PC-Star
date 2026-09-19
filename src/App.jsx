@@ -1758,7 +1758,7 @@ export default function App() {
                     la traduction manque, et `cat_ssd` se retrouverait affiché
                     tel quel. `BuilderPage`/`SearchPage` avaient déjà le motif,
                     pas la vitrine. Aucune clé ne manque aujourd'hui (13
-                    catégories × 3 langues), mais une catégorie master ajoutée
+                    catégories × 2 langues), mais une catégorie master ajoutée
                     sans traduction ne doit pas fuiter jusqu'à l'écran. */}
                 {labelOr(t, `cat_${c.id}`, c.label || c.id)}
               </button>

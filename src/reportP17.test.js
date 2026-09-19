@@ -118,7 +118,7 @@ describe('P17 (#2) — le SKU généré ne dégénère jamais en « PS- »', () 
 })
 
 describe('P17 (#3) — le filtre « En stock » explique ce qu’il fait', () => {
-  it('la clé inStoreOnlyHint existe dans les 3 langues', () => {
+  it('la clé inStoreOnlyHint existe dans les deux langues', () => {
     for (const lang of ['fr', 'en']) {
       const v = dict?.[lang]?.inStoreOnlyHint
       assert.ok(typeof v === 'string' && v.length > 10, `${lang} : inStoreOnlyHint manquant`)
