@@ -2903,3 +2903,9 @@ caractères).
 **Portes mesurées après relecture.** `npm test` **1085 / 1085** (299 suites) ; `npm run build`
 **489,99 kB** pour le bundle principal, scan anti-secret sur 9 artefacts, aucun secret ; crawl
 jsdom **24 pages, 0 erreur** ; audit boutons **32 vérifications, 0 erreur**.
+
+**Relu sur la CI (`5d63945`) — tout est vert.** `UI audit` **succès en 7 m 29 s**, `E2E smoke`
+**succès** (1 m 16 s, Chromium + WebKit + Firefox), `Setup` **succès** (3 s) et `Create Neon
+Branch` **succès** (2 m 24 s), Vercel **succès** (`all-intelligence/pc-star`). Une porte n'a pas
+été ouverte par le passage en `clipChars` : la crawl de production reste à 24 pages, 0 erreur,
+avec l'intercepteur qui fait rougir la moindre sous-ressource distante.
