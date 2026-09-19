@@ -136,12 +136,22 @@ for (const lang of LANGS) {
     // laisse pas diagnostiquer depuis un journal GitHub (le blob store des logs
     // est souvent injoignable — les annotations restent le seul canal) : sans
     // frame, on ne peut ni reproduire ni réparer, et la porte devient un mur.
-    const frames = (e.stack || '').split('\n').slice(1).map((l) => l.trim()).filter(Boolean)
+    // `e.stack` est la pile de JSdom (reportException → processJavaScript) : elle
+    // ne dit rien de la faute. La pile de LA PAGE est sur `e.error.stack` — c'est
+    // elle qui porte le frame du bundle, donc le nom de la fonction qui a lancé.
+    // Sans elle, une porte rouge en CI est indiagnosticable depuis le seul canal
+    // qui reste quand le blob store des logs est injoignable : l'annotation.
+    const stackPage = e.error && e.error.stack ? String(e.error.stack) : ''
+    const frames = (stackPage || e.stack || '').split('\n').map((l) => l.trim()).filter(Boolean)
     // Les frames de jsdom (`reportException`, `processJavaScript`, …) ne disent
     // rien : la première course en CI n'a montré que ça. On garde la tête de
     // pile ET les frames qui touchent le bundle — c'est là que vit la faute.
     const nôtres = frames.filter((l) => /dist-crawl|assets\/|src\//.test(l)).slice(0, 3)
-    const pile = [...new Set([...frames.slice(0, 2), ...nôtres])].join(' ← ')
+    // Sans frame du bundle (faute levée hors d'une pile exploitable), on cite la
+    // ligne de pile utile la plus proche : un `undefined` muet ne suffit plus.
+    const utiles = nôtres.length ? nôtres : frames.filter((l) => !/jsdom\/lib/.test(l)).slice(0, 2)
+
+    const pile = [...new Set([...frames.slice(0, stackPage ? 1 : 2), ...utiles])].join(' ← ')
     errors.push(`jsdomError: ${e.message}${pile ? ` [${pile}]` : ''}`)
   })
 
