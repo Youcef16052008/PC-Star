@@ -2508,3 +2508,16 @@ commentaire ne peut plus ni satisfaire ni saboter ce verrou.
 
 Portes rejouées après tout ça : `npm test` **1025 / 1025**, crawl **24 pages, 0 erreur**,
 audit boutons en cours, `build:crawl` propre.
+
+> **Note d'interruption (19/09/2026, fin de session).** Les deux derniers commits de
+> cette série — `ea178e6` (le smoke attend la réponse de session au lieu d'un délai) et
+> `1a07714` (le bundle du crawl est évalué après `#root`, et la porte rend sa pile) —
+> sont **locaux** : la connexion GitHub du bac à sable est morte en fin de session
+> (`GH_TOKEN` révoqué, `git push` et `gh api` répondent « Bad credentials »), donc ni
+> poussés ni relus en CI. Ce qui est vérifié sur le dépôt distant à ce point : les trois
+> moteurs e2e **verts** sur `cfb677a` (9 tests, chromium + webkit + firefox), et deux
+> rouges ouverts — `UI audit` sur `✗ fr/orders` (le rouge dont parle le § 4 ci-dessus,
+> que le remplacement du script après `#root` est censé fermer) et le job Neon sur
+> `cfb677a` (le branchement manquant de `p3DocsAging`, corrigé dans `8f64e81`). À faire
+> à la reprise : pousser, relire les trois portes en CI, et mettre à jour le corps de
+> la PR #9 avec les durées mesurées.
