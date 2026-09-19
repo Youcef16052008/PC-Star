@@ -431,3 +431,68 @@ describe('P3 — les moteurs du smoke et ceux installés par la CI sont les mêm
     assert.equal(chaines.some((c) => c.includes('13 pages')), false, 'un compteur de pages ecrit a la main est revenu dans une chaine de sortie')
   })
 })
+
+describe('P4 — la porte rend la pile de la page, pas celle du moteur', () => {
+  /*
+   * jsdom emballe l'exception du bundle dans `new Error('Uncaught [...]', { cause })`
+   * et n'émet que cet emballage sur le virtualConsole : sa pile commence à
+   * `reportException` et ne dit ni où ni quoi. La porte « UI audit » a rouge cinq
+   * têtes consécutives sur `fr/orders` avec un message nu — cinq têtes à deviner.
+   * `pileDeFaute` choisit la pile utile ; les verrous ci-dessous prouvent que ce
+   * n'est pas un filtre : rien n'est écarté, rien n'est amolli.
+   */
+
+  it('la pile de la `cause` est gardée, celle de jsdom ne suffit pas', async () => {
+    const { pileDeFaute } = await import('../scripts/jsdom-error-pile.mjs')
+    const vraie = new Error('boom')
+    vraie.stack = [
+      "TypeError: Cannot read properties of undefined (reading 'querySelector')",
+      '    at PS (http://127.0.0.1:4173/assets/index-2KbYsC.js:1:45872)',
+      '    at HTMLScriptElement.processJavaScript (/app/node_modules/jsdom/lib/jsdom/living/nodes/HTMLScriptElement-impl.js:233:7)'
+    ].join('\n')
+    const emballée = new Error('Uncaught [TypeError: boom]', { cause: vraie })
+    emballée.stack = [
+      'Error: Uncaught [TypeError: boom]',
+      '    at reportException (/app/node_modules/jsdom/lib/jsdom/living/helpers/runtime-script-errors.js:66:24)',
+      '    at processTicksAndRejections (node:internal/process/task_queues:103:5)'
+    ].join('\n')
+    const pile = pileDeFaute(emballée)
+    assert.match(pile, /assets\/index-2KbYsC\.js/, 'le frame du bundle a été perdu : la porte est de nouveau muette')
+    // La tete de la pile de la page suffit a dire d'ou vient la faute : l'evaluation
+    // d'un script (`processJavaScript`), pas un clic ni un effet du harnais.
+    assert.match(pile, /processJavaScript/, 'la tete de pile ne dit plus que la faute leve pendant l evaluation du script')
+    assert.equal((pile.match(/index-2KbYsC/g) || []).length, 1, 'frames dupliqués : le résumé nest plus lisible')
+  })
+
+  it('sans cause exploitable la pile reçue reste rendue, et une entrée bizarre ne casse pas la porte', async () => {
+    const { pileDeFaute } = await import('../scripts/jsdom-error-pile.mjs')
+    const seule = new Error('Uncaught [TypeError: x]')
+    seule.stack = 'Error\n    at triche (/app/src/App.jsx:12:3)'
+    assert.match(pileDeFaute(seule), /src\/App\.jsx:12:3/)
+    // Une erreur sans AUCUN frame (stack amputee, objet nu, chaine sans pile) doit
+    // rendre une chaine vide — le message, lui, est deja pousse par l'appelant.
+    const nu = new Error('x')
+    nu.stack = 'Error: x'
+    assert.equal(pileDeFaute(nu), '', 'une erreur sans frame doit rendre vide, pas lever')
+    assert.equal(pileDeFaute('TypeError: texte brut'), '', 'une chaine sans frame : rien a montrer')
+    for (const vide of [null, undefined, {}, '']) assert.equal(pileDeFaute(vide), '')
+    // Une `cause` sans frame ne doit pas masquer la pile utile du wrapper.
+    const nue = new Error('nue')
+    nue.stack = 'Error: nue' // cause presente mais muette : on doit redescendre
+    const avecCauseVide = new Error('Uncaught [x]', { cause: nue })
+    avecCauseVide.stack = 'Error\n    at util (/app/dist-crawl/assets/index.js:1:1)'
+    assert.match(pileDeFaute(avecCauseVide), /dist-crawl/)
+  })
+
+  it('les deux portes sont branchées sur le module, et ne réimprovisent pas la pile', async () => {
+    for (const f of ['scripts/jsdom-crawl.mjs', 'scripts/audit-buttons.mjs']) {
+      const s = fs.readFileSync(path.join(process.cwd(), f), 'utf8')
+      assert.match(s, /import \{ pileDeFaute \} from '\.\/jsdom-error-pile\.mjs'/, `${f} nimporte pas le module de pile`)
+      assert.match(s, /pileDeFaute\(e\)/, `${f} n'appelle pas pileDeFaute sur la faute`)
+      assert.equal(/const frames = /.test(s), false, `${f} recompose une pile à la main : le tri forke en deux endroits`)
+    }
+    // Le module ne connaît aucune liste d'excuses : il ne peut pas amollir une porte.
+    const mod = fs.readFileSync(path.join(process.cwd(), 'scripts/jsdom-error-pile.mjs'), 'utf8')
+    assert.equal(/isSoft|Could not load/.test(mod), false, 'le module de pile sest mis à filtrer des erreurs')
+  })
+})

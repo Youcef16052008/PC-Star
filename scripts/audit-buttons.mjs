@@ -21,6 +21,7 @@ import { JSDOM, VirtualConsole } from 'jsdom'
 import { dict } from '../src/i18n.js'
 import { masterCredentials } from './masterEnv.mjs'
 import { patchPerformanceGaps } from './jsdom-perf-gaps.mjs'
+import { pileDeFaute } from './jsdom-error-pile.mjs'
 
 const FRONT = 'http://127.0.0.1:4173'
 const API = 'http://127.0.0.1:8787'
@@ -88,7 +89,8 @@ const failures = []
 // de tuer le processus d'audit sans résumé.
 process.on('unhandledRejection', (e) => {
   const msg = String((e && e.message) || e).slice(0, 200)
-  failures.push('rejection non gérée : ' + msg)
+  const pile = pileDeFaute(e)
+  failures.push('rejection non gérée : ' + msg + (pile ? ` [${pile}]` : ''))
 })
 
 /** Erreur JS = échec ; « not implemented » (alert/confirm/print) ignoré, ainsi
@@ -100,7 +102,11 @@ function openSession(lang, token) {
   return (async () => {
     const errors = []
     const vc = new VirtualConsole()
-    vc.on('jsdomError', (e) => { if (!isSoft(e.message)) errors.push(`jsdomError: ${e.message}`) })
+    vc.on('jsdomError', (e) => {
+      if (isSoft(e.message)) return
+      const pile = pileDeFaute(e)
+      errors.push(`jsdomError: ${e.message}${pile ? ` [${pile}]` : ''}`)
+    })
     const dom = await JSDOM.fromURL(`${FRONT}/`, {
       runScripts: 'dangerously',
       resources: 'usable',

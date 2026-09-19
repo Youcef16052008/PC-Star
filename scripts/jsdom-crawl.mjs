@@ -25,6 +25,7 @@ import { JSDOM, VirtualConsole } from 'jsdom'
 import { dict } from '../src/i18n.js'
 import { masterCredentials } from './masterEnv.mjs'
 import { patchPerformanceGaps } from './jsdom-perf-gaps.mjs'
+import { pileDeFaute } from './jsdom-error-pile.mjs'
 
 const FRONT = 'http://127.0.0.1:4173'
 const API = 'http://127.0.0.1:8787'
@@ -131,27 +132,11 @@ for (const lang of LANGS) {
     // ressources externes. Ajouter un motif ici pour faire passer un rouge est
     // exactement comment une porte devient muette.)
     if (/Could not load (link|iframe)/i.test(e.message)) return
-    // La PILE, pas seulement le message. Une faute intermittent du type
-    // « Cannot read properties of undefined (reading 'querySelector') » ne se
-    // laisse pas diagnostiquer depuis un journal GitHub (le blob store des logs
-    // est souvent injoignable — les annotations restent le seul canal) : sans
-    // frame, on ne peut ni reproduire ni réparer, et la porte devient un mur.
-    // `e.stack` est la pile de JSdom (reportException → processJavaScript) : elle
-    // ne dit rien de la faute. La pile de LA PAGE est sur `e.error.stack` — c'est
-    // elle qui porte le frame du bundle, donc le nom de la fonction qui a lancé.
-    // Sans elle, une porte rouge en CI est indiagnosticable depuis le seul canal
-    // qui reste quand le blob store des logs est injoignable : l'annotation.
-    const stackPage = e.error && e.error.stack ? String(e.error.stack) : ''
-    const frames = (stackPage || e.stack || '').split('\n').map((l) => l.trim()).filter(Boolean)
-    // Les frames de jsdom (`reportException`, `processJavaScript`, …) ne disent
-    // rien : la première course en CI n'a montré que ça. On garde la tête de
-    // pile ET les frames qui touchent le bundle — c'est là que vit la faute.
-    const nôtres = frames.filter((l) => /dist-crawl|assets\/|src\//.test(l)).slice(0, 3)
-    // Sans frame du bundle (faute levée hors d'une pile exploitable), on cite la
-    // ligne de pile utile la plus proche : un `undefined` muet ne suffit plus.
-    const utiles = nôtres.length ? nôtres : frames.filter((l) => !/jsdom\/lib/.test(l)).slice(0, 2)
-
-    const pile = [...new Set([...frames.slice(0, stackPage ? 1 : 2), ...utiles])].join(' ← ')
+    // La PILE de la page, pas celle de jsdom : la porte doit dire OU la faute
+    // levee, sinon un rouge ne se repare qu'a la devinette (cinq têtes rouges
+    // sur `fr/orders` avant que ce module n'existe). La logique vit dans
+    // `scripts/jsdom-error-pile.mjs`, verrouillee par un test.
+    const pile = pileDeFaute(e)
     errors.push(`jsdomError: ${e.message}${pile ? ` [${pile}]` : ''}`)
   })
 
