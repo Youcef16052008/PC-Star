@@ -22,6 +22,7 @@ import { dict } from '../src/i18n.js'
 import { masterCredentials } from './masterEnv.mjs'
 import { patchPerformanceGaps } from './jsdom-perf-gaps.mjs'
 import { pileDeFaute } from './jsdom-error-pile.mjs'
+import { ressourcesDeLaPorte } from './jsdom-subresources.mjs'
 
 const FRONT = 'http://127.0.0.1:4173'
 const API = 'http://127.0.0.1:8787'
@@ -94,8 +95,10 @@ process.on('unhandledRejection', (e) => {
 })
 
 /** Erreur JS = échec ; « not implemented » (alert/confirm/print) ignoré, ainsi
- * que les ressources EXTERNES injoignables (Google Fonts en sandbox/CI) — le
- * rendu DOM n'en dépend pas, même filtrage que scripts/jsdom-crawl.mjs. */
+ * que les ressources EXTERNES injoignables — le rendu DOM n'en dépend pas, même
+ * filtrage que scripts/jsdom-crawl.mjs. Les URL distantes sont neutralisees avant
+ * requete par `scripts/jsdom-subresources.mjs` (les deux portes partagent la meme
+ * politique, sinon l'audit herite du flake du crawl). */
 const isSoft = (m) => /not implemented/i.test(m) || /Could not load (link|iframe)/i.test(m)
 
 function openSession(lang, token) {
@@ -109,7 +112,7 @@ function openSession(lang, token) {
     })
     const dom = await JSDOM.fromURL(`${FRONT}/`, {
       runScripts: 'dangerously',
-      resources: 'usable',
+      resources: ressourcesDeLaPorte(),
       pretendToBeVisual: true,
       virtualConsole: vc,
       beforeParse(w) {

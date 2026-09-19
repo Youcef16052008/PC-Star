@@ -496,3 +496,91 @@ describe('P4 — la porte rend la pile de la page, pas celle du moteur', () => {
     assert.equal(/isSoft|Could not load/.test(mod), false, 'le module de pile sest mis à filtrer des erreurs')
   })
 })
+
+describe('P4 — la porte ne charge pas le code des tiers', () => {
+  /*
+   * Le rouge `fr/orders` de la CI venait du CHARGEUR DE GOOGLE MAPS lui-même :
+   * `useJsApiLoader` injecte `<script src="https://maps.googleapis.com/maps/api/js…">`
+   * dès que la clé publique est dans le build, et `resources: 'usable'` faisait
+   * aller le crawl le chercher et l'évaluer. Dans jsdom l'API lève chez elle un
+   * `TypeError: … reading 'querySelector'` — faute authentique, mais du tiers, et
+   * pilotée par le réseau du runner (d'où une tête sur deux, et jamais en local).
+   * `scripts/jsdom-subresources.mjs` refuse la sous-ressource distante AVANT la
+   * requête ; les verrous ci-dessous sont ce qui prouve que le refus est la norme
+   * sur tout runner, bundle local inclus.
+   */
+
+  it('la politique est une origine, pas une liste de messages', async () => {
+    const { estSousRessourceDistante } = await import('../scripts/jsdom-subresources.mjs')
+    const cas = [
+      ['https://maps.googleapis.com/maps/api/js?key=AIzaSyFAKE&callback=onApiLoad', true],
+      ['https://fonts.googleapis.com/css2?family=Inter:wght@400..900', true],
+      ['http://example.org/assets/index-abc.js', true],
+      ['/assets/index-abc.js', false],
+      ['../photos/1234.jpg', false],
+      ['http://127.0.0.1:4173/assets/index-abc.js', false],
+      ['http://localhost:8787/api/health', false],
+      ['http://127.0.0.1:4173', false],
+      ['data:text/css,a{}', false],
+      ['about:blank', false]
+    ]
+    for (const [url, attendu] of cas) {
+      assert.equal(estSousRessourceDistante(url), attendu, `estSousRessourceDistante(${url})`)
+    }
+    assert.equal(estSousRessourceDistante(undefined), false, 'une URL absente ne doit pas inventer un blocage')
+    // Un module de politique ne doit rien savoir des fautes qu'il fait taire :
+    // on grep le code, pas le récit du bloc d'en-tête (qui doit pouvoir citer le
+    // message de la CI pour expliquer la panne).
+    const modBrut = fs.readFileSync(path.join(process.cwd(), 'scripts/jsdom-subresources.mjs'), 'utf8')
+    const code = modBrut.replace(/\/\*[\s\S]*?\*\//g, '')
+    assert.match(code, /export function/, 'le retrait des blocs de commentaire a mangé le module')
+    assert.equal(/Could not load|isSoft|querySelector|Uncaught/.test(code), false, 'le module sest mis à raisonner sur les messages derreur')
+  })
+
+  it('le bundle same-origin est évalué, le script tiers est neutralé sans faute', async () => {
+    const { ressourcesDeLaPorte } = await import('../scripts/jsdom-subresources.mjs')
+    const { VirtualConsole } = await import('jsdom')
+    const srv = http.createServer((req, res) => {
+      res.writeHead(200, { 'content-type': 'application/javascript' })
+      res.end('window.__bundle = (window.__bundle||0) + 1')
+    })
+    await new Promise((r) => srv.listen(0, '127.0.0.1', r))
+    const origine = `http://127.0.0.1:${srv.address().port}`
+    const erreurs = []
+    const vc = new VirtualConsole()
+    vc.on('jsdomError', (e) => erreurs.push(`jsdomError: ${e.message}`))
+    // Le script « Google » pointe vers un domaine VRAIMENT résolvable : si la
+    // porte dépendait encore du réseau, ce test rouge/vert dépendrait du réseau
+    // du runner — et ce n'est jamais le cas ici, même hors ligne.
+    const dom = new JSDOM(`<!doctype html><title>porte</title>
+      <link rel="stylesheet" href="https://rsms.me/inter/inter.css" onerror="window.__cssErr=1">
+      <script src="https://maps.googleapis.com/maps/api/js?key=FAKE&callback=onApiLoad"
+              onload="window.__charge=1" onerror="window.__err=1"></script>
+      <script src="${origine}/assets/index-abc.js"></script>`, {
+      url: `${origine}/fr/orders`, runScripts: 'dangerously', resources: ressourcesDeLaPorte(),
+      pretendToBeVisual: true, virtualConsole: vc,
+      beforeParse(w) { w.__onApiLoad = () => { w.__mapsVivant = 1 } }
+    })
+    try {
+      await new Promise((r) => setTimeout(r, 800))
+      const w = dom.window
+      assert.equal(w.__bundle, 1, 'le bundle same-origin nest plus évalué : la porte est devenue muette')
+      assert.equal(w.__err, undefined, 'la sous-ressource distante lève une erreur délément : le chemin de refus dépend du réseau du runner')
+      assert.equal(w.__cssErr, undefined, 'idem pour la feuille de style distante')
+      assert.equal(w.__mapsVivant, undefined, 'le tiers est neutralisé mais son callback est quand même appelé : réponse synthétique mal formée')
+      assert.deepEqual(erreurs, [], 'la porte reporte encore le code des tiers')
+    } finally {
+      dom.window.close()
+      srv.close()
+    }
+  })
+
+  it('les deux portes partagent la politique (plus de `resources: "usable"` nu)', () => {
+    for (const f of ['scripts/jsdom-crawl.mjs', 'scripts/audit-buttons.mjs']) {
+      const s = fs.readFileSync(path.join(process.cwd(), f), 'utf8')
+      assert.match(s, /import \{ ressourcesDeLaPorte \} from '\.\/jsdom-subresources\.mjs'/, `${f} nimporte pas la politique de sous-ressources`)
+      assert.match(s, /resources: ressourcesDeLaPorte\(\)/, `${f} ne passe pas resourcesDeLaPorte() au JSDOM`)
+      assert.equal(/resources: 'usable'/.test(s), false, `${f} a retrouvé un resources: 'usable' nu : le flake du tiers revient`)
+    }
+  })
+})

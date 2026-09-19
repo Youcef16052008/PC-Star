@@ -18,6 +18,13 @@
  * avertissements non fatals. Le rendu effectif de chaque page est vérifié
  * par le document.title (mis à jour par page/langue dans App.jsx) et par un
  * marqueur DOM quand il existe.
+ *
+ * Les sous-ressources DISTANTES ne sont pas chargees : l'option `resources` vient
+ * de `scripts/jsdom-subresources.mjs`, qui neutralise toute URL hors de l'origine
+ * de la porte. Sans ca, le crawl depend de la sortie Internet du runner et execute
+ * du code tiers (le chargeur de Google Maps leve chez lui un `TypeError` dans
+ * jsdom) — c'est ce qui a fait rougeoir `fr/orders` sur cinq tetes et jamais en
+ * local. Voir le bloc-commentaire du module pour la mesure complete.
  */
 import { spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
@@ -26,6 +33,7 @@ import { dict } from '../src/i18n.js'
 import { masterCredentials } from './masterEnv.mjs'
 import { patchPerformanceGaps } from './jsdom-perf-gaps.mjs'
 import { pileDeFaute } from './jsdom-error-pile.mjs'
+import { ressourcesDeLaPorte } from './jsdom-subresources.mjs'
 
 const FRONT = 'http://127.0.0.1:4173'
 const API = 'http://127.0.0.1:8787'
@@ -126,8 +134,10 @@ for (const lang of LANGS) {
   const errors = []
   const vc = new VirtualConsole() // silence console.*, jsdomError capturé
   vc.on('jsdomError', (e) => {
-    // Non fatal : ressources EXTERNES injoignables en sandbox (Google Fonts,
-    // iframe Google Maps de la page about) — le rendu DOM n'en dépend pas.
+    // Non fatal : ressources EXTERNES injoignables — le rendu DOM n'en dépend
+    // pas. Depuis `jsdom-subresources.mjs`, les URL distantes sont neutralisees
+    // AVANT requete et ne passent donc plus ici ; la liste reste un filet pour ce
+    // qui echapperait au mecanisme (un `about:blank` interne, par exemple).
     // (La liste des excuses est close : rien n'est filtré d'autre que les
     // ressources externes. Ajouter un motif ici pour faire passer un rouge est
     // exactement comment une porte devient muette.)
@@ -142,7 +152,7 @@ for (const lang of LANGS) {
 
   const dom = await JSDOM.fromURL(`${FRONT}/`, {
     runScripts: 'dangerously',
-    resources: 'usable',
+    resources: ressourcesDeLaPorte(),
     pretendToBeVisual: true,
     virtualConsole: vc,
     beforeParse(w) {

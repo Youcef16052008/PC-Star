@@ -2647,3 +2647,54 @@ traduction, aucune traduction sans lecteur).
 | UI audit — audit boutons | **échec** (2 rejets, un par langue) | `performance.getEntriesByType is not a function` |
 
 Le tiers restant mérite son propre paragraphe, parce que sa forme est trompeuse. Le message désignait l'application, le harnais appelait bien son shim, et neuf exécutions locales ne le donnaient pas. En le reproduisant en trente secondes on a trouvé le vrai coupable : **le shim ne vivait que dans le realm principal**. Une iframe a son propre `window.performance`, avec les mêmes méthodes absentes — et la page « à propos » monte sa carte Google Maps *après* le premier rendu, donc après `beforeParse`. Le collecteur de rejections étant branché sur le processus, une promesse laissée par un realm non comblé devient une faute de l'app, et seule une machine assez lente pour que l'ordre des microtâches change le montre. Réparé côté harnais (le shim descend dans les frames, y compris celles qui apparaissent ensuite), sans rien ajouter à la liste des excuses du crawl ni relâcher le collecteur ; deux verrous dans `src/p3ServerHygiene.test.js`, dont celui qui rejoue le message de la CI. Après ça : crawl **24 pages / 0 erreur**, audit **32 vérifications / 0 erreur**, `npm test` **1059 / 1059**.
+
+### Le rouge `fr/orders`, jusqu'au bout (têtes `b427df4` → `349d42b`)
+
+Sur `d6bd55a`, la porte `UI audit` était retombée en panne à l'étape **Crawl** (et l'audit
+boutons n'était donc plus jamais atteint) : `✗ fr/orders : jsdomError: Uncaught [TypeError:
+Cannot read properties of undefined (reading 'querySelector')]` — un message **sans endroit**.
+Le vert de `b427df4` n'avait pas tenu ; le rouge était intermittent, et dix executions locales
+ne le donnaient pas.
+
+**Première réparation : rendre la porte parlante.** L'annotation ne citait que
+`reportException` et `processTicksAndRejections`, ce qui était suspect : lu dans le code de
+jsdom (`runtime-script-errors.js:66`), l'exception de la page est emballée dans
+`new Error('Uncaught [...]', { cause })` et seul l'emballage est émis sur le `virtualConsole`.
+Autrement dit on lisait la pile du moteur, jamais celle de la page — d'où cinq têtes à
+deviner. Le tri vit désormais dans `scripts/jsdom-error-pile.mjs`, partagé par les deux portes
+(y compris les rejets non gérés qu'elles ne notaient pas), et ne connaît aucune liste d'excuses :
+il ne peut donc pas amollir une porte.
+
+**Ce que la pile a montré.** Le run suivant a rendu
+`at getScript (https://maps.googleapis.com/maps/api/js?key=…&callback=onApiLoad:23:35)` —
+la faute levait **dans le chargeur de Google Maps**, pas dans le bundle. Le mécanisme complet
+tient en trois faits : `useJsApiLoader` (`@react-google-maps/api`) est monté par la carte du
+rendez-vous dès que la clé publique est dans le build — donc **sur le runner**, pas chez nous ;
+`resources: 'usable'` faisait le crawl chercher et évaluer ce script ; et l'API réelle lève chez
+elle dans un DOM qui ne peut pas la représenter. L'intermittence était le réseau du runner ; le
+silence local aussi (mesuré : une récupération de script échouée ne produit **aucun**
+`jsdomError` dans jsdom 30 — la porte était donc verte pour la mauvaise raison).
+
+**Seconde réparation : un mécanisme, pas un filtre.** `scripts/jsdom-subresources.mjs`
+neutralise toute sous-ressource hors de l'origine de la porte **avant la requête**, par
+l'intercepteur `resources` de jsdom, avec une réponse inerte du bon type par élément (script
+vide, feuille vide, document vide) — exactement ce que verrait un navigateur privé de sortie
+Internet : l'élément `load`, l'API n'est jamais appelée, la zone reste en attente. Aucun
+message d'erreur n'est apparié, aucune URL n'est énumérée, la liste d'excuses du crawl n'a
+pas bougé d'un caractère. Détail d'implémentation qui vaut d'être su : **jsdom 30 n'a plus de
+`ResourceLoader`** (le point d'extension classique a disparu ; `require('jsdom')` ne rend que
+`JSDOM`, `VirtualConsole`, `CookieJar`, `requestInterceptor`, `toughCookie`) — c'est l'option
+`resources: { interceptors: [...] }` qui fait le travail, et subclasser `jsdom.ResourceLoader`
+aurait fait planter les deux portes au premier appel.
+
+**Portes mesurées sur cet arbre.** crawl jsdom **24 pages rendues, 0 erreur** avec
+l'intercepteur branché ; audit boutons **32 vérifications, 0 erreur**, `fr/orders` et
+`en/orders` cliqués (150 boutons chacun) sans exception ; `npm test` **1065 / 1065**, dont
+**6 nouveaux verrous** dans `src/p3ServerHygiene.test.js` — la pile de la `cause` conservée et
+dédupliquée, les entrées bizarres qui ne cassent pas la porte, la politique d'origine sur dix
+cas d'URL, un jsdom vivant qui prouve que le bundle same-origin est toujours évalué pendant
+que le tiers est neutralé sans faute, et le câblage des deux portes (un `resources: 'usable'`
+nu retrouvé fait rougir le test). Restait à relire la CI sur cette tête : si `fr/orders`
+rougeoit encore avec un **frame de notre bundle**, la panne est réelle et se répare dans
+l'application ; si le crawl passe, c'est que la porte ne dépend plus du réseau du runner, et
+l'audit boutons redevient atteint.
