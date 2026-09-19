@@ -714,3 +714,124 @@ describe('P4 — le dictionnaire suit la page (aucune clé morte, aucune langue 
     assert.ok(PART_LINES.length > 1)
   })
 })
+
+describe('P5 — le bornage de la vitrine parle en caractères et ne devine pas les nombres', () => {
+  /*
+   * Deux defauts mesures le 19/09/2026 sur `PUT /api/master/vitrine`, par la
+   * meme porte : le libelle etait compte/coupe en UNITES UTF-16 (un libelle de
+   * 49 caracteres dont le 49e etait un emoji ressortait en 25 caracteres dont le
+   * dernier etait U+D83E seul — un demi-caractere, affiche ? sur le site public,
+   * et stocke ainsi), et le compteur passait par `Number()` (un booleen valait
+   * 1, un tableau a un element valait son element, `'1e3'` valait 1000, et une
+   * valeur au-dessus du plafond etait ramenee a 9 999 999 sans un mot).
+   */
+  const EMOJI = '\u{1F9F0}' // 🧰
+
+  it('le libellé est compté en caractères : 48 emoji passent, et jamais une moitié de paire', async () => {
+    const { clampVitrineLabel, VITRINE_LIMITS } = await import('./vitrine.js')
+    assert.equal(clampVitrineLabel(EMOJI.repeat(48)), EMOJI.repeat(48), `${VITRINE_LIMITS.label} emoji doivent passer entiers`)
+    const borne = clampVitrineLabel('a' + EMOJI.repeat(60))
+    assert.equal([...borne].length, VITRINE_LIMITS.label, 'le compte doit etre en caracteres')
+    const d = borne.charCodeAt(borne.length - 1)
+    assert.equal(d >= 0xd800 && d <= 0xdbff, false, 'le libelle se termine par une tete de paire orpheline : le site public affiche ?')
+    // La base peut porter n importe quoi (une valeur ecrite avant ce correctif) :
+    // la projection publique doit REPARER la coupe, pas planter ni servir un demi
+    // caractere. C est le chemin de relire une base ancienne.
+    const corrompu = 'repare ' + String.fromCharCode(0xd83e)
+    const relu = clampVitrineLabel(corrompu)
+    assert.equal(relu.includes('\uD83E'), false, 'une moitie de paire stockee avant le correctif ressort toujours du GET /api/meta')
+    assert.match(relu, /^repare/)
+  })
+
+  it('un compteur est un nombre ou une chaîne de chiffres : le reste est refusé, pas deviné', async () => {
+    const { applyVitrineEdit } = await import('../server/vitrine.js')
+    const { VITRINE_LIMITS } = await import('./vitrine.js')
+    const db = { meta: { vitrine: { repairsLabel: 'repare au comptoir', repairsDone: 40, readyTally: 7 } } }
+    for (const horsContrat of [true, false, [12], {}, { 1: 1 }, '1e3', '12px', '-5', '1 284', NaN, Infinity, 1e9, -0.5]) {
+      assert.deepEqual(
+        applyVitrineEdit(db, { repairsDone: horsContrat }),
+        { ok: false, error: 'vitrine_count' },
+        `${String(horsContrat)} ne doit pas etre accepte comme compteur`
+      )
+    }
+    // Ce qui n'est PAS touché ne doit pas etre écrasé par le refus : le `PUT`
+    // qui precedait a laisse la tuile intacte.
+    assert.equal(db.meta.vitrine.repairsDone, 40, 'un refus a quand meme modifie le compteur')
+    for (const admissible of [40, '40', 0, '0', 12.7]) {
+      const r = applyVitrineEdit(db, { repairsDone: admissible })
+      assert.equal(r.ok, true, `${String(admissible)} devrait passer : ${JSON.stringify(r)}`)
+    }
+    assert.equal(db.meta.vitrine.repairsDone, 12, 'le decimale admise est arrondie vers le bas, pas refusee')
+    const apr = applyVitrineEdit(db, { repairsDone: ' 41 ' })
+    assert.equal(apr.ok, true)
+    assert.equal(db.meta.vitrine.repairsDone, 41, 'la derniere valeur admise doit etre celle stockee')
+    assert.equal(db.meta.vitrine.readyTally, 7, 'le compteur de commandes reste hors de portee')
+    // Une valeur deja en base au-dessus de la borne reste BORNEE a l'affichage
+    // (le public ne doit jamais voir un nombre a 16 chiffres) : le refus est pour
+    // la saisie, la borne pour la lecture.
+    const { clampVitrineCount } = await import('./vitrine.js')
+    assert.equal(clampVitrineCount(1e9), VITRINE_LIMITS.count)
+    assert.equal(clampVitrineCount(true), 0, 'un booleen stocke par une ancienne version ne doit pas valoir 1')
+    assert.equal(clampVitrineCount([12]), 0)
+  })
+
+  it('la route lit la même règle que le champ : plus de Number() qui accepte tout', () => {
+    // Le fichier commente l'ancienne garde pour expliquer le defaut : le grep
+    // porte sur le CODE, pas sur le texte qui le raconte.
+    const code = fs
+      .readFileSync('server/vitrine.js', 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .split('\n')
+      .filter((l) => !l.trim().startsWith('//'))
+      .join('\n')
+    assert.match(code, /estCompteurVitrine\(done\)/, 'la route a retrouve sa conversion aveugle')
+    assert.equal(/Number\.isFinite\(Number\(done\)\)/.test(code), false, 'la garde `Number(done)` est revenue : booleens et tableaux repassent')
+    // Et le champ, cote front, ne doit pas avoir sa propre echelle.
+    const partage = fs.readFileSync('src/vitrine.js', 'utf8')
+    assert.match(partage, /export function estCompteurVitrine/, 'la regle n\'est plus partageable : le formulaire va diverger')
+  })
+})
+
+describe('P5 — les bornes du formulaire maître viennent des constantes partagées', () => {
+  /*
+   * Le verrou `p2ProductLimits` interdit déja les limites ecrites en dur COTE
+   * SERVEUR. Le champ qui les saisit avait le meme defaut : deux `textarea`
+   * portaient `maxLength="2000"` et `maxLength="500"` pendant que
+   * `DESCRIPTION_LIMIT` et `CONDITION_NOTE_LIMIT` valaient 2000 et 500 — juste
+   * assez le temps qu'un bornage change et que le formulaire laisse saisir dix
+   * caracteres que le serveur coupera sans un mot.
+   */
+  const MASTER = fs.readFileSync('src/MasterPage.jsx', 'utf8')
+
+  it('plus aucun maxLength littéral dans la page Admin', () => {
+    const litteraux = [...MASTER.matchAll(/maxLength="\d+"/g)].map((m) => m[0])
+    assert.deepEqual(litteraux, [], `${litteraux.length} borne(s) ecrite(s) a la main : ${litteraux.join(', ')}`)
+  })
+
+  it('les deux champs de texte libre lisent leur constante', () => {
+    for (const [id, constante] of [
+      ['master-product-description', 'DESCRIPTION_LIMIT'],
+      ['master-product-condition-note', 'CONDITION_NOTE_LIMIT'],
+      ['master-product-name', 'NAME_LIMIT'],
+      ['master-product-brand', 'BRAND_LIMIT'],
+      ['master-product-short', 'SHORT_LIMIT'],
+      ['master-vitrine-label', 'VITRINE_LIMITS.label']
+    ]) {
+      const ligne = MASTER.split('\n').find((l) => l.includes(`id="${id}"`) || (l.includes(`id="${id}"`)) || new RegExp(`id="${id}"[\\s\\S]{0,220}maxLength=\\{${constante}\\}`).test(MASTER))
+      assert.ok(ligne, `le champ ${id} n existe plus dans la page Admin`)
+      const fenetre = MASTER.slice(Math.max(0, MASTER.indexOf(`id="${id}"`) - 240), MASTER.indexOf(`id="${id}"`) + 480)
+      assert.match(fenetre, new RegExp(`maxLength=\\{${constante.replace('.', '\\.')}\\}`), `${id} ne borne plus sa saisie sur ${constante}`)
+    }
+  })
+
+  it('les constantes existent et se recouvrent', async () => {
+    const meta = await import('./productMeta.js')
+    const { VITRINE_LIMITS } = await import('./vitrine.js')
+    assert.equal(meta.DESCRIPTION_LIMIT, 2000)
+    assert.equal(meta.CONDITION_NOTE_LIMIT, 500)
+    assert.equal(VITRINE_LIMITS.label, 48)
+    // Le serveur tronque a la MEME borne : le champ ne promet rien que l'API coupe.
+    const { cleanProductText } = meta
+    assert.equal([...cleanProductText('a'.repeat(5000), meta.DESCRIPTION_LIMIT)].length, meta.DESCRIPTION_LIMIT)
+  })
+})

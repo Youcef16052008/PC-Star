@@ -1,5 +1,6 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
+import fs from 'node:fs'
 
 import {
   makeOrderCode,
@@ -380,5 +381,91 @@ describe('LOT 2.6 (F10) — `needs` : chaîne et tableau acceptés, normalisés 
     assert.equal(liveStockOf(db, 'mig-1'), 4)
     assert.equal(listed.find((p) => p.id === 'mig-1').stock, 4, 'la migration ne touche pas au stock')
     assert.deepEqual(listed.find((p) => p.id === 'mig-1').needs, ['x'])
+  })
+})
+
+// ---------------------------------------------------------------------------
+// LOT P5 — compter et couper en CARACTÈRES, pas en unités UTF-16.
+//
+// Mesuré le 19/09/2026 sur trois champs : un libellé de vitrine « a » + 48 🧰
+// (49 caractères) était stocké en 48 UNITÉS, le dernier étant U+D83E seul — une
+// moitié de paire de substituts, resservie telle quelle au site public, à
+// l'export CSV et au message WhatsApp. Un nom de 33 emoji (66 unités) était de
+// son côté REFUSÉ comme trop long. Les deux erreurs viennent de la même
+// habitude : `.length` et `.slice(0, N)` parlent en unités.
+// ---------------------------------------------------------------------------
+describe('LOT P5 — la coupe de texte ne sépare jamais un caractère en deux', () => {
+  const EMOJI = '\u{1F9F0}' // 🧰 : deux unités UTF-16, un caractère
+
+  it('countChars / clipChars : le compte est en points de code', async () => {
+    const { countChars, clipChars } = await import('./textClip.js')
+    assert.equal(countChars(''), 0)
+    assert.equal(countChars('abc'), 3)
+    assert.equal(countChars(EMOJI), 1, 'un emoji compte 1, pas 2')
+    assert.equal(countChars(EMOJI.repeat(33)), 33, '33 emoji = 33 caracteres (66 unites : c est le compte qui mentait)')
+    assert.equal(countChars(null), 0)
+    assert.equal(countChars(undefined), 0)
+
+    assert.equal(clipChars('abcdef', 3), 'abc')
+    assert.equal(clipChars('abc', 10), 'abc')
+    assert.equal(clipChars('abcdef', 0), '')
+    assert.equal(clipChars('abcdef', -2), '')
+    assert.equal(clipChars(null, 4), '')
+    // Le cas qui corrompait la base : couper au milieu d une paire. Deux
+    // caracteres = « a » + l emoji ENTIER, pas « a » + une moitie de paire.
+    assert.equal(clipChars('a' + EMOJI.repeat(5), 2), 'a' + EMOJI)
+    assert.equal(clipChars('a' + EMOJI.repeat(5), 1), 'a')
+    assert.equal(clipChars(EMOJI.repeat(50), 48), EMOJI.repeat(48))
+    for (const t of [clipChars('a' + EMOJI.repeat(5), 2), clipChars('a' + EMOJI.repeat(5), 1), clipChars(EMOJI.repeat(50), 49)]) {
+      const dernier = t.charCodeAt(t.length - 1)
+      const premier = t.charCodeAt(0)
+      assert.equal(dernier >= 0xd800 && dernier <= 0xdbff, false, 'une tete de paire orpheline en fin de chaine')
+      assert.equal(premier >= 0xdc00 && premier <= 0xdfff, false, 'une queue de paire orpheline en debut de chaine')
+    }
+    // Identite stricte quand rien n est coupe (aucun appelant ne depend de ceci,
+    // mais une copie inutile a chaque champ de chaque fiche serait du gaspillage).
+    const court = 'AM5'
+    assert.equal(clipChars(court, 40), court)
+  })
+
+  it('cleanProductText et normalizeNeeds coupent large, sans moitie de paire', async () => {
+    const { cleanProductText, BRAND_LIMIT } = await import('./productMeta.js')
+    const borne = cleanProductText('  ' + 'a' + EMOJI.repeat(80) + '  ', BRAND_LIMIT)
+    assert.equal(borne.charCodeAt(borne.length - 1) >= 0xd800 && borne.charCodeAt(borne.length - 1) <= 0xdbff, false, 'cleanProductText laisse une tete de paire seule')
+    assert.equal([...borne].length <= BRAND_LIMIT, true, 'plus de caracteres que la borne')
+    assert.equal(cleanProductText(EMOJI.repeat(BRAND_LIMIT), BRAND_LIMIT), EMOJI.repeat(BRAND_LIMIT), `${BRAND_LIMIT} emoji doivent passer entiers`)
+
+    const lignes = normalizeNeeds(Array(30).fill(EMOJI.repeat(MAX_NEED_LINE + 40)))
+    assert.equal(lignes.length, 12, 'le nombre de lignes reste borne')
+    for (const l of lignes) {
+      const d = l.charCodeAt(l.length - 1)
+      assert.equal(d >= 0xd800 && d <= 0xdbff, false, 'une ligne de `needs` se termine par une moitie de paire')
+      assert.equal([...l].length <= MAX_NEED_LINE, true)
+    }
+  })
+
+  it('les bornes qui REFUSENT comptent des caracteres, pas des unites', async () => {
+    const { NAME_LIMIT } = await import('./productMeta.js')
+    const { createProduct } = await import('../server/masterApi.js')
+    const db = { meta: {}, products: {}, stock: {} }
+    // 60 emoji = 120 unites = 60 caracteres : la fiche est acceptee ENTIERE.
+    const nom = EMOJI.repeat(60)
+    const cree = createProduct(db, { name: nom, price: 1000 }, 'p5-1')
+    assert.equal(cree.ok, true, JSON.stringify(cree))
+    assert.equal(cree.product.name, nom, 'le nom a ete tronque alors qu il tient dans la borne')
+    // 121 caracteres : refuse, pas tronque (le nom est une identite).
+    assert.deepEqual(
+      createProduct(db, { name: 'x'.repeat(NAME_LIMIT + 1), price: 1000 }, 'p5-2').error,
+      'name_too_long'
+    )
+  })
+
+  it('les routes ne recomptent plus a la main en unites UTF-16', async () => {
+    // Un `.length > LIMITE` sur du texte saisi est le meme defaut sous un autre
+    // nom : la borne dit « caracteres » au client et decide en unites.
+    const index = fs.readFileSync('server/index.js', 'utf8')
+    assert.equal(/orderName\.length > 64/.test(index), false, 'le nom de commande est recompte en unites')
+    const master = fs.readFileSync('server/masterApi.js', 'utf8')
+    assert.equal(/name\.length > NAME_LIMIT/.test(master), false, 'le nom produit est recompte en unites')
   })
 })

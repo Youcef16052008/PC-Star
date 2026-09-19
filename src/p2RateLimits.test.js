@@ -87,3 +87,72 @@ describe('P2/B28 — la route qui dépense du CPU est bornée', () => {
     }
   })
 })
+
+describe('P5 — les compteurs de débit ont un plafond, et le balayage un rythme', () => {
+  /*
+   * Le « bornage mémoire » annoncé par le lot P10 (P7-9) ne bornait rien :
+   * `sweepExpired` ne retire que les buckets EXPIRÉS, donc un rotateur d'IP
+   * faisait grossir la Map à volonté — et, pire, le balayage était retenté à
+   * CHAQUE appel dès 1024 clés, soit un O(taille) ajouté à toutes les requêtes,
+   * légitimes comprises. Mesuré le 19/09/2026 : 20 000 clés fraîches →
+   * `buckets.size` = 20 000 et 2 069 ms de temps CPU pour ces seuls appels
+   * (~100 µs par appel). Depuis : plafond dur et balayage espacé.
+   */
+
+  it('les clés fraîches ne font plus grossir la Map sans fin', async () => {
+    const { rateLimit, __rateLimitInternals } = await import('../server/rateLimit.js')
+    const { buckets, MAX_BUCKETS } = __rateLimitInternals
+    const horodatage = Date.now()
+    try {
+      buckets.clear()
+      for (let i = 0; i < 3 * MAX_BUCKETS + 127; i += 1) {
+        rateLimit({ windowMs: 60_000, max: 20, key: `10.0.${Math.floor(i / 250)}.${i % 250}:login`, now: horodatage })
+      }
+      assert.ok(buckets.size <= MAX_BUCKETS, `${buckets.size} buckets pour un plafond de ${MAX_BUCKETS} : la Map redevient un vecteur d'épuisement mémoire`)
+      // Ce qui est évincé est le PLUS ANCIEN, pas le plus récent : l'attaquant en
+      // cours doit rester compté, sinon le plafond serait une porte ouverte.
+      const dernier = `10.0.${Math.floor((3 * MAX_BUCKETS + 126) / 250)}.${(3 * MAX_BUCKETS + 126) % 250}:login`
+      assert.equal(buckets.has(dernier), true, 'les clés récentes ont été évincées à la place des anciennes')
+      // Et le temps de traitement ne doit plus croître avec le nombre de clés.
+      const t0 = process.hrtime.bigint()
+      for (let i = 0; i < 20_000; i += 1) {
+        rateLimit({ windowMs: 60_000, max: 20, key: `172.${(i >> 8) & 255}.${i & 255}:login`, now: horodatage + i })
+      }
+      const ms = Number(process.hrtime.bigint() - t0) / 1e6
+      assert.ok(ms < 400, `20 000 appels à ${ms.toFixed(0)} ms : le balayage O(n) par appel est revenu`)
+    } finally {
+      buckets.clear()
+    }
+  })
+
+  it('le plafond ne change rien au comptage d un client légitime', async () => {
+    const { rateLimit, __rateLimitInternals } = await import('../server/rateLimit.js')
+    try {
+      __rateLimitInternals.buckets.clear()
+      const cle = '41.104.7.9:login'
+      let laisses = 0
+      let refuses = 0
+      let retry = 0
+      for (let i = 0; i < 30; i += 1) {
+        const r = rateLimit({ windowMs: 60_000, max: 20, key: cle })
+        if (r.ok) laisses += 1
+        else {
+          refuses += 1
+          retry = Math.max(retry, Number(r.retryAfter) || 0)
+        }
+      }
+      assert.deepEqual([laisses, refuses], [20, 10], 'le comptage par clé a bougé')
+      assert.ok(retry > 0 && retry <= 60, `retryAfter = ${retry} : le refus ne dit plus quand réessayer`)
+    } finally {
+      __rateLimitInternals.buckets.clear()
+    }
+  })
+
+  it('le rythme du balayage est borné comme le reste', () => {
+    const module = fs.readFileSync(path.join(process.cwd(), 'server/rateLimit.js'), 'utf8')
+    const code = module.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:\w])\/\/[^\n]*/g, '$1')
+    assert.match(code, /SWEEP_MIN_INTERVAL_MS/, 'le balayage n\'a plus de rythme : le quadratique revient')
+    assert.match(code, /MAX_BUCKETS/, 'le plafond de buckets a disparu')
+    assert.match(code, /buckets\.keys\(\)\.next\(\)/, 'l éviction ne se fait plus par la tête (O(1)) — un TRI par appel serait pire que le défaut')
+  })
+})

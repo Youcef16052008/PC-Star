@@ -33,6 +33,7 @@ const MAX_SAVED_SEARCHES = 10
 // `SecurityError` pendant le rendu.
 import { asSafeStorage, safeStorage } from './safeStorage.js'
 import { clampVitrine } from './vitrine.js'
+import { countChars } from './textClip.js'
 
 export function hashPass(password) {
   let h = 2166136261
@@ -388,7 +389,10 @@ export function addProduct(meta, { name, price, category, brand, stock, short, p
   // public vend alors à 0, bug corrigé côté patch au LOT 1.12 mais pas ici) et
   // le nom non mesuré.
   if (n <= 0) return { ok: false, error: 'price' }
-  if (title.length > NAME_LIMIT) return { ok: false, error: 'name_too_long' }
+  // LOT P5 : `countChars`, pas `title.length` — la regue du serveur compte des
+  // caracteres, et un nom de 60 emoji (120 unites, 60 caracteres) etait refuse
+  // ici alors que l'API l'accepte : le meme texte, deux verdicts selon le mode.
+  if (countChars(title) > NAME_LIMIT) return { ok: false, error: 'name_too_long' }
   // Absent → repli `accessories` ; présent mais hors liste (chaîne vide
   // comprise) → refus, comme à l'API : la même règle des deux côtés.
   const cat = category == null ? 'accessories' : String(category)

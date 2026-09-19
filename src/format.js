@@ -23,9 +23,11 @@
  * conventions.
  *
  * **Décision assumée** : la locale **suit la langue de l'interface**, pour les
- * dates comme pour les prix — et le suffixe monétaire aussi (`DA` en français
- * et en anglais, `دج` en arabe), pour rester cohérent avec les libellés i18n
- * existants. Le **français reste la valeur par défaut** (langue absente ou
+ * dates comme pour les prix — et le suffixe monétaire aussi. Deux langues ont
+ * une entrée dans `CURRENCY` (`DA` en français comme en anglais) : l'arabe a été
+ * retiré de l'interface (LOT 6.x) et `normalizeLang` le fait retomber sur le
+ * français ; la table ne promet donc aucun `دج`, et `src/i18n.js` n'a plus de clé
+ * arabe à aligner. Le **français reste la valeur par défaut** (langue absente ou
  * inconnue) : c'est le format historique du magasin, et les chemins sans
  * interface — WhatsApp au maître, exports CSV, scripts — n'ont pas de langue à
  * choisir. L'incohérence était le défaut, pas le choix : désormais il n'y a
@@ -35,13 +37,14 @@
 /** Langue par défaut : français (format historique du magasin). */
 export const DEFAULT_LANG = 'fr'
 
-/** Table des locales — la seule du dépôt. */
+/** Table des locales — la seule du dépôt. Une entrée par langue de `LANGS`. */
 export const LOCALES = {
   fr: 'fr-DZ',
   en: 'en-GB'
 }
 
-/** Suffixe monétaire par langue, aligné sur les libellés i18n. */
+/** Suffixe monétaire par langue, aligné sur les libellés i18n (les deux langues
+ *  de l'interface écrivent `DA` — voir la note du bloc d'en-tête). */
 export const CURRENCY = {
   fr: 'DA',
   en: 'DA',
@@ -69,7 +72,7 @@ export function normalizeLang(lang) {
  * Locale à utiliser pour une langue.
  *
  * @param {string} [lang]
- * @returns {string} par exemple `ar-DZ`
+ * @returns {string} par exemple `fr-DZ`
  */
 export function localeFor(lang) {
   return LOCALES[normalizeLang(lang)]
@@ -94,7 +97,7 @@ export function currencyFor(lang) {
  *
  * @param {number|string} n
  * @param {string} [lang] langue de l'interface (`fr` par défaut)
- * @returns {string} par exemple `97 000 DA`, `97.000 دج`, `97,000 DA`
+ * @returns {string} par exemple `97 000 DA` en français, `97,000 DA` en anglais
  */
 export function money(n, lang = DEFAULT_LANG) {
   const v = Number(n)

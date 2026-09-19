@@ -2702,3 +2702,122 @@ exécutait du code de Google Maps et dépendait de la sortie Internet du runner.
 rouges n'avaient rien de mystérieux — elles avaient juste un message qui ne disait pas où, et
 le harnais avait raison de nous faire confiance sur la forme : la faute levait bien dans un
 `<script>`, simplement pas dans le nôtre.
+
+## 19/09/2026 (fin de soirée) — LOT P5 : relire l'application, pas la porte
+
+Les têtes précédentes avaient fermé la **porte** (le crawl ne dépend plus du réseau du
+runner). Cette jambe a repris le chemin inverse : **sonder l'application** — soixante
+entrées méchantes contre le serveur local vivant, puis lire chaque réponse au lieu de la
+juger. Quatre défauts sont sortis de là. Ce qui compte autant que les quatre : **les
+quarante-six autres cas ne sont pas des défauts**, et ils attestent des acquis précédents —
+bornes de `placeOrder`, table de transitions (un `new → ready` accepté, un `picked → ready`
+refusé puisque `picked` est terminal, compteur `readyTally` pointé une seule fois), panneaux
+réfusés sur `id: '__proto__'` comme sur 5 000 entrées, échappement CSV (`'=HYPERLINK(…)'`
+reprend une apostrophe, CRLF ne casse plus la ligne), absence totale de `fetch` sortant côté
+serveur (donc pas de SSRF par `photos`), `carrier` recalculé depuis le téléphone et non pris
+du corps, `slot` validé contre `SLOTS`, nom de commande borné, 403 systématiques sans jeton,
+et un 429 à trois commandes depuis la même IP.
+
+### P5-1 — tous les bornages comptaient des unités UTF-16, et coupaient les emoji en deux
+
+**Mesuré** sur la tuile que le maître écrit (`PUT /api/master/vitrine`), libellé « a » + 48 🧰,
+soit 49 caractères :
+
+| Observation | Avant | Après |
+| --- | --- | --- |
+| valeur stockée | 48 unités / 25 caractères, dernier code **U+D83E seul** | 48 caractères / 95 unités, aucune moitié orpheline |
+| `GET /api/meta` (public) | renvoyait le U+D83E orphelin → le visiteur voit `?` | texte entier |
+| nom de commande de 33 emoji (66 unités) | **400 `name`** | 201, enregistré en 33 caractères |
+| nom de produit de 60 emoji (120 unités = la borne) | créé puis tronqué | conservé entier |
+
+Ce n'était pas un détail d'affichage : le demi-caractère était **écrit dans la base**,
+resservi à chaque visiteur, et il partait aussi dans l'export CSV et dans le message WhatsApp
+au maître. `.length` et `.slice(0, N)` parlent en unités ; un humain compte des caractères —
+et le `maxLength` du formulaire, lui, comptait déjà en caractères : les deux côtés
+n'avaient pas la même échelle.
+
+Réparé par un module partagé sans effet de bord, `src/textClip.js` (`countChars`, `clipChars`,
+`repairPaires`), branché sur `cleanProductText` (donc marque, modèle, description, note d'état,
+tags), `normalizeNeeds`, la borne `name_too_long` du serveur, la borne de 64 du nom de
+commande et `clampVitrineLabel`. `repairPaires` s'applique aussi **à la lecture**, parce
+qu'une base écrite avant le correctif porte encore le demi-caractère : vérifié sur le
+`store.json` de la sonde, `orphelines: 0`.
+
+### P5-2 — le compteur de la vitrine dévorait les booléens
+
+`applyVitrineEdit` tenait sur `Number.isFinite(Number(done))`, ce qui valide tout ce que JS
+sait convertir. Mesuré, cinq valeurs : `{repairsDone: true}` → **200, enregistré 1** ;
+`[12]` → **200, enregistré 12** ; `'1e3'` → **200, enregistré 1000** ; `1e9` (au-dessus du
+plafond) → **200, ramené en silence à 9 999 999** ; seul `{}` était refusé. La règle vit
+désormais dans `src/vitrine.js` (`formeCompteur`, `estCompteurVitrine`) : un nombre fini ≥ 0,
+ou une chaîne de chiffres — rien d'autre. La route **refuse** (400 `vitrine_count`, et le
+formulaire a déjà son message `masterVitrineBadCount`), l'affichage **borne** : une base
+ancienne ne doit jamais faire planter le hero. `12.9` continue d'arrondir à 12 — contrat déjà
+verrouillé côté API, le `step="1"` du champ refusant avant.
+
+### P5-3 — un `upgrade` reçu après la fermeture du socket Desk tuait le serveur
+
+Le handler `upgrade` posé par `attachDeskSocket` lisait la variable de **module** `wss`, que
+`closeDeskSocket()` met à `null`. Un `upgrade` arrivant après une fermeture (rechargement à
+chaud en dev, démontage gracieux — et le `after()` de la suite de tests, donc ce chemin est
+parcouru à chaque execution) levait un `TypeError: Cannot read properties of null (reading
+'handleUpgrade')` **synchrone dans un `EventEmitter`** : aucun `try/catch` d'appelant ne
+l'attrape, le serveur tombe. Second défaut du même coup d'œil : rappeler `attachDeskSocket`
+sur le même serveur empilait un deuxième écouteur, donc `handleUpgrade` deux fois sur la même
+socket.
+
+Réparé par un état par attache (`attaches: Map<Server, { wss, onUpgrade, ferme }>`) : garde en
+tête du handler, écouteur retiré au démontage, re-attache qui remplace l'ancienne. Verrouillé
+en appelant l'écouteur directement sur un serveur nu — un test qui prouverait la panne en la
+provoquant tuerait le runner au lieu de le faire rougir.
+
+### P5-4 — le « bornage mémoire » du rate-limit ne bornait rien
+
+P10 (P7-9) balayait les buckets expirés au-delà de 1 024 clés. **Mesuré** avec des clés qui
+tournent (un `X-Forwarded-For` qui varie, ou un parc d'IP) : 20 000 clés fraîches dans la même
+fenêtre → `buckets.size` = **20 000** (aucun plafond, le balayage ne retire que les expirés)
+et **2 069 ms** de CPU pour ces seuls appels — parce que le balayage O(taille) était retenté
+**à chaque appel** une fois le seuil dépassé, donc sur toutes les requêtes légitimes qui
+suivaient, à ~100 µs par requête. Un frein devenu accélérateur d'enlisement.
+
+Depuis : balayage espacé d'au moins 1 s, et plafond dur de 4 096 buckets avec éviction par la
+tête — donc les plus anciennement insérés, dont la fenêtre est la plus avancée ; les clés
+récentes (l'attaquant en cours) restent comptées. Mesuré après : **39 ms** pour les mêmes
+20 000 appels, taille 4 096, et comptage par clé intact (20 passées sur 30 tentatives,
+`retryAfter` entre 1 et 60). Ce que la garde garantit est désormais écrit : la mémoire et le
+temps de réponse, pas le comptage de chaque IP — un évincé repart sur une fenêtre neuve.
+
+### Et deux vieilleries du même coup
+
+`maxLength="2000"` et `maxLength="500"` restaient écrits à la main dans le formulaire produit
+— les deux derniers du fichier — alors que `DESCRIPTION_LIMIT` et `CONDITION_NOTE_LIMIT`
+existent et que `p2ProductLimits` interdit ce motif côté serveur : au prochain bornage, le
+champ laisse saisir ce que l'API coupe, sans un mot. Les deux lisent maintenant les
+constantes, et un verrou interdit tout `maxLength` littéral dans la page Admin.
+Second point : `src/format.js` promettait encore « `دج` en arabe » et `ar-DZ` en exemple de
+`localeFor` dans son JSDoc, alors que la table n'a plus d'entrée arabe depuis le LOT 6.x — la
+prose qui **raconte** le défaut historique reste, la promesse d'API est alignée.
+
+### Ce qui n'est pas réparé, et pourquoi
+
+`withDbLock` attend le verrou fichier en **bloquant la boucle d'événements** (jusqu'à
+`LOCK_TIMEOUT_MS`, 4 s). C'est un risque réel mais non corrigeable ici sans en ouvrir un
+autre : la contention suppose deux processus sur le même `PCSTAR_DATA_DIR`, configuration
+que le dépôt exclut (le conducteur Neon, lui, verrouille la ligne sans bloquer personne), et
+raccourcir l'attente ferait écrire **sans verrou** plus souvent — donc perdre des
+réservations de stock, ce qui est le défaut que le verrou a été écrit pour tuer. Noté,
+laissé, assumé.
+
+**Seize verrous** portent là-dessus : 4 dans `src/lot2Logic.test.js` (le module de coupe, les
+champs produits, les bornes qui refusent en caractères, le grep anti-régression sur les
+routes), 6 dans `src/p3Vitrine.test.js` (libellé compté en caractères, réparation à la
+lecture, compteurs refusés et admis, code de la route, constantes du formulaire), 3 dans
+`src/p2RateLimits.test.js` (plafond, coût amorti, comptage légitime intact), 3 dans
+`src/lot3Server.test.js` (re-attache, `upgrade` après démontage, garde dans le code).
+
+**Portes mesurées sur cet arbre.** `npm test` **1081 / 1081** (298 suites) ; `npm run build`
+**489,79 kB** (146,84 gzip) avec le scan anti-secret sur 9 artefacts, aucun secret ;
+crawl jsdom **24 pages rendues, 0 erreur** avec l'intercepteur de sous-ressources en place ;
+audit boutons **32 vérifications, 0 erreur** (150 boutons cliqués par page et par langue,
+`/master` compris — donc les deux `textarea` et le champ vitrine modifiés sont bien ouverts,
+saisis et soumis sous jsdom) ; reste à relire la CI sur la tête poussée.

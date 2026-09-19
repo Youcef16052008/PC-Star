@@ -12,6 +12,8 @@
 // un seul endroit, sinon le chemin d'entrée décide de la validité.
 // `name` se REFUSE (une tronquer changerait l'identité de la fiche), `brand` et
 // `short` se TRONQUENT (des champs descriptifs, jamais une clé).
+import { clipChars, repairPaires } from './textClip.js'
+
 export const NAME_LIMIT = 120
 export const BRAND_LIMIT = 60
 export const SHORT_LIMIT = 200
@@ -30,7 +32,9 @@ export const COMPAT_MEMORY = ['DDR3', 'DDR4', 'DDR5']
 export const COMPAT_FORMS = ['ATX', 'mATX', 'Mini-ITX']
 
 export function cleanProductText(value, limit) {
-  return String(value ?? '').trim().slice(0, limit)
+  // LOT P5 : `clipChars` et non `.slice` — la coupe ne tombe plus entre les deux
+  // moitiés d'un emoji, et `limit` compte des caracteres comme le formulaire.
+  return clipChars(repairPaires(String(value ?? '').trim()), limit)
 }
 
 /** Une liste libre mais propre : sans doublon, sans tags vides ou démesurés. */

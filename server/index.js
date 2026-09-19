@@ -72,6 +72,7 @@ import { broadcastDesk, formatOrderMessage, sendWhatsApp, whatsappConfig } from 
 import { LOCAL_MAX_BODY_BYTES, MAX_UPLOAD_BODY_BYTES, VERCEL_MAX_BODY_BYTES } from '../src/limits.js'
 // LOT P1 (B20) : une seule validation de « journée » pour tout le projet.
 import { normalizeDay } from '../src/orderLogic.js'
+import { countChars } from '../src/textClip.js'
 import { IS_SERVERLESS, safeUploadName } from './blobStore.js'
 import { attachDeskSocket } from './deskSocket.js'
 import {
@@ -1086,7 +1087,9 @@ export async function handler(req, res) {
       // (`phoneCarrier(body.phone)`) et ignore la valeur envoyée — le champ
       // client n'a jamais atteint la base.
       const orderName = String(body.name || '').trim()
-      if (!orderName || orderName.length > 64) return send(res, 400, { ok: false, error: 'name' })
+      // LOT P5 : 64 CARACTERES (points de code), pas 64 unités UTF-16 — un nom de
+      // 33 emoji en comptait 66 et était refusé alors qu'il tient en 33 signes.
+      if (!orderName || countChars(orderName) > 64) return send(res, 400, { ok: false, error: 'name' })
       const rawOrderWilaya = body.wilaya == null ? '' : String(body.wilaya).trim()
       const orderWilaya = rawOrderWilaya ? (WILAYAS_NEAR.includes(rawOrderWilaya) ? rawOrderWilaya : null) : 'Oran'
       if (orderWilaya == null) return send(res, 400, { ok: false, error: 'wilaya' })

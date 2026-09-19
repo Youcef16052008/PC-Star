@@ -23,10 +23,12 @@ import {
   COMPAT_FORMS,
   COMPAT_MEMORY,
   COMPAT_SOCKETS,
+  CONDITION_NOTE_LIMIT,
+  DESCRIPTION_LIMIT,
   NAME_LIMIT,
   SHORT_LIMIT,
   compatValues,
-  isValidBarcode
+  isValidBarcode,
 } from './productMeta.js'
 
 /**
@@ -775,12 +777,12 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, ma
                   </div>
                   <div className="mb-2">
                     <label className="form-label small" htmlFor="master-product-description">{t('masterDescription')}</label>
-                    <textarea id="master-product-description" className="form-control" rows="4" maxLength="2000" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
+                    <textarea id="master-product-description" className="form-control" rows="4" maxLength={DESCRIPTION_LIMIT} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
                     <div className="form-text">{t('masterDescriptionHint')}</div>
                   </div>
                   <div className="mb-2">
                     <label className="form-label small" htmlFor="master-product-condition-note">{t('masterConditionNote')}</label>
-                    <textarea id="master-product-condition-note" className="form-control" rows="2" maxLength="500" value={form.conditionNote} onChange={(e) => setForm({ ...form, conditionNote: e.target.value })} />
+                    <textarea id="master-product-condition-note" className="form-control" rows="2" maxLength={CONDITION_NOTE_LIMIT} value={form.conditionNote} onChange={(e) => setForm({ ...form, conditionNote: e.target.value })} />
                   </div>
                   <div className="mb-2">
                     <label className="form-label small" htmlFor="master-product-tags">{t('masterTags')}</label>

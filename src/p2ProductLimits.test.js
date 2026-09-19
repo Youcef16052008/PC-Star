@@ -142,7 +142,12 @@ describe('P2/B12 — le mode local ne peut plus accepter ce que l’API refuse',
     assert.equal(/\.slice\(0, ?(?:60|200)\)/.test(api), false, 'une troncature littérale est réapparue côté serveur')
     assert.equal(/name\.length > 120/.test(api), false, 'un 120 en dur est réapparu côté serveur')
     assert.equal((api.match(/NAME_LIMIT/g) || []).length >= 2, true, 'createProduct et sanitizeProductPatch doivent lire la même constante')
-    assert.equal(/title\.length > /.test(sansCommentaires(STORE)), true, 'addProduct ne mesure plus le nom')
+    // LOT P5 : l'exigence est la meme (le nom est mesure a la creation, en local
+    // comme a l'API) mais la regle de compte a change — compter des unites UTF-16
+    // refusait un nom de 60 emoji que le serveur acceptait. Les deux cotes doivent
+    // lire la meme regue, donc le verrou porte desormais sur `countChars`.
+    assert.equal(/countChars\(title\) > /.test(sansCommentaires(STORE)), true, 'addProduct ne mesure plus le nom')
+    assert.equal(/title\.length > NAME_LIMIT/.test(sansCommentaires(STORE)), false, 'le nom local est recompte en unites UTF-16 : deux verdicts pour un meme texte')
   })
 
   it('le formulaire borne la saisie sur les trois champs', () => {

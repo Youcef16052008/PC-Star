@@ -13,9 +13,10 @@
  * c'est exactement la cascade d'échecs que le LOT 1.20 a fermée
  * (`src/lot1BaseScripts.test.js`).
  */
-import { clampVitrine } from '../src/vitrine.js'
+import { clampVitrine, estCompteurVitrine } from '../src/vitrine.js'
 
 export { VITRINE_LIMITS, clampVitrine, clampVitrineCount, clampVitrineLabel } from '../src/vitrine.js'
+export { estCompteurVitrine } from '../src/vitrine.js'
 
 /** Ce que le public a le droit de lire : les trois valeurs, rien d'autre. */
 export function vitrineView(db) {
@@ -34,7 +35,13 @@ export function applyVitrineEdit(db, body) {
   const label = body?.repairsLabel
   const done = body?.repairsDone
   if (label != null && typeof label !== 'string') return { ok: false, error: 'vitrine_label' }
-  if (done != null && !Number.isFinite(Number(done))) return { ok: false, error: 'vitrine_count' }
+  // LOT P5 : la garde etait `Number.isFinite(Number(done))`, qui validait donc
+  // tout ce que JS sait convertir — mesuree le 19/09/2026 : `true` enregistrait
+  // 1, `[12]` enregistrait 12, `'1e3'` enregistrait 1000, et une valeur au-dessus
+  // du plafond etait ramenee a 9 999 999 sans un mot. `estCompteurVitrine` est la
+  // regue du contrat (nombre fini ou chaine d'entiers, dans la borne) : ce qui ne
+  // la respecte pas est REFUSE, et le maitre voit ce qu'il a tape.
+  if (done != null && !estCompteurVitrine(done)) return { ok: false, error: 'vitrine_count' }
   const current = clampVitrine(db.meta?.vitrine)
   const next = clampVitrine({
     ...current,
