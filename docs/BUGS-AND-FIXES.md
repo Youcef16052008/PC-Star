@@ -1879,3 +1879,156 @@ démos), B10, B12 (divergence POST/PUT sur `name`), B28 (rate-limit, dont
 `reset-password`). P3 : B4, B8, B9, B15-B19, B21-B27, B30, B32, B33, plus la
 documentation du README (nombre de produits, nombre de tests et sa pré-condition
 `dist/`, langue arabe retirée) et `npm run test:e2e` qui ne tourne dans aucune CI.
+
+## P24 (19/09/2026) — P2 : le garde-fou qui a manqué, puis B28, B7, B12, B10, B6
+
+Le lot P1 s'est terminé sur un constat désagréable : une `ReferenceError` au rendu
+d'une page (un import oublié) a traversé `node --check`, le bundle esbuild et les
+917 tests `node:test`. Seul le crawl de la CI l'a vue — et par un marqueur absent,
+jamais par une erreur explicite. P2 commence donc par là, puis traite les cinq
+items restants à portée de preuve.
+
+### D'abord le trou : `src/moduleWiring.test.js`
+
+Deux vérifications statiques, 0,8 s, sans navigateur :
+
+1. **chaque module de `src/`, `server/`, `api/` doit se charger** — un
+   `import { x } from './m'` pour une exportation absente est une erreur de
+   liaison ESM, elle crève ici au lieu de vivre jusqu'au rendu ;
+2. **aucun nom exporté par un module déjà importé ne peut être appelé dans le
+   fichier sans être importé** — le cas exact de `compatLabel` dans
+   `src/ProductPage.jsx` : la ligne d'import était restée à deux noms quand
+   `productMeta.js` en a pris un troisième. La restriction aux modules déjà
+   importés, plus le retrait des commentaires et des liaisons locales (props,
+   paramètres, destructuration), donne **zéro faux positif** sur les 90 modules.
+
+Preuve négative : retirer l'import de `compatLabel` fait échouer le test avec le
+nom, le fichier et le module d'origine ; le remettre le fait passer. Constat fait
+en écrivant le garde-fou : toutes les pages sont **déjà** montées en jsdom dans la
+suite, sauf `ErrorBoundary` et `LegalPage` — la couverture de rendu existait,
+c'est le chemin non exercé qui était aveugle.
+
+### P2 / B28 — le 429 était neuf réponses différentes, et la route la plus chère n'en avait pas
+
+Compté : 9 blocs `rateLimit`, dont **deux** écrivant leur refus à la main
+(`error: 'rate_limited'`, sans `retryAfter` ni en-tête) — or `orderApiFailure`
+(`src/orderLogic.js:230`) clé sur le statut 429 mais lit `data.retryAfter` pour
+annoncer la durée : ces deux-là disaient « attendez » sans chiffre. Et `POST
+/api/master/customers/:id/reset-password` **n'était pas limitée** : chaque appel
+coûte deux `hashPassAsync` (scrypt, ~50 ms de CPU) sur le thread partagé avec les
+commandes.
+
+- `tooManyRequests(res, rl)` dans `server/index.js` ; les 9 sites y passent,
+  `send(res, 429` a disparu du routeur ;
+- limite `60 s / 5` sur le reset, posée **avant** `userFromReq` comme sur `/api/me`
+  (un flot non authentifié ne doit pas coûter une lecture de base par requête) ;
+- `src/p2RateLimits.test.js` (5) : le nombre de `rateLimit(` doit rester égal au
+  nombre de réponses du helper — une route ne peut plus se limiter à sa façon ;
+  et, serveur live, les cinq premières requêtes atteignent le 403 d'accès, la
+  sixième reçoit 429 + `Retry-After` + `retryAfter` au corps.
+
+### P2 / B7 — un compte de démonstration revendiqué par OAuth restait un compte de démonstration
+
+`server/oauth.js` posait `demo: false` à la **création** de l'utilisateur, jamais
+dans les deux branches de **rattachement**. Trois conséquences écrites noir sur
+blanc dans le code : `normalizeDb` remet l'empreinte sur `DEMO_PASSWORD` à chaque
+lecture (le mot de passe partagé est dans le bundle par conception du mode démo) ;
+la garde S2 croit le compte encore démonstratif et laisse un callback **non
+vérifié** y recoller une identité ; `/api/auth/login` répond `demo_locked` à son
+propre titulaire.
+
+`claimDemoAccount(db, user)` applique les deux règles d'un seul endroit, **uniquement
+quand l'identité a été vérifiée auprès du fournisseur** (`trusted`) : marqueur retiré,
+`passwordHash` à `null` (l'état « aucun mot de passe ne fonctionne », déjà prévu pour
+les fixtures verrouillées — le maître peut en poser un), sessions ouvertes avec le mot
+de passe partagé coupées. Sous `OAUTH_DEMO=1`, rien n'est touché : les fixtures restent
+ouvrables.
+
+`src/p2OAuthClaim.test.js` (6) dont le montage du chemin complet contre un faux fournisseur
+Google (`email_verified: true`, `server/oauth.js:440`), la garde de stabilité après un
+re-relu de la base, et la preuve que le S2 refuse désormais l'intrus. Neutraliser les
+deux appels du helper fait échouer 4 des 6 tests.
+
+### P2 / B12 — une fiche produit a les mêmes bornes à ses trois portes
+
+Nom, marque et raccourci n'étaient bornés qu'à **une** porte, en dur dans
+`sanitizeProductPatch` (`> 120`, `slice(0, 60)`, `slice(0, 200)`) : `createProduct`
+testait `if (!name)`, `shopStore.addProduct` rien du tout et acceptait `price: 0`.
+Fiche au nom de 5 000 caractères créée en 201, puis le **même** produit refusait le
+moindre `PUT` en `name_too_long` — la correction passait par une suppression, donc
+par la perte de l'historique de stock (le trou que P1/B11 visait).
+
+- `NAME_LIMIT` / `BRAND_LIMIT` / `SHORT_LIMIT` dans `src/productMeta.js`, auprès des
+  `MODEL_LIMIT` & co déjà partagés ; les trois portes les lisent ;
+- refus (`name_too_long`) pour le champ qui identifie la fiche, troncature pour les
+  champs descriptifs ; `brand: ''` au patch reste un **effacement** ;
+- `shopStore.addProduct` : `price <= 0` refusé, nom mesuré — le mode local ne peut
+  plus produire une fiche que l'API refuserait ;
+- `maxLength` sur les trois champs du formulaire maître, comme description (2000)
+  et note d'état (500) le faisaient déjà ;
+- `src/p2ProductLimits.test.js` (11) : table champ × porte, plus `POST
+  /api/master/products` réel (400 sur le nom, 201 et marque relue à 60 caractères).
+
+### P2 / B10 — une fiche sans `compat` faisait tomber le configurateur
+
+Le rapport visait `BuilderPage.jsx:419` et le disait « latent ». Mesuré : le défaut
+vivait **neuf fois**, dont huit dans `src/data.js` (`cpu.compat.socket`,
+`board.compat.memory`, `gpu.compat.psuMin`, les gardes à moitié écrites
+`i.compat && i.compat.memory`) — et `checkCompatibility` est appelé **dans le
+rendu** (`BuilderPage.jsx:26`), donc le `TypeError` produit un écran blanc, pas un
+message. Les 301 produits du catalogue portent bien un `compat` ; un produit créé en
+mode local ou relu d'une sauvegarde ancienne, non.
+
+`?.` aux neuf sites. `src/p2CompatNull.test.js` (6) : matrice des formes réelles de
+la donnée (absente, `null`, `{}`, clés à `null`, chaînes vides, liste) croisée CPU ×
+carte mère × {barrette, GPU, alimentation, ventirad, boîtier}, plus deux **montages
+jsdom** du configurateur. Double preuve négative : inverser seulement `data.js` fait
+échouer 4 tests sur 6 ; inverser seulement le site de l'alerte fait échouer les deux
+montages avec `TypeError: Cannot read properties of undefined (reading 'socket')`.
+
+### P2 / B6 — la table des statuts ne connaît plus que l'avant, et un écran doit dire ce qu'il voit
+
+`preparing → new` et `ready → preparing` répondaient 200. Aucun bouton du comptoir ne
+les propose (`DeskPage.jsx:250-285`) : seul un appelant sans l'état courant les
+atteint — un onglet resté ouvert, un ancien client, un script. Un aller-retour ne
+touche pas le stock (re-vérifié : `4 = 5 − 1` dans les deux sens), mais la ligne
+sort de la file « prêtes à retirer » et le client lit un statut faux.
+
+- les deux arrières sont retirés de la table **unique** (le serveur l'importe, et un
+  test de `src/p22UI.test.js` verrouillait le choix inverse : il est réécrit pour
+  exiger la fermeture des deux côtés, tout en gardant le contrôle d'accord
+  intégral client/serveur) ;
+- `setOrderStatus(db, code, status, expected)` : le statut que l'écran **affiche**
+  accompagne l'écriture ; désaccord → `stale`, avec l'objet commande au corps pour
+  que la carte se recale. La garde court avant l'annulation, que la table ne
+  contrôle pas ;
+- `PATCH /api/orders/:code` répond **409** `stale` (+ `current`, `order`) — 409 et
+  non 400 : la requête est correcte, c'est l'état de l'appelant qui ne l'est pas ;
+  absent, le champ laisse le comportement d'avant pour les clients anciens ;
+- `api.patchOrder(code, status, expectedStatus)` et `handleOrderStatus` qui lit la
+  valeur affichée dans sa propre liste (`reservationsRef`), applique la vérité du
+  serveur en cas de 409 et dit `deskStatusStale` (633 × 2 clés, aucune morte).
+
+`src/p2OrderTransitions.test.js` (11) : table, accord client/serveur, garde pure, et
+commande **réelle** conduite au comptoir — 200, 409 avec statut courant, 200 après
+relecture, puis 400 `transition` sur les deux arrières même à jour. Neutraliser la
+garde fait échouer 3 tests sur 11.
+
+### Verrous ajoutés
+
+`src/moduleWiring.test.js` (3), `src/p2RateLimits.test.js` (5),
+`src/p2OAuthClaim.test.js` (6), `src/p2ProductLimits.test.js` (11),
+`src/p2CompatNull.test.js` (6), `src/p2OrderTransitions.test.js` (11) — 42 tests de
+plus. Suite : **959 tests, 0 échec**, `npm run build` préalable (le scan du bundle
+lit `dist/`). Crawl : **CRAWL OK — 24 pages, 0 erreur**.
+
+### Reste ouvert (P3)
+
+B4, B8, B9, B15-B19, B21-B27, B30, B32, B33. Côté documentation : README corrigé sur
+le nombre de tests, sa pré-condition `dist/`, les deux langues, la table de
+statuts, et ajout d'un bloc « État mesuré » ; commentaires « trois langues »
+corrigés dans `src/i18n.coverage.test.js` et `src/i18n.js`. Reste à relire les
+derniers qui traînent dans les anciens fichiers de test (`clientFixes`, `lot2UI`,
+`lot4UI`, `lot5Logic`, `lot3StorageBlocked`, `cyberDesign` — ils décrètent un état
+du dépôt qui n'est plus, leurs assertions tournent déjà sur `LANGS`). Et
+`npm run test:e2e` (Playwright) ne tourne toujours dans aucune CI.

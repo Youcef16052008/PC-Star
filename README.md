@@ -8,10 +8,30 @@ Boutique pickup **PC Star Informatique** — El Makari Les Castors, Oran.
 npm install
 npm run start:api   # :8787 multi-device orders + auth
 npm run dev         # :5173 site (proxies /api)
-npm test            # 807 tests (node:test)
 npm run build       # vite build, then scans dist/ for secrets — fails if any landed there
+npm test            # 959 tests (node:test) — run `npm run build` first: bundleSecrets scans dist/
 npm run check:bundle # re-run only the dist/ secret scan (lot 7.3)
 ```
+
+## État mesuré (19/09/2026)
+
+- `npm test` : **959 tests, 0 échec**. La suite scanne le bundle publié
+  (`src/bundleSecrets.test.js`) : sans `dist/`, elle échoue en cascade — le build
+  est une pré-condition, pas une étape optionnelle.
+- `npm run build:crawl && node scripts/jsdom-crawl.mjs` : 24 pages rendues en
+  jsdom (2 langues × 13 pages), 0 erreur. C'est le seul contrôle qui voit une
+  page React casser au rendu (un import manquant passe `node --check`, le bundle
+  et tous les tests `node:test`) ; `src/moduleWiring.test.js` en garde une partie
+  en secondes.
+- Catalogue de base : **301 produits, 767 photos**. i18n : **2 langues**
+  (`fr`, `en`) et **633 clés** chacune, parité vérifiée à chaque test.
+- Statuts de commande : table **à sens unique** (`new → preparing → ready →
+  picked`, annulation libre avant `picked`) ; un écran qui écrit peut passer
+  `expectedStatus` pour refuser une écriture obsolète (409 `stale`) au lieu de la
+  voir s'appliquer.
+- `npm run test:e2e` (Playwright) existe mais ne tourne dans **aucune** CI du
+  dépôt : ce ne sont ni `build:crawl`, ni `jsdom-crawl`, ni les 959 tests qui le
+  remplacent — le parcours navigateur réel reste à lancer à la main.
 
 ## Demo accounts (click in Login, or type)
 
@@ -173,13 +193,15 @@ Photos: keep shipping under `public/photos/sku/` — add pro shots later, push, 
   sur aucun produit), 1 piège UX expliqué dans l'interface (filtre « En stock »),
   2 durcissements (SKU, sockets multiples), et **3 affirmations réfutées** par
   mesure (SKU `PS-` impossible, pas de race `hiddenProductIds`, `pdpWaMsg`
-  identique dans les 3 langues)
+  identique dans les 2 langues du dépôt (`fr`, `en` — l'arabe a été retiré depuis))
 
 - **P16 (lot 4 : durcissement)** — un compte de démo supprimé ne revient plus, le
   rate-limit garde sa fenêtre par bucket, changer de mot de passe exige l'ancien,
   le reset master ne pose plus `client31` tout seul, un patch produit invalide
   (`price: "abc"`, nom de 500 caractères) est refusé au lieu de partir en vitrine,
-  les transitions de statut sont gardées (`picked` ne revient plus en `new`),
+  les transitions de statut sont gardées (`picked` ne revient plus en `new` ;
+  depuis P2/B6 la table est à sens unique et `PATCH /api/orders/:code` accepte
+  `expectedStatus` — une écriture obsolète répond 409 `stale` au lieu de passer),
   l'historique de commandes ne perd plus rien en silence, l'API ne répond plus en
   `CORS *` par défaut, `.env` est enfin lu, et `server/data/store.json` (qui
   contenait les hashes de mots de passe) n'est plus versionné

@@ -1325,7 +1325,7 @@ export function t(lang, key, vars = {}) {
  * elle donne `cat_ssd` à l'utilisateur. Le motif `t(k) !== k ? t(k) : repli`
  * était recopié à la main dans `BuilderPage` et `SearchPage`, mais pas dans
  * `App.jsx` ni `MasterPage.jsx` (catégories) : une clé absente y fuitait donc
- * jusqu'à l'écran. Vérifié aujourd'hui — 13 catégories × 3 langues, aucun trou —
+ * jusqu'à l'écran. Vérifié aujourd'hui — 13 catégories × 2 langues, aucun trou —
  * mais les catégories master (`extraProducts`) et les futures clés n'ont aucune
  * garantie : le repli passe par le libellé brut du catalogue.
  *
