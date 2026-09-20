@@ -142,8 +142,18 @@ describe('P3 — docs : deux régimes, un classement obligatoire', () => {
     )
     let vues = 0
     for (const f of vivants) {
+      // Meme regime que le verrou des chiffres plus haut : un encadre qui cite un
+      // chemin pour expliquer la faute n'est pas un chemin a suivre. Sans cette
+      // exception, la phrase qui raconte une correction rougit le verrou de correction.
+      const lignes = lu(f).split('\n')
+      const citees = new Set()
       for (const m of lu(f).matchAll(motif)) {
-        const cite = m[1]
+        const jusqua = lu(f).slice(0, m.index)
+        const numero = jusqua.split('\n').length - 1
+        if ((lignes[numero] || '').trimStart().startsWith('>')) continue
+        citees.add(m[1])
+      }
+      for (const cite of citees) {
         const cible = cite.startsWith(`${DOC}/`) ? cite : path.join(f.startsWith(DOC) ? DOC : '', cite.split('/').pop())
         vues += 1
         assert.ok(fs.existsSync(path.join(process.cwd(), cible)), `${f} cite ${cite} : ce fichier n’existe pas`)

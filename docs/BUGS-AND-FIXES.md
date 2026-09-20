@@ -3128,8 +3128,12 @@ aucun secret**, `npm run build:crawl` + crawl **24/0**, audit des boutons **32/0
 réparer — et une taille par écran ne veut rien dire, d'où un seul module. Les 301 fiches ne sont
 toujours filtrées qu'en local sur le catalogue de base : la pagination est un rendu, pas une
 requête, et elle aurait dû attendre le chargement à la demande côté API (le lot correspondant de
-`docs/PLAN-CORRECTIONS.md` — pointeur corrigé au lot S3 : la phrase d'origine promettait ce prix
-dans un fichier de ce nom qui n'a jamais existé dans le dépôt),
+`docs/PLAN-CORRECTIONS.md`) —
+> Pointeur corrigé au lot S3 : la phrase d'origine promettait ce prix dans `docs/PLAN.md`, un
+> fichier qui n'a jamais existé dans ce dépôt. Le chemin est cité ici pour dire la faute, pas pour
+> qu'on le suive — c'est le régime des encadrés, le même que `src/p3DocsAging.test.js` applique
+> déjà aux lignes qui expliquent une faute.
+
 dont le prix est déjà écrit — c'est le « on reste en local » honnête du P6, qui n'a pas bougé.
 
 
@@ -3194,11 +3198,12 @@ Recherche, clique, et compte) — pas au grep.
    code était faux, le test s'était adapté. Les deux sont réécrits sur l'honnête : égalité exacte
    au repos, suffixe seulement après choix réel.
 
-### Un pointeur faux dans mes propres docs, tué par un verrou
+### Un pointeur faux dans mes propres docs, tué par le verrou que j'écrivais pour ça
 
-La section S2 promettait le prix du chargement à la demande côté API « dans `docs/PLAN.md` ». Ce
-fichier n'existe pas (le plan s'appelle `docs/PLAN-CORRECTIONS.md`). La phrase était juste, le
-chemin non. Balayage des quinze docs vivants : **une seule citation morte dans tout le dépôt, la
+La section S2 promettait le prix du chargement à la demande côté API dans un fichier de plan qui
+n'existe pas sous ce nom (le plan réel est `docs/PLAN-CORRECTIONS.md`). La phrase était juste, le
+chemin non — et ma propre section S3 a remis ce chemin fautif en citation, ce qui a fait rougir le
+verrou que j'avais écrit deux minutes plus tôt : c'est exactement ce à quoi il sert. Balayage des quinze docs vivants : **une seule citation morte dans tout le dépôt, la
 mienne**. `src/p3DocsAging.test.js` verrouille donc maintenant que toute citation `*.md` d'un doc
 vivant mène à un fichier qui existe (les journaux datés en sont exclus : ils ne se réécrivent pas),
 avec un plancher de dix citations balayées pour que le verrou ne puisse pas devenir une coquille
