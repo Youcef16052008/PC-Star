@@ -777,6 +777,22 @@ html[data-theme='light'] .text-secondary {
     min-height: 44px;
   }
 
+  /* LOT P6 (S6) — le groupe « informations » du menu : separe, plus leger de
+     corps, mais la cible reste a 44 px (le pouce ne se negocie pas). */
+  .nav-sheet .nav-lien-info .nav-link,
+  .nav-sheet .nav-lien-info-tete .nav-link {
+    font-size: 0.9375rem;
+    min-height: 44px;
+    padding-block: 0.25rem;
+  }
+
+  .nav-sheet .nav-lien-info-tete .nav-link {
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    font-size: 0.75rem;
+    color: var(--bs-secondary-color);
+  }
+
   /* Le pouce d'abord : six lignes de menu lisibles de près, pas huit en petit. */
   .nav-sheet .navbar-nav .nav-link {
     font-size: 1.125rem;

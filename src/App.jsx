@@ -134,6 +134,46 @@ const MAX_MISSED_NOTIFY = 3
 // tranchage). L'alias reste exporté : c'est la constante que les verrous lisent.
 export const SHOP_PAGE_SIZE = PAGE_TAILLE
 
+/*
+ * LOT P6 (S6) — une seule liste pour « où peut-on aller d'ici ».
+ *
+ * Mesuré sur l'arbre rendu : le menu déroulait cinq liens, et la page
+ * « Garantie & RMA » — routée (`page === 'warranty'`), titrée, traduite —
+ * n'avait AUCUN point d'entrée nulle part : ni dans le menu, ni dans le pied de
+ * page (qui ne liste que à propos / confidentialité / conditions). Une page que
+ * personne ne peut atteindre n'est pas une page, c'est du code mort qui se
+ * présente comme du contenu. Et le menu ne proposait qu'une seule porte d'entrée
+ * pour le compte : « Connexion » — le nouveau client tombait sur un formulaire
+ * de mot de passe avant de comprendre qu'il doit créer son compte.
+ *
+ * La règle est donc écrite ici, et les verrous la lisent directement : toute page
+ * routable est soit dans le menu, soit dans `HORS_MENU` avec sa raison. Un
+ * `setPage('x')` qui n'est dans aucune des deux listes est un trou, et une entrée
+ * de menu qui ne route nulle part est un bouton mort.
+ */
+export const PAGES_ROUTABLES = ['shop', 'search', 'builder', 'about', 'orders', 'desk', 'master', 'help', 'profile', 'privacy', 'terms', 'warranty', 'product']
+
+/** Ce que le menu ne liste pas, et pourquoi. Un choix ecrit, pas un oubli. */
+export const HORS_MENU = {
+  product: 'une fiche se choisit dans le catalogue (elle porte un identifiant)',
+  profile: 'le bouton du compte, une fois connecte'
+}
+
+/** Le menu, dans l'ordre où on le lit. `masterOnly` = la page du comptoir. */
+export const MENU_DESTINATIONS = [
+  { id: 'shop', labelKey: 'navShop' },
+  { id: 'search', labelKey: 'navSearch' },
+  { id: 'builder', labelKey: 'navBuilder' },
+  { id: 'about', labelKey: 'navAbout' },
+  { id: 'orders', labelKey: 'navOrders' },
+  { id: 'help', labelKey: 'navHelp', masterOnly: true },
+  { id: 'desk', labelKey: 'navDesk', masterOnly: true },
+  { id: 'master', labelKey: 'navMaster', masterOnly: true },
+  { id: 'privacy', labelKey: 'navPrivacy', groupe: 'info' },
+  { id: 'terms', labelKey: 'navTerms', groupe: 'info' },
+  { id: 'warranty', labelKey: 'legalWarrantyTitle', groupe: 'info' }
+]
+
 /**
  * LOT 3.16 (B19) — âge lisible d'un horodatage, dans la langue de l'interface.
  * `Intl.RelativeTimeFormat` rend déjà « il y a 5 minutes » / « 5 minutes ago » /
@@ -337,6 +377,14 @@ export default function App() {
   const [reserved, setReserved] = useState(null)
   const [build, setBuild] = useState({})
   const [authOpen, setAuthOpen] = useState(false)
+  // LOT P6 (S6) : le menu choisit la porte (« Connexion » ou « Créer un compte »).
+  const [authTab, setAuthTab] = useState('login')
+
+  function ouvrirAuth(mode = 'login') {
+    setAuthTab(mode)
+    setAuthOpen(true)
+    setNavOpen(false)
+  }
   const [navOpen, setNavOpen] = useState(false)
   const [cartOpen, setCartOpen] = useState(false)
   const [apiOnline, setApiOnline] = useState(false)
@@ -561,6 +609,31 @@ export default function App() {
     const timer = setTimeout(() => setToast(''), 3200)
     return () => clearTimeout(timer)
   }, [toast])
+
+  /*
+   * LOT P6 (S6) — un lien qui ouvre la porte. `?connexion=1` / `?inscription=1`
+   * ouvrent le panneau d'authentification sur le bon onglet, puis le parametre
+   * est retire de l'URL (comme le jeton OAuth plus bas : une adresse partageable
+   * ne doit rien porter qui n'etait pas demande). Le cas d'usage est celui du
+   * comptoir : une facture, un statut WhatsApp ou un SMS qui dit « connecte-toi
+   * pour voir ta commande » doit deposer le client sur le formulaire, pas sur la
+   * vitrine avec un menu a ouvrir.
+   */
+  useEffect(() => {
+    try {
+      const u = new URL(window.location.href)
+      const inscription = u.searchParams.get('inscription')
+      const connexion = u.searchParams.get('connexion')
+      if (inscription == null && connexion == null) return
+      ouvrirAuth(inscription != null ? 'register' : 'login')
+      u.searchParams.delete('inscription')
+      u.searchParams.delete('connexion')
+      window.history.replaceState({}, '', u.pathname + (u.search ? u.search : '') + u.hash)
+    } catch {
+      /* URL que jsdom refuse : le lien profond est un confort, pas une dependance */
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   /* Bootstrap Offcanvas — focus trap + backdrop via official API */
   useEffect(() => {
@@ -1345,7 +1418,10 @@ export default function App() {
     setCart((prev) => prev.filter((i) => i.id !== id))
   }
 
-  const KNOWN_PAGES = ['shop', 'search', 'builder', 'about', 'orders', 'desk', 'master', 'help', 'profile', 'privacy', 'terms', 'warranty', 'product']
+  // LOT P6 (S6) : la liste des pages connues n'est plus recopiee ici — c'est la
+  // liste declaree en tete de module, et le garde-fou de `go()` suit donc
+  // mecaniquement ce que l'ecran sait rendre.
+  const KNOWN_PAGES = PAGES_ROUTABLES
 
   function openProduct(id) {
     // Anti page blanche : référence inexistante/cachée → retour boutique.
@@ -1376,11 +1452,11 @@ export default function App() {
     if (!KNOWN_PAGES.includes(next)) next = 'shop'
     if ((next === 'desk' || next === 'master' || next === 'help') && !isMaster) {
       setToast(t(next === 'help' ? 'masterOnlyGuide' : next === 'desk' ? 'masterOnlyDesk' : 'masterForbidden'))
-      setAuthOpen(true)
+      ouvrirAuth('login')
       return
     }
     if (next === 'profile' && !user) {
-      setAuthOpen(true)
+      ouvrirAuth('login')
       return
     }
     setPage(next)
@@ -1706,6 +1782,10 @@ export default function App() {
               type="button"
               aria-label={t('navMenu')}
               aria-expanded={navOpen}
+              // LOT P6 (S6) : `aria-controls` et l'`id` de la cible, poses ensemble —
+              // un controle sans cible annoncee laisse le lecteur d'ecran deviner ou
+              // le pouce va tomber (la feuille n'a pas non plus de role `navigation`).
+              aria-controls={navOpen ? 'nav-sheet' : undefined}
               onClick={() => setNavOpen((v) => !v)}
             >
               <span className="navbar-toggler-icon" />
@@ -1721,50 +1801,46 @@ export default function App() {
             * fermeture — indispensable : la feuille couvre la barre, donc le
             * bouton ☰ n'est plus atteignable une fois ouvert.
             */}
-          <div className={`collapse navbar-collapse nav-sheet ${navOpen ? 'show' : ''}`}>
+          <div className={`collapse navbar-collapse nav-sheet ${navOpen ? 'show' : ''}`} id="nav-sheet">
             <div className="nav-sheet-head">
               <strong>{t('navMenu')}</strong>
               <button type="button" className="btn btn-sm btn-outline-secondary" onClick={() => setNavOpen(false)}>
                 ✕ {t('close')}
               </button>
             </div>
+            {/*
+              * LOT P6 (S6) — le menu est GENERE depuis `MENU_DESTINATIONS` : cinq liens
+              * ecrits a la main plus trois blocs `isMaster &&` repetes, c'est une liste
+              * que rien ne relie a la liste des pages que l'ecran sait rendre. La page
+              * « Garantie & RMA » en avait paye le prix : routee, traduite, titree,
+              * et sans un seul lien vers elle.
+              */}
             <ul className="navbar-nav me-auto mb-2 mb-lg-0 align-items-lg-center gap-lg-1">
-              {[
-                ['shop', t('navShop'), page === 'shop' || page === 'product'],
-                ['search', t('navSearch'), page === 'search'],
-                ['builder', t('navBuilder'), page === 'builder'],
-                ['about', t('navAbout'), page === 'about'],
-                // P11 : bouton « Commandes » dans le menu (page unique, tous
-                // clients — un guest voit celles passées depuis cet appareil).
-                ['orders', t('navOrders'), page === 'orders']
-              ].map(([id, label, on]) => (
-                <li className="nav-item" key={id}>
-                  <button type="button" className={`nav-link btn btn-link ${on ? 'active fw-semibold' : ''}`} onClick={() => go(id)}>
-                    {label}
+              {MENU_DESTINATIONS.filter((d) => !d.groupe && (!d.masterOnly || isMaster)).map((d) => {
+                const on = d.id === 'shop' ? page === 'shop' || page === 'product' : page === d.id
+                return (
+                  <li className="nav-item" key={d.id}>
+                    <button type="button" className={`nav-link btn btn-link ${on ? 'active fw-semibold' : ''}`} onClick={() => go(d.id)}>
+                      {t(d.labelKey)}
+                    </button>
+                  </li>
+                )
+              })}
+              {/* Le groupe « informations » : memes cibles de pouce que le reste (la
+                  taille ne descend pas sous 44 px), seulement un separateur et un corps
+                  plus petit — ce ne sont pas les cinq pages qu'on cherche en premier. */}
+              {MENU_DESTINATIONS.some((d) => d.groupe === 'info') && (
+                <li className="nav-item nav-lien-info-tete" key="info-tete" aria-hidden="true">
+                  <span className="nav-link">{t('navInformations')}</span>
+                </li>
+              )}
+              {MENU_DESTINATIONS.filter((d) => d.groupe === 'info').map((d) => (
+                <li className="nav-item nav-lien-info" key={d.id}>
+                  <button type="button" className={`nav-link btn btn-link ${page === d.id ? 'active fw-semibold' : ''}`} onClick={() => go(d.id)}>
+                    {t(d.labelKey)}
                   </button>
                 </li>
               ))}
-              {isMaster && (
-                <li className="nav-item">
-                  <button type="button" className={`nav-link btn btn-link ${page === 'help' ? 'active fw-semibold' : ''}`} onClick={() => go('help')}>
-                    {t('navHelp')}
-                  </button>
-                </li>
-              )}
-              {isMaster && (
-                <li className="nav-item">
-                  <button type="button" className={`nav-link btn btn-link ${page === 'desk' ? 'active fw-semibold' : ''}`} onClick={() => go('desk')}>
-                    {t('navDesk')}
-                  </button>
-                </li>
-              )}
-              {isMaster && (
-                <li className="nav-item">
-                  <button type="button" className={`nav-link btn btn-link ${page === 'master' ? 'active fw-semibold' : ''}`} onClick={() => go('master')}>
-                    {t('navMaster')}
-                  </button>
-                </li>
-              )}
             </ul>
             <div className="d-flex flex-wrap align-items-center gap-2 py-2 py-lg-0">
               <div className="btn-group btn-group-sm" role="group" aria-label={t('lang')}>
@@ -1799,9 +1875,16 @@ export default function App() {
                   </button>
                 </>
               ) : (
-                <button type="button" className="btn btn-sm btn-outline-success" onClick={() => { setAuthOpen(true); setNavOpen(false) }}>
-                  {t('navLogin')}
-                </button>
+                <>
+                  {/* LOT P6 (S6) : les deux entrees, cote a cote. « Connexion » seul
+                      envoyait le nouveau client sur un champ mot de passe. */}
+                  <button type="button" className="btn btn-sm btn-outline-success" onClick={() => ouvrirAuth('login')}>
+                    {t('navLogin')}
+                  </button>
+                  <button type="button" className="btn btn-sm btn-success" onClick={() => ouvrirAuth('register')}>
+                    {t('navSignup')}
+                  </button>
+                </>
               )}
             </div>
           </div>
@@ -2210,7 +2293,7 @@ export default function App() {
                   <h2 className="h5">1. {t('authTitle')}</h2>
                   <p>{t('authSimpleNote')}</p>
                   <p className="small text-secondary">{t('helpNoPublicDemo')}</p>
-                  <button type="button" className="btn btn-success" onClick={() => setAuthOpen(true)}>
+                  <button type="button" className="btn btn-success" onClick={() => ouvrirAuth('login')}>
                     {t('navLogin')}
                   </button>
                 </div>
@@ -2607,6 +2690,7 @@ export default function App() {
       {authOpen && (
         <AuthPanel
           t={t}
+          tabInitial={authTab}
           users={users}
           onUsers={persistUsers}
           onSession={(s) => {

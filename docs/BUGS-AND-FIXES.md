@@ -3413,3 +3413,72 @@ Reste ouvert, écrit ici :
 contenant du correctif, pas seulement sur son idée : le crawl et l'audit ont tourné ici
 avec `dist` en bundle de crawl, après arrêt de l'aperçu (le garde-fou de S3 refuse
 autrement, et il a raison).
+
+---
+
+## LOT P6 (S6) — le menu doit dire où l'on peut aller (et les deux portes du compte)
+
+Deux demandes du client, même racine : « le bouton du menu n'a pas les autres pages à
+cliquer » et « il n'y a pas sign in and sign up ». Mesures sur l'arbre d'avant le correctif :
+
+- `go('warranty')` : **0 occurrence** dans tout le dépôt. La page « Garantie & RMA » est
+  pourtant routée (`page === 'warranty'`), titrée (`legalWarrantyTitle`), traduite en français
+  et en anglais, rendue par `src/LegalPage.jsx` — et **aucun lien** n'y mène : pas dans le menu
+  (cinq liens écrits à la main), pas dans le pied de page (à propos / confidentialité /
+  conditions). Une page que personne n'atteint n'est pas du contenu, c'est du code mort qui se
+  présente comme tel ;
+- le menu, hors connexion, offrait **un** bouton : « Connexion ». L'inscription existait
+  (onglet `authRegister` dans `src/AuthPanel.jsx`) mais seulement après avoir ouvert le
+  mauvais formulaire — le nouveau client tombait sur un champ mot de passe d'un compte qu'il
+  n'a pas ;
+- `npm run preview` ne proxyssait pas `/api` : `vite preview` **n'hérite pas** de
+  `server.proxy`. L'aperçu répondait donc 404 sur `/api/*` (avalé par le fallback SPA),
+  `api.health()` échouait, et le site se croyait hors-ligne : le compte maître — la page
+  Admin, le bureau, le stock live — n'était **pas testable en aperçu**. Le build dédié au
+  crawl portait ce bloc et le commentait ; la parité manquait à la config principale.
+
+**La règle, écrite une fois** : une liste déclarée de destinations, et un contrôle de
+parité entre « ce que l'écran sait rendre » et « ce que le menu promet ».
+
+- `PAGES_ROUTABLES` (13 entrées) : les pages que `setPage` peut porter ;
+- `HORS_MENU` : ce que le menu ne liste pas, **avec la raison** (`product` — une fiche se
+  choisit dans le catalogue ; `profile` — le bouton du compte, une fois connecté) ;
+- `MENU_DESTINATIONS` : l'ordre lu à l'écran, `masterOnly` pour les trois pages du comptoir,
+  `groupe: 'info'` pour le trio légal ;
+- `KNOWN_PAGES`, le garde-fou de `go()`, n'est plus une seconde liste recopiée : c'est
+  `PAGES_ROUTABLES`.
+
+Trois assertions sur les **déclarations importées** (plus un regex fragile) : toute page
+routable est au menu ou exemptée avec une raison écrite ; toute entrée de menu route (pas de
+bouton mort qui retombe en silence sur la vitrine) ; les entrées `masterOnly` sont exactement
+celles que `go()` refuse à un non-maître — sinon le menu promet ce que le routeur interdit, ou
+cache ce qui est permis. Le groupe « informations » est séparé et allégé en corps de texte,
+mais sa cible reste à 44 px : séparer ne veut pas dire rendre le pouce plus petit.
+
+Côté compte : le menu hors connexion porte maintenant **deux** boutons (`navLogin`,
+`navSignup`), et `src/AuthPanel.jsx` accepte `tabInitial` — le menu ouvre la porte du bon côté.
+`?connexion=1` / `?inscription=1` ouvrent le panneau au démontage puis **disparaissent** de
+l'URL (même discipline que le jeton OAuth : une adresse partagée ne doit rien porter qui n'a
+pas été demandé) ; un autre paramètre présent est laissé intact, verrouillé.
+
+Côté aperçu : `preview.proxy` dans `vite.config.js`, `/api` vers `127.0.0.1:8787`, avec
+`ws: true` (le flux temps réel du bureau monte un WebSocket sur le même préfixe — sans lui, le
+comptoir retombait silencieusement en polling de 20 s pendant un essai). Vérifié de bout en
+bout, dans l'ordre où le navigateur le fait : `GET /api/health` via 4173 ✅, `POST
+/api/auth/login` maître → jeton + `role: master` ✅, `GET /api/me` avec le jeton ✅, `GET
+/api/orders` ✅ avec jeton et **403** sans — la garde d'autorisation n'a pas bougé d'un iota,
+c'est le proxy qui manquait, pas la porte qui était fermée.
+
+Sept verrous de plus (**1158 tests**, `src/p3Vitrine.test.js` passe à 49).
+
+Reste ouvert, écrit ici :
+
+- le pied de page garde sa **propre** mini-liste (à propos / confidentialité / conditions) :
+  c'est un choix graphique assumé, mais c'est un second endroit où l'on oublie une page — le
+  verrou ne surveille que le menu ;
+- `HORS_MENU.exempte` `profile` parce que le bouton du compte n'existe que connecté : un visiteur
+  qui taperait `/profile` dans l'URL est renvoyé vers le formulaire, verrouillé par l'étage
+  existant de `go()` ;
+- l'aperçu avec API est un **bac à sable** : `.preview-data/` (ignorée par git) porte la base, et
+  les identifiants du maître viennent de l'environnement au démarrage — le dépôt n'en contient
+  aucun, c'est `src/masterSecrets.test.js` qui le vérifie.

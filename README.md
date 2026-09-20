@@ -9,14 +9,14 @@ npm install
 npm run start:api   # :8787 multi-device orders + auth
 npm run dev         # :5173 site (proxies /api)
 npm run build       # vite build, then scans dist/ for secrets — fails if any landed there
-npm test            # 1151 tests (node:test, 80 fichiers) — run `npm run build` first: bundleSecrets scans dist/
+npm test            # 1158 tests (node:test, 80 fichiers) — run `npm run build` first: bundleSecrets scans dist/
 npm run check:bundle # re-run only the dist/ secret scan (lot 7.3)
 npm run master:rotate # new master password, written to .env.local — the value is never printed
 ```
 
 ## État mesuré (20/09/2026)
 
-- `npm test` : **1151 tests, 0 échec** (80 fichiers `src/*.test.js`, tous branchés dans le script — `src/p3ServerHygiene.test.js` le vérifie). Le total peut bouger de ±1 selon le nombre de chunks que `dist/` contient : `src/bundleSecrets.test.js` fabrique un test par artefact scanné, ce n'est pas une régression. La suite scanne le bundle publié
+- `npm test` : **1158 tests, 0 échec** (80 fichiers `src/*.test.js`, tous branchés dans le script — `src/p3ServerHygiene.test.js` le vérifie). Le total peut bouger de ±1 selon le nombre de chunks que `dist/` contient : `src/bundleSecrets.test.js` fabrique un test par artefact scanné, ce n'est pas une régression. La suite scanne le bundle publié
   (`src/bundleSecrets.test.js`) : sans `dist/`, elle échoue en cascade — le build
   est une pré-condition, pas une étape optionnelle.
 - `npm run build:crawl && node scripts/jsdom-crawl.mjs` : 24 pages rendues en
@@ -149,7 +149,14 @@ Photos: keep shipping under `public/photos/sku/` — add pro shots later, push, 
   a traité la taille de page comme ce qu'elle est : une **préférence**, stockée sous sa propre
   clef (`src/pagerStore.js`) et relue par les deux écrans — choisir quarante-huit puis changer
   d'écran ne fait plus retomber le catalogue à douze, et une clef abîmée se lit « douze » au
-  lieu de casser le montage.
+  lieu de casser le montage. Le lot S6 a generé le menu depuis une liste declaree
+  (`MENU_DESTINATIONS`, `HORS_MENU` avec sa raison) : la page « Garantie & RMA » etait
+  routée, traduite, titree — et sans un seul lien vers elle ; et le menu ne proposait
+  qu'une porte (« Connexion ») pour un compte qui n'existe pas encore. Les deux entrees
+  y sont maintenant (`navSignup`), et `?connexion=1` / `?inscription=1` debarquent
+  directement sur le formulaire. `npm run preview` proxyse aussi `/api` (comme le build
+  du crawl : `vite preview` n'heritait pas de `server.proxy`) — sans lui, l'aperçu ne
+  pouvait pas tester le compte maître : tout se croyait hors-ligne.
 - **Rotation du secret maître** — `npm run master:rotate` (`scripts/rotate-master.mjs`) génère
   un mot de passe de 32 signes, l'écrit dans `.env.local` en `0600`, refuse toute cible que git
   suivrait, et **n'affiche jamais la valeur** : un secret passé à l'écran se retrouve dans

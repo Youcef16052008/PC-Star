@@ -29,8 +29,16 @@ export const AUTH_ERRORS = {
   demo_locked: 'authErrorDemoLocked'
 }
 
-export default function AuthPanel({ t, users, onUsers, onSession, onClose, setToast, apiOnline, onApiUser }) {
-  const [tab, setTab] = useState('login')
+/**
+ * LOT P6 (S6) — `tabInitial` : le menu ouvre la porte du bon cote. « Se connecter »
+ * et « Créer un compte » sont deux intentions differentes ; les confondre en un seul
+ * bouton, c'est envoyer le nouveau client remplir un formulaire de connexion avant
+ * de comprendre qu'il doit d'abord s'inscrire.
+ *
+ * @param {'login'|'register'} [props.tabInitial]
+ */
+export default function AuthPanel({ t, users, onUsers, onSession, onClose, setToast, apiOnline, onApiUser, tabInitial = 'login' }) {
+  const [tab, setTab] = useState(tabInitial === 'register' ? 'register' : 'login')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [name, setName] = useState('')

@@ -14,6 +14,9 @@ export const dict = {
     navDesk: 'Liste comptoir',
     navCart: 'Panier',
     navLogin: 'Connexion',
+    // Le menu doit proposer les deux entrees, pas une seule qui mene a l'autre.
+    navSignup: 'Créer un compte',
+    navInformations: 'Informations',
     navLogout: 'Déconnexion',
     navProfile: 'Mon profil',
     navMaster: 'Admin',
@@ -702,6 +705,8 @@ export const dict = {
     navDesk: 'Desk list',
     navCart: 'Cart',
     navLogin: 'Log in',
+    navSignup: 'Sign up',
+    navInformations: 'Information',
     navLogout: 'Log out',
     navProfile: 'My profile',
     navMaster: 'Admin',

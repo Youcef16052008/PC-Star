@@ -66,7 +66,7 @@ delete process.env.DEMO_PASSWORD
 
 const { LANGS, dict } = await import('./i18n.js')
 const { VITRINE_LIMITS, EMPTY_VITRINE, clampVitrine, clampVitrineLabel, clampVitrineCount } = await import('./vitrine.js')
-const { default: App, SHOP_PAGE_SIZE } = await import('./App.jsx')
+const { default: App, SHOP_PAGE_SIZE, MENU_DESTINATIONS, HORS_MENU, PAGES_ROUTABLES } = await import('./App.jsx')
 const { default: SearchPage } = await import('./SearchPage.jsx')
 const { default: MasterPage } = await import('./MasterPage.jsx')
 const React = (await import('react')).default
@@ -485,6 +485,58 @@ describe('P4/V5 — le menu et la connexion prennent la page', () => {
     assert.match(css, /\.nav-sheet \.navbar-nav \.nav-link\s*\{[^}]*min-height:\s*4[4-9]px|\.nav-sheet \.navbar-nav \.nav-link\s*\{[^}]*min-height:\s*[5-9]\dpx/)
   })
 
+  // ── LOT P6 (S6) : le menu doit dire ou l'on peut aller ────────────────────
+  it('toute page routable est dans le menu, ou exemptee avec sa raison', () => {
+    // Mesure : la page « Garantie & RMA » etait routee (`page === 'warranty'`),
+    // traduite, titree — et sans un seul lien vers elle, ni dans le menu ni dans le
+    // pied de page. Une page que personne n'atteint est du code mort qui se prend
+    // pour du contenu. La regle est lisible dans les declarations, pas dans un regex.
+    const dansMenu = new Set(MENU_DESTINATIONS.map((d) => d.id))
+    const exemptees = new Set(Object.keys(HORS_MENU))
+    for (const id of PAGES_ROUTABLES) {
+      assert.equal(dansMenu.has(id) || exemptees.has(id), true, `« ${id} » : page routable sans entree de menu ni exemption ecrite`)
+    }
+    for (const d of MENU_DESTINATIONS) {
+      assert.ok(PAGES_ROUTABLES.includes(d.id), `le menu mene a « ${d.id} » : page inconnue du routeur, le clic retombait sur la vitrine`)
+    }
+    for (const [id, raison] of Object.entries(HORS_MENU)) {
+      assert.ok(typeof raison === 'string' && raison.length > 12, `« ${id} » est exempte sans raison ecrite`)
+      assert.equal(MENU_DESTINATIONS.some((d) => d.id === id), false, `« ${id} » est a la fois exemptee et listee`)
+    }
+    // Deux listes qui se recouvrent mal = un trou ou un doublon : on verifie le compte.
+    assert.equal(dansMenu.size + exemptees.size, PAGES_ROUTABLES.length, 'le compte des destinations ne tombe pas juste')
+  })
+
+  it('les libelles du menu sont traduits, et le role du maitre est une seule liste', () => {
+    // `dict` est celui de l'application : meme dictionnaire, meme process — pas une
+    // copie des chaines dans le test (un libelle renomme ne doit pas rougir ici).
+    for (const d of MENU_DESTINATIONS) {
+      for (const langue of ['fr', 'en']) {
+        const chaine = dict[langue][d.labelKey]
+        assert.ok(typeof chaine === 'string' && chaine.length > 0, `${d.labelKey} : pas de libelle en ${langue}`)
+        assert.notEqual(chaine, d.labelKey, `${d.labelKey} : la cle fuiterait a l'ecran en ${langue}`)
+      }
+    }
+    // Ce que le menu reserve au maitre doit etre exactement ce que `go()` refuse aux
+    // autres : deux listes differentes = un lien qui ouvre une page interdite, ou une
+    // page autorisee que personne ne voit.
+    const app = sansCommentaires('src/App.jsx')
+    const gardee = app.match(/if \(\(next === '(\w+)' \|\| next === '(\w+)' \|\| next === '(\w+)'\) && !isMaster\)/)
+    assert.ok(gardee, 'la garde du menu maitre a change de forme : relire ce verrou au lieu de le retirer')
+    const refusees = gardee.slice(1, 4).sort()
+    const reservees = MENU_DESTINATIONS.filter((d) => d.masterOnly).map((d) => d.id).sort()
+    assert.deepEqual(reservees, refusees, 'le menu promet ce que le routeur refuse (ou cache ce qui est permis)')
+  })
+
+  it("le declencheur du menu dit ce qu'il ouvre, la feuille a un nom", () => {
+    const app = sansCommentaires('src/App.jsx')
+    assert.match(app, /aria-controls=\{navOpen \? 'nav-sheet' : undefined\}/, 'le bouton du menu ne nomme pas sa cible (ou la nomme quand elle est fermee)')
+    assert.match(app, /id="nav-sheet"/, "la feuille du menu n'a pas d'identifiant")
+    // Le groupe « informations » doit rester a la taille du pouce : separer ne veut
+    // pas dire retrecir la cible (la regle des 44 px du harnais responsive).
+    assert.match(css, /\.nav-sheet \.nav-lien-info \.nav-link[\s\S]{0,160}?min-height:\s*4[4-9]px/, 'les liens « informations » descendent sous 44 px')
+  })
+
   it('la modale de connexion est pleine page (classe de Bootstrap, pas un custom)', () => {
     const auth = sansCommentaires('src/AuthPanel.jsx')
     assert.match(auth, /modal-dialog[^"]*modal-fullscreen/)
@@ -777,6 +829,86 @@ describe('P4/V1-V3 — l\u2019écran du client lit la vitrine, et la grille est 
     await settle(60)
     assert.equal(hote.querySelector('p[role="status"].text-warning') == null, true, 'la mention du filtre retire survit a « Tout effacer »')
     assert.ok(cartes() > 0, 'apres effacement, plus aucune fiche a l ecran')
+  })
+
+  // ── LOT P6 (S6) : le menu mene bien aux pages, et les deux portes du compte ──
+  it('le menu liste les pages du site — « Garanties » y compris, et le clic y mene', async () => {
+    const liens = () => [...hote.querySelectorAll('.nav-sheet .nav-item button')]
+    const attendus = MENU_DESTINATIONS.filter((d) => !d.masterOnly).map((d) => t(d.labelKey))
+    const rendus = liens().map((b) => b.textContent.trim())
+    for (const libelle of attendus) {
+      assert.ok(rendus.includes(libelle), `le menu ne propose pas « ${libelle} » (rendu : ${rendus.join(' | ')})`)
+    }
+    // Le maitre seul, refuse a un visiteur : le menu ne doit pas le promettre.
+    for (const d of MENU_DESTINATIONS.filter((x) => x.masterOnly)) {
+      assert.equal(rendus.includes(t(d.labelKey)), false, `le menu offre « ${d.labelKey} » a un visiteur que le routeur refuserait`)
+    }
+    // La page qui n'avait AUCUN entree : garantie. Le menu la liste, le clic l'ouvre.
+    const garantie = liens().find((b) => b.textContent.trim() === t('legalWarrantyTitle'))
+    assert.ok(garantie, "le menu ne mene pas a la page « Garantie & RMA »")
+    await clique(garantie)
+    await settle(80)
+    const titre = hote.querySelector('#main-content h1, #main-content h2')
+    assert.ok(titre, 'la page garantie ne rend pas de titre')
+    assert.equal(titre.textContent.trim(), t('legalWarrantyTitle'), 'le titre de la page garantie n est pas celui du menu')
+  })
+
+  it('le declencheur du menu nomme la feuille qu il ouvre, seulement quand elle est ouverte', async () => {
+    const declencheur = hote.querySelector('.navbar-toggler')
+    assert.ok(declencheur, 'le bouton du menu est absent')
+    assert.equal(declencheur.getAttribute('aria-controls'), null, 'aria-controls pointe une feuille fermee')
+    await clique(declencheur)
+    await settle(60)
+    assert.equal(declencheur.getAttribute('aria-expanded'), 'true', 'le bouton ne dit pas qu il est ouvert')
+    assert.equal(declencheur.getAttribute('aria-controls'), 'nav-sheet', 'le bouton ne nomme pas sa cible une fois ouvert')
+    assert.ok(hote.querySelector('#nav-sheet'), "l'identifiant annoncé n'existe pas dans la page")
+    await clique(declencheur)
+    await settle(60)
+    assert.equal(declencheur.getAttribute('aria-controls'), null, 'aria-controls survit a la fermeture')
+  })
+
+  it('hors connexion : le menu propose les deux portes, et elles ouvrent le bon onglet', async () => {
+    const boutons = () => [...hote.querySelectorAll('.nav-sheet button')]
+    const connexion = boutons().find((b) => b.textContent.trim() === t('navLogin'))
+    const inscription = boutons().find((b) => b.textContent.trim() === t('navSignup'))
+    assert.ok(connexion, 'le menu ne propose pas de se connecter')
+    assert.ok(inscription, 'le menu ne propose pas de creer un compte (un seul bouton envoyait le nouveau client sur un mot de passe)')
+    await clique(inscription)
+    await settle(120)
+    assert.ok(hote.querySelector('#reg-name'), "l'onglet « Inscription » n est pas ouvert : le champ nom manque")
+    const ongletActif = [...hote.querySelectorAll('.modal .nav-pills .nav-link.active')].map((x) => x.textContent.trim())
+    assert.deepEqual(ongletActif, [t('authRegister')], 'le panneau ne dit pas sur quel onglet il est')
+    // Et l'autre porte mene a l'onglet connexion, pas au meme endroit.
+    const ongletConnexion = [...hote.querySelectorAll('.modal .nav-pills .nav-link')].find((x) => x.textContent.trim() === t('authLogin'))
+    await clique(ongletConnexion)
+    await settle(80)
+    assert.equal(hote.querySelector('#reg-name') == null, true, "le formulaire d'inscription reste monte sous l'onglet connexion")
+    // On rend l'appartement propre : la modale est montee sur tout le describe.
+    const fermer = [...hote.querySelectorAll('.modal .btn-close')][0]
+    if (fermer) { await clique(fermer); await settle(80) }
+  })
+
+  it('un lien ?inscription=1 debarque sur le formulaire, et le parametre repart', async () => {
+    // Montage neuf : l'effet qui lit l'URL ne se joue qu une fois par instance.
+    window.history.replaceState({}, '', '/?inscription=1&langue=fr')
+    const hote2 = window.document.createElement('div')
+    window.document.body.appendChild(hote2)
+    const racine2 = createRoot(hote2)
+    try {
+      await act(async () => {
+        racine2.render(React.createElement(App))
+      })
+      await settle(160)
+      assert.ok(hote2.querySelector('#reg-name'), '?inscription=1 n ouvre pas le formulaire de creation de compte')
+      assert.equal(window.location.search.includes('inscription'), false, 'le parametre reste dans l URL (partagee, recopiee, historisee)')
+      assert.equal(window.location.search.includes('langue'), true, 'un parametre qui ne nous regarde pas a ete efface')
+    } finally {
+      await act(async () => {
+        racine2.unmount()
+      })
+      hote2.remove()
+      window.history.replaceState({}, '', '/')
+    }
   })
 })
 
