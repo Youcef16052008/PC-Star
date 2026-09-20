@@ -2983,3 +2983,10 @@ ressort alors en trois fichiers modifiés, ceux du tour en cours, et rien d'autr
 **Portes rejouées après l'outil.** `npm test` **1101 / 1101** (304 suites, 79 fichiers de test) ;
 `npm run build` **490,10 kB** (146,93 gzip) avec le scan anti-secret sur 9 artefacts, aucun
 secret ; crawl jsdom **24 pages, 0 erreur** ; audit boutons **32 vérifications, 0 erreur**.
+
+**Relu sur la CI (`ab96220`) — tout est vert.** `UI audit (crawl + boutons)` **succès en 7 m 34 s**,
+`E2E smoke (Playwright)` **succès** (1 m 12 s, Chromium + WebKit + Firefox), `Setup` +
+`Create Neon Branch` **succès** (2 m 23 s), Vercel **succès**. La rotation du secret n'a donc
+aucune emprise sur les portes : `npm run master:rotate` écrit dans `.env.local`, que la CI ne lit
+pas (elle pose ses propres variables de test, `scripts/test-env.mjs`) — un opérateur qui rotate
+pendant un déploiement ne change rien au vert, et un rouge après rotation signalerait autre chose.
