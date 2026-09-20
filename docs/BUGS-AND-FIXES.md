@@ -3337,6 +3337,12 @@ Ce qui reste ouvert, écrit ici plutôt que dans une conversation :
   précisément comme ça que le filtre « usage » est mort.
 
 
+
+**Verdicts de la porte, lus sur `a5b4532`** (le commit de ce lot S4) : `E2E smoke
+(Playwright)` ✅ (`35518152555`), `Create/Delete Branch for Pull Request` ✅
+(`35518152560`), `UI audit (crawl + boutons)` ✅ (`35518152544`). Trois verts, après
+`6b83a93` déjà trois verts : la porte de crawl ne rougit plus sur le bundle d'un serveur
+étranger, et le verrou de citations ne se mord plus la queue.
 ---
 
 ## LOT P6 (S5) — la taille de page est une préférence, pas un état de la page
@@ -3400,8 +3406,10 @@ Reste ouvert, écrit ici :
 - un troisième écran de liste devrait appeler `useTaille()` ; rien ne l'y oblige encore, la même
   remarque que pour la note de filtre retiré.
 
-**Verdicts de la porte, lus sur `a5b4532`** (le commit de ce lot S4) : `E2E smoke
-(Playwright)` ✅ (`35518152555`), `Create/Delete Branch for Pull Request` ✅
-(`35518152560`), `UI audit (crawl + boutons)` ✅ (`35518152544`). Trois verts, après
-`6b83a93` déjà trois verts : la porte de crawl ne rougit plus sur le bundle d'un serveur
-étranger, et le verrou de citations ne se mord plus la queue.
+
+**Verdicts de la porte, lus sur `9609589`** (le commit de ce lot S5) : `E2E smoke
+(Playwright)` ✅, `Create/Delete Branch for Pull Request` ✅, `UI audit (crawl + boutons)`
+✅ — trois verts, comme sur `a5b4532` et `6b83a93`. La porte a donc été rejouée sur le
+contenant du correctif, pas seulement sur son idée : le crawl et l'audit ont tourné ici
+avec `dist` en bundle de crawl, après arrêt de l'aperçu (le garde-fou de S3 refuse
+autrement, et il a raison).
