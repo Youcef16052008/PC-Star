@@ -13,6 +13,7 @@ import { PAGE_TAILLE, pageCourante, pagesPour, tailleSure, tranche } from './pag
 import { ChoixTaille, Pager } from './pagerControls.jsx'
 import { BrandSheet } from './brandSheet.jsx'
 import { useFeuilleFiltre } from './filterSheet.js'
+import { filtresRetires, noteRetrait } from './filterDrop.js'
 import PartThumb from './PartThumb.jsx'
 import { discountPercent, hasSale } from './productMeta.js'
 
@@ -64,6 +65,9 @@ export default function SearchPage({ t, products, lines, panels, lang, liveStock
   // possibles et le bornage vivent dans `src/pager.js` — le select ne propose que ce
   // qui existe, et tout le reste (URL bidouillée, onglet restauré) retombe sur douze.
   const [taille, setTaille] = useState(PAGE_TAILLE)
+  // LOT P6 (S4) : la mention du filtre retire (une marque qui ne vend rien dans le
+  // rayon choisi). Elle vit ici, pas dans une alerte globale : elle regarde CE filtre.
+  const [dropNote, setDropNote] = useState('')
 
   const allLines = lines || []
   const allPanels = panels || []
@@ -76,11 +80,28 @@ export default function SearchPage({ t, products, lines, panels, lang, liveStock
     saveSavedSearches(undefined, saved)
   }, [saved])
 
+  const labelDeLigne = (id) => {
+    const l = allLines.find((x) => x.id === id)
+    if (!l || id === EMPTY.line) return t('line_all')
+    return t(`line_${l.id}`) !== `line_${l.id}` ? t(`line_${l.id}`) : l.label
+  }
+
   function set(key, value) {
-    setFilters((f) => {
-      if (key === 'line') return { ...f, line: value, brands: [] }
-      return { ...f, [key]: value }
-    })
+    // LOT P6 (S4) : changer de rayon peut rendre une marque retenue incapable de
+    // filtrer quoi que ce soit. On la retire — mais on le DIT : un etat qui change
+    // sous les yeux du client sans un mot est un defaut poli, pas une faveur.
+    // (La vitrine, elle, gardait la marque et affichait zero fiche : deux ecrans,
+    // deux regles pour le meme geste — c'est `src/filterDrop.js` qui tranche.)
+    if (key === 'line') {
+      const nouvelle = allLines.find((l) => l.id === value)
+      const { gardees, retirees } = filtresRetires(filters.brands, (marque) =>
+        (products || []).some((p) => nouvelle?.match?.(p) && p.brand === marque))
+      setFilters((f) => ({ ...f, line: value, brands: gardees }))
+      setDropNote(noteRetrait(t, retirees, labelDeLigne(value)))
+      return
+    }
+    setDropNote('')
+    setFilters((f) => ({ ...f, [key]: value }))
   }
 
   function toggleBrand(brand) {
@@ -311,7 +332,7 @@ export default function SearchPage({ t, products, lines, panels, lang, liveStock
               barre — la vitrine, elle, comptait deja sa categorie. Deux regles, une
               seule vue oubliee. */}
           {(filters.line !== EMPTY.line || filters.brands.length || filters.condition !== 'all' || filters.price !== 'any' || filters.socket !== 'all' || filters.q.trim()) && (
-            <button type="button" className="btn btn-sm btn-link" onClick={() => setFilters({ ...EMPTY })}>
+            <button type="button" className="btn btn-sm btn-link" onClick={() => { setFilters({ ...EMPTY }); setDropNote('') }}>
               {t('reset')}
             </button>
           )}
@@ -372,6 +393,12 @@ export default function SearchPage({ t, products, lines, panels, lang, liveStock
           </div>
         )}
       </div>
+
+      {dropNote && (
+        // `role="status"` : la mention apparait sans que le client aille la chercher,
+        // un lecteur d'ecran doit la dire au moment ou le filtre change.
+        <p className="small text-warning mb-2" role="status">{dropNote}</p>
+      )}
 
       <div className="d-lg-none mb-3">
         <button type="button" className="btn btn-outline-success w-100" onClick={() => setFiltersOpen(true)}>

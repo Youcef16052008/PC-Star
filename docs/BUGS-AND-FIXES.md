@@ -3260,3 +3260,78 @@ Rejoué après ce correctif, sur le contenu des deux commits du lot : build **49
 (gzip 148,44) avec `check-bundle` **9 artefacts, aucun secret**, crawl **24 / 0**, audit des
 boutons **32 / 0**, `npm test` **1139 / 1139** (et **1138 / 0** dans les conditions de la CI,
 `dist` absent — le test sauté est le scan du bundle publié).
+
+
+---
+
+## LOT P6 (S4) — le filtre que l'écran retire sous le nez du client
+
+**Verdicts de la porte, lus sur `6b83a93`** (la ronde précédente, qui avait corrigé le
+verrou de citations et la porte de crawl) : `Create/Delete Branch for Pull Request` ✅,
+`E2E smoke (Playwright)` ✅, `UI audit (crawl + boutons)` ✅. Le rouge Neon de `02cc747`
+ne s'est donc pas représenté : la porte est verte pour les bonnes raisons, et elle refuse
+désormais de vérifier le bundle d'un serveur qui n'est pas le sien.
+
+Un seul geste — choisir une marque, puis un rayon qui ne la vend pas — et deux réponses
+différentes selon l'endroit où le client se trouve. Mesuré sur la page rendue (jsdom,
+composant monté, marque cliquée dans la feuille des marques, rayon **calculé sur les
+données** pour qu'il ne vende pas cette marque — pas un nom de rayon tapé à la main, la
+donnée de démo bouge) :
+
+| écran | avant le rayon | après le rayon |
+| --- | --- | --- |
+| Recherche | `6 résultat(s)`, bouton `Filtrer par marque · 1` | `13 résultat(s) · page 1 sur 2`, bouton `Filtrer par marque`, aucune marque active dans la feuille, **rien qui explique** |
+| Vitrine | grille pleine, bouton `Filtrer par marque · Corsair` | **0 fiche** à l'écran, bouton portant **toujours** `Corsair` |
+
+Les deux sont faux, en miroir :
+
+- `src/SearchPage.jsx`, fonction `set` : `if (key === 'line') return { ...f, line: value,
+  brands: [] }`. Retirer une marque incompatible est la bonne décision — laisser le rayon
+  armé avec une marque qu'il ne vend pas rend une liste vide, et le client conclut que le
+  magasin est vide. Mais le retrait est **silencieux** : le filtre disparaît du bouton, la
+  puce « 1 » s'efface, et personne ne dit pourquoi. Ce qui a été choisi par le client
+  s'efface sans trace, c'est exactement la famille de défauts que le lot P17 a fait vivre
+  au filtre « usage ».
+- `src/App.jsx`, clic catégorie : `onClick={() => { setCategory(c.id); setShopSheet(null) }}`
+  — la marque reste armée. Sur « Imprimantes » avec « Corsair » accroché, `list` est vide,
+  le compteur annonce « 0 produit », et le bouton continue d'afficher la marque. Là, le
+  client n'a même plus de quoi comprendre : la grille est vide **avec** son filtre.
+
+**Le correctif est une règle, pas deux correctifs** : `src/filterDrop.js` décide, les deux
+écrans exécutent.
+
+- `filtresRetires(retenues, vendueDans)` rend `{ gardees, retirees }` — la moitié
+  « que garder » n'est plus réécrite à la main de chaque côté ;
+- `noteRetrait(t, retirees, ligne)` construit la phrase (clé `filterDrop`, français et
+  anglais), vide quand `retirees` est vide : on n'annonce pas un retrait qui n'a pas eu
+  lieu ;
+- la page Recherche appelle les deux dans `set('line', …)`, la vitrine dans
+  `choisirCategorie(id)` ;
+- la mention se rend `<p className="small text-warning mb-2" role="status">` sous la barre
+  de filtres des deux écrans — `role="status"` parce qu'elle apparaît sans que le client
+  aille la chercher, donc un lecteur d'écran doit la dire à ce moment-là ;
+- elle ne survit à aucun des gestes qui la rendent fausse : « Tout effacer » des deux
+  côtés, et un nouveau choix de marque côté vitrine (sinon l'écran expliquerait le retrait
+  d'une marque qui n'est plus celle affichée).
+
+Huit verrous de plus (**1147 tests**, dont 40 sur `src/p6SearchSurface.test.js` et 42 sur
+`src/p3Vitrine.test.js`) : la règle pure d'abord (`filtresRetires` garde/nomme, tolère
+`null`, l'entrée vide, le prédicat sourd ; `noteRetrait` se tait quand rien n'est retiré),
+puis le rendu sur les deux écrans — la note cite la marque et le rayon, le bouton ne porte
+plus de puce, **la liste n'est pas vide**, aucun `.btn-success` ne subsiste sur une marque,
+et « Tout effacer » nettoie la mention. Le cas contraire est verrouillé aussi : un rayon qui
+vend la marque la **garde** et ne rend **aucune** note — une interface qui s'excuse sans
+raison est un autre défaut. Et un verrou de forme interdit au deux écrans de redécider :
+`onClick={() => { setCategory(c.id)` n'a pas le droit de revenir, ni `line: value,
+brands: []`.
+
+Ce qui reste ouvert, écrit ici plutôt que dans une conversation :
+
+- la phrase est la même des deux côtés, mais elle est **placée** deux fois ; un troisième
+  écran de filtres devra passer par le module, et le verrou de forme ne regarde pour
+  l'instant que ces deux-là ;
+- rien n'est persisté : un rechargement efface la mention, ce qui est le comportement
+  voulu (elle commente un geste, pas un état du catalogue) ;
+- le retrait est annoncé, pas proposé. Un « annuler » serait plus confortable, mais il
+  supposerait de garder la marque dans un tiroir — deux états au lieu d'un, et c'est
+  précisément comme ça que le filtre « usage » est mort.

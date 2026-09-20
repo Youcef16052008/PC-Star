@@ -74,7 +74,7 @@ const { act } = await import('react')
 const { createRoot } = await import('react-dom/client')
 const { safeStorage, resetSafeStorage } = await import('./safeStorage.js')
 const { createMemoryStorage, loadMeta } = await import('./shopStore.js')
-const { PART_LINES, PRODUCTS } = await import('./data.js')
+const { PART_LINES, PRODUCTS, CATEGORIES } = await import('./data.js')
 
 const t = (key, vars) => {
   let out = String(dict.fr[key] ?? key)
@@ -707,6 +707,67 @@ describe('P4/V1-V3 — l\u2019écran du client lit la vitrine, et la grille est 
     // Et le catalogue suit : une seule marque a l'ecran.
     const marques = new Set([...hote.querySelectorAll('.product-bs-card .cbrand')].map((x) => x.textContent.trim()))
     assert.deepEqual([...marques], ['Corsair'], `marques filtrees : ${[...marques].join(', ')}`)
+  })
+
+  // ── LOT P6 (S4) : la marque que la categorie rend inutile ────────────────
+  it('la categorie qui ne vend pas la marque choisie la retire, et le dit', () => {
+    const app = sansCommentaires('src/App.jsx')
+    // Le clic categorie ne doit plus decider pour son compte : c'est la regle
+    // partagee (`src/filterDrop.js`) qui tranche, la meme que page Recherche.
+    assert.match(app, /choisirCategorie\(c\.id\)/, 'le clic categorie ne passe plus par la regle partagee')
+    assert.equal(/onClick=\{\(\) => \{ setCategory\(c\.id\)/.test(app), false, 'un clic categorie garde encore la main sur setCategory : deux regles pour un geste')
+    assert.match(app, /filtresRetires\(/, 'la vitrine redecide seule quoi garder de la marque')
+    assert.match(app, /from '\.\/filterDrop\.js'/, 'la vitrine n\u2019importe plus le module partag\u00e9')
+  })
+
+  it('marque + categorie incompatible : la grille rend des fiches, pas zero', async () => {
+    const barRE = () => hote.querySelector('#catalog').textContent.replace(/\s+/g, ' ')
+    const cartes = () => hote.querySelectorAll('.product-bs-card').length
+    const effacer = [...hote.querySelector('#catalog').querySelectorAll('button')].find((b) => b.textContent.trim() === t('reset'))
+    if (effacer) { await clique(effacer); await settle(60) }
+    // Une marque vendue dans une categorie et absente d'une autre, choisie sur les
+    // donnees (pas sur un nom tape a la main : la donnee de demo bouge).
+    const vendue = (b, c) => PRODUCTS.some((p) => p.brand === b && (c === 'all' || p.category === c))
+    const marque = [...new Set(PRODUCTS.map((p) => p.brand))].find((b) =>
+      CATEGORIES.some((c) => c.id !== 'all' && vendue(b, c.id)) &&
+      CATEGORIES.some((c) => c.id !== 'all' && !vendue(b, c.id)))
+    assert.ok(marque, 'aucune marque ne se trouve dans un rayon et pas dans un autre : le verrou n\u2019a rien a mesurer')
+    const etrangere = CATEGORIES.find((c) => c.id !== 'all' && !vendue(marque, c.id))
+    assert.ok(etrangere, 'tout rayon vend cette marque : rien a retirer ici')
+    const libelle = t(`cat_${etrangere.id}`) !== `cat_${etrangere.id}` ? t(`cat_${etrangere.id}`) : etrangere.label
+
+    const declencheurs = () => [...hote.querySelectorAll('#catalog > div > .btn')]
+    await clique(declencheurs().find((b) => b.textContent.includes(t('filterBrands'))))
+    await settle(60)
+    const puce = [...hote.querySelectorAll('#sheet-brands .filter-sheet-grid .btn')].find((b) => b.textContent.trim() === marque)
+    assert.ok(puce, `la marque « ${marque} » n'est pas proposee au catalogue complet`)
+    await clique(puce)
+    await settle(60)
+    assert.ok(barRE().includes(` · ${marque}`), 'le bouton ne porte pas la marque choisie avant le changement de categorie')
+    assert.ok(cartes() > 0, 'la marque seule ne rend aucune fiche : l etage ne mesure rien')
+
+    await clique(declencheurs().find((b) => b.textContent.includes(t('filterCatalog'))))
+    await settle(60)
+    const categorie = hote.querySelector(`#sheet-catalog .cat-${etrangere.id}`)
+    assert.ok(categorie, `le rayon « ${etrangere.id} » n'est pas cliquable dans la feuille`)
+    await clique(categorie)
+    await settle(60)
+
+    // 1) la marque n'est plus armee : ni sur le bouton, ni dans la grille vide.
+    assert.equal(barRE().includes(` · ${marque}`), false, 'le bouton porte encore la marque retiree')
+    // 2) et surtout : la grille n'est plus a zero (c'etait le defaut).
+    assert.ok(cartes() > 0, `la categorie « ${etrangere.id} » rend une grille vide apres le retrait de la marque`)
+    // 3) le retrait est annonce, avec la meme phrase que la page Recherche.
+    const note = hote.querySelector('p[role="status"].text-warning')
+    assert.ok(note, 'le filtre est retire sans un mot : le client voit la marque disparaitre du bouton')
+    assert.equal(note.textContent.replace(/\s+/g, ' ').trim(), t('filterDrop', { brands: marque, line: libelle }), 'les deux ecrans n\u2019annoncent plus le meme retrait')
+    // 4) « Tout effacer » efface egalement la mention.
+    const efface = [...hote.querySelector('#catalog').querySelectorAll('button')].find((b) => b.textContent.trim() === t('reset'))
+    assert.ok(efface, '« Tout effacer » a disparu alors qu une categorie est retenue')
+    await clique(efface)
+    await settle(60)
+    assert.equal(hote.querySelector('p[role="status"].text-warning') == null, true, 'la mention du filtre retire survit a « Tout effacer »')
+    assert.ok(cartes() > 0, 'apres effacement, plus aucune fiche a l ecran')
   })
 })
 

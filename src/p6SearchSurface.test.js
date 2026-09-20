@@ -55,6 +55,7 @@ const { PAGE_TAILLE, TAILLES, fenetrePages, pageCourante, pagesPour, POINT_DE_SU
 const { default: SearchPage } = await import('./SearchPage.jsx')
 const { PART_LINES, PRODUCTS } = await import('./data.js')
 const { loadSavedSearches } = await import('./shopStore.js')
+const { filtresRetires, noteRetrait } = await import('./filterDrop.js')
 const React = (await import('react')).default
 const { act } = await import('react')
 const { createRoot } = await import('react-dom/client')
@@ -798,5 +799,144 @@ describe('P6/S2 — la règle de tranchage, testée pour elle-même', () => {
     assert.deepEqual(tranche(null, 1), [], 'une liste absente se lit vide, elle ne casse pas la page')
     assert.deepEqual(tranche(liste, 99), liste.slice(24, 30), 'une page hors liste ramène la dernière')
     assert.deepEqual(tranche(liste, 1, 5), [0, 1, 2, 3, 4], 'la taille reste réglable (une taille par écran ne veut rien dire partout)')
+  })
+})
+// ── LOT P6 (S4) : la marque que le rayon rend inutile ────────────────────────
+describe('P6/S4 — une marque que le rayon ne vend plus est retiree, et le client le lit', () => {
+  // Deux ecrans, deux regles pour le meme geste : la page Recherche vidait
+  // `brands` sans un mot, la vitrine gardait la marque et affichait zero fiche.
+  // La regle est unique (`src/filterDrop.js`) et a deux moities : on retire,
+  // et on le dit. Les verrous ci-dessous mesurent les deux moities.
+
+  /** Ouvre la feuille catalogue, au besoin en ouvrant le groupe du rayon, et
+   *  clique le rayon. Rend le libelle choisi (celui que la note doit citer). */
+  async function ouvrirRayon(ligne) {
+    await clique(bouton(t('filterCatalog')))
+    await settle(60)
+    const libelle = t(`line_${ligne.id}`) !== `line_${ligne.id}` ? t(`line_${ligne.id}`) : ligne.label
+    const trouvee = () => {
+      const f = hote.querySelector('#search-sheet-catalog')
+      return f && [...f.querySelectorAll('.filter-sheet-grid button')].find((b) => b.textContent.trim() === libelle)
+    }
+    if (!trouvee()) {
+      const panneau = PANNEAUX.find((x) => x.id === ligne.group)
+      assert.ok(panneau, `le rayon « ${libelle} » n'a aucun panneau : la feuille ne peut pas le proposer`)
+      await clique([...hote.querySelector('#search-sheet-catalog').querySelectorAll('button')].find((b) => b.textContent.trim() === t(panneau.titleKey)))
+      await settle(60)
+    }
+    const cible = trouvee()
+    assert.ok(cible, `le rayon « ${libelle} » n'est pas cliquable dans la feuille`)
+    await clique(cible)
+    await settle(80)
+    return libelle
+  }
+
+  /** Retient la premiere marque proposee par la feuille. */
+  async function choisirMarque() {
+    await clique(boutonExact(t('filterBrands')))
+    await settle(60)
+    const feuille = hote.querySelector('#search-sheet-brands')
+    assert.ok(feuille, 'la feuille des marques ne souvre pas')
+    const marquent = [...feuille.querySelectorAll('button')].filter((b) => b.textContent.trim() !== t('cat_all'))
+    assert.ok(marquent.length > 1, "aucune marque a choisir dans la feuille")
+    await clique(marquent[0])
+    await settle(80)
+    return marquent[0].textContent.trim()
+  }
+
+  const note = () => hote.querySelector('p[role="status"].text-warning')
+
+  it('filtresRetires : ce qui filtre encore reste, ce qui ne filtre plus est nomme', () => {
+    const vendues = (m) => m === 'Corsair' || m === 'Gigabyte'
+    assert.deepEqual(filtresRetires(['Corsair', 'Asus'], vendues), { gardees: ['Corsair'], retirees: ['Asus'] })
+    assert.deepEqual(filtresRetires([], vendues), { gardees: [], retirees: [] }, 'rien de choisi : rien a annoncer')
+    assert.deepEqual(filtresRetires(null, vendues), { gardees: [], retirees: [] }, 'une liste absente ne doit pas casser le changement de rayon')
+    assert.deepEqual(filtresRetires(['Asus', '', null], vendues), { gardees: [], retirees: ['Asus'] }, 'une entree vide deviendrait une puce vide')
+    assert.deepEqual(filtresRetires(['Asus'], () => false).retirees, ['Asus'], 'un rayon qui ne vend rien doit tout retirer')
+    assert.deepEqual(filtresRetires(['Asus'], () => true).retirees, [], 'un rayon qui vend tout ne doit rien retirer')
+    // Les deux listes se recouvrent exactement : une marque choisie ne disparait
+    // ni deux fois ni pas du tout.
+    const r = filtresRetires(['A', 'B', 'C'], (m) => m === 'B')
+    assert.deepEqual([...r.gardees, ...r.retirees].sort(), ['A', 'B', 'C'], 'des marques ont ete perdues en route')
+  })
+
+  it('noteRetrait : pas de phrase quand rien n\'est retire, une phrase nominative quand ca arrive', () => {
+    assert.equal(noteRetrait(t, [], 'CPU'), '', 'on annone un retrait quil ny a pas')
+    assert.equal(noteRetrait(t, null, 'CPU'), '')
+    assert.equal(noteRetrait(t, ['Asus'], 'CPU'), t('filterDrop', { brands: 'Asus', line: 'CPU' }), 'la phrase nomme la marque et le rayon')
+  })
+
+  it('rayon incompatible : la marque tombe, la liste reste pleine, et la note la nomme', async () => {
+    rend()
+    await settle(120)
+    const marque = await choisirMarque()
+    assert.match(bouton(t('filterBrands')).textContent.replace(/\s+/g, ' '), /· 1$/, 'la marque choisie n apparait pas sur le bouton avant le rayon')
+    const avant = totalAnnonce()
+    assert.ok(avant > 0, 'la recherche de depart ne rend rien : le verrou n aurait rien a mesurer')
+    const etranger = PART_LINES.find((l) => l.id !== 'all' && l.match && !produits.some((p) => l.match(p) && p.brand === marque))
+    assert.ok(etranger, `tout rayon vend « ${marque} » : choisis une autre donnee, le verrou ne peut rien mesurer`)
+    const libelle = await ouvrirRayon(etranger)
+
+    // 1) le filtre est retire a la vue : plus de puce, plus de marque active.
+    assert.equal(bouton(t('filterBrands')).textContent.replace(/\s+/g, ' ').trim(), t('filterBrands'), 'le bouton porte encore le filtre retire')
+    await clique(bouton(t('filterBrands')))
+    await settle(60)
+    const feuille = hote.querySelector('#search-sheet-brands')
+    assert.ok(feuille, 'la feuille des marques ne se rouvre pas')
+    const actives = [...feuille.querySelectorAll('button')].filter((b) => /btn-success/.test(b.className)).map((b) => b.textContent.trim())
+    assert.deepEqual(actives.filter((x) => x !== t('cat_all')), [], `une marque est encore marquee active : ${actives.join(', ')}`)
+    await clique(bouton(t('filterBrands')))
+    await settle(60)
+
+    // 2) le rayon est bien applique, et la liste n est pas vide (c etait la promesse).
+    assert.ok(totalAnnonce() > 0, 'le rayon choisit rend une liste vide')
+    assert.notEqual(totalAnnonce(), avant, 'le rayon n a rien change aux resultats')
+    assert.match(bouton(t('filterCatalog')).textContent, new RegExp(libelle.slice(0, 4), 'i'), 'le bouton du catalogue ne porte pas le rayon choisi')
+
+    // 3) et le retrait est DIT : la phrase est celle de la regle partagee, mot pour mot.
+    const m = note()
+    assert.ok(m, 'le filtre est retire sans un mot : le client voit sa marque disparaitre')
+    assert.equal(m.textContent.replace(/\s+/g, ' ').trim(), t('filterDrop', { brands: marque, line: libelle }), 'la note ne dit pas quoi on a retire et ou')
+    assert.ok(m.textContent.includes(marque), 'la note oublie le nom de la marque retiree')
+  })
+
+  it('rayon compatible : la marque reste, et personne n\'a rien a expliquer', async () => {
+    rend()
+    await settle(120)
+    const marque = await choisirMarque()
+    const ami = PART_LINES.find((l) => l.id !== 'all' && l.match && produits.some((p) => l.match(p) && p.brand === marque))
+    assert.ok(ami, `aucun rayon ne vend « ${marque} » : le verrou n a rien a mesurer`)
+    await ouvrirRayon(ami)
+    assert.ok(totalAnnonce() > 0, 'un rayon compatible rend une liste vide')
+    assert.equal(note() == null, true, 'une note de retrait est rendue alors que rien n a ete retire')
+    assert.match(bouton(t('filterBrands')).textContent.replace(/\s+/g, ' '), /· 1$/, 'la marque a ete retiree alors qu elle filtre encore dans ce rayon')
+  })
+
+  it('« Tout effacer » efface aussi la mention du filtre retire', async () => {
+    rend()
+    await settle(120)
+    const marque = await choisirMarque()
+    const etranger = PART_LINES.find((l) => l.id !== 'all' && l.match && !produits.some((p) => l.match(p) && p.brand === marque))
+    await ouvrirRayon(etranger)
+    assert.ok(note(), 'la note n est pas la : l etage suivant ne mesure rien')
+    await clique(boutonExact(t('reset')))
+    await settle(80)
+    assert.equal(note() == null, true, '« Tout effacer » laisse a l ecran une explication qui ne veut plus rien dire')
+    assert.equal(totalAnnonce() > 0, true, 'apres effacement, plus aucune fiche')
+  })
+
+  it('et la regle reste unique : les deux ecrans passent par le meme module', () => {
+    const recherche = sansCommentaires('src/SearchPage.jsx')
+    const vitrine = sansCommentaires('src/App.jsx')
+    for (const [nom, source] of [['SearchPage', recherche], ['App (vitrine)', vitrine]]) {
+      assert.match(source, /from '\.\/filterDrop\.js'/, `${nom} ne passe plus par la regle partagee`)
+      assert.match(source, /filterDrop/, `${nom} n annone plus le retrait du filtre`)
+    }
+    // Les deux moities de la regle viennent du meme module : si un ecran
+    // reimplementait « que garder ? », on aurait de nouveau deux comportements.
+    assert.match(recherche, /filtresRetires\(/, 'la page Recherche redecide seule quoi garder des marques')
+    assert.match(vitrine, /filtresRetires\(/, 'la vitrine redecide seule quoi garder de la marque')
+    // Le vidage silencieux est mort : c'est la forme exacte du defaut d'avant.
+    assert.equal(/line:\s*value,\s*brands:\s*\[\]/.test(recherche), false, 'la page Recherche vide encore les marques en silence quand un rayon est choisi')
   })
 })

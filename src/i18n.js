@@ -243,6 +243,8 @@ export const dict = {
     // Le nom d'une recherche enregistree sans aucun filtre — sans lui, la puce etait
     // vide, et une puce vide ne se relit pas deux jours plus tard.
     searchFree: 'Recherche libre',
+    // Le filtre qu'on retire sous les yeux du client, dit a voix haute (lot S4).
+    filterDrop: '{brands} ne vend rien dans {line} — filtre marque retiré.',
     saveSearch: 'Sauver cette recherche',
     searchSaved: 'Recherche sauvée',
     brands: 'Marques',
@@ -917,6 +919,7 @@ export const dict = {
     filters: 'Filters',
     reset: 'Reset',
     searchFree: 'Free search',
+    filterDrop: '{brands} sells nothing in {line} — brand filter removed.',
     saveSearch: 'Save this search',
     searchSaved: 'Search saved',
     brands: 'Brands',

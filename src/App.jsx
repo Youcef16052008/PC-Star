@@ -29,6 +29,7 @@ import { PAGE_TAILLE, pageCourante, pagesPour, tailleSure, tranche } from './pag
 import { ChoixTaille, Pager } from './pagerControls.jsx'
 import { BrandSheet } from './brandSheet.jsx'
 import { useFeuilleFiltre } from './filterSheet.js'
+import { filtresRetires, noteRetrait } from './filterDrop.js'
 import SearchPage from './SearchPage.jsx'
 import BuilderPage from './BuilderPage.jsx'
 import PartThumb from './PartThumb.jsx'
@@ -350,6 +351,9 @@ export default function App() {
   // LOT P6 (S3) : la recherche « une marque » n'est plus un etat de l'ecran — elle
   // vit dans la feuille (`src/brandSheet.jsx`), pour les deux ecrans a la fois.
   const [shopTaille, setShopTaille] = useState(PAGE_TAILLE)
+  // LOT P6 (S4) : la marque qu'un changement de categorie rend inutile est retiree,
+  // et le client le lit. Avant, la vitrine gardait la marque et affichait zero fiche.
+  const [shopNote, setShopNote] = useState('')
   const [shopPage, setShopPage] = useState(1)
 
   const [stockMap, setStockMap] = useState({}) // id -> live server stock
@@ -1220,6 +1224,21 @@ export default function App() {
 
 
 
+  function choisirCategorie(id) {
+    // Une marque qui ne vend rien dans la categorie choisie ne peut plus rien
+    // filtrer : la laisser armee affichait « 0 produit » avec un bouton qui
+    // continuait a porter la marque — le client croisait les bras.
+    const { retirees } = filtresRetires(brandFilter ? [brandFilter] : [], (marque) =>
+      id === 'all' || catalog.some((p) => p.category === id && p.brand === marque))
+    if (retirees.length) {
+      setBrandFilter(null)
+      setShopNote(noteRetrait(t, retirees, catLabel(id)))
+    } else {
+      setShopNote('')
+    }
+    setCategory(id)
+  }
+
   const catLabel = (id) => {
     const c = CATEGORIES.find((x) => x.id === id)
     return c ? labelOr(t, `cat_${c.id}`, c.label || c.id) : id
@@ -1248,6 +1267,7 @@ export default function App() {
 
   function resetShopFilters() {
     setCategory('all')
+    setShopNote('')
     setBrandFilter(null)
     setQuery('')
     setBrandQuery('')
@@ -1899,8 +1919,8 @@ export default function App() {
                   t={t}
                   marques={marquesVendues}
                   estActive={(b) => brandFilter === b}
-                  onChoisir={(b) => { setBrandFilter(brandFilter === b ? null : b); setShopSheet(null) }}
-                  onTout={() => { setBrandFilter(null); setShopSheet(null) }}
+                  onChoisir={(b) => { setBrandFilter(brandFilter === b ? null : b); setShopNote(''); setShopSheet(null) }}
+                  onTout={() => { setBrandFilter(null); setShopNote(''); setShopSheet(null) }}
                 />
               </div>
             )}
@@ -1913,7 +1933,7 @@ export default function App() {
                       key={c.id}
                       type="button"
                       className={`btn btn-sm cat-${c.id} ${category === c.id ? 'btn-success' : 'btn-outline-secondary'}`}
-                      onClick={() => { setCategory(c.id); setShopSheet(null) }}
+                      onClick={() => { choisirCategorie(c.id); setShopSheet(null) }}
                     >
                       {/* LOT 5.6 (U6) : repli explicite — `t()` renvoie la clé quand
                           la traduction manque. Une catégorie master ajoutée sans
@@ -1925,6 +1945,10 @@ export default function App() {
               </div>
             )}
           </div>
+
+          {shopNote && (
+            <p className="small text-warning mb-2" role="status">{shopNote}</p>
+          )}
 
           <p className="small text-secondary mb-2">
             {t('shopCount', { n: list.length })}
