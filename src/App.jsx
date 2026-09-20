@@ -22,6 +22,8 @@ import { createDeskStream } from './deskStream.js'
 import { notifyNewOrder, requestNotificationPermission } from './notify.js'
 import { ensureProductPhotos } from './productPhotos.js'
 import { brandsOnSale, discountPercent, hasSale } from './productMeta.js'
+// LOT P6 (S2) : la regle de pagination est partagee avec la page Recherche.
+import { PAGE_TAILLE, pageCourante, pagesPour, tranche } from './pager.js'
 import SearchPage from './SearchPage.jsx'
 import BuilderPage from './BuilderPage.jsx'
 import PartThumb from './PartThumb.jsx'
@@ -120,7 +122,10 @@ const MAX_MISSED_NOTIFY = 3
  * Exportée pour que `src/p3Vitrine.test.js` verrouille la valeur au lieu de la
  * recopier : un nombre de pages écrit dans un test est un nombre qui ment.
  */
-export const SHOP_PAGE_SIZE = 12
+// LOT P6 (S2) : la taille de page n'est plus écrite ici — elle vit dans
+// `src/pager.js`, partagée avec la page Recherche (deux listes, une regle de
+// tranchage). L'alias reste exporté : c'est la constante que les verrous lisent.
+export const SHOP_PAGE_SIZE = PAGE_TAILLE
 
 /**
  * LOT 3.16 (B19) — âge lisible d'un horodatage, dans la langue de l'interface.
@@ -1219,16 +1224,16 @@ export default function App() {
   // Le numero de page est borne a la lecture, pas a l'ecriture : un filtre qui
   // réduit la liste pendant qu'on est page 4 doit ramener page 1 sans que
   // l'appelant ait pensé à réinitialiser l'état.
-  const shopPages = Math.max(1, Math.ceil(list.length / SHOP_PAGE_SIZE))
-  const shopPageSure = Math.min(Math.max(1, shopPage), shopPages)
-  const pageProduits = list.slice((shopPageSure - 1) * SHOP_PAGE_SIZE, shopPageSure * SHOP_PAGE_SIZE)
+  const shopPages = pagesPour(list.length)
+  const shopPageSure = pageCourante(shopPage, shopPages)
+  const pageProduits = tranche(list, shopPageSure)
 
   useEffect(() => {
     setShopPage(1)
   }, [category, brandFilter, query])
 
   function gotoPage(n) {
-    const next = Math.min(Math.max(1, n), shopPages)
+    const next = pageCourante(n, shopPages)
     setShopPage(next)
     document.getElementById('catalog')?.scrollIntoView({ behavior: 'smooth' })
   }

@@ -51,6 +51,7 @@ const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pcstar-p6-search-'))
 process.env.PCSTAR_DATA_DIR = dir
 
 const { dict, LANGS } = await import('./i18n.js')
+const { PAGE_TAILLE, pagesPour, pageCourante, tranche } = await import('./pager.js')
 const { default: SearchPage } = await import('./SearchPage.jsx')
 const { PART_LINES, PRODUCTS } = await import('./data.js')
 const React = (await import('react')).default
@@ -138,6 +139,17 @@ const boutonExact = (texte) => [...hote.querySelectorAll('button')].find((b) => 
 const boutons = () => [...hote.querySelectorAll('button')]
 const cases = () => [...hote.querySelectorAll('input[type=checkbox], input[type=radio]')]
 const cartes = () => hote.querySelectorAll('.row.g-3 > div').length
+/**
+ * Le total que la page ANNONCE (ligne « N résultat(s) · page x sur y »). Depuis le
+ * lot P6 (S2), le nombre de cartes affichées ne dit plus rien : la page 1 est pleine
+ * qu'il y ait 13 ou 301 fiches. Ce qui se compare, c'est la taille de la liste.
+ */
+const enteteResultats = () => hote.querySelector('#search-results .fw-semibold')
+const totalAnnonce = () => {
+  const m = /(\d+)/.exec(enteteResultats()?.textContent || '')
+  return m ? Number(m[1]) : NaN
+}
+const mentionPage = () => (enteteResultats()?.textContent || '').replace(/\s+/g, ' ')
 
 const BARRE = '.filters-bar'
 
@@ -205,12 +217,11 @@ describe('P6/S1 — la barre de filtres : deux boutons, rien d’étalé avant l
     await clique(tetePieces)
     const gpu = boutonExact(t('line_gpu'))
     assert.ok(gpu, 'le rayon GPU n’apparait pas apres un clic sur son groupe')
-    const avant = cartes()
+    const avant = totalAnnonce()
     await clique(gpu)
     await settle(80)
     assert.equal(hote.querySelector('#search-sheet-catalog'), null, 'la feuille est restée ouverte apres le choix')
-    const apres = cartes()
-    assert.notEqual(apres, avant, 'changer de rayon ne change rien aux résultats (filtre décoratif)')
+    assert.notEqual(totalAnnonce(), avant, 'changer de rayon ne change rien aux résultats (filtre décoratif)')
     assert.match(bouton([...boutons()].map((b) => b.textContent.trim()).find((x) => x.startsWith(t('filterCatalog')))).textContent, /GPU|graphics/i, 'le bouton ne porte pas le rayon choisi')
   })
 
@@ -222,12 +233,13 @@ describe('P6/S1 — la barre de filtres : deux boutons, rien d’étalé avant l
     assert.ok(feuille, 'un clic n’a pas ouvert la feuille des marques')
     const marquent = [...feuille.querySelectorAll('button')].filter((b) => b.textContent.trim() !== t('cat_all'))
     assert.ok(marquent.length > 1, 'la feuille des marques est vide ou unique : rien à verrouiller')
-    const avant = cartes()
+    const avant = totalAnnonce()
     await clique(marquent[0])
     await settle(80)
     const choisie = marquent[0].textContent.trim()
     assert.equal(hote.querySelector('#search-sheet-brands'), null, 'la feuille est restée ouverte apres le choix')
-    assert.ok(cartes() < avant, `la marque « ${choisie} » ne réduit pas les résultats (${cartes()} vs ${avant})`)
+    assert.ok(totalAnnonce() < avant, `la marque « ${choisie} » ne réduit pas les résultats (${totalAnnonce()} vs ${avant})`)
+    assert.equal(cartes() > 0, true, 'la marque choisie ne rend aucune fiche')
     const boutonMarque = boutons().find((b) => b.textContent.trim().startsWith(t('filterBrands')))
     assert.match(boutonMarque.textContent, /·\s*1/, 'le bouton ne dit pas qu’une marque est active une fois la feuille fermée')
     // Le meme bouton, une seconde fois : la feuille se rouvre et la marque choisie
@@ -254,10 +266,10 @@ describe('P6/S1 — la barre de filtres : deux boutons, rien d’étalé avant l
     const marquent = [...hote.querySelectorAll('#search-sheet-brands button')].filter((b) => b.textContent.trim() !== t('cat_all'))
     await clique(marquent[1])
     await clique(bouton(t('filterBrands')))
-    const avant = cartes()
+    const avant = totalAnnonce()
     await clique([...hote.querySelectorAll('#search-sheet-brands button')].find((b) => b.textContent.trim() === t('cat_all')))
     await settle(80)
-    assert.ok(cartes() > avant, 'revenir a « tout » n’a rien rendu')
+    assert.ok(totalAnnonce() > avant, 'revenir a « tout » n’a rien rendu')
   })
 })
 
@@ -288,6 +300,82 @@ describe('P6/S1 — ce qui ne doit pas revenir', () => {
     assert.equal(aside.includes('lineBrands'), false, 'l’aside listing les marques est revenu a cote de la feuille')
     assert.equal(aside.includes("name=\"search-line\""), false, 'les radios de rayon de l’aside contredisent la feuille')
     assert.match(aside, /t\('condition'\)/, "l'aside n'a plus la condition : il n'a plus rien a porter")
+  })
+})
+
+describe('P6/S2 — les résultats de la recherche tiennent une page', () => {
+  /*
+   * Avant ce lot, la page Recherche rendait LES 301 FICHES d'un coup : 301 cartes,
+   * 301 vignettes, 301 `PartThumb` — sur le parc de téléphones du comptoir, la page
+   * ne s'affichait pas. Elle prend la règle de la vitrine, et donc la MÊME source de
+   * vérité : `src/pager.js`.
+   */
+  it('douze fiches affichées, total annoncé intact, et le pager est là', async () => {
+    rend()
+    await settle(120)
+    assert.equal(totalAnnonce(), produits.length, 'la page n’annonce plus la taille réelle de la liste')
+    assert.equal(cartes(), PAGE_TAILLE, `la première page ne rend pas ${PAGE_TAILLE} cartes` + ` mais ${cartes()}`)
+    assert.match(mentionPage(), new RegExp(`1\\s+sur\\s+${pagesPour(produits.length)}`), 'la page courante n’est pas annoncée')
+    const pager = hote.querySelector('nav.pager')
+    assert.ok(pager, 'aucun pager rendu alors que la liste fait plusieurs pages')
+    assert.match(pager.getAttribute('aria-label') || '', new RegExp(t('pagerLabel')))
+    const courant = [...pager.querySelectorAll('button')].find((b) => b.getAttribute('aria-current') === 'page')
+    assert.ok(courant, 'la page active n’est pas marquée (aria-current)')
+    assert.equal(courant.textContent.trim(), '1')
+    assert.match(pager.querySelectorAll('button')[0].textContent, new RegExp(t('prevPage')), 'le bouton « précédent » est ailleurs')
+    // Le separateur est deja dans la cle `shopPageOf` ; le composant qui en rajoute un
+    // affiche « 301 résultat(s) · · page 1 sur 26 ». Ce defaut-la ne se voit que dans le
+    // texte rendu : le source, lui, est propre.
+    assert.equal(/·\s*·/.test(mentionPage()), false, `point-median doublé dans l’en-tête : ${mentionPage()}`)
+  })
+
+  it('page 2 : une autre coupe de la même liste, pas une liste amputée', async () => {
+    rend()
+    await settle(120)
+    const premiere = [...hote.querySelectorAll('.product-bs-card .card-title')].map((x) => x.textContent.trim())
+    const deuxiemeBouton = [...hote.querySelectorAll('nav.pager button')].find((b) => b.textContent.trim() === '2')
+    assert.ok(deuxiemeBouton, 'le bouton « 2 » du pager est introuvable')
+    await clique(deuxiemeBouton)
+    await settle(80)
+    const seconde = [...hote.querySelectorAll('.product-bs-card .card-title')].map((x) => x.textContent.trim())
+    assert.equal(seconde.length, PAGE_TAILLE, 'la page 2 n’est pas pleine')
+    assert.equal(new Set([...premiere, ...seconde]).size, PAGE_TAILLE * 2, 'la page 2 répète la page 1 : la tranche est fausse')
+    assert.equal(totalAnnonce(), produits.length, 'changer de page a changé le total annoncé')
+    assert.match(mentionPage(), /2\s+sur/, 'la page courante n’est pas annoncée après le changement')
+  })
+
+  it('un changement de filtre ramène page 1 (on ne cherche pas page 7 d’une liste qui vient de raccourcir)', async () => {
+    rend()
+    await settle(120)
+    const bouton2 = [...hote.querySelectorAll('nav.pager button')].find((b) => b.textContent.trim() === '3')
+    await clique(bouton2)
+    await settle(60)
+    assert.match(mentionPage(), /3\s+sur/, 'la page 3 n’a pas été atteinte')
+    await clique(bouton(t('filterBrands')))
+    const marque = [...hote.querySelectorAll('#search-sheet-brands button')].find((b) => b.textContent.trim() !== t('cat_all'))
+    await clique(marque)
+    await settle(80)
+    // Liste courte apres filtre : le pager peut disparaitre (une seule page), c'est
+    // pareil qu'« page 1 sur N ». Ce qui n'a pas le droit d'arriver, c'est d'y rester.
+    const ou = /\d+\s+sur/.exec(mentionPage())
+    assert.equal(ou ? Number(ou[0]) : 1, 1, 'le filtre laissé page 3 : le client voit une page qui n’existe plus')
+    assert.equal(cartes() > 0, true, 'aucune fiche après le changement de filtre')
+  })
+
+  it('et la règle de tranchage est écrite UNE fois pour les deux listes', () => {
+    const app = sansCommentaires('src/App.jsx')
+    const page = sansCommentaires('src/SearchPage.jsx')
+    for (const [nom, source] of [['src/App.jsx', app], ['src/SearchPage.jsx', page]]) {
+      assert.match(source, /from '\.\/pager\.js'/, `${nom} ne passe pas par le module partagé`)
+      // Le calcul du nombre de pages ne se refait pas dans les composants : deux
+      // formules, deux arrondis différents, deux « page x sur y » qui se contredisent.
+      assert.equal(/Math\.ceil\([^)]*length\s*\//.test(source), false, `${nom} recalcule encore un nombre de pages pour son compte`)
+    }
+    assert.match(app, /export const SHOP_PAGE_SIZE = PAGE_TAILLE/, 'la vitrine a sa propre taille de page')
+    assert.match(page, /tranche\(results, pageSure\)/, 'la recherche ne tranche pas avec la règle partagée')
+    // Les deux pages portent la meme mention, donc le meme mot dans le dictionnaire.
+    assert.match(page, /t\('shopPageOf'/, 'la recherche n’annonce pas la page comme la vitrine')
+    assert.match(page, /t\('pagerLabel'\)/, 'la recherche n’a pas le meme libellé de repère pour le pager')
   })
 })
 
@@ -340,5 +428,42 @@ describe('P6/V6 — les mots du readout, et le fait que le client ne touche a ri
     assert.match(api, /putVitrine/, 'la seule ecriture de la vitrine a disparu : rien ne verrouille plus son bornage')
     const page = sansCommentaires('src/App.jsx')
     assert.equal(/readout[\s\S]{0,400}<input/.test(page), false, 'un champ de saisie est rendu dans le readout de la vitrine')
+  })
+})
+
+describe('P6/S2 — la règle de tranchage, testée pour elle-même', () => {
+  it('pagesPour : au moins une page, jamais de page pour une liste vide', () => {
+    assert.equal(PAGE_TAILLE, 12, 'la vitrine annonce douze fiches par page')
+    assert.equal(pagesPour(0), 1)
+    assert.equal(pagesPour(1), 1)
+    assert.equal(pagesPour(12), 1)
+    assert.equal(pagesPour(13), 2)
+    assert.equal(pagesPour(301), 26)
+    assert.equal(pagesPour(-5), 1, 'une liste de taille négative n’invente pas de page')
+    assert.equal(pagesPour('abc'), 1, 'une taille qui n’est pas un nombre ne doit pas faire NaN de pagination')
+  })
+
+  it('pageCourante : bornée dans les deux sens, et sourde aux valeurs absurdes', () => {
+    assert.equal(pageCourante(1, 3), 1)
+    assert.equal(pageCourante(3, 3), 3)
+    assert.equal(pageCourante(4, 3), 3, 'une page au-delà de la liste doit retomber sur la dernière')
+    assert.equal(pageCourante(0, 3), 1)
+    assert.equal(pageCourante(-7, 3), 1)
+    assert.equal(pageCourante(NaN, 3), 1, 'un numéro invalide ne doit pas sortir du domaine')
+    assert.equal(pageCourante(2.9, 3), 2, 'un numéro à virgule se lit par défaut bas, comme la tranche')
+    assert.equal(pageCourante(7, 0), 1, 'aucune page possible : on reste à 1, pas à 0')
+  })
+
+  it('tranche : la bonne coupe, et jamais de trou ni de doublon entre deux pages', () => {
+    const liste = Array.from({ length: 30 }, (_, i) => i)
+    assert.deepEqual(tranche(liste, 1), liste.slice(0, 12))
+    assert.deepEqual(tranche(liste, 2), liste.slice(12, 24))
+    assert.deepEqual(tranche(liste, 3), liste.slice(24, 30), 'la dernière page est partielle, pas vide')
+    const couvre = [1, 2, 3].flatMap((n) => tranche(liste, n))
+    assert.equal(new Set(couvre).size, 30, 'des fiches disparaissent entre les pages')
+    assert.equal(couvre.length, 30, 'des fiches sont comptées deux fois entre les pages')
+    assert.deepEqual(tranche(null, 1), [], 'une liste absente se lit vide, elle ne casse pas la page')
+    assert.deepEqual(tranche(liste, 99), liste.slice(24, 30), 'une page hors liste ramène la dernière')
+    assert.deepEqual(tranche(liste, 1, 5), [0, 1, 2, 3, 4], 'la taille reste réglable (une taille par écran ne veut rien dire partout)')
   })
 })

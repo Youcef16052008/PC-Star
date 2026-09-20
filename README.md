@@ -9,14 +9,14 @@ npm install
 npm run start:api   # :8787 multi-device orders + auth
 npm run dev         # :5173 site (proxies /api)
 npm run build       # vite build, then scans dist/ for secrets — fails if any landed there
-npm test            # 1114 tests (node:test, 80 fichiers) — run `npm run build` first: bundleSecrets scans dist/
+npm test            # 1121 tests (node:test, 80 fichiers) — run `npm run build` first: bundleSecrets scans dist/
 npm run check:bundle # re-run only the dist/ secret scan (lot 7.3)
 npm run master:rotate # new master password, written to .env.local — the value is never printed
 ```
 
 ## État mesuré (20/09/2026)
 
-- `npm test` : **1114 tests, 0 échec** (80 fichiers `src/*.test.js`, tous branchés dans le script — `src/p3ServerHygiene.test.js` le vérifie). Le total peut bouger de ±1 selon le nombre de chunks que `dist/` contient : `src/bundleSecrets.test.js` fabrique un test par artefact scanné, ce n'est pas une régression. La suite scanne le bundle publié
+- `npm test` : **1121 tests, 0 échec** (80 fichiers `src/*.test.js`, tous branchés dans le script — `src/p3ServerHygiene.test.js` le vérifie). Le total peut bouger de ±1 selon le nombre de chunks que `dist/` contient : `src/bundleSecrets.test.js` fabrique un test par artefact scanné, ce n'est pas une régression. La suite scanne le bundle publié
   (`src/bundleSecrets.test.js`) : sans `dist/`, elle échoue en cascade — le build
   est une pré-condition, pas une étape optionnelle.
 - `npm run build:crawl && node scripts/jsdom-crawl.mjs` : 24 pages rendues en
@@ -133,9 +133,12 @@ Photos: keep shipping under `public/photos/sku/` — add pro shots later, push, 
   pastilles avant le premier résultat (huit panneaux à plat sur mobile, les mêmes en radios
   dans l'aside du bureau). Le filtre devient ce qu'il doit être : deux boutons —
   « Filtrer par marque », puis « Filtrer par catalogue » — chacun portant la valeur choisie,
-  une feuille qui s'ouvre d'un clic et se referme sur le choix, un seul groupe de rayons déplié
-  à la fois, et la compatibilité (socket) demandée **seulement** aux lignes qui en ont une.
-  L'aside ne duplique plus rien. Treize verrous montés à l'écran : `src/p6SearchSurface.test.js`.
+  une feuille qui s'ouvre d'un clic et se referme sur le choix, les rayons d'un seul panneau à la
+  fois (le groupe de la ligne choisie, posé à plat), et la compatibilité (socket) demandée
+  **seulement** aux lignes qui en ont une. L'aside ne duplique plus rien, et le tiroir mobile non
+  plus : la liste des marques qui y vivait encore est partie. Les résultats se **paginent** douze
+  par douze — la règle est écrite une fois pour la vitrine et la recherche, dans `src/pager.js`.
+  Vingt verrous montés à l'écran : `src/p6SearchSurface.test.js`.
 - **Rotation du secret maître** — `npm run master:rotate` (`scripts/rotate-master.mjs`) génère
   un mot de passe de 32 signes, l'écrit dans `.env.local` en `0600`, refuse toute cible que git
   suivrait, et **n'affiche jamais la valeur** : un secret passé à l'écran se retrouve dans

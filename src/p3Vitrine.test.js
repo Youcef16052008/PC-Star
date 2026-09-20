@@ -376,8 +376,16 @@ describe('P4/V2-V3 — la page d\u2019accueil : deux boutons, des pages, plus de
 
   it('la page est paginée à douze, et c\u2019est la constante qui le dit', () => {
     assert.equal(SHOP_PAGE_SIZE, 12, 'la page du catalogue ne fait plus douze fiches')
-    assert.match(app, /list\.slice\(\(shopPageSure - 1\) \* SHOP_PAGE_SIZE/)
-    assert.match(app, /Math\.max\(1, Math\.ceil\(list\.length \/ SHOP_PAGE_SIZE\)\)/, 'le nombre de pages n\u2019est pas déduit de la meme tranche')
+    // LOT P6 (S2) : la tranche et le compte de pages ne se calculent plus dans le
+    // composant, ils viennent de `src/pager.js` — la regle de la page Recherche.
+    // Le verrou suit la forme et verifie ce qu'il visait : une seule source de
+    // verite, et la meme taille de page des deux cotes.
+    assert.match(app, /tranche\(list, shopPageSure\)/, 'la vitrine ne tranche plus avec la regle partagee')
+    assert.match(app, /pagesPour\(list\.length\)/, 'le nombre de pages n\u2019est plus déduit ailleurs que de la liste affichee')
+    assert.match(app, /export const SHOP_PAGE_SIZE = PAGE_TAILLE/, 'la taille de page n\u2019est plus l\u2019alias de la regle partagee')
+    const recherche = sansCommentaires('src/SearchPage.jsx')
+    assert.match(recherche, /from '\.\/pager\.js'/, 'la page Recherche a sa propre pagination : deux regles distinctes')
+    assert.equal(/Math\.ceil\([^)]*length/.test(recherche), false, 'la page Recherche recalcule encore ses pages pour son compte')
     assert.match(app, /aria-label=\{t\('pagerLabel'\)\}/)
     assert.match(app, /aria-current=\{n === shopPageSure \? 'page' : undefined\}/)
     assert.match(app, /disabled=\{shopPageSure <= 1\}/, '« Précédent » cliquable en page 1')

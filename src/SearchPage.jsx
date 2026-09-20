@@ -5,6 +5,8 @@ import { useEffect, useMemo, useState } from 'react'
 import { PRICE_PRESETS, PRODUCT_CONDITIONS, SOCKETS, STORE, conditionOf, money, starText } from './data'
 import { loadSavedSearches, saveSavedSearches } from './shopStore.js'
 import { stockLabel } from './stockLabel.js'
+// LOT P6 (S2) : memes pages que la vitrine, meme regle — voir `src/pager.js`.
+import { pageCourante, pagesPour, tranche } from './pager.js'
 import PartThumb from './PartThumb.jsx'
 import { discountPercent, hasSale } from './productMeta.js'
 
@@ -47,6 +49,11 @@ export default function SearchPage({ t, products, lines, panels, lang, liveStock
   // pieces PC — et a un clic).
   const [sheet, setSheet] = useState(null)
   const [groupeOuvert, setGroupeOuvert] = useState(null)
+  // LOT P6 (S2) : la page courante des resultats. La liste est bornee a la lecture
+  // (`pageCourante`), donc un filtre qui la reduit pendant qu'on est page 4 ramene
+  // page 1 tout seul — mais l'etat se reinitialise quand meme au changement de
+  // filtre, pour que le « Suivant » d'apres reparte du haut de la nouvelle liste.
+  const [page, setPage] = useState(1)
 
   const allLines = lines || []
   const allPanels = panels || []
@@ -117,6 +124,17 @@ export default function SearchPage({ t, products, lines, panels, lang, liveStock
     if (filters.sort === 'rating') list = [...list].sort((a, b) => (b.rating || 0) - (a.rating || 0))
     return list
   }, [filters, liveStock, preset, line, showSocket, products])
+
+  const pages = pagesPour(results.length)
+  const pageSure = pageCourante(page, pages)
+  const vus = tranche(results, pageSure)
+
+  function vaEnPage(n) {
+    setPage(pageCourante(n, pages))
+    // Le client doit rester sur les resultats, pas repartir en haut de la page
+    // chercher le champ de recherche — c'est ce que fait la vitrine (LOT P4 V3).
+    document.getElementById('search-results')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
 
   const activeChips = []
   if (filters.socket !== 'all') activeChips.push({ key: 'socket', label: filters.socket })
@@ -209,6 +227,12 @@ export default function SearchPage({ t, products, lines, panels, lang, liveStock
       </div>
     )
   }
+
+  // Un changement de filtre remet la page a 1 (voir la note sur l'etat `page`).
+  const signature = JSON.stringify([filters.line, filters.brands, filters.condition, filters.price, filters.socket, filters.sort, filters.q])
+  useEffect(() => {
+    setPage(1)
+  }, [signature])
 
   return (
     <main id="main-content" className="container page py-4" tabIndex={-1}>
@@ -433,9 +457,16 @@ export default function SearchPage({ t, products, lines, panels, lang, liveStock
           </div>
         </aside>
 
-        <section className="col-lg-9">
+        <section className="col-lg-9" id="search-results">
           <div className="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
-            <span className="fw-semibold">{t('results', { n: results.length })}</span>
+            {/* LOT P6 (S2) : le compte reste celui de la liste ENTIERE, la mention
+                de page dit ou on est dedans — comme sur la vitrine. Annoncer le
+                nombre de fiches affichees ferait croire que le filtre a perdu des
+                resultats. */}
+            <span className="fw-semibold">
+              {t('results', { n: results.length })}
+              {pages > 1 ? t('shopPageOf', { page: pageSure, pages }) : ''}
+            </span>
             <div className="d-flex flex-wrap gap-2 align-items-center">
               <div className="btn-group btn-group-sm" role="group">
                 <button type="button" className={`btn ${view === 'grid' ? 'btn-success' : 'btn-outline-secondary'}`} onClick={() => setView('grid')}>
@@ -479,7 +510,7 @@ export default function SearchPage({ t, products, lines, panels, lang, liveStock
             </div>
           ) : view === 'grid' ? (
             <div className="row g-3">
-              {results.map((p) => (
+              {vus.map((p) => (
                 <div className="col-6 col-md-4" key={p.id}>
                   <ProductCard p={p} />
                 </div>
@@ -487,7 +518,7 @@ export default function SearchPage({ t, products, lines, panels, lang, liveStock
             </div>
           ) : (
             <div className="d-flex flex-column gap-2">
-              {results.map((p) => {
+              {vus.map((p) => {
                 const left = liveStock(p)
                 const st = stockLabel(left, t)
                 return (
@@ -523,6 +554,32 @@ export default function SearchPage({ t, products, lines, panels, lang, liveStock
                 )
               })}
             </div>
+          )}
+
+          {pages > 1 && (
+            // LOT P6 (S2) : les resultats se suivent en pages, comme le catalogue
+            // de la vitrine — meme taille de page (`src/pager.js`), meme markup,
+            // meme annonce. Une page de 301 vignettes n'est pas une page, c'est un
+            // plantage poli sur un telephone d'occasion.
+            <nav className="pager d-flex flex-wrap gap-1 align-items-center mt-4" aria-label={t('pagerLabel')}>
+              <button type="button" className="btn btn-sm btn-outline-secondary" onClick={() => vaEnPage(pageSure - 1)} disabled={pageSure <= 1}>
+                ‹ {t('prevPage')}
+              </button>
+              {Array.from({ length: pages }, (_, k) => k + 1).map((n) => (
+                <button
+                  key={n}
+                  type="button"
+                  className={`btn btn-sm ${n === pageSure ? 'btn-success' : 'btn-outline-secondary'}`}
+                  onClick={() => vaEnPage(n)}
+                  aria-current={n === pageSure ? 'page' : undefined}
+                >
+                  {n}
+                </button>
+              ))}
+              <button type="button" className="btn btn-sm btn-outline-secondary" onClick={() => vaEnPage(pageSure + 1)} disabled={pageSure >= pages}>
+                {t('nextPage')} ›
+              </button>
+            </nav>
           )}
         </section>
       </div>
@@ -562,16 +619,10 @@ export default function SearchPage({ t, products, lines, panels, lang, liveStock
                   {PRODUCT_CONDITIONS.map((condition) => <option key={condition.id} value={condition.id}>{t(condition.labelKey)}</option>)}
                 </select>
               </div>
-              <div className="mb-3">
-                <div className="small fw-semibold mb-1">{t('brands')}</div>
-                <div className="d-flex flex-wrap gap-1">
-                  {lineBrands.map((b) => (
-                    <button key={b} type="button" className={`btn btn-sm ${filters.brands.includes(b) ? 'btn-success' : 'btn-outline-secondary'}`} onClick={() => toggleBrand(b)}>
-                      {b}
-                    </button>
-                  ))}
-                </div>
-              </div>
+              {/* LOT P6 (S2) : les marques ne sont plus une DEUXIEME liste ici —
+                  le bouton « Filtrer par marque », visible a tous les gabarits, les
+                  porte deja. Deux listes de la meme regle, c'est deux listes qui se
+                  contredisent des qu'on en modifie une (le sort de « usage »). */}
               <button type="button" className="btn btn-success w-100" onClick={() => setFiltersOpen(false)}>
                 {t('results', { n: results.length })}
               </button>

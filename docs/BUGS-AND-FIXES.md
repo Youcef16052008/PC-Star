@@ -3065,3 +3065,67 @@ pointait sur la légende `Catalogue` de l'aside aurait validé une régression s
 `src/reportP17.test.js` (le catalogue qui a remplacé « En stock » est atteignable par le
 bouton, vérifié en cliquant). Aucun des deux n'a été affaibli : ils jouent maintenant un
 geste de plus qu'avant.
+
+
+### P6/S2 — la page Recherche rendait 301 fiches d'un coup, et la règle de pagination vivait deux fois
+
+Trouvé en relisant **mes propres** verrous de S1, pas sur la capture du client. Pour prouver
+que la barre de filtres filtre, je comptais les cartes : `cartes() < avant`. Avec 301 produits,
+ce compte ne dit **rien** : la page en rendrait douze avec ou sans filtre. En cherchant pourquoi
+mes trois verrous refusaient de devenir rouges quand je cassais le mien, la cause est apparue —
+et avec elle le défaut du client :
+
+| | avant | après |
+| --- | --- | --- |
+| cartes `.row.g-3 > div` rendues par la page Recherche | **301** | 12 (page 1 sur 26) |
+| vignettes `PartThumb` fabriquées à l'arrivée sur la page | 301 | 12 |
+| où est écrite la règle « douze par page » | dans `App.jsx` uniquement (la recherche ne paginait pas) | `src/pager.js`, appelé des deux côtés |
+
+1. **`src/pager.js`, une seule fois.** `PAGE_TAILLE = 12`, `pagesPour(total)`,
+   `pageCourante(page, pages)`, `tranche(list, page)`. Les trois fonctions sont bornées à la
+   **lecture** : une liste vide fait une page, pas zéro ; `pagesPour('abc')` fait une page, pas
+   `NaN` ; `pageCourante(99, 3)` rend 3 et `pageCourante(NaN, 3)` rend 1. Une page demandée par
+   l'URL, un clic raté, un onglet restauré : le numéro arrive tel quel depuis le monde, et un
+   `NaN` dans un `slice` vide la liste sans jamais crier. La borne est à la lecture, la saisie
+   reste libre — la règle du P5.
+2. **La recherche paginée avec la même écriture.** L'en-tête annonce le total de la liste
+   **entière** (`{n} résultat(s)`), et la mention « page 1 sur 26 » vient de la même clé que la
+   vitrine (`shopPageOf`) : deux libellés, deux phrases qui se contredisent dès qu'on en
+   retouche une. Le `nav.pager` reprend le markup de la vitrine (`aria-label={t('pagerLabel')}`,
+   `aria-current="page"` sur la page active, `‹ Précédent` / `Suivant ›` désactivés aux bords).
+3. **Changer de filtre ramène page 1.** Une liste qui raccourcit pendant qu'on est page 3 peut
+   ne plus avoir de page 3 : la tranche serait vide et le client croirait que le magasin est
+   vide. Le verrou accepte les deux formes correctes — la mention « page 1 sur N » ou le pager
+   qui disparaît parce qu'une seule page suffit.
+4. **`SHOP_PAGE_SIZE` devient un alias** (`export const SHOP_PAGE_SIZE = PAGE_TAILLE`) : les
+   verrous et `src/catalogView.js` qui l'importent gardent leur prise, et une divergence de
+   taille entre les deux écrans devient impossible par construction. Le verrou de la vitrine qui
+   grepait `list.slice((shopPageSure - 1) * SHOP_PAGE_SIZE)` a été **re-adressé** sur
+   `tranche(list, shopPageSure)` et renforcé : il vérifie maintenant que les **deux** fichiers
+   importent `./pager.js` et qu'aucun ne recalcule un `Math.ceil(…length / …)` pour son compte.
+5. **Le tiroir mobile ne duplique plus la règle.** La liste des marques vivait aussi dans
+   l'`offcanvas-body`, sous les résultats ; la barre la porte à tous les gabarits. Deux listes
+   d'une même règle, c'est exactement comment le filtre « usage » est mort au P17 : une face
+   branchée, l'autre non, et rien qui rougit.
+
+**Trois de mes verrous de S1 comparaient des comptes de cartes ; ils comparent maintenant des
+totaux annoncés** (`totalAnnonce()`, lu dans l'en-tête des résultats, scopé `#search-results`).
+Un oracle qui compte des cartes mesurait la taille d'une page, pas l'effet d'un filtre — un vert
+obtenu pour la mauvaise raison est un défaut, et c'était le mien.
+
+**Un défaut cosmétique trouvé en rendant, pas en grepant** : la clé `shopPageOf` commence déjà
+par « · » (`' · page {page} sur {pages}'`), et mon JSX en ajoutait un second — l'en-tête
+s'affichait « 301 résultat(s) · · page 1 sur 26 ». Le texte source est propre, seul le DOM rendu
+le montre ; le verrou qui lit `textContent` de la page l'attrape, un `grep` sur le `.jsx` non.
+
+**Portes rejouées après coupure du mur** : `npm test` **1121/1121** (310 suites, dont 20 verrous
+`src/p6SearchSurface.test.js` — 13 de S1 + 7 de S2), `npm run build` **491,88 kB** (gzip 147,59,
+soit **+0,95 kB** pour le module de pagination et ses appels) avec `check-bundle` **9 artefacts,
+aucun secret**, `npm run build:crawl` + crawl **24/0**, audit des boutons **32/0**.
+
+**Ce qui reste ouvert, et le reste ouvert exprès.** La taille de page reste **12** pour les deux
+écrans : un « voir plus » ou un scroll infini est une décision de produit, pas un défaut à
+réparer — et une taille par écran ne veut rien dire, d'où un seul module. Les 301 fiches ne sont
+toujours filtrées qu'en local sur le catalogue de base : la pagination est un rendu, pas une
+requête, et elle aurait dû attendre le chargement à la demande côté API (le P7 de `docs/PLAN.md`),
+dont le prix est déjà écrit — c'est le « on reste en local » honnête du P6, qui n'a pas bougé.
