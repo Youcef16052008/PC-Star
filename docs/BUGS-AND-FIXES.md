@@ -3492,3 +3492,10 @@ Reste ouvert, écrit ici :
 - l'aperçu avec API est un **bac à sable** : `.preview-data/` (ignorée par git) porte la base, et
   les identifiants du maître viennent de l'environnement au démarrage — le dépôt n'en contient
   aucun, c'est `src/masterSecrets.test.js` qui le vérifie.
+
+**Verdicts de la porte, lus sur `c3b4f27`** : `E2E smoke (Playwright)` ✅ (`35521542971`),
+`UI audit (crawl + boutons)` ✅ (`35521542988`), `Create/Delete Branch for Pull Request` ✅
+(`35521542962`). Le job Playwright est celui qui compte ici : c'est **lui** qui a joué les deux
+étages de ce lot sur trois moteurs, le bac à sable n'ayant pas pu télécharger les navigateurs.
+Un verrou que je n'ai pas exécuté chez moi est annoncé comme tel dans le texte, et la CI le
+tranche — dans un sens comme dans l'autre.
