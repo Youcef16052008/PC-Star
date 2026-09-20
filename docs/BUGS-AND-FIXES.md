@@ -3335,3 +3335,9 @@ Ce qui reste ouvert, écrit ici plutôt que dans une conversation :
 - le retrait est annoncé, pas proposé. Un « annuler » serait plus confortable, mais il
   supposerait de garder la marque dans un tiroir — deux états au lieu d'un, et c'est
   précisément comme ça que le filtre « usage » est mort.
+
+**Verdicts de la porte, lus sur `a5b4532`** (le commit de ce lot S4) : `E2E smoke
+(Playwright)` ✅ (`35518152555`), `Create/Delete Branch for Pull Request` ✅
+(`35518152560`), `UI audit (crawl + boutons)` ✅ (`35518152544`). Trois verts, après
+`6b83a93` déjà trois verts : la porte de crawl ne rougit plus sur le bundle d'un serveur
+étranger, et le verrou de citations ne se mord plus la queue.
