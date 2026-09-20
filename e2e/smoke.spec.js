@@ -128,3 +128,52 @@ test('demo session survives a page reload', async ({ page }) => {
   await expect(reponse.ok()).toBe(true)
   await expect(page.getByRole('button', { name: new RegExp(DEMO.name.replace('.', '\\.'), 'i') })).toBeVisible()
 })
+
+/*
+ * LOT P6 (S6) — le menu, dans un vrai moteur, sur un vrai téléphone.
+ *
+ * Le client a décrit ceci : « le bouton du menu n'a pas les autres pages à cliquer, et
+ * il n'y a pas sign in and sign up ». Deux faits vérifiés sur l'arbre d'avant : la page
+ * « Garantie & RMA » n'avait AUCUN lien dans l'application (0 occurrence de `go('warranty')`),
+ * et la seule porte du compte était « Connexion ». Ce que jsdom ne peut pas dire, lui,
+ * c'est si le bas de la feuille est ATTEIGNABLE — un panneau qui déborde sans défiler
+ * rend des liens présents dans le DOM et impossibles à cliquer. D'où `toBeInViewport`
+ * après défilement : la cible doit être sous le pouce, pas seulement dans l'arbre.
+ */
+test('phone menu: every routed page is reachable, and the sign-up door opens the register form', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 780 })
+  await page.goto('/')
+  await page.getByRole('button', { name: L('navMenu'), exact: true }).click()
+  const feuille = page.locator('#nav-sheet')
+  await expect(feuille).toBeVisible()
+
+  const garantie = feuille.getByRole('button', { name: L('legalWarrantyTitle'), exact: true })
+  await expect(garantie).toBeVisible()
+  // Le bas de la feuille doit etre atteignable : un lien present dans le DOM et hors
+  // du viewport, c'est exactement « le menu n'a pas les autres pages », au sens propre.
+  await garantie.scrollIntoViewIfNeeded()
+  await expect(garantie).toBeInViewport()
+  await garantie.click()
+  await expect(page.locator('#main-content h1')).toHaveText(L('legalWarrantyTitle'))
+
+  // Les deux portes du compte, dans la même feuille.
+  await page.getByRole('button', { name: L('navMenu'), exact: true }).click()
+  await expect(feuille).toBeVisible()
+  await expect(feuille.getByRole('button', { name: L('navLogin'), exact: true })).toBeVisible()
+  await expect(feuille.getByRole('button', { name: L('navSignup'), exact: true })).toBeVisible()
+  await feuille.getByRole('button', { name: L('navSignup'), exact: true }).click()
+  const boite = page.locator('.modal-content', { has: page.locator('#reg-name') })
+  await expect(boite).toBeVisible()
+  // L'onglet actif, lu dans les pilules : pas de role/button ambigu (le libelle de
+  // l'onglet et celui de l'envoi se ressemblent, un getByRole exact choisirait le mauvais).
+  await expect(boite.locator('.nav-pills .nav-link.active')).toHaveText(L('authRegister'))
+})
+
+test('deep link ?inscription=1 opens the form and leaves no trace in the URL', async ({ page }) => {
+  await page.goto('/?inscription=1&langue=fr')
+  const boite = page.locator('.modal-content', { has: page.locator('#reg-name') })
+  await expect(boite).toBeVisible()
+  expect(page.url()).not.toContain('inscription')
+  // Un paramètre qui ne nous regarde pas reste où le client l'a laissé.
+  expect(page.url()).toContain('langue=fr')
+})

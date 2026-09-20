@@ -3471,6 +3471,16 @@ c'est le proxy qui manquait, pas la porte qui était fermée.
 
 Sept verrous de plus (**1158 tests**, `src/p3Vitrine.test.js` passe à 49).
 
+Deux étages de plus à la porte **Playwright** (`e2e/smoke.spec.js`, 11 tests × 3 moteurs en
+CI) : à 390 × 780, la feuille du menu doit ouvrir la page garantie — et le lien doit être
+**dans le viewport** après `scrollIntoViewIfNeeded`, pas seulement dans le DOM (un panneau qui
+déborde sans défiler produit exactement le symptôme décrit par le client) — et
+`?inscription=1` doit déposer le visiteur sur le formulaire d'inscription, onglet actif lu
+dans les pilules, sans laisser le paramètre dans l'URL. **Ce que je n'ai pas pu faire ici** :
+les moteurs ne s'installent pas dans ce bac à sable (`npx playwright install` échoue au
+téléchargement), donc ces deux étages n'ont été joués que par la CI — c'est écrit, au lieu de
+compter comme vérifié en local.
+
 Reste ouvert, écrit ici :
 
 - le pied de page garde sa **propre** mini-liste (à propos / confidentialité / conditions) :
