@@ -23,7 +23,12 @@ import { notifyNewOrder, requestNotificationPermission } from './notify.js'
 import { ensureProductPhotos } from './productPhotos.js'
 import { brandsOnSale, discountPercent, hasSale } from './productMeta.js'
 // LOT P6 (S2) : la regle de pagination est partagee avec la page Recherche.
-import { PAGE_TAILLE, pageCourante, pagesPour, tranche } from './pager.js'
+// LOT P6 (S3) : le pager, le choix de taille de page et la feuille des marques sont
+// des composants partages — les deux ecrans ne recopient plus le meme markup.
+import { PAGE_TAILLE, pageCourante, pagesPour, tailleSure, tranche } from './pager.js'
+import { ChoixTaille, Pager } from './pagerControls.jsx'
+import { BrandSheet } from './brandSheet.jsx'
+import { useFeuilleFiltre } from './filterSheet.js'
 import SearchPage from './SearchPage.jsx'
 import BuilderPage from './BuilderPage.jsx'
 import PartThumb from './PartThumb.jsx'
@@ -342,7 +347,9 @@ export default function App() {
   // ne filtre pas le catalogue, sinon « fermer le panneau » changerait les
   // résultats sans que personne l'ait demandé.
   const [shopSheet, setShopSheet] = useState(null)
-  const [brandQuery, setBrandQuery] = useState('')
+  // LOT P6 (S3) : la recherche « une marque » n'est plus un etat de l'ecran — elle
+  // vit dans la feuille (`src/brandSheet.jsx`), pour les deux ecrans a la fois.
+  const [shopTaille, setShopTaille] = useState(PAGE_TAILLE)
   const [shopPage, setShopPage] = useState(1)
 
   const [stockMap, setStockMap] = useState({}) // id -> live server stock
@@ -1217,16 +1224,17 @@ export default function App() {
     const c = CATEGORIES.find((x) => x.id === id)
     return c ? labelOr(t, `cat_${c.id}`, c.label || c.id) : id
   }
-  const marquesFiltrees = useMemo(() => {
-    const q = brandQuery.trim().toLowerCase()
-    return q ? marquesVendues.filter((b) => b.toLowerCase().includes(q)) : marquesVendues
-  }, [marquesVendues, brandQuery])
+  // LOT P6 (S3) : le filtrage par texte de la liste des marques est dans
+  // `BrandSheet` (une fois, pour les deux ecrans) ; `marquesVendues` reste la liste
+  // REDUITE A LA CATEGORIE choisie, et c'est ce lien-la que le verrou V4 surveille.
+  useFeuilleFiltre(shopSheet !== null, () => setShopSheet(null))
   // Le numero de page est borne a la lecture, pas a l'ecriture : un filtre qui
   // réduit la liste pendant qu'on est page 4 doit ramener page 1 sans que
   // l'appelant ait pensé à réinitialiser l'état.
-  const shopPages = pagesPour(list.length)
+  const pas = tailleSure(shopTaille)
+  const shopPages = pagesPour(list.length, pas)
   const shopPageSure = pageCourante(shopPage, shopPages)
-  const pageProduits = tranche(list, shopPageSure)
+  const pageProduits = tranche(list, shopPageSure, pas)
 
   useEffect(() => {
     setShopPage(1)
@@ -1854,7 +1862,7 @@ export default function App() {
                 className={`btn btn-sm ${brandFilter ? 'btn-success' : 'btn-outline-success'}`}
                 onClick={() => setShopSheet(shopSheet === 'brands' ? null : 'brands')}
                 aria-expanded={shopSheet === 'brands'}
-                aria-controls="sheet-brands"
+                aria-controls={shopSheet === 'brands' ? 'sheet-brands' : undefined}
               >
                 {t('filterBrands')}
                 {brandFilter ? ` · ${brandFilter}` : ''}
@@ -1864,7 +1872,7 @@ export default function App() {
                 className={`btn btn-sm ${category !== 'all' ? 'btn-success' : 'btn-outline-success'}`}
                 onClick={() => setShopSheet(shopSheet === 'catalog' ? null : 'catalog')}
                 aria-expanded={shopSheet === 'catalog'}
-                aria-controls="sheet-catalog"
+                aria-controls={shopSheet === 'catalog' ? 'sheet-catalog' : undefined}
               >
                 {t('filterCatalog')}
                 {category !== 'all' ? ` · ${catLabel(category)}` : ''}
@@ -1874,6 +1882,7 @@ export default function App() {
                   {t('reset')}
                 </button>
               )}
+              <ChoixTaille t={t} taille={shopTaille} onTaille={setShopTaille} />
               <input
                 className="form-control form-control-sm ms-lg-auto"
                 style={{ maxWidth: 280 }}
@@ -1885,38 +1894,19 @@ export default function App() {
             </div>
 
             {shopSheet === 'brands' && (
-              <div className="filter-sheet" id="sheet-brands">
-                <input
-                  className="form-control form-control-sm mb-2"
-                  value={brandQuery}
-                  onChange={(e) => setBrandQuery(e.target.value)}
-                  placeholder={t('brandSearchPh')}
-                  aria-label={t('brandSearchPh')}
+              <div className="filter-sheet" id="sheet-brands" role="group" aria-label={t('filterBrands')}>
+                <BrandSheet
+                  t={t}
+                  marques={marquesVendues}
+                  estActive={(b) => brandFilter === b}
+                  onChoisir={(b) => { setBrandFilter(brandFilter === b ? null : b); setShopSheet(null) }}
+                  onTout={() => { setBrandFilter(null); setShopSheet(null) }}
                 />
-                <div className="filter-sheet-grid">
-                  <button
-                    type="button"
-                    className={`btn btn-sm ${!brandFilter ? 'btn-success' : 'btn-outline-secondary'}`}
-                    onClick={() => { setBrandFilter(null); setShopSheet(null) }}
-                  >
-                    {t('cat_all')}
-                  </button>
-                  {marquesFiltrees.map((b) => (
-                    <button
-                      key={b}
-                      type="button"
-                      className={`btn btn-sm ${brandFilter === b ? 'btn-success' : 'btn-outline-secondary'}`}
-                      onClick={() => { setBrandFilter(brandFilter === b ? null : b); setShopSheet(null) }}
-                    >
-                      {b}
-                    </button>
-                  ))}
-                </div>
-                {marquesFiltrees.length === 0 && <p className="small text-secondary mb-0">{t('noBrands')}</p>}
               </div>
             )}
+
             {shopSheet === 'catalog' && (
-              <div className="filter-sheet" id="sheet-catalog">
+              <div className="filter-sheet" id="sheet-catalog" role="group" aria-label={t('filterCatalog')}>
                 <div className="filter-sheet-grid">
                   {CATEGORIES.map((c) => (
                     <button
@@ -1994,30 +1984,10 @@ export default function App() {
                 })}
               </div>
 
-              {shopPages > 1 && (
-                // LOT P4 (V3) — la suite du catalogue en pages, pas en mur : la
-                // page 2 suit la page 1 sous les yeux du client, et le nombre de
-                // pages se lit sur la ligne au-dessus.
-                <nav className="pager d-flex flex-wrap gap-1 align-items-center mt-4" aria-label={t('pagerLabel')}>
-                  <button type="button" className="btn btn-sm btn-outline-secondary" onClick={() => gotoPage(shopPageSure - 1)} disabled={shopPageSure <= 1}>
-                    ‹ {t('prevPage')}
-                  </button>
-                  {Array.from({ length: shopPages }, (_, k) => k + 1).map((n) => (
-                    <button
-                      key={n}
-                      type="button"
-                      className={`btn btn-sm ${n === shopPageSure ? 'btn-success' : 'btn-outline-secondary'}`}
-                      onClick={() => gotoPage(n)}
-                      aria-current={n === shopPageSure ? 'page' : undefined}
-                    >
-                      {n}
-                    </button>
-                  ))}
-                  <button type="button" className="btn btn-sm btn-outline-secondary" onClick={() => gotoPage(shopPageSure + 1)} disabled={shopPageSure >= shopPages}>
-                    {t('nextPage')} ›
-                  </button>
-                </nav>
-              )}
+              {/* LOT P6 (S3) : le pager est `Pager` (src/pagerControls.jsx), la
+                  fenetre de numeros vient de `fenetrePages` — ni la vitrine ni la
+                  recherche ne dressent plus un bouton par page. */}
+              <Pager t={t} page={shopPageSure} pages={shopPages} onPage={gotoPage} />
             </>
           )}
 

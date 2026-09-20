@@ -90,6 +90,15 @@ const settle = (ms = 60) => act(async () => new Promise((r) => setTimeout(r, ms)
 const clique = (el) => act(async () => el.dispatchEvent(new window.MouseEvent('click', { bubbles: true, cancelable: true })))
 // React 18 suit les `value` natifs : une affectation directe ne passe pas par son
 // listener `onChange`. Le setter du prototype, si.
+/**
+ * Un `<select>` controle par React ne se change pas en touchant `.value` : React
+ * compare la valeur qu'il a posee lui-meme et ne s'eveille que si le setter natif a
+ * ete appele (meme logique que `natif` pour les champs texte).
+ */
+function choisir(el, valeur) {
+  Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, 'value').set.call(el, valeur)
+  el.dispatchEvent(new window.Event('change', { bubbles: true }))
+}
 function natif(el, valeur) {
   const source = el.tagName === 'TEXTAREA' ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype
   Object.getOwnPropertyDescriptor(source, 'value').set.call(el, valeur)
@@ -380,25 +389,50 @@ describe('P4/V2-V3 — la page d\u2019accueil : deux boutons, des pages, plus de
     // composant, ils viennent de `src/pager.js` — la regle de la page Recherche.
     // Le verrou suit la forme et verifie ce qu'il visait : une seule source de
     // verite, et la meme taille de page des deux cotes.
-    assert.match(app, /tranche\(list, shopPageSure\)/, 'la vitrine ne tranche plus avec la regle partagee')
-    assert.match(app, /pagesPour\(list\.length\)/, 'le nombre de pages n\u2019est plus déduit ailleurs que de la liste affichee')
+    assert.match(app, /tranche\(list, shopPageSure, pas\)/, 'la vitrine ne tranche plus avec la regle partagee')
+    assert.match(app, /pagesPour\(list\.length, pas\)/, 'le nombre de pages n\u2019est plus déduit ailleurs que de la liste affichee')
+    // LOT P6 (S3) : la taille de page se choisit (12 / 24 / 48). Le verrou exige que
+    // le tranchage et le compte de pages recoivent la TAILLE — un pager calcule a
+    // douze annoncerait « page 1 sur 26 » a une liste qui en fait sept.
+    assert.match(app, /const pas = tailleSure\(shopTaille\)/, 'la taille choisie n\u2019entre pas dans la regle de tranchage')
     assert.match(app, /export const SHOP_PAGE_SIZE = PAGE_TAILLE/, 'la taille de page n\u2019est plus l\u2019alias de la regle partagee')
     const recherche = sansCommentaires('src/SearchPage.jsx')
     assert.match(recherche, /from '\.\/pager\.js'/, 'la page Recherche a sa propre pagination : deux regles distinctes')
     assert.equal(/Math\.ceil\([^)]*length/.test(recherche), false, 'la page Recherche recalcule encore ses pages pour son compte')
-    assert.match(app, /aria-label=\{t\('pagerLabel'\)\}/)
-    assert.match(app, /aria-current=\{n === shopPageSure \? 'page' : undefined\}/)
-    assert.match(app, /disabled=\{shopPageSure <= 1\}/, '« Précédent » cliquable en page 1')
-    assert.match(app, /disabled=\{shopPageSure >= shopPages\}/, '« Suivant » cliquable en derniere page')
+    // Le markup du pager ne vit plus dans le composant : c'est `Pager`
+    // (`src/pagerControls.jsx`) qui le rend, pour la vitrine ET la recherche. Le
+    // verrou descend donc dans le fichier partagé, et vérifie au passage que la
+    // vitrine n'a pas gardé une copie locale à son nom.
+    assert.match(app, /<Pager t=\{t\} page=\{shopPageSure\} pages=\{shopPages\} onPage=\{gotoPage\} \/>/, 'la vitrine ne rend pas le pager partagé')
+    const commandes = sansCommentaires('src/pagerControls.jsx')
+    assert.match(commandes, /aria-label=\{t\('pagerLabel'\)\}/)
+    assert.match(commandes, /aria-current=\{n === courant \? 'page' : undefined\}/)
+    assert.match(commandes, /disabled=\{courant <= 1\}/, '« Précédent » cliquable en page 1')
+    assert.match(commandes, /disabled=\{courant >= pages\}/, '« Suivant » cliquable en derniere page')
+    // Un bouton par page, c'etait le mur de pastilles numéroté : la fenetre vient du
+    // module partage, et le composant n'a pas le droit de s'en passer.
+    assert.match(commandes, /fenetrePages\(courant, pages\)/, 'le pager dresse un bouton par page')
+    assert.equal(/Array\.from\(\{ length: pages \}/.test(commandes), false, 'la fenetre est court-circuitée par une liste complete de numeros')
   })
 
   it('le mur de marques a laissé la place à deux boutons qui portent la valeur choisie', () => {
     assert.match(app, /t\('filterBrands'\)/)
     assert.match(app, /t\('filterCatalog'\)/)
     assert.match(app, /\{brandFilter \? ` · \$\{brandFilter\}` : ''\}/, 'le bouton ne reporte pas la marque choisie')
-    assert.match(app, /marquesFiltrees/, 'la liste des marques ne suit plus la catégorie choisie')
+    // LOT P6 (S3) : la feuille des marques est un composant partage (vitrine +
+    // recherche). Ce que le verrou visait reste : la liste proposee suit la
+    // categorie choisie, et le champ de recherche est dans la feuille.
+    assert.match(app, /<BrandSheet[\s\S]{0,240}?marques=\{marquesVendues\}/, 'la liste des marques ne suit plus la catégorie choisie')
+    const feuille = sansCommentaires('src/brandSheet.jsx')
+    assert.match(feuille, /t\('brandSearchPh'\)/, 'la feuille partagée a perdu son champ de recherche')
+    assert.match(feuille, /className="filter-sheet-grid"/, 'les cibles tactiles de 44 px sont court-circuitées par la feuille')
     assert.match(app, /aria-expanded=/)
-    assert.match(app, /aria-controls="sheet-brands"/)
+    // `aria-controls` ne doit pointer qu'une feuille montee : ferme, l'id n'existe
+    // pas dans le document, et l'attribut promet une relation qui ment.
+    assert.match(app, /aria-controls=\{shopSheet === 'brands' \? 'sheet-brands' : undefined\}/, 'un aria-controls pointe dans le vide quand la feuille est fermée')
+    assert.match(app, /aria-controls=\{shopSheet === 'catalog' \? 'sheet-catalog' : undefined\}/, 'un aria-controls pointe dans le vide quand la feuille est fermée')
+    // Echap, c'est le hook partagé — et la vitrine l'appelle vraiment.
+    assert.match(app, /useFeuilleFiltre\(shopSheet !== null, \(\) => setShopSheet\(null\)\)/, 'la vitrine n’a pas hérité du geste clavier de la feuille')
     assert.match(app, /id="catalog"/, 'le saut « Voir la sélection » n\u2019a plus de cible')
     for (const motif of ['brand-wall', 'cats scrollable', 'marquesVendues.slice']) {
       assert.equal(app.includes(motif), false, `l'ancien decor « ${motif} » est encore rendu`)
@@ -536,7 +570,7 @@ describe('P4/V1-V3 — l\u2019écran du client lit la vitrine, et la grille est 
     // (libelle + nombre) depuis sa page Admin ; cote vitrine publique, il n'y a
     // aucun controle — ni champ, ni bouton, ni clic — sinon le chiffre du
     // comptoir devient ce que le visiteur a decide.
-    assert.equal(hote.querySelector('.readout input, .readout button, .readout select, .readout textarea'), null, 'un controle client est rendu dans le readout de la vitrine')
+    assert.equal(hote.querySelector('.readout input, .readout button, .readout select, .readout textarea') == null, true, 'un controle client est rendu dans le readout de la vitrine')
   })
 
   it('douze cartes, puis « Suivant » : la page 2 est une autre coupe du même catalogue', async () => {
@@ -573,8 +607,75 @@ describe('P4/V1-V3 — l\u2019écran du client lit la vitrine, et la grille est 
     assert.match(annonce.textContent.replace(/\s+/g, ' '), /page 2 sur/)
   })
 
+  // LOT P6 (S3) — un mot, pas un anglicisme : le bouton efface les filtres, et le
+  // reste de l'interface le dit deja en francais (« Tout », « Aucune marque ne
+  // correspond »). L'anglais garde « Reset », la parite des cles n'est pas la parite
+  // des mots.
+  it('le bouton d’effacement se nomme en français sur la vitrine française', () => {
+    assert.equal(dict.fr.reset, 'Tout effacer', `libellé français du bouton de remise à zéro : ${dict.fr.reset}`)
+    assert.equal(/reset/i.test(dict.fr.reset), false, 'un mot anglais est entré dans la chaîne française')
+    assert.equal(typeof dict.en.reset, 'string', 'la clé a disparu du dictionnaire anglais')
+  })
+
+  it('le pager tient dans une fenêtre, et la dernière page reste à un clic', async () => {
+    // L'etage precedent a deja tourne dans les pages : on ne part PAS de « page 1 »,
+    // on lit ou on est, et on verifie la fenetre autour de la page courante.
+    const numeros = () => [...hote.querySelectorAll('.pager .btn')].filter((b) => /^\d+$/.test(b.textContent.trim()))
+    const annonce = hote.querySelector('#catalog')?.nextElementSibling
+    const mention = () => annonce.textContent.replace(/\s+/g, ' ')
+    const m = /page (\d+) sur (\d+)/.exec(mention())
+    assert.ok(m, `aucune mention de page lisible : ${mention()}`)
+    const total = Number(m[2])
+    assert.ok(total > 6, `la vitrine ne fait que ${total} pages : ce verrou ne prouverait rien sur un catalogue court`)
+    assert.ok(numeros().length <= 8, `${numeros().length} numéros dressés pour ${total} pages : le pager est un mur`)
+    assert.ok(hote.querySelectorAll('.pager .pager-trou').length >= 1, 'aucun trou marqué alors que la fenêtre est fermée')
+    const plusGrand = Math.max(...numeros().map((b) => Number(b.textContent.trim())))
+    assert.equal(plusGrand, total, 'la dernière page a disparu de la fenêtre : on ne peut plus l’atteindre')
+    assert.ok(numeros().some((b) => b.getAttribute('aria-current') === 'page'), 'la page courante n’est pas marquée dans la fenêtre')
+    await clique(numeros().find((b) => b.textContent.trim() === String(total)))
+    await settle(60)
+    assert.match(mention(), new RegExp(`page ${total} sur ${total}`), 'la dernière page n’a pas été atteinte')
+    const cartes = () => hote.querySelectorAll('.product-bs-card')
+    assert.ok(cartes().length > 0, 'la dernière page est vide : la tranche est fausse en fin de liste')
+    assert.ok(cartes().length <= 12, `la dernière page déborne la taille choisie (${cartes().length})`)
+  })
+
+  it('la taille de page se choisit, et le compte de pages suit', async () => {
+    const select = hote.querySelector('.pager-taille select')
+    assert.ok(select, 'aucun choix de taille de page sur la vitrine')
+    assert.equal([...select.options].map((o) => o.value).join(','), '12,24,48', 'les tailles proposées ne viennent pas de `TAILLES`')
+    const cartes = () => hote.querySelectorAll('.product-bs-card')
+    const annonce = hote.querySelector('#catalog')?.nextElementSibling
+    const mention = () => annonce.textContent.replace(/\s+/g, ' ')
+    const douze = Number(/page (\d+) sur (\d+)/.exec(mention())[2])
+    assert.ok(cartes().length > 0 && cartes().length <= 12, `a douze par page, la vitrine en rend ${cartes().length}`)
+    await act(async () => choisir(select, '48'))
+    await settle(80)
+    const m2 = /page (\d+) sur (\d+)/.exec(mention())
+    const pages48 = Number(m2[2])
+    // Le compte de pages doit suivre la taille choisie — c'est LA faute que ce verrou
+    // cherchait : un pager calcule a douze annoncerait « page 1 sur 25 » a une liste
+    // qui en fait sept.
+    assert.ok(pages48 < douze, `le compte de pages n’a pas suivi la taille (${pages48} pour ${douze})`)
+    assert.equal(pages48, Math.ceil(300 / 48), `pages annoncees ${pages48} pour 300 fiches a quarante-huit`)
+    // On ne part pas de la page 1 : l'etage precedent a tourne jusqu'a la page 3, et
+    // le bornage a rendu la derniere page (12 fiches sur 300 a quarante-huit par page).
+    // C'est le bon comportement — verrouille par les cas de `pageCourante` — donc le
+    // verrou lit la page ou il est, puis y ramene le client.
+    assert.ok(cartes().length > 0 && cartes().length <= 48, `tranche de ${cartes().length} cartes pour une page de 48`)
+    const un = [...hote.querySelectorAll('.pager .btn')].find((b) => b.textContent.trim() === '1')
+    assert.ok(un, 'la page 1 n’est pas atteignable depuis la fenêtre après le changement de taille')
+    await clique(un)
+    await settle(60)
+    assert.equal(cartes().length, 48, 'passer à quarante-huit n’a rien changé aux cartes rendues')
+    assert.match(mention(), /page 1 sur 7/, 'la page courante n’a pas été annoncée après le retour en tête')
+    // Le select reste a la valeur choisie : un controle qui revient a 12 a chaque
+    // rendu est un controle qui ne dit pas ou on en est.
+    assert.equal(select.value, '48', 'le choix de taille n’a pas été retenu par le contrôle')
+  })
+
   it('le mur de marques n\u2019est pas dans le document tant que le panneau est fermé', async () => {
-    assert.equal(hote.querySelector('.filter-sheet'), null, 'un panneau de filtres est rendu sans etre ouvert')
+    assert.equal(hote.querySelector('.filter-sheet') == null, true, 'un panneau de filtres est rendu sans etre ouvert')
     const boutons = [...hote.querySelectorAll('#catalog > div > .btn')]
     assert.equal(boutons.length, 2, `${boutons.length} boutons de filtre : « deux simples boutons » attendus`)
     const ouvreMarques = boutons.find((b) => b.textContent.includes(t('filterBrands')))
@@ -601,7 +702,7 @@ describe('P4/V1-V3 — l\u2019écran du client lit la vitrine, et la grille est 
     // Choisir une marque ferme le panneau et reporte la valeur sur le bouton.
     await clique(puces()[puces().length - 1])
     await settle(60)
-    assert.equal(hote.querySelector('#sheet-brands'), null, 'le panneau reste ouvert apres le choix')
+    assert.equal(hote.querySelector('#sheet-brands') == null, true, 'le panneau reste ouvert apres le choix')
     assert.match(hote.querySelector('#catalog').textContent.replace(/\s+/g, ' '), / · Corsair/, 'le bouton ne porte pas la valeur choisie')
     // Et le catalogue suit : une seule marque a l'ecran.
     const marques = new Set([...hote.querySelectorAll('.product-bs-card .cbrand')].map((x) => x.textContent.trim()))
@@ -661,7 +762,7 @@ describe('P4/V1 — l\u2019écran du maître écrit la tuile, et ne touche pas a
     assert.equal(nombre.step, '1', 'sans pas de 1, le navigateur laisse saisir 12,7 et la tuile affiche un nombre a virgule')
     assert.equal(etiquette.maxLength, VITRINE_LIMITS.label)
     // Le compteur de commandes se LIT, ne s'écrit pas : pas de champ pour lui.
-    assert.equal(hote.querySelector('#master-vitrine-ready'), null, 'le readyTally est devenu editable')
+    assert.equal(hote.querySelector('#master-vitrine-ready') == null, true, 'le readyTally est devenu editable')
     const lu = hote.querySelector('[data-testid="vitrine-ready-tally"]')
     assert.ok(lu, 'le compteur lu n\u2019est pas affiche au maitre')
     assert.equal(lu.textContent.trim(), '5')
@@ -703,7 +804,7 @@ describe('P4/V1 — l\u2019écran du maître écrit la tuile, et ne touche pas a
 describe('P4 — le dictionnaire suit la page (aucune clé morte, aucune langue en retard)', () => {
   it('les clés de la vitrine existent dans les deux langues', () => {
     for (const l of LANGS) {
-      for (const cle of ['roOrders', 'roRepairs', 'filterBrands', 'filterCatalog', 'brandSearchPh', 'noBrands', 'shopCount', 'shopPageOf', 'pagerLabel', 'prevPage', 'nextPage', 'catalog', 'masterVitrine', 'masterVitrineSave', 'masterVitrineSaved', 'masterVitrineBadCount', 'masterRepairsLabel', 'masterRepairsCount', 'masterVitrineReady', 'masterVitrineReadyBody']) {
+      for (const cle of ['roOrders', 'roRepairs', 'filterBrands', 'filterCatalog', 'brandSearchPh', 'noBrands', 'shopCount', 'pageSize', 'pagerLabel', 'shopPageOf', 'pagerLabel', 'prevPage', 'nextPage', 'catalog', 'masterVitrine', 'masterVitrineSave', 'masterVitrineSaved', 'masterVitrineBadCount', 'masterRepairsLabel', 'masterRepairsCount', 'masterVitrineReady', 'masterVitrineReadyBody']) {
         const v = dict[l.id][cle]
         assert.ok(typeof v === 'string' && v.trim().length > 1, `${l.id} : ${cle} absent`)
         assert.notEqual(v, cle, `${l.id} : ${cle} se traduit par son propre nom`)

@@ -51,9 +51,10 @@ const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pcstar-p6-search-'))
 process.env.PCSTAR_DATA_DIR = dir
 
 const { dict, LANGS } = await import('./i18n.js')
-const { PAGE_TAILLE, pagesPour, pageCourante, tranche } = await import('./pager.js')
+const { PAGE_TAILLE, TAILLES, fenetrePages, pageCourante, pagesPour, POINT_DE_SUSPENSION, tailleSure, tranche } = await import('./pager.js')
 const { default: SearchPage } = await import('./SearchPage.jsx')
 const { PART_LINES, PRODUCTS } = await import('./data.js')
+const { loadSavedSearches } = await import('./shopStore.js')
 const React = (await import('react')).default
 const { act } = await import('react')
 const { createRoot } = await import('react-dom/client')
@@ -136,6 +137,17 @@ function rend(props = {}) {
  */
 const bouton = (texte) => [...hote.querySelectorAll('button')].find((b) => b.textContent.trim().startsWith(texte))
 const boutonExact = (texte) => [...hote.querySelectorAll('button')].find((b) => b.textContent.trim() === texte)
+/** Un `<select>` contrôlé par React se change par le setter natif : React compare la
+ *  valeur qu'il a posée lui-même, une affectation directe ne le réveille pas. */
+const choisir = (el, valeur) =>
+  act(async () => {
+    Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, 'value').set.call(el, valeur)
+    el.dispatchEvent(new window.Event('change', { bubbles: true }))
+  })
+const echap = () =>
+  act(async () => {
+    document.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+  })
 const boutons = () => [...hote.querySelectorAll('button')]
 const cases = () => [...hote.querySelectorAll('input[type=checkbox], input[type=radio]')]
 const cartes = () => hote.querySelectorAll('.row.g-3 > div').length
@@ -172,9 +184,37 @@ describe('P6/S1 — la barre de filtres : deux boutons, rien d’étalé avant l
     const libelles = [...barre.querySelectorAll('button')].map((b) => b.textContent.trim())
     assert.equal(libelles[0], t('filterBrands'), `le premier bouton n'est pas la marque : ${libelles[0]}`)
     assert.ok(libelles[1].startsWith(t('filterCatalog')), `le deuxième bouton n'est pas le catalogue : ${libelles[1]}`)
-    // Le bouton porte la valeur choisie meme quand aucune n'a ete touchée : un
-    // filtre actif doit se lire, sinon le client croit la page vide de filtre.
-    assert.match(libelles[1], /·\s*\S/, 'le bouton catalogue n’affiche pas le rayon courant')
+    // LOT P6 (S3) : le bouton ne reporte QUE ce qui est choisi. Ce verrou exigeait un
+    // « · … » meme quand aucun rayon n'avait ete touche — il verrouillait le defaut
+    // comme une selection, et « Filtrer par catalogue · Tout le catalogue » se lisait
+    // comme un filtre actif sur une liste entiere.
+    assert.equal(libelles[1], t('filterCatalog'), `le bouton reporte une valeur par défaut comme un choix : ${libelles[1]}`)
+    // Et des qu'un rayon est choisi, il le dit.
+    await clique(bouton(t('filterCatalog')))
+    const feuille = hote.querySelector('#search-sheet-catalog')
+    assert.ok(feuille, 'la feuille catalogue ne s’est pas ouverte')
+    // On vise un rayon REEL (le GPU) et on ouvre son groupe, comme le fait le client.
+    // Le premier bouton de la premiere rangee, lui, peut n'etre que l'entree
+    // « Tout le catalogue » du panneau general : la choisir ne reporte rien, et ce
+    // verrou est la pour exiger le contraire.
+    const ligne = PART_LINES.find((l) => l.id === 'gpu')
+    assert.ok(ligne?.group, 'le rayon « gpu » n’est plus rattaché à un panneau : la fixture a bougé')
+    // Le titre vient de la fixture elle-meme (`titleKey`), pas d'une cle inventee au
+    // clavier : `panel_parts` n'existe pas dans le dictionnaire, `panelParts` oui.
+    const panneau = PANNEAUX.find((x) => x.id === ligne.group)
+    assert.ok(panneau?.titleKey, `le panneau « ${ligne.group} » n’a pas de titleKey dans la fixture`)
+    const titre = t(panneau.titleKey)
+    const entete = [...feuille.querySelectorAll('button')].find((b) => b.textContent.trim() === titre)
+    if (entete) {
+      await clique(entete)
+      await settle(60)
+    }
+    const rayon = boutonExact(t('line_gpu')) || boutonExact(ligne.label)
+    assert.ok(rayon, `le rayon « gpu » n’apparait pas dans la feuille (groupe ${ligne.group})`)
+    await clique(rayon)
+    await settle(60)
+    const apres = [...hote.querySelectorAll(`${BARRE} button`)].map((b) => b.textContent.trim())
+    assert.match(apres[1], new RegExp(`^${t('filterCatalog')} · \\S`), 'le rayon choisi n’est pas reporté sur le bouton')
   })
 
   it('aucun rayon n’est rendu tant que la feuille est fermée', async () => {
@@ -195,14 +235,14 @@ describe('P6/S1 — la barre de filtres : deux boutons, rien d’étalé avant l
     rend()
     await settle(120)
     const boutonCatalogue = bouton(t('filterCatalog'))
-    assert.equal(hote.querySelector('#search-sheet-catalog'), null, 'la feuille est ouverte sans clic')
+    assert.equal(hote.querySelector('#search-sheet-catalog') == null, true, 'la feuille est ouverte sans clic')
     await clique(boutonCatalogue)
     const feuille = hote.querySelector('#search-sheet-catalog')
     assert.ok(feuille, 'un clic n’a pas ouvert la feuille catalogue')
     assert.equal(feuille.getAttribute('aria-hidden'), null)
     assert.ok(feuille.querySelectorAll('button').length > 0, 'la feuille ouverte ne contient aucun rayon')
     await clique(hote.querySelector(BARRE).querySelectorAll('button')[1])
-    assert.equal(hote.querySelector('#search-sheet-catalog'), null, 'un second clic n’a pas refermé la feuille')
+    assert.equal(hote.querySelector('#search-sheet-catalog') == null, true, 'un second clic n’a pas refermé la feuille')
   })
 
   it('choisir un rayon ferme la feuille, filtre les résultats, et le bouton porte le nom du rayon', async () => {
@@ -220,7 +260,7 @@ describe('P6/S1 — la barre de filtres : deux boutons, rien d’étalé avant l
     const avant = totalAnnonce()
     await clique(gpu)
     await settle(80)
-    assert.equal(hote.querySelector('#search-sheet-catalog'), null, 'la feuille est restée ouverte apres le choix')
+    assert.equal(hote.querySelector('#search-sheet-catalog') == null, true, 'la feuille est restée ouverte apres le choix')
     assert.notEqual(totalAnnonce(), avant, 'changer de rayon ne change rien aux résultats (filtre décoratif)')
     assert.match(bouton([...boutons()].map((b) => b.textContent.trim()).find((x) => x.startsWith(t('filterCatalog')))).textContent, /GPU|graphics/i, 'le bouton ne porte pas le rayon choisi')
   })
@@ -237,7 +277,7 @@ describe('P6/S1 — la barre de filtres : deux boutons, rien d’étalé avant l
     await clique(marquent[0])
     await settle(80)
     const choisie = marquent[0].textContent.trim()
-    assert.equal(hote.querySelector('#search-sheet-brands'), null, 'la feuille est restée ouverte apres le choix')
+    assert.equal(hote.querySelector('#search-sheet-brands') == null, true, 'la feuille est restée ouverte apres le choix')
     assert.ok(totalAnnonce() < avant, `la marque « ${choisie} » ne réduit pas les résultats (${totalAnnonce()} vs ${avant})`)
     assert.equal(cartes() > 0, true, 'la marque choisie ne rend aucune fiche')
     const boutonMarque = boutons().find((b) => b.textContent.trim().startsWith(t('filterBrands')))
@@ -255,7 +295,7 @@ describe('P6/S1 — la barre de filtres : deux boutons, rien d’étalé avant l
     await clique(bouton(t('filterBrands')))
     assert.ok(hote.querySelector('#search-sheet-brands'))
     await clique(bouton(t('filterCatalog')))
-    assert.equal(hote.querySelector('#search-sheet-brands'), null, 'les deux feuilles sont ouvertes en meme temps')
+    assert.equal(hote.querySelector('#search-sheet-brands') == null, true, 'les deux feuilles sont ouvertes en meme temps')
     assert.ok(hote.querySelector('#search-sheet-catalog'), 'la deuxieme feuille ne s’est pas ouverte')
   })
 
@@ -347,10 +387,13 @@ describe('P6/S2 — les résultats de la recherche tiennent une page', () => {
   it('un changement de filtre ramène page 1 (on ne cherche pas page 7 d’une liste qui vient de raccourcir)', async () => {
     rend()
     await settle(120)
-    const bouton2 = [...hote.querySelectorAll('nav.pager button')].find((b) => b.textContent.trim() === '3')
+    //LOT P6 (S3) : le pager est une FENETRE — depuis la page 1, « 3 » n'est plus a
+    // portee de clic (et c'est voulu). On tourne d'une page, c'est assez pour la
+    // demonstration : le filtre doit ramener le client en tete de la nouvelle liste.
+    const bouton2 = [...hote.querySelectorAll('nav.pager button')].find((b) => b.textContent.trim() === '2')
     await clique(bouton2)
     await settle(60)
-    assert.match(mentionPage(), /3\s+sur/, 'la page 3 n’a pas été atteinte')
+    assert.match(mentionPage(), /2\s+sur/, 'la page 2 n’a pas été atteinte')
     await clique(bouton(t('filterBrands')))
     const marque = [...hote.querySelectorAll('#search-sheet-brands button')].find((b) => b.textContent.trim() !== t('cat_all'))
     await clique(marque)
@@ -358,7 +401,7 @@ describe('P6/S2 — les résultats de la recherche tiennent une page', () => {
     // Liste courte apres filtre : le pager peut disparaitre (une seule page), c'est
     // pareil qu'« page 1 sur N ». Ce qui n'a pas le droit d'arriver, c'est d'y rester.
     const ou = /\d+\s+sur/.exec(mentionPage())
-    assert.equal(ou ? Number(ou[0]) : 1, 1, 'le filtre laissé page 3 : le client voit une page qui n’existe plus')
+    assert.equal(ou ? Number(ou[0]) : 1, 1, 'le filtre laissé page 2 : le client voit une page qui n’existe plus')
     assert.equal(cartes() > 0, true, 'aucune fiche après le changement de filtre')
   })
 
@@ -372,10 +415,21 @@ describe('P6/S2 — les résultats de la recherche tiennent une page', () => {
       assert.equal(/Math\.ceil\([^)]*length\s*\//.test(source), false, `${nom} recalcule encore un nombre de pages pour son compte`)
     }
     assert.match(app, /export const SHOP_PAGE_SIZE = PAGE_TAILLE/, 'la vitrine a sa propre taille de page')
-    assert.match(page, /tranche\(results, pageSure\)/, 'la recherche ne tranche pas avec la règle partagée')
+    assert.match(page, /tranche\(results, pageSure, pas\)/, 'la recherche ne tranche pas avec la règle partagée')
+    assert.match(page, /pagesPour\(results\.length, pas\)/, 'la recherche compte ses pages à douze quoi qu’il arrive')
+    assert.match(page, /<Pager t=\{t\} page=\{pageSure\} pages=\{pages\} onPage=\{vaEnPage\} \/>/, 'la recherche dresse encore son pager à la main')
+    assert.match(page, /<BrandSheet/, 'la recherche dresse encore son mur de marques à la main')
+    assert.match(page, /useFeuilleFiltre\(sheet !== null/, 'la recherche n’a pas hérité du geste clavier de la feuille')
     // Les deux pages portent la meme mention, donc le meme mot dans le dictionnaire.
     assert.match(page, /t\('shopPageOf'/, 'la recherche n’annonce pas la page comme la vitrine')
-    assert.match(page, /t\('pagerLabel'\)/, 'la recherche n’a pas le meme libellé de repère pour le pager')
+    // Le repère du pager (`pagerLabel`) n'est plus dans la page : il est dans le
+    // composant partage, ou les deux ecrans le lisent. Un libelle par ecran, c'est un
+    // lecteur d'ecran qui dit « Pages du catalogue » sur la recherche et autre part.
+    const commandes = sansCommentaires('src/pagerControls.jsx')
+    assert.match(commandes, /t\('pagerLabel'\)/, 'le pager partagé n’a plus de libellé de repère')
+    assert.match(commandes, /t\('prevPage'\)/, 'le pager partagé n’a plus de bouton « précédent »')
+    assert.match(commandes, /t\('nextPage'\)/, 'le pager partagé n’a plus de bouton « suivant »')
+    assert.match(commandes, /t\('pageSize'\)/, 'le choix de taille n’a pas de mot dans le dictionnaire')
   })
 })
 
@@ -431,6 +485,255 @@ describe('P6/V6 — les mots du readout, et le fait que le client ne touche a ri
   })
 })
 
+describe('P6/S3 — la feuille des marques, la fenêtre de pages et le clavier', () => {
+  /*
+   * Mesuré sur la page rendue avant ce lot : la feuille des marques de la recherche
+   * alignait 84 boutons sans champ de recherche (celle de la vitrine, elle, avait le
+   * sien), le pager dressait 28 boutons pour 301 fiches, Échap ne fermait rien, et
+   * `aria-controls` promettait une feuille qui n'était pas dans le document. Le mur
+   * de pastilles signalé par le client n'était pas abattu, il était plié.
+   */
+  it('la feuille des marques a son champ de recherche, et la grille tactile de la vitrine', async () => {
+    rend()
+    await settle(120)
+    await clique(bouton(t('filterBrands')))
+    const feuille = hote.querySelector('#search-sheet-brands')
+    assert.ok(feuille, 'la feuille des marques ne s’ouvre pas')
+    const champ = feuille.querySelector('input')
+    assert.ok(champ, 'le champ « chercher une marque » est absent de la feuille de la recherche')
+    assert.match(champ.getAttribute('aria-label') || '', new RegExp(t('brandSearchPh')))
+    assert.ok(feuille.querySelector('.filter-sheet-grid'), 'les marques ne sont pas posées dans la grille à cibles de 44 px')
+    const puces = () => [...feuille.querySelectorAll('.filter-sheet-grid .btn')].map((b) => b.textContent.trim())
+    const total = puces().length
+    assert.ok(total > 20, `${total} marques proposées : le catalogue s’est vidé depuis la mesure`)
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set.call(champ, 'corsair')
+      champ.dispatchEvent(new window.Event('input', { bubbles: true }))
+    })
+    await settle(60)
+    const filtres = puces().filter((x) => x !== t('cat_all'))
+    assert.ok(filtres.length > 0 && filtres.length < total, `le champ ne réduit rien (${filtres.length} sur ${total})`)
+    assert.ok(filtres.every((x) => /corsair/i.test(x)), `marques après « corsair » : ${filtres.join(' | ')}`)
+    // Un texte qui ne matche rien le dit : une liste vide silencieuse se lit « le
+    // magasin n’a plus de marques », pas « j’ai mal tapé ».
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set.call(champ, 'zzzz')
+      champ.dispatchEvent(new window.Event('input', { bubbles: true }))
+    })
+    await settle(60)
+    assert.match(feuille.textContent, new RegExp(t('noBrands')), 'aucune mention quand aucun nom ne correspond')
+  })
+
+  it('Échap ferme la feuille et rend le focus au bouton qui l’a ouverte', async () => {
+    rend()
+    await settle(120)
+    const declencheur = bouton(t('filterBrands'))
+    // Un vrai clavier a donne le focus au bouton avant de le declencher ; jsdom ne
+    // le fait pas tout seul sur un `click` synthetique.
+    await act(async () => declencheur.focus())
+    await clique(declencheur)
+    assert.ok(hote.querySelector('#search-sheet-brands'), 'la feuille ne s’est pas ouverte')
+    await echap()
+    await settle(60)
+    assert.equal(hote.querySelector('#search-sheet-brands') == null, true, 'Échap n’a pas fermé la feuille')
+    // JAMAIS `assert.equal(nodeA, nodeB)` sur des noeuds : le diff de Node traverse
+    // l'arbre DOM puis les `__reactFiber` accroches aux elements, et la suite meurt
+    // d'un tas epuise une vingtaine de secondes plus tard, sans message. On compare
+    // une trace lisible.
+    assert.equal(document.activeElement?.textContent?.trim(), t('filterBrands'), 'la feuille fermée, le focus du clavier est perdu')
+  })
+
+  it('et `aria-controls` ne promet que ce qui est monté', async () => {
+    rend()
+    await settle(120)
+    const marques = bouton(t('filterBrands'))
+    const catalogue = bouton(t('filterCatalog'))
+    assert.equal(marques.hasAttribute('aria-controls'), false, 'un aria-controls pointe une feuille fermée, donc inexistante')
+    assert.equal(marques.getAttribute('aria-expanded'), 'false')
+    await clique(marques)
+    await settle(60)
+    assert.equal(marques.getAttribute('aria-controls'), 'search-sheet-brands', 'la feuille ouverte n’est pas reliée à son bouton')
+    assert.ok(hote.querySelector('#search-sheet-brands'), 'l’id visé par aria-controls n’est pas dans le document')
+    assert.equal(catalogue.hasAttribute('aria-controls'), false, 'la deuxième feuille ment aussi')
+  })
+
+  it('le pager tient dans une fenêtre, et la dernière page reste à un clic', async () => {
+    rend()
+    await settle(120)
+    const pager = hote.querySelector('nav.pager')
+    assert.ok(pager, 'pas de pager rendu')
+    const numeros = () => [...pager.querySelectorAll('button')].filter((b) => /^\d+$/.test(b.textContent.trim()))
+    const total = pagesPour(produits.length)
+    assert.ok(total > 6, `la liste ne fait que ${total} pages : ce verrou ne prouverait rien`)
+    assert.ok(numeros().length <= 8, `${numeros().length} numéros dressés pour ${total} pages : le pager est un mur`)
+    assert.equal(pager.querySelectorAll('.pager-trou').length >= 1, true, 'aucun trou marqué alors que la liste fait plusieurs pages')
+    assert.equal(Math.max(...numeros().map((b) => Number(b.textContent.trim()))), total, 'la dernière page a disparu de la fenêtre')
+    assert.ok(numeros().some((b) => b.getAttribute('aria-current') === 'page'), 'la page courante n’est pas marquée dans la fenêtre')
+    await clique(numeros().find((b) => b.textContent.trim() === String(total)))
+    await settle(60)
+    assert.match(mentionPage(), new RegExp(`${total}\\s+sur\\s+${total}`), 'la dernière page n’a pas été atteinte')
+    assert.equal(cartes() > 0, true, 'la dernière page est vide : la tranche est fausse en fin de liste')
+    assert.equal(cartes() <= PAGE_TAILLE, true, `la dernière page déborne (${cartes()} cartes)`)
+  })
+
+  it('le client choisit sa taille de page, et tout le reste suit', async () => {
+    rend()
+    await settle(120)
+    const select = hote.querySelector('.pager-taille select')
+    assert.ok(select, 'aucun choix de taille de page sur la recherche')
+    assert.equal([...select.options].map((o) => o.value).join(','), TAILLES.join(','), 'les tailles proposées ne viennent pas de `TAILLES`')
+    assert.equal(cartes(), PAGE_TAILLE, 'la recherche ne commence pas à douze fiches')
+    await choisir(select, '48')
+    await settle(80)
+    assert.equal(cartes(), 48, 'passer à quarante-huit n’a rien changé aux fiches rendues')
+    assert.match(mentionPage(), new RegExp(`1\\s+sur\\s+${pagesPour(produits.length, 48)}`), 'le compte de pages n’a pas suivi la taille')
+    assert.ok(hote.querySelectorAll('nav.pager button').length <= 8, 'le pager n’a pas rétréci avec moins de pages')
+    assert.equal(select.value, '48', 'le contrôle n’a pas retenu le choix du client')
+    // Revenir a douze doit rendre la fenetre d'avant, pas rester coince a quarante-huit.
+    await choisir(select, '12')
+    await settle(80)
+    assert.equal(cartes(), 12, 'revenir à douze n’a rien rendu')
+  })
+
+  it('et la règle reste unique : les deux écrans passent par les mêmes composants', () => {
+    const app = sansCommentaires('src/App.jsx')
+    const page = sansCommentaires('src/SearchPage.jsx')
+    for (const [nom, source] of [['src/App.jsx', app], ['src/SearchPage.jsx', page]]) {
+      assert.match(source, /from '\.\/pagerControls\.jsx'/, `${nom} dresse encore son pager à la main`)
+      assert.match(source, /from '\.\/brandSheet\.jsx'/, `${nom} dresse encore son mur de marques à la main`)
+      assert.match(source, /from '\.\/filterSheet\.js'/, `${nom} n’a pas le geste clavier partagé`)
+      // Un markup recopié à côté du composant partagé est la divergence de demain.
+      assert.equal(/nav className="pager/.test(source), false, `${nom} garde une copie locale du markup du pager`)
+      assert.equal(/brandSearchPh/.test(source), false, `${nom} garde une copie locale du champ de recherche des marques`)
+    }
+  })
+})
+
+  it('un rayon choisi suffit à faire apparaître « Tout effacer » dans la barre', async () => {
+    rend()
+    await settle(120)
+    // La barre, et pas la page entiere : l'aside de bureau porte lui aussi un bouton
+    // du meme nom — « un seul exemplaire par regle » vaut aussi pour les verrous.
+    const effacerBarre = () => [...hote.querySelectorAll(`${BARRE} button`)].find((b) => b.textContent.trim() === t('reset'))
+    assert.equal(effacerBarre() == null, true, '« Tout effacer » se propose alors que rien n’est filtré')
+    await clique(bouton(t('filterCatalog')))
+    const feuille = hote.querySelector('#search-sheet-catalog')
+    const ligne = PART_LINES.find((l) => l.id === 'gpu')
+    const entete = [...feuille.querySelectorAll('button')].find((b) => b.textContent.trim() === t(PANNEAUX.find((x) => x.id === ligne.group).titleKey))
+    if (entete) await clique(entete)
+    await settle(60)
+    const rayon = boutonExact(t('line_gpu')) || boutonExact(ligne.label)
+    assert.ok(rayon, 'le rayon « gpu » n’apparait pas dans la feuille')
+    await clique(rayon)
+    await settle(80)
+    // La vitrine comptait deja sa categorie dans ce bouton ; la recherche comptait
+    // tout SAUF le rayon — le client reste donc sans issue visible quand il veut
+    // revenir a toute la liste.
+    const effacer = effacerBarre()
+    assert.ok(effacer, 'aucun « Tout effacer » dans la barre alors qu’un rayon est choisi')
+    const avant = totalAnnonce()
+    await clique(effacer)
+    await settle(80)
+    assert.equal(totalAnnonce(), produits.length, '« Tout effacer » n’a pas rendu toute la liste')
+    assert.ok(avant < produits.length, `le rayon n’avait rien filtré (${avant})`)
+    assert.equal(effacerBarre() == null, true, 'le bouton reste après l’effacement')
+  })
+
+  it('Échap ferme le tiroir mobile — une surface à la fois', async () => {
+    rend()
+    await settle(120)
+    const tiroir = bouton(t('filters'))
+    assert.ok(tiroir, 'le bouton du tiroir de filtres est introuvable')
+    await clique(tiroir)
+    await settle(60)
+    assert.ok(hote.querySelector('.offcanvas-body'), 'le tiroir ne s’est pas ouvert')
+    await echap()
+    await settle(60)
+    assert.equal(hote.querySelector('.offcanvas-body') == null, true, 'Échap n’a pas fermé le tiroir mobile')
+    // Les deux ouvertes : Echap ferme la feuille, laisse le tiroir — vider les deux
+    // d'un coup ferait perdre le choix que le client etait en train de faire.
+    await clique(tiroir)
+    await settle(60)
+    await clique(bouton(t('filterBrands')))
+    await settle(60)
+    assert.ok(hote.querySelector('#search-sheet-brands') && hote.querySelector('.offcanvas-body'), 'les deux surfaces ne sont pas ouvertes')
+    await echap()
+    await settle(60)
+    assert.equal(hote.querySelector('#search-sheet-brands') == null, true, 'la feuille n’a pas fermé la première')
+    assert.ok(hote.querySelector('.offcanvas-body'), 'Échap a fermé le tiroir en même temps : deux surfaces vidées d’un coup')
+  })
+
+  it('une feuille ouverte est un groupe nommé, et ses trous sont reliés', async () => {
+    rend()
+    await settle(120)
+    await clique(bouton(t('filterCatalog')))
+    const feuille = hote.querySelector('#search-sheet-catalog')
+    assert.ok(feuille, 'la feuille catalogue ne s’est pas ouverte')
+    assert.equal(feuille.getAttribute('role'), 'group', 'la feuille est une boite de boutons sans nom pour un lecteur d’écran')
+    assert.match(feuille.getAttribute('aria-label') || '', new RegExp(t('filterCatalog')))
+    // Un `aria-expanded` sans `aria-controls` dit « ca se déplie » sans dire ou.
+    const entete = [...feuille.querySelectorAll('button')].find((b) => b.hasAttribute('aria-expanded'))
+    assert.ok(entete, 'aucun entete de groupe dans la feuille')
+    const cible = entete.getAttribute('aria-controls')
+    assert.ok(cible, 'un aria-expanded sans aria-controls : le groupe déplié n’a pas de nom de region')
+    assert.ok(hote.querySelector(`#${cible}`), `aria-controls vise #${cible}, qui n’est pas dans le document`)
+    // Et la regle vaut pour TOUTES les tetes de la feuille : un groupe replie qui
+    // promet une grille absente est le meme mensonge, juste moins visible.
+    for (const b of [...feuille.querySelectorAll('button')]) {
+      const vise = b.getAttribute('aria-controls')
+      if (!vise) continue
+      assert.ok(hote.querySelector(`#${vise}`), `« ${b.textContent.trim()} » promet #${vise}, qui n’est pas monté`)
+    }
+    await clique(bouton(t('filterBrands')))
+    await settle(60)
+    assert.equal(hote.querySelector('#search-sheet-brands')?.getAttribute('role'), 'group', 'la feuille des marques n’est pas nommée')
+  })
+
+  it('le choix de taille a un seul nom, pas deux', () => {
+    rend()
+    const select = hote.querySelector('.pager-taille select')
+    assert.ok(select, 'aucun choix de taille de page')
+    // Le `<label>` porte le texte visible ; un `aria-label` par-dessus fait dire la
+    // meme phrase deux fois au lecteur d'ecran.
+    assert.equal(select.hasAttribute('aria-label'), false, 'le select est nommé deux fois')
+    assert.match(select.closest('label').textContent, new RegExp(t('pageSize')), 'le texte visible ne nomme plus le contrôle')
+  })
+
+  it('une recherche enregistrée se nomme, et ne porte pas le défaut du catalogue', async () => {
+    rend()
+    await settle(120)
+    await clique(bouton(t('saveSearch')))
+    await settle(60)
+    // La source de verite, c'est ce qui est persiste (et `saved.map` rend une puce
+    // par entree) — pas une classe Bootstrap qui habille aussi la bascule Grille/
+    // Liste et les numeros du pager.
+    const dernier = loadSavedSearches()[0]
+    assert.ok(dernier, 'la recherche nenregistrée na rien laisse en magasin')
+    // Sans aucun filtre, la puce a quand meme un nom : « Recherche libre ». Une puce
+    // vide ne se relit pas deux jours plus tard.
+    assert.equal(dernier.title, t('searchFree'), `nom de la recherche sans filtre : ${JSON.stringify(dernier.title)}`)
+    assert.equal(loadSavedSearches().some((x) => String(x.title).includes(t('line_all'))), false, 'le défaut du catalogue est devenu un choix dans le nom')
+    const puces = [...hote.querySelectorAll('.filter-sheet button, .d-flex.flex-wrap.gap-1.mb-3 button')].map((b) => b.textContent.trim())
+    assert.ok(puces.includes(t('searchFree')), `la puce narrive pas a lecran : ${puces.join(' | ')}`)
+  })
+
+describe('P6/S3 — la forme des verrous (le pige est arrivé deux fois dans ce lot)', () => {
+  it('aucun verrou ne compare deux nœuds DOM', () => {
+    // `assert.equal(hote.querySelector('#x'), null)` passe quand tout va bien et
+    // TRUIRE le runner quand ça rate : le diff de Node remonte l'arbre DOM, puis les
+    // `__reactFiber` accrochés aux éléments, et le process meurt d'un tas épuisé une
+    // vingtaine de secondes plus tard sans jamais afficher le message. Un verrou qui
+    // ne peut pas dire pourquoi il a rougi n'est pas un verrou.
+    const sources = ['src/p6SearchSurface.test.js', 'src/p3Vitrine.test.js', 'src/reportP17.test.js']
+    const motif = /assert\.equal\(\s*(?:hote\.querySelector\(|bouton(?:Exact)?\(|document\.querySelector\()[^;]*,\s*(?:null|undefined)\s*,/
+    for (const f of sources) {
+      const source = fs.readFileSync(path.join(process.cwd(), f), 'utf8')
+      const fautives = source.split('\n').filter((l) => motif.test(l))
+      assert.deepEqual(fautives, [], `${f} compare des nœuds à ${'null'}`)
+    }
+  })
+})
+
 describe('P6/S2 — la règle de tranchage, testée pour elle-même', () => {
   it('pagesPour : au moins une page, jamais de page pour une liste vide', () => {
     assert.equal(PAGE_TAILLE, 12, 'la vitrine annonce douze fiches par page')
@@ -452,6 +755,36 @@ describe('P6/S2 — la règle de tranchage, testée pour elle-même', () => {
     assert.equal(pageCourante(NaN, 3), 1, 'un numéro invalide ne doit pas sortir du domaine')
     assert.equal(pageCourante(2.9, 3), 2, 'un numéro à virgule se lit par défaut bas, comme la tranche')
     assert.equal(pageCourante(7, 0), 1, 'aucune page possible : on reste à 1, pas à 0')
+  })
+
+  it('tailleSure : ce que l’interface propose, rien d’autre', () => {
+    assert.deepEqual(TAILLES, [12, 24, 48], 'les tailles proposées ont changé sans prévenir les verrous')
+    for (const n of TAILLES) assert.equal(tailleSure(n), n)
+    assert.equal(tailleSure('24'), 24, 'une valeur venue d’une URL en chaîne doit être lisible')
+    for (const v of [0, -3, 99, 13, 'beaucoup', NaN, null, undefined, {}]) {
+      assert.equal(tailleSure(v), PAGE_TAILLE, `${String(v)} doit retomber sur le défaut, pas vider la liste`)
+    }
+    // Le select est borne, le tranchage ne l'est pas : un autre appelant a le droit
+    // de demander cinq fiches par page, et lui repondre « douze » en silence serait un
+    // `slice` faux et muet.
+    assert.equal(tranche([1, 2, 3, 4, 5, 6, 7], 2, 5).length, 2)
+    assert.equal(pagesPour(301, 48), 7)
+    assert.equal(pagesPour(301), 26)
+    assert.equal(pagesPour(301, 'beaucoup'), 26, 'un compte de pages ne se laisse pas mettre à zéro par une ordure')
+  })
+
+  it('fenetrePages : première et dernière toujours là, le trou marqué mais pas cliquable', () => {
+    assert.deepEqual(fenetrePages(1, 3), [1, 2, 3], 'une liste courte ne doit pas inventer de trou')
+    assert.deepEqual(fenetrePages(1, 6), [1, 2, 3, 4, 5, 6])
+    assert.deepEqual(fenetrePages(1, 7), [1, 2, POINT_DE_SUSPENSION, 7], 'un seul numéro sauté se marque en clair, pas en « … »')
+    assert.deepEqual(fenetrePages(13, 26), [1, POINT_DE_SUSPENSION, 12, 13, 14, POINT_DE_SUSPENSION, 26])
+    assert.ok(fenetrePages(13, 26).length <= 8, `la fenêtre fait ${fenetrePages(13, 26).length} cases`)
+    assert.ok(fenetrePages(1, 26).includes(26), 'page 1 : la dernière page doit rester cliquable')
+    assert.ok(fenetrePages(26, 26).includes(1), 'dernière page : la première doit rester cliquable')
+    assert.deepEqual(fenetrePages(999, 4), [1, 2, 3, 4], 'une page hors liste doit rendre une fenêtre lisible, pas un trou')
+    assert.deepEqual(fenetrePages(NaN, 0), [1])
+    assert.ok(fenetrePages(13, 26, 0).includes(13), 'rayon nul : la page courante reste dans sa propre fenêtre')
+    assert.equal(fenetrePages(13, 26, 0).filter((x) => typeof x === 'number').length, 3)
   })
 
   it('tranche : la bonne coupe, et jamais de trou ni de doublon entre deux pages', () => {

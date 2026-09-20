@@ -722,6 +722,26 @@ html[data-theme='light'] .text-secondary {
   min-height: 44px;
 }
 
+/* LOT P6 (S3) — le trou entre « 1 » et « 4 » n'est pas un bouton : une etiquette
+   discrete, de la largeur d'une cible tactile, pour que la rangee ne dansse pas
+   quand la fenetre se deplace d'une page. */
+.pager-trou {
+  min-width: 24px;
+  padding-inline: 4px;
+  text-align: center;
+  color: var(--bs-secondary-color);
+}
+
+/* Le choix du nombre de fiches par page se tient a cote du compteur de resultats,
+   sans voler une ligne sur un telephone. */
+.pager-taille {
+  gap: 0.375rem;
+}
+
+.pager-taille select {
+  min-width: 5.5rem;
+}
+
 /* ── LOT P4 (V5) — le menu latéral et la connexion en pleine page ─────────── */
 .nav-sheet-head {
   display: none;

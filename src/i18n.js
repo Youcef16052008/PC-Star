@@ -33,6 +33,9 @@ export const dict = {
     shopCount: '{n} produits',
     shopPageOf: ' · page {page} sur {pages}',
     pagerLabel: 'Pages du catalogue',
+    // Le client choisit combien de fiches tiennent sur une page (lot S3). Le mot dit ce
+    // que le select change, pas « taille » ni « page size ».
+    pageSize: 'Fiches par page',
     prevPage: 'Précédent',
     nextPage: 'Suivant',
     catalog: 'Catalogue',
@@ -236,7 +239,10 @@ export const dict = {
     searchCrumb: 'Boutique / Recherche',
     searchOneType: 'Explorez tous les rayons — composants, ordinateurs, imprimantes, réseau, accessoires et occasion. Retrait à {address}.',
     filters: 'Filtres',
-    reset: 'Reset',
+    reset: 'Tout effacer',   // EN « Reset » : le verbe francais, pas l'anglicisme
+    // Le nom d'une recherche enregistree sans aucun filtre — sans lui, la puce etait
+    // vide, et une puce vide ne se relit pas deux jours plus tard.
+    searchFree: 'Recherche libre',
     saveSearch: 'Sauver cette recherche',
     searchSaved: 'Recherche sauvée',
     brands: 'Marques',
@@ -710,6 +716,7 @@ export const dict = {
     shopCount: '{n} products',
     shopPageOf: ' · page {page} of {pages}',
     pagerLabel: 'Catalogue pages',
+    pageSize: 'Items per page',
     prevPage: 'Previous',
     nextPage: 'Next',
     catalog: 'Catalogue',
@@ -909,6 +916,7 @@ export const dict = {
     searchOneType: 'Explore every department — parts, computers, printers, network, accessories and used stock. Pickup at {address}.',
     filters: 'Filters',
     reset: 'Reset',
+    searchFree: 'Free search',
     saveSearch: 'Save this search',
     searchSaved: 'Search saved',
     brands: 'Brands',

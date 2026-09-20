@@ -6,7 +6,13 @@ import { PRICE_PRESETS, PRODUCT_CONDITIONS, SOCKETS, STORE, conditionOf, money, 
 import { loadSavedSearches, saveSavedSearches } from './shopStore.js'
 import { stockLabel } from './stockLabel.js'
 // LOT P6 (S2) : memes pages que la vitrine, meme regle — voir `src/pager.js`.
-import { pageCourante, pagesPour, tranche } from './pager.js'
+// LOT P6 (S3) : le client choisit sa taille de page, et le pager comme la feuille
+// des marques sont des composants PARTAGES — un exemplaire pour les deux ecrans,
+// plus de markup recopie qui diverge au premier correctif.
+import { PAGE_TAILLE, pageCourante, pagesPour, tailleSure, tranche } from './pager.js'
+import { ChoixTaille, Pager } from './pagerControls.jsx'
+import { BrandSheet } from './brandSheet.jsx'
+import { useFeuilleFiltre } from './filterSheet.js'
 import PartThumb from './PartThumb.jsx'
 import { discountPercent, hasSale } from './productMeta.js'
 
@@ -54,6 +60,10 @@ export default function SearchPage({ t, products, lines, panels, lang, liveStock
   // page 1 tout seul — mais l'etat se reinitialise quand meme au changement de
   // filtre, pour que le « Suivant » d'apres reparte du haut de la nouvelle liste.
   const [page, setPage] = useState(1)
+  // LOT P6 (S3) : douze, vingt-quatre ou quarante-huit fiches par page. Les valeurs
+  // possibles et le bornage vivent dans `src/pager.js` — le select ne propose que ce
+  // qui existe, et tout le reste (URL bidouillée, onglet restauré) retombe sur douze.
+  const [taille, setTaille] = useState(PAGE_TAILLE)
 
   const allLines = lines || []
   const allPanels = panels || []
@@ -125,9 +135,10 @@ export default function SearchPage({ t, products, lines, panels, lang, liveStock
     return list
   }, [filters, liveStock, preset, line, showSocket, products])
 
-  const pages = pagesPour(results.length)
+  const pas = tailleSure(taille)
+  const pages = pagesPour(results.length, pas)
   const pageSure = pageCourante(page, pages)
-  const vus = tranche(results, pageSure)
+  const vus = tranche(results, pageSure, pas)
 
   function vaEnPage(n) {
     setPage(pageCourante(n, pages))
@@ -135,6 +146,15 @@ export default function SearchPage({ t, products, lines, panels, lang, liveStock
     // chercher le champ de recherche — c'est ce que fait la vitrine (LOT P4 V3).
     document.getElementById('search-results')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }
+
+  // LOT P6 (S3) : Echap ferme la feuille et rend le focus au bouton qui l'a ouverte.
+  // Une seule feuille est ouverte a la fois (`setSheet` le garantit), donc un seul
+  // appel du hook — deux appels, c'est deux ecoutes qui se disputent la touche.
+  useFeuilleFiltre(sheet !== null, () => setSheet(null))
+  // Le tiroir mobile des filtres se ferme a la meme touche — mais seulement quand
+  // aucune feuille n'est ouverte : Echap doit fermer une chose a la fois, pas vider
+  // d'un coup les deux surfaces que le client avait deployees.
+  useFeuilleFiltre(filtersOpen && sheet === null, () => setFiltersOpen(false))
 
   const activeChips = []
   if (filters.socket !== 'all') activeChips.push({ key: 'socket', label: filters.socket })
@@ -150,9 +170,11 @@ export default function SearchPage({ t, products, lines, panels, lang, liveStock
   }
 
   function saveSearch() {
-    const title = [lineLabel, filters.q.trim() || null, filters.socket !== 'all' ? filters.socket : null, ...filters.brands]
+    // LOT P6 (S3) : le rayon par defaut n'est pas une choice, il n'a rien a faire
+    // dans le nom de la recherche enregistree (« Tout le catalogue · 7800x3d »).
+    const title = [filters.line !== EMPTY.line ? lineLabel : null, filters.q.trim() || null, filters.socket !== 'all' ? filters.socket : null, ...filters.brands]
       .filter(Boolean)
-      .join(' · ')
+      .join(' · ') || t('searchFree')
     // P10 (P7-14) : bornée à 10 + persistée (localStorage)
     //
     // LOT 6.7 (Q7) — deux défauts d'un coup, et ils se déclenchent ensemble :
@@ -265,7 +287,7 @@ export default function SearchPage({ t, products, lines, panels, lang, liveStock
             className={`btn btn-sm ${filters.brands.length ? 'btn-success' : 'btn-outline-success'}`}
             onClick={() => setSheet(sheet === 'brands' ? null : 'brands')}
             aria-expanded={sheet === 'brands'}
-            aria-controls="search-sheet-brands"
+            aria-controls={sheet === 'brands' ? 'search-sheet-brands' : undefined}
           >
             {t('filterBrands')}
             {filters.brands.length ? ` · ${filters.brands.length}` : ''}
@@ -275,12 +297,20 @@ export default function SearchPage({ t, products, lines, panels, lang, liveStock
             className={`btn btn-sm ${filters.line !== EMPTY.line ? 'btn-success' : 'btn-outline-success'}`}
             onClick={() => setSheet(sheet === 'catalog' ? null : 'catalog')}
             aria-expanded={sheet === 'catalog'}
-            aria-controls="search-sheet-catalog"
+            aria-controls={sheet === 'catalog' ? 'search-sheet-catalog' : undefined}
           >
             {t('filterCatalog')}
-            {lineLabel ? ` · ${lineLabel}` : ''}
+            {/* LOT P6 (S3) : le bouton reporte la valeur CHOISIE, pas la valeur par
+                defaut. « Filtrer par catalogue · Tout le catalogue » se lisait comme
+                une selection active alors que rien n'etait filtre — et le verrou de
+                S1 avait du s'assouplir a la prefixation pour le tolerer. */}
+            {filters.line !== EMPTY.line ? ` · ${lineLabel}` : ''}
           </button>
-          {(filters.brands.length || filters.condition !== 'all' || filters.price !== 'any' || filters.socket !== 'all' || filters.q.trim()) && (
+          {/* LOT P6 (S3) : le rayon choisi compte comme un filtre actif. Sans lui, le
+              client qui avait picked un GPU ne voyait plus « Tout effacer » dans la
+              barre — la vitrine, elle, comptait deja sa categorie. Deux regles, une
+              seule vue oubliee. */}
+          {(filters.line !== EMPTY.line || filters.brands.length || filters.condition !== 'all' || filters.price !== 'any' || filters.socket !== 'all' || filters.q.trim()) && (
             <button type="button" className="btn btn-sm btn-link" onClick={() => setFilters({ ...EMPTY })}>
               {t('reset')}
             </button>
@@ -288,34 +318,20 @@ export default function SearchPage({ t, products, lines, panels, lang, liveStock
         </div>
 
         {sheet === 'brands' && (
-          <div className="filter-sheet" id="search-sheet-brands">
-            <div className="d-flex flex-wrap gap-1">
-              {lineBrands.length > 1 && (
-                <button
-                  type="button"
-                  className={`btn btn-sm ${filters.brands.length ? 'btn-outline-secondary' : 'btn-success'}`}
-                  onClick={() => { setFilters((f) => ({ ...f, brands: [] })); setSheet(null) }}
-                >
-                  {t('cat_all')}
-                </button>
-              )}
-              {lineBrands.map((b) => (
-                <button
-                  key={b}
-                  type="button"
-                  className={`btn btn-sm ${filters.brands.includes(b) ? 'btn-success' : 'btn-outline-secondary'}`}
-                  onClick={() => { toggleBrand(b); setSheet(null) }}
-                >
-                  {b}
-                </button>
-              ))}
-            </div>
-            {lineBrands.length === 0 && <p className="small text-secondary mb-0">{t('noBrands')}</p>}
+          <div className="filter-sheet" id="search-sheet-brands" role="group" aria-label={t('filterBrands')} >
+            <BrandSheet
+              t={t}
+              marques={lineBrands}
+              montreTout={lineBrands.length > 1}
+              estActive={(b) => filters.brands.includes(b)}
+              onChoisir={(b) => { toggleBrand(b); setSheet(null) }}
+              onTout={() => { setFilters((f) => ({ ...f, brands: [] })); setSheet(null) }}
+            />
           </div>
         )}
 
         {sheet === 'catalog' && (
-          <div className="filter-sheet" id="search-sheet-catalog">
+          <div className="filter-sheet" id="search-sheet-catalog" role="group" aria-label={t('filterCatalog')}>
             <div className="d-flex flex-wrap gap-1 mb-2">
               {allPanels
                 .filter((panel) => allLines.some((l) => l.group === panel.id))
@@ -328,6 +344,7 @@ export default function SearchPage({ t, products, lines, panels, lang, liveStock
                       className={`btn btn-sm ${ouvert ? 'btn-success' : 'btn-outline-secondary'}`}
                       onClick={() => setGroupeOuvert(ouvert ? '__ferme__' : panel.id)}
                       aria-expanded={ouvert}
+                      aria-controls={ouvert ? `search-grid-${panel.id}` : undefined}
                     >
                       {panelTitle(panel)}
                     </button>
@@ -337,7 +354,7 @@ export default function SearchPage({ t, products, lines, panels, lang, liveStock
             {allPanels
               .filter((panel) => (groupeOuvert ?? line?.group) === panel.id)
               .map((panel) => (
-                <div className="filter-sheet-grid" key={`grid-${panel.id}`}>
+                <div className="filter-sheet-grid" key={`grid-${panel.id}`} id={`search-grid-${panel.id}`}>
                   {allLines
                     .filter((l) => l.group === panel.id)
                     .map((l) => (
@@ -468,6 +485,7 @@ export default function SearchPage({ t, products, lines, panels, lang, liveStock
               {pages > 1 ? t('shopPageOf', { page: pageSure, pages }) : ''}
             </span>
             <div className="d-flex flex-wrap gap-2 align-items-center">
+              <ChoixTaille t={t} taille={taille} onTaille={setTaille} />
               <div className="btn-group btn-group-sm" role="group">
                 <button type="button" className={`btn ${view === 'grid' ? 'btn-success' : 'btn-outline-secondary'}`} onClick={() => setView('grid')}>
                   {t('grid')}
@@ -556,31 +574,12 @@ export default function SearchPage({ t, products, lines, panels, lang, liveStock
             </div>
           )}
 
-          {pages > 1 && (
-            // LOT P6 (S2) : les resultats se suivent en pages, comme le catalogue
-            // de la vitrine — meme taille de page (`src/pager.js`), meme markup,
-            // meme annonce. Une page de 301 vignettes n'est pas une page, c'est un
-            // plantage poli sur un telephone d'occasion.
-            <nav className="pager d-flex flex-wrap gap-1 align-items-center mt-4" aria-label={t('pagerLabel')}>
-              <button type="button" className="btn btn-sm btn-outline-secondary" onClick={() => vaEnPage(pageSure - 1)} disabled={pageSure <= 1}>
-                ‹ {t('prevPage')}
-              </button>
-              {Array.from({ length: pages }, (_, k) => k + 1).map((n) => (
-                <button
-                  key={n}
-                  type="button"
-                  className={`btn btn-sm ${n === pageSure ? 'btn-success' : 'btn-outline-secondary'}`}
-                  onClick={() => vaEnPage(n)}
-                  aria-current={n === pageSure ? 'page' : undefined}
-                >
-                  {n}
-                </button>
-              ))}
-              <button type="button" className="btn btn-sm btn-outline-secondary" onClick={() => vaEnPage(pageSure + 1)} disabled={pageSure >= pages}>
-                {t('nextPage')} ›
-              </button>
-            </nav>
-          )}
+          {/* LOT P6 (S3) : le pager est un composant partage, et sa fenetre de
+              numeros vient de `fenetrePages` — vingt-huit boutons pour trois cent une
+              fiches, ce n'etait pas le mur de pastilles repare, c'etait le meme mur
+              numéroté. `Pager` ne se montre que s'il y a de quoi tourner. */}
+          <Pager t={t} page={pageSure} pages={pages} onPage={vaEnPage} />
+
         </section>
       </div>
 

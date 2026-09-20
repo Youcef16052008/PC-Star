@@ -3127,7 +3127,9 @@ aucun secret**, `npm run build:crawl` + crawl **24/0**, audit des boutons **32/0
 écrans : un « voir plus » ou un scroll infini est une décision de produit, pas un défaut à
 réparer — et une taille par écran ne veut rien dire, d'où un seul module. Les 301 fiches ne sont
 toujours filtrées qu'en local sur le catalogue de base : la pagination est un rendu, pas une
-requête, et elle aurait dû attendre le chargement à la demande côté API (le P7 de `docs/PLAN.md`),
+requête, et elle aurait dû attendre le chargement à la demande côté API (le lot correspondant de
+`docs/PLAN-CORRECTIONS.md` — pointeur corrigé au lot S3 : la phrase d'origine promettait ce prix
+dans un fichier de ce nom qui n'a jamais existé dans le dépôt),
 dont le prix est déjà écrit — c'est le « on reste en local » honnête du P6, qui n'a pas bougé.
 
 
@@ -3137,3 +3139,84 @@ tests, meme Node 22, base Neon isolée réinitialisée avant la volée) ; `UI au
 **succès 7 m 15 s** ; `E2E smoke` (Chromium + WebKit + Firefox) **succès 1 m 27 s** ; **Vercel
 succès**. Le nombre de tests est donc vérifié ailleurs que dans mon terminal — et la ligne
 « 1121 tests verts » du titre de la PR est une porte de CI, pas une promesse locale.
+
+
+## LOT P6 (S3) : l'analyse demandée par le client — huit défauts, tous mesurés avant/après
+
+Le client a demandé de fermer les deux points laissés ouverts par S2 (« taille de page figée »,
+« filtrage local ») et de **chercher d'autres bugs**. Huit ont été trouvés, tous sur les surfaces
+que ce lot a touchées, et tous mesurés sur la page rendue (un script jsdom qui monte la page
+Recherche, clique, et compte) — pas au grep.
+
+| # | défaut | mesure avant | mesure après |
+| --- | --- | --- | --- |
+| 1 | la feuille des marques de la **recherche** dressait le mur sans champ de recherche (celle de la vitrine l'avait) | 84 boutons, **0** `input` | 84 boutons dans `.filter-sheet-grid`, 1 `input` ; « wd » → `Tout, WD` |
+| 2 | le **pager** dressait un bouton par page | **28** boutons (1 par page) | **5** boutons + 1 trou : `‹ Précédent 1 2 … 26 Suivant ›` |
+| 3 | **Échap** ne fermait rien (ni les feuilles, ni le tiroir mobile) | feuille encore montée après `keydown Escape` | fermée, focus rendu au bouton qui l'a ouverte |
+| 4 | `aria-controls` pointait une feuille **non montée** (quatre boutons, deux écrans) | attribut posé, cible absente du document | attribut retiré tant que la feuille est fermée |
+| 5 | le bouton « Filtrer par catalogue » affichait `· Tout le catalogue` **comme un choix** | libellé pollué au premier rendu | libellé exact, ` · GPU` seulement après choix |
+| 6 | « Tout effacer » disparaissait quand seul un **rayon** était choisi (la vitrine comptait sa catégorie, la recherche non) | bouton absent avec `line = gpu` | bouton présent ; son clic rend les 301 fiches et il repart |
+| 7 | le **nom** d'une recherche enregistrée commençait par le défaut du catalogue | `Tout le catalogue · …` | le rayon choisi seulement, sinon `Recherche libre` |
+| 8 | la taille de page était **imposée** (le point ouvert de S2) | aucun contrôle | select `12 / 24 / 48` partagé, 48 → 48 cartes et « page 1 sur 7 » |
+
+### Forme des corrections : un exemplaire par règle, encore
+
+- `src/pager.js` s'est enrichi au lieu d'être contourné : `TAILLES`, `tailleSure` (le bornage de
+  l'**interface**), `pas` (le bornage du **tranchage**), `fenetrePages`. La distinction est un
+  défaut évité : `tranche(liste, page, 5)` doit rendre cinq fiches, pas glisser silencieusement à
+  douze — un appelant non-UI a le droit d'autre chose, et un `slice` faux et muet est pire qu'un
+  refus. `pagesPour(301, 99)` = 4 pareillement.
+- Trois composants partages sont nés, chacun pour une règle qui vivait en double :
+  `src/pagerControls.jsx` (`Pager`, `ChoixTaille`), `src/brandSheet.jsx` (`BrandSheet`),
+  `src/filterSheet.js` (`useFeuilleFiltre`). Les verrous de non-régression interdisent maintenant
+  au markup recopié de revenir : `assert.equal(/nav className="pager/.test(source), false)` et
+  `/brandSearchPh/` sur **les deux** fichiers d'écran.
+- Le `<select>` de taille n'a **pas** d'`aria-label` : il est nommé par le `<label>` visible, et
+  les deux à la fois font dire la phrase deux fois à un lecteur d'écran (verrou : le contrôle ne
+  porte pas l'attribut, et le texte du label le nomme).
+- Les feuilles portent `role="group"` + `aria-label`, et l'`aria-controls` d'une tête de groupe ne
+  pointe que la grille **montée** — la règle du n°4 appliquée jusqu'au bout, y compris aux
+  deuxièmes niveaux.
+
+### Deux pièges de ce lot, écrits parce qu'ils m'ont fait perdre trois runs
+
+1. **`assert.equal(hote.querySelector('#x'), null)` est un appât.** Ça passe quand tout va bien ;
+   quand ça rate, le diff de Node remonte l'arbre DOM puis les `__reactFiber` accrochés aux
+   éléments, et le process meurt d'un tas épuisé une vingtaine de secondes plus tard **sans jamais
+   afficher le message du verrou**. J'ai vu trois runs « 18 tests sur 28, `test failed` » avant de
+   comprendre. Corrigé partout : on compare une trace (`el == null`, un `textContent`). Et un
+   verrou de **forme** (le n° 20 du fichier) interdit maintenant le motif dans
+   `p6SearchSurface`, `p3Vitrine` et `reportP17` — un verrou qui ne peut pas dire pourquoi il a
+   rougi n'est pas un verrou.
+2. **Un verrou assoupli est un défaut déguisé.** En S1, le verrou de libellé exigeait
+   `startsWith(t('filterCatalog'))` et un second attendait `· \S` — le premier tolérait, le second
+   **verrouillait le défaut** (le bouton affichait le catalogue entier comme une sélection). Le
+   code était faux, le test s'était adapté. Les deux sont réécrits sur l'honnête : égalité exacte
+   au repos, suffixe seulement après choix réel.
+
+### Un pointeur faux dans mes propres docs, tué par un verrou
+
+La section S2 promettait le prix du chargement à la demande côté API « dans `docs/PLAN.md` ». Ce
+fichier n'existe pas (le plan s'appelle `docs/PLAN-CORRECTIONS.md`). La phrase était juste, le
+chemin non. Balayage des quinze docs vivants : **une seule citation morte dans tout le dépôt, la
+mienne**. `src/p3DocsAging.test.js` verrouille donc maintenant que toute citation `*.md` d'un doc
+vivant mène à un fichier qui existe (les journaux datés en sont exclus : ils ne se réécrivent pas),
+avec un plancher de dix citations balayées pour que le verrou ne puisse pas devenir une coquille
+vide.
+
+### Ce qui reste ouvert, après ce lot
+
+- Le **filtrage lui-même** est encore rendu sur le catalogue local : paginer n'est pas requêter.
+  Le lot correspondant de `docs/PLAN-CORRECTIONS.md` garde le chiffrage, et rien dans ce lot ne
+  prétend l'avoir fait.
+- Le **choix de taille de page n'est pas persisté** (recharger ramène à douze). C'est une
+  préférence de confort, pas un résultat : elle n'entre pas dans les recherches enregistrées, et
+  l'écrire ici vaut mieux qu'un silence.
+- `tailleSure` ne propose que 12/24/48. Un client qui bricole l'URL obtient douze, sans message :
+  à la lecture on borne, on ne refuse pas (règle du P5) — le refus, c'est pour la saisie du maître.
+
+**Portes rejouées après ces huit corrections** : `npm test` **1139 / 1139** (312 suites ;
+`src/p6SearchSurface.test.js` 34 verrous, `src/p3Vitrine.test.js` 40, `src/p3DocsAging.test.js` 7),
+`npm run build` **493,64 kB** (gzip 148,44, **+1,76 kB** pour les trois modules partagés) avec
+`check-bundle` **9 artefacts, aucun secret**, `npm run build:crawl` + crawl **24 pages / 0
+erreur**, audit des boutons **32 / 0**.

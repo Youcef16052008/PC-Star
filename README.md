@@ -9,14 +9,14 @@ npm install
 npm run start:api   # :8787 multi-device orders + auth
 npm run dev         # :5173 site (proxies /api)
 npm run build       # vite build, then scans dist/ for secrets — fails if any landed there
-npm test            # 1121 tests (node:test, 80 fichiers) — run `npm run build` first: bundleSecrets scans dist/
+npm test            # 1139 tests (node:test, 80 fichiers) — run `npm run build` first: bundleSecrets scans dist/
 npm run check:bundle # re-run only the dist/ secret scan (lot 7.3)
 npm run master:rotate # new master password, written to .env.local — the value is never printed
 ```
 
 ## État mesuré (20/09/2026)
 
-- `npm test` : **1121 tests, 0 échec** (80 fichiers `src/*.test.js`, tous branchés dans le script — `src/p3ServerHygiene.test.js` le vérifie). Le total peut bouger de ±1 selon le nombre de chunks que `dist/` contient : `src/bundleSecrets.test.js` fabrique un test par artefact scanné, ce n'est pas une régression. La suite scanne le bundle publié
+- `npm test` : **1139 tests, 0 échec** (80 fichiers `src/*.test.js`, tous branchés dans le script — `src/p3ServerHygiene.test.js` le vérifie). Le total peut bouger de ±1 selon le nombre de chunks que `dist/` contient : `src/bundleSecrets.test.js` fabrique un test par artefact scanné, ce n'est pas une régression. La suite scanne le bundle publié
   (`src/bundleSecrets.test.js`) : sans `dist/`, elle échoue en cascade — le build
   est une pré-condition, pas une étape optionnelle.
 - `npm run build:crawl && node scripts/jsdom-crawl.mjs` : 24 pages rendues en
@@ -138,7 +138,11 @@ Photos: keep shipping under `public/photos/sku/` — add pro shots later, push, 
   **seulement** aux lignes qui en ont une. L'aside ne duplique plus rien, et le tiroir mobile non
   plus : la liste des marques qui y vivait encore est partie. Les résultats se **paginent** douze
   par douze — la règle est écrite une fois pour la vitrine et la recherche, dans `src/pager.js`.
-  Vingt verrous montés à l'écran : `src/p6SearchSurface.test.js`.
+  Trente-quatre verrous montés à l'écran : `src/p6SearchSurface.test.js`. Le lot S3 a partagé la
+  règle là où elle avait été recopiée : `src/pagerControls.jsx` (pager fenêtré + choix 12/24/48),
+  `src/brandSheet.jsx` (la feuille des marques avec son champ, pour les deux écrans),
+  `src/filterSheet.js` (Échap). Un pager qui dresse un bouton par page n'a pas réparé le mur de
+  pastilles, il l'a numéroté : 28 boutons, puis 5.
 - **Rotation du secret maître** — `npm run master:rotate` (`scripts/rotate-master.mjs`) génère
   un mot de passe de 32 signes, l'écrit dans `.env.local` en `0600`, refuse toute cible que git
   suivrait, et **n'affiche jamais la valeur** : un secret passé à l'écran se retrouve dans

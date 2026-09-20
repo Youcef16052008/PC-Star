@@ -122,6 +122,39 @@ describe('P3 — docs : deux régimes, un classement obligatoire', () => {
     }
   })
 
+  it("toute citation d'un fichier de docs, dans un doc vivant, mène à un fichier qui existe", () => {
+    // Né au lot S3 : un correctif écrivait « le P7 de `docs/PLAN.md`, dont le prix est
+    // déjà écrit » — un prix promis dans un fichier qui n'existe pas. La phrase était
+    // parfaite, le chemin non. Un lecteur suit la référence, tombe sur 404, et ne
+    // croit plus aucun chiffre du journal.
+    //
+    // Les journaux datés sont exclus : ils ne se réécrivent pas, une citation morte y
+    // est la trace de ce qu'on croyait ce jour-là. Un doc vivant, lui, doit être suivi.
+    const lu = (fichier) => fs.readFileSync(path.join(process.cwd(), fichier), 'utf8')
+    const motif = /(?:\]\(|`|\()((?:docs\/)?[A-Z0-9-]+\.md)/g
+    const vivants = ['README.md'].concat(
+      fs
+        .readdirSync(path.join(process.cwd(), DOC))
+        .filter((f) => f.endsWith('.md'))
+        .sort()
+        .map((f) => path.join(DOC, f))
+        .filter((f) => !lu(f).slice(0, 4000).includes(MARKER_DATÉ))
+    )
+    let vues = 0
+    for (const f of vivants) {
+      for (const m of lu(f).matchAll(motif)) {
+        const cite = m[1]
+        const cible = cite.startsWith(`${DOC}/`) ? cite : path.join(f.startsWith(DOC) ? DOC : '', cite.split('/').pop())
+        vues += 1
+        assert.ok(fs.existsSync(path.join(process.cwd(), cible)), `${f} cite ${cite} : ce fichier n’existe pas`)
+      }
+    }
+    // Un verrou qui ne regarde rien est un verrou qui passe. Quinze docs vivants, des
+    // dizaines de liens : moins de dix citations balayées veut dire que le motif s'est
+    // coupé, pas que la doc est propre.
+    assert.ok(vues >= 10, `seulement ${vues} citations balayées : le motif ne voit plus les liens`)
+  })
+
   it('la doc vivante qui parle de langue annonce le régime réel (FR/EN)', () => {
     for (const f of ['GUIDE-DEMO.md', 'ARCHITECTURE.md', 'PROMPT-AGENT-DEPLOIEMENT.md', 'RECETTE-RESPONSIVE-DIRECTION-03.md']) {
       const s = lire(f)
