@@ -3129,3 +3129,11 @@ réparer — et une taille par écran ne veut rien dire, d'où un seul module. L
 toujours filtrées qu'en local sur le catalogue de base : la pagination est un rendu, pas une
 requête, et elle aurait dû attendre le chargement à la demande côté API (le P7 de `docs/PLAN.md`),
 dont le prix est déjà écrit — c'est le « on reste en local » honnête du P6, qui n'a pas bougé.
+
+
+**CI relue sur `1f07c1e`** (la tete poussée de ce lot) : `Create Neon Branch` → l'étape
+`Run full isolated regression suite`, c'est-à-dire **`npm test` en CI**, **succès** (mêmes 1121
+tests, meme Node 22, base Neon isolée réinitialisée avant la volée) ; `UI audit (crawl + boutons)`
+**succès 7 m 15 s** ; `E2E smoke` (Chromium + WebKit + Firefox) **succès 1 m 27 s** ; **Vercel
+succès**. Le nombre de tests est donc vérifié ailleurs que dans mon terminal — et la ligne
+« 1121 tests verts » du titre de la PR est une porte de CI, pas une promesse locale.
