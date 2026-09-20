@@ -3225,3 +3225,38 @@ vide.
 `npm run build` **493,64 kB** (gzip 148,44, **+1,76 kB** pour les trois modules partagés) avec
 `check-bundle` **9 artefacts, aucun secret**, `npm run build:crawl` + crawl **24 pages / 0
 erreur**, audit des boutons **32 / 0**.
+
+
+### La porte elle-même mentait : le crawl validait n'importe quel serveur sur :4173
+
+Trouvé en rejouant les portes avec l'aperçu du client encore lancé. `scripts/jsdom-crawl.mjs`
+démarre son propre `vite preview` sur :4173 avec `--strictPort`, en enfant **détaché et
+`stdio: 'ignore'`** — donc quand le port est déjà pris, son serveur meurt sans un mot, et
+l'étape « `waitFor(preview)` » passe **quand même** : c'est le serveur d'à côté qui répond.
+Le crawl a alors vingt-quatre pages en `timeout : chargement`, et le journal ne dit jamais
+le vrai coupable.
+
+Le pire n'est pas l'échec — le pire est le **vert de rechange** : si le serveur étranger
+avait servi un bundle qui se charge (le bundle de production, par exemple), la porte aurait
+imprimé « 24 pages rendues, 0 erreur » sur **le mauvais build**. Une porte qui valide ce
+qu'on ne lui a pas demandé est un défaut, pas un hasard.
+
+Correctif, dans l'ordre où il doit se voir : avant de lancer quoi que ce soit, le script
+sonde `:4173`, et si quelqu'un y répond déjà il vérifie que c'est **bien son bundle** —
+signature `<script defer src="/assets/index-…">` (le bundle de crawl a son script déplacé
+après `#root` par `scripts/fix-crawl-html.mjs`, celui de production est un module
+cross-origin). Sinon, message nommé et sortie 1 :
+
+    [jsdom-crawl] quelqu'un occupe déjà http://127.0.0.1:4173, et ce n'est pas le bundle du crawl.
+      · arrêtez le serveur en trop (`npm run preview`, un autre crawl) puis relancez
+      · sans ça la porte vérifierait le bundle de production : un vert pour la
+        mauvaise raison, ce que cette porte existe pour empêcher
+
+Contre-épreuve jouée : aperçu lancé sur :4173, crawl relancé → le message ci-dessus, code 1.
+Aperçu arrêté, crawl relancé → **24 pages rendues, 0 erreur**. Le garde-fou n'est donc pas
+une ornementation qui rougit tout le temps : il distingue les deux états.
+
+Rejoué après ce correctif, sur le contenu des deux commits du lot : build **493,64 kB**
+(gzip 148,44) avec `check-bundle` **9 artefacts, aucun secret**, crawl **24 / 0**, audit des
+boutons **32 / 0**, `npm test` **1139 / 1139** (et **1138 / 0** dans les conditions de la CI,
+`dist` absent — le test sauté est le scan du bundle publié).

@@ -113,6 +113,28 @@ if (!existsSync('dist-crawl/index.html')) {
 startProc('node', ['server/index.js'])
 // --host 127.0.0.1 : sans ça vite preview ne lie que la boucle IPv6 (::1)
 // et le crawl (URL IPv4) échoue en ECONNREFUSED.
+// Le port doit etre LIBRE, pas seulement « occupable » : un `npm run preview` laisse
+// a l'ecran repond sur :4173, `--strictPort` fait mourir le notre en silence (enfant
+// detache, stdio ignore), et la porte passe alors sur le bundle de PRODUCTION — verte,
+// mais verte sur la mauvaise chose. Vu en rejouant le lot S3 : vingt-quatre pages en
+// timeout, le message ne disait rien du vrai coupable.
+try {
+  const etranger = await fetch(FRONT)
+  if (etranger.ok) {
+    const corps = await etranger.text()
+    // Le bundle du crawl se reconnait a son <script defer> (deplace apres #root par
+    // scripts/fix-crawl-html.mjs) ; celui de production est un module cross-origin.
+    if (!/defer src="\/assets\/index-/.test(corps)) {
+      console.error(
+        `\n[jsdom-crawl] quelqu'un occupe deja ${FRONT}, et ce n'est pas le bundle du crawl.\n` +
+        '  · arretez le serveur en trop (`npm run preview`, un autre crawl) puis relancez\n' +
+        '  · sans ca la porte verifierait le bundle de production : un vert pour la\n' +
+        '    mauvaise raison, ce que cette porte existe pour empecher\n'
+      )
+      teardown(1)
+    }
+  }
+} catch { /* personne a l'ecoute : la place est libre, comme voulu */ }
 startProc('npx', ['vite', 'preview', '--config', 'vite.crawl.config.js', '--port', '4173', '--strictPort', '--host', '127.0.0.1'])
 await waitFor(async () => (await fetch(`${API}/api/health`)).ok, 'API :8787')
 await waitFor(async () => (await fetch(FRONT)).ok, 'preview :4173')
