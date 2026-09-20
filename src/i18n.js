@@ -21,7 +21,10 @@ export const dict = {
     storeOpen: 'comptoir ouvert',
     roGpu: 'cartes graphiques',
     roLaptops: 'laptops',
-    roOrders: 'commandes prêtes à retirer',
+    // LOT P6 (V6) : le mot voulu par le maitre du magasin est « commande ».
+    // Ce que le chiffre compte reste dit par le code (une commande qui ENTRE
+    // dans « prêt pour retrait », serveur seul — voir `bumpReadyTally`).
+    roOrders: 'commandes',
     roRepairs: 'réparations faites',
     filterBrands: 'Filtrer par marque',
     filterCatalog: 'Filtrer par catalogue',
@@ -698,7 +701,7 @@ export const dict = {
     storeOpen: 'counter open',
     roGpu: 'graphics cards',
     roLaptops: 'laptops',
-    roOrders: 'orders ready for pickup',
+    roOrders: 'orders',
     roRepairs: 'repairs done',
     filterBrands: 'Filter by brand',
     filterCatalog: 'Filter by catalogue',

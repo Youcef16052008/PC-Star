@@ -464,9 +464,15 @@ describe('P4/V4 — à la page Recherche : catalogue et marques, pas d\u2019usag
     for (const motif of ['filters.use', 'filters.inStock', 'useAny', 'inStoreOnly', 'PRODUCT_USES', 'usesOf', 'm-stock', 'm-use', 'name="product-use"']) {
       assert.equal(search.includes(motif), false, `« ${motif} » est encore lu a la page Recherche`)
     }
-    assert.match(search, /t\('catalog'\)/, 'le rayon du catalogue n\u2019a pas entre dans le panneau de filtres')
-    assert.match(search, /name="search-line"/)
-    assert.match(search, /t\('brands'\)/, 'les marques ne sont plus un filtre du panneau')
+    // LOT P6 (S1) : le rayon et la marque sont entres dans le panneau, puis en
+    // sont sortis pour devenir la barre de deux boutons (feuille ouverture sur un
+    // clic). Le contrat reste le meme — les deux filtres existent, les deux
+    // fantomes sont partis — mais la forme verrouillee change : ce sont des
+    // boutons qui portent la valeur choisie, pas des champs de plus dans l'aside.
+    assert.match(search, /t\('filterBrands'\)/, 'la marque n\u2019est plus un filtre de la page Recherche')
+    assert.match(search, /t\('filterCatalog'\)/, 'le catalogue n\u2019est plus un filtre de la page Recherche')
+    assert.match(search, /sheet === 'brands'/, 'le bouton marque n\u2019ouvre pas une feuille : il etale')
+    assert.match(search, /sheet === 'catalog'/, 'le bouton catalogue n\u2019ouvre pas une feuille : il etale')
   })
 
   it('EMPTY ne porte plus les deux clés (une recherche sauvée de l\u2019an dernier ne doit pas les ressusciter)', () => {
@@ -518,6 +524,11 @@ describe('P4/V1-V3 — l\u2019écran du client lit la vitrine, et la grille est 
     assert.match(lignes[3], /reparations au comptoir/, 'le libellé écrit par le maître n\u2019est pas lu')
     assert.equal(hote.querySelector('.readout').textContent.includes('0 DA'), false, 'le 0 DA codé en dur est revenu')
     assert.equal(/references/i.test(hote.querySelector('.readout').textContent), false, 'le comptage du catalogue est revenu sur la vitrine')
+    // LOT P6 (V6) : ces quatre tuiles se LISENT. Le maitre ecrit la quatrieme
+    // (libelle + nombre) depuis sa page Admin ; cote vitrine publique, il n'y a
+    // aucun controle — ni champ, ni bouton, ni clic — sinon le chiffre du
+    // comptoir devient ce que le visiteur a decide.
+    assert.equal(hote.querySelector('.readout input, .readout button, .readout select, .readout textarea'), null, 'un controle client est rendu dans le readout de la vitrine')
   })
 
   it('douze cartes, puis « Suivant » : la page 2 est une autre coupe du même catalogue', async () => {

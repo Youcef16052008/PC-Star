@@ -2990,3 +2990,71 @@ secret ; crawl jsdom **24 pages, 0 erreur** ; audit boutons **32 vérifications,
 aucune emprise sur les portes : `npm run master:rotate` écrit dans `.env.local`, que la CI ne lit
 pas (elle pose ses propres variables de test, `scripts/test-env.mjs`) — un opérateur qui rotate
 pendant un déploiement ne change rien au vert, et un rouge après rotation signalerait autre chose.
+
+---
+
+## LOT P6 : la page Recherche se filtre, et les mots du readout suivent la demande
+
+Le retour du client est parti d'une capture du **site déployé** (`main`, avant ce
+chantier), et cinq de ses six points y étaient déjà réglés par P4/P5 sur cette branche.
+Plutôt que de répondre « c'est déjà fait », chaque point a été **repris et vérifié** —
+et deux sont de vrais travaux de ce lot.
+
+### Ce qui était déjà fait sur la branche (vérifié, avec son verrou)
+
+| Demande | État sur la branche | Preuve |
+|---|---|---|
+| la tuile « références » devient une tuile **commandes**, à 0, +1 à chaque clic du maître sur « prêt pour retrait » | fait depuis P4 (V1) — le compte est écrit par le **serveur** (`bumpReadyTally`, `server/catalog.js` sur l'entrée dans `ready`, jamais à l'envers), la tuile lit `vitrine.readyTally` | `src/p3Vitrine.test.js` joue la commande réelle jusqu'à `ready` et vérifie +1, puis que `picked` ne fait pas redescendre |
+| « paiement au retrait » devient **réparations faites**, écrite par le maître, lue par tout le monde | fait depuis P4 — `repairsLabel` + `repairsDone` se saisissent dans Admin → Vitrine, `readyTally` est hors d'atteinte du navigateur, la route d'écriture est maître seul | `src/p3Vitrine.test.js` §2-3 (routes), `src/api.js` (aucun setter `readyTally`) |
+| les filtres de la page d'accueil : un bouton, pas un mur de marques | fait depuis P4 (V2) — `Filtrer par marque` puis, dessous, `Filtrer par catalogue`, chacun portant la valeur choisie | `src/p3Vitrine.test.js` §4 |
+| le catalogue en **pages 1 → 2 → 3** à la suite, pas un mur | fait depuis P4 (V3) — `SHOP_PAGE_SIZE`, `pager` avec `aria-current` | `src/p3Vitrine.test.js` §6 |
+| le tableau « Config PC » décoratif (5 lignes de composants et un total écrits en dur) | **retiré** depuis P4 (V3) ; le configurateur reste à un bouton | `src/App.jsx` (section « Configurateur : un accès, plus de tableau décoratif ») |
+| le menu latéral et la connexion en **pleine page** | fait depuis P4 (V5) — `.nav-sheet.show` en `position: fixed; inset: 0` sous 992 px, avec sa propre fermeture, et `modal-fullscreen` sur la connexion | `src/p3Vitrine.test.js:433-440` |
+
+**Le seul mot qui restait à changer** était sur la tuile : `roOrders` disait « commandes
+prêtes à retirer » ; le client veut « commandes » (EN « orders »). Fait — le mot que le
+client a demandé, pas celui que le développeur trouvait plus précis, avec ce que compte le
+chiffre rappelé dans le code (`bumpReadyTally`). Le verrou de la tuile 1 vérifie les deux
+langues et interdit que « référence » ou « retirer » reviennent (le compteur ne décroît pas).
+
+### P6/S1 — la page Recherche : le mur de panneaux devient une feuille sur un clic
+
+C'était le dernier endroit où un filtre occupait une page. La page Recherche dressait,
+**avant les résultats**, un rail `d-lg-none` de huit panneaux (catalogue, machines,
+imprimantes, pièces PC, périphériques, réseau, lifestyle, bons plans) avec tous leurs
+rayons en pastilles, et l'aside du bureau répétait la même liste en radios de 40 lignes.
+Mesuré : `PART_LINES` en fait **69 rayons**, donc 69 pastilles rendues d'office avant le
+premier résultat sur mobile, et les mêmes 69 en radios dans l'aside du bureau. Le verrou
+`aucun rayon n’est rendu tant que la feuille est fermée` attend **0** aujourd'hui.
+
+- la barre reprend le modèle de la vitrine : `Filtrer par marque` (le bouton porte le
+  nombre de marques actives), puis dessous `Filtrer par catalogue` (il porte le rayon
+  courant) ; `Reset` n'apparaît que si quelque chose est actif ;
+- chaque bouton ouvre SA feuille (`.filter-sheet`, mêmes classes que la vitrine — pas de
+  CSS inventé pour deux fois la même chose) ; la feuille se referme sur le choix ;
+- dans la feuille catalogue, **un groupe est ouvert à la fois** : celui de la ligne
+  courante par défaut, et les en-têtes de groupe sont des boutons. Les pastilles CPU/GPU
+  n'apparaissent donc que pour celui qui les demande, et — règle déjà en place pour la
+  compatibilité — le champ `socket` ne se montre que pour les lignes qui ont une
+  compatibilité (CPU, carte mère, refroidissement) ; un laptop ne se voit plus demander un
+  socket ;
+- l'aside du bureau ne duplique plus rien : ni les rayons, ni les marques. Deux surfaces
+  pour la même règle, c'est deux surfaces qui finissent par se contredire — c'est
+  exactement comment le filtre « usage » a survécu.
+
+**Treize verrous** dans `src/p6SearchSurface.test.js`, montés à l'écran (jsdom) et non
+lus dans le source : rien n'est étalé avant le premier clic, un clic ouvre, un second
+referme, choisir un rayon **change réellement les résultats** et le bouton garde la valeur
+visible, la feuille marques filtre et marque l'actif quand on la rouvre, une seule feuille
+à la fois, « Tout » efface le choix, le socket suit la ligne choisie ; et trois verrous
+négatifs (le markup `{allPanels.map(` hors feuille, les clés `usage`/`inStock`, le texte
+« En magasin seulement »). Chaque test repart d'un **montage neuf** : un état qui fuiterait
+d'un verrou à l'autre fait rougir un test pour une raison de harnais, et c'est exactement le
+genre de rouge qui fait sauter une vraie correction.
+
+Deux verrous préexistants ont dû être **re-adressés, pas supprimés** — un verrou qui
+pointait sur la légende `Catalogue` de l'aside aurait validé une régression silencieuse :
+`src/p3Vitrine.test.js` (les deux filtres sont des boutons qui ouvrent une feuille) et
+`src/reportP17.test.js` (le catalogue qui a remplacé « En stock » est atteignable par le
+bouton, vérifié en cliquant). Aucun des deux n'a été affaibli : ils jouent maintenant un
+geste de plus qu'avant.

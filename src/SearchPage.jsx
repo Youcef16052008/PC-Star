@@ -39,6 +39,14 @@ export default function SearchPage({ t, products, lines, panels, lang, liveStock
   const [saved, setSaved] = useState(() => loadSavedSearches())
   const [saveNote, setSaveNote] = useState('')
   const [filtersOpen, setFiltersOpen] = useState(false)
+  // LOT P6 (S1) — les deux filtres que le client a demandes (marques, catalogue)
+  // sont des BOUTONS qui ouvrent leur feuille, au lieu d'un mur de panneaux
+  // toujours deploye. `sheet` porte la feuille ouverte ; `groupeOuvert` porte le
+  // groupe de rayons deploye dans la feuille « catalogue » (par defaut : celui de
+  // la ligne courante, donc les panneaux CPU/GPU n'apparaissent que pour les
+  // pieces PC — et a un clic).
+  const [sheet, setSheet] = useState(null)
+  const [groupeOuvert, setGroupeOuvert] = useState(null)
 
   const allLines = lines || []
   const allPanels = panels || []
@@ -217,26 +225,111 @@ export default function SearchPage({ t, products, lines, panels, lang, liveStock
         />
       </div>
 
-      <div className="mb-4 d-lg-none">
-        {allPanels.map((panel) => (
-          <div key={panel.id} className="mb-2">
-            <div className="small fw-semibold text-secondary mb-1">{panelTitle(panel)}</div>
-            <div className="d-flex flex-wrap gap-2">
-              {allLines
-                .filter((l) => l.group === panel.id)
-                .map((l) => (
-                  <button
-                    key={l.id}
-                    type="button"
-                    className={`btn btn-sm rounded-pill ${filters.line === l.id ? 'btn-success' : 'btn-outline-secondary'}`}
-                    onClick={() => set('line', l.id)}
-                  >
-                    {t(`line_${l.id}`) !== `line_${l.id}` ? t(`line_${l.id}`) : l.label}
-                  </button>
-                ))}
+      {/*
+        * LOT P6 (S1) — l'ancienne rangee `d-lg-none` dressait TOUS les panneaux
+        * (catalogue, machines, imprimantes, pieces PC, peripheriques, reseau,
+        * lifestyle, bons plans) avec leurs rayons en pastilles, AVANT les
+        * resultats : sur un telephone, une page entiere avant la premiere fiche.
+        * La barre ci-dessous reprend le modele de la vitrine (LOT P4 V2) : deux
+        * boutons, chacun porte la valeur choisie, et le panneau ne s'etale que
+        * sur un clic.
+        */}
+      <div className="filters-bar mb-3">
+        <div className="d-flex flex-wrap gap-2 align-items-center">
+          <button
+            type="button"
+            className={`btn btn-sm ${filters.brands.length ? 'btn-success' : 'btn-outline-success'}`}
+            onClick={() => setSheet(sheet === 'brands' ? null : 'brands')}
+            aria-expanded={sheet === 'brands'}
+            aria-controls="search-sheet-brands"
+          >
+            {t('filterBrands')}
+            {filters.brands.length ? ` · ${filters.brands.length}` : ''}
+          </button>
+          <button
+            type="button"
+            className={`btn btn-sm ${filters.line !== EMPTY.line ? 'btn-success' : 'btn-outline-success'}`}
+            onClick={() => setSheet(sheet === 'catalog' ? null : 'catalog')}
+            aria-expanded={sheet === 'catalog'}
+            aria-controls="search-sheet-catalog"
+          >
+            {t('filterCatalog')}
+            {lineLabel ? ` · ${lineLabel}` : ''}
+          </button>
+          {(filters.brands.length || filters.condition !== 'all' || filters.price !== 'any' || filters.socket !== 'all' || filters.q.trim()) && (
+            <button type="button" className="btn btn-sm btn-link" onClick={() => setFilters({ ...EMPTY })}>
+              {t('reset')}
+            </button>
+          )}
+        </div>
+
+        {sheet === 'brands' && (
+          <div className="filter-sheet" id="search-sheet-brands">
+            <div className="d-flex flex-wrap gap-1">
+              {lineBrands.length > 1 && (
+                <button
+                  type="button"
+                  className={`btn btn-sm ${filters.brands.length ? 'btn-outline-secondary' : 'btn-success'}`}
+                  onClick={() => { setFilters((f) => ({ ...f, brands: [] })); setSheet(null) }}
+                >
+                  {t('cat_all')}
+                </button>
+              )}
+              {lineBrands.map((b) => (
+                <button
+                  key={b}
+                  type="button"
+                  className={`btn btn-sm ${filters.brands.includes(b) ? 'btn-success' : 'btn-outline-secondary'}`}
+                  onClick={() => { toggleBrand(b); setSheet(null) }}
+                >
+                  {b}
+                </button>
+              ))}
             </div>
+            {lineBrands.length === 0 && <p className="small text-secondary mb-0">{t('noBrands')}</p>}
           </div>
-        ))}
+        )}
+
+        {sheet === 'catalog' && (
+          <div className="filter-sheet" id="search-sheet-catalog">
+            <div className="d-flex flex-wrap gap-1 mb-2">
+              {allPanels
+                .filter((panel) => allLines.some((l) => l.group === panel.id))
+                .map((panel) => {
+                  const ouvert = (groupeOuvert ?? line?.group) === panel.id
+                  return (
+                    <button
+                      key={panel.id}
+                      type="button"
+                      className={`btn btn-sm ${ouvert ? 'btn-success' : 'btn-outline-secondary'}`}
+                      onClick={() => setGroupeOuvert(ouvert ? '__ferme__' : panel.id)}
+                      aria-expanded={ouvert}
+                    >
+                      {panelTitle(panel)}
+                    </button>
+                  )
+                })}
+            </div>
+            {allPanels
+              .filter((panel) => (groupeOuvert ?? line?.group) === panel.id)
+              .map((panel) => (
+                <div className="filter-sheet-grid" key={`grid-${panel.id}`}>
+                  {allLines
+                    .filter((l) => l.group === panel.id)
+                    .map((l) => (
+                      <button
+                        key={l.id}
+                        type="button"
+                        className={`btn btn-sm ${filters.line === l.id ? 'btn-success' : 'btn-outline-secondary'}`}
+                        onClick={() => { set('line', l.id); setSheet(null); setGroupeOuvert(l.group) }}
+                      >
+                        {t(`line_${l.id}`) !== `line_${l.id}` ? t(`line_${l.id}`) : l.label}
+                      </button>
+                    ))}
+                </div>
+              ))}
+          </div>
+        )}
       </div>
 
       <div className="d-lg-none mb-3">
@@ -258,33 +351,10 @@ export default function SearchPage({ t, products, lines, panels, lang, liveStock
                 </button>
               </div>
 
-              {/* LOT P4 (V4) — le rayon du catalogue est un filtre comme les
-                  autres : il est dans le panneau, pas seulement dans la rangee
-                  du haut (qui, elle, reste le raccourci visible sur telephone). */}
-              <fieldset className="mb-3">
-                <legend className="form-label fw-semibold small">{t('catalog')}</legend>
-                {allPanels.map((panel) => (
-                  <div key={panel.id} className="mb-2">
-                    <div className="small fw-semibold text-secondary">{panelTitle(panel)}</div>
-                    {allLines
-                      .filter((l) => l.group === panel.id)
-                      .map((l) => (
-                        <label key={l.id} className="form-check">
-                          <input
-                            className="form-check-input"
-                            type="radio"
-                            name="search-line"
-                            checked={filters.line === l.id}
-                            onChange={() => set('line', l.id)}
-                          />
-                          <span className="form-check-label small">
-                            {t(`line_${l.id}`) !== `line_${l.id}` ? t(`line_${l.id}`) : l.label}
-                          </span>
-                        </label>
-                      ))}
-                  </div>
-                ))}
-              </fieldset>
+              {/* LOT P6 (S1) : le rayon ne se choisit plus ici — la barre de
+                  boutons au-dessus des resultats porte « Filtrer par catalogue »,
+                  a l'ecran comme sur telephone. Deux surfaces pour la meme regle,
+                  c'est deux occasions de desaccord. */}
 
               <button type="button" className="btn btn-outline-success btn-sm w-100 mb-2" onClick={saveSearch}>
                 {t('saveSearch')}
@@ -305,19 +375,11 @@ export default function SearchPage({ t, products, lines, panels, lang, liveStock
                 </div>
               )}
 
-              {lineBrands.length > 0 && (
-                <fieldset className="mb-3">
-                  <legend className="form-label fw-semibold small">{t('brands')}</legend>
-                  <div className="d-flex flex-column gap-1" style={{ maxHeight: 180, overflow: 'auto' }}>
-                    {lineBrands.map((b) => (
-                      <label key={b} className="form-check mb-0">
-                        <input className="form-check-input" type="checkbox" checked={filters.brands.includes(b)} onChange={() => toggleBrand(b)} />
-                        <span className="form-check-label small">{b}</span>
-                      </label>
-                    ))}
-                  </div>
-                </fieldset>
-              )}
+              {/* LOT P6 (S1) : les marques non plus ne sont pas un etage de plus
+                  dans l'aside — elles se choisissent dans la feuille du bouton
+                  « Filtrer par marque », la seule surface qui les liste. Une
+                  liste de 60 cases a cocher, lisible seulement en scrollant, ne
+                  sert personne : le panneau porte un filtre, pas un annuaire. */}
 
               <fieldset className="mb-3">
                 <legend className="form-label fw-semibold small">{t('condition')}</legend>

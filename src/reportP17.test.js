@@ -167,7 +167,9 @@ describe('P17 (#3) — le filtre « En stock » : documenté hier, retiré aujou
             t,
             products: [{ id: 'gpu-x', name: 'Carte X', brand: 'Asus', category: 'gpu', price: 1000, stock: 1 }],
             lines: PART_LINES,
-            panels: [],
+            // LOT P6 (S1) : la feuille « catalogue » groupe les rayons par panneau,
+            // comme a l'ecran. Une liste vide ne prouvait plus rien ici.
+            panels: [{ id: 'catalog', titleKey: 'panelCatalog' }, { id: 'parts', titleKey: 'panelParts' }],
             lang: 'fr',
             liveStock: () => 1,
             onAdd: () => {},
@@ -179,7 +181,13 @@ describe('P17 (#3) — le filtre « En stock » : documenté hier, retiré aujou
       const champs = [...window.document.querySelectorAll('input[type="checkbox"]')].map((i) => i.id)
       assert.equal(champs.includes('m-stock'), false, `case mobile encore rendue : ${champs.join(',')}`)
       assert.equal(/En magasin seulement/.test(hote.textContent), false, 'le filtre retire est affiche')
-      assert.match(hote.textContent.replace(/\s+/g, ' '), /Catalogue/, "le rayon du catalogue n'a pas pris la place dans le panneau")
+      // LOT P6 (S1) : ce qui avait remplace le filtre « En stock » n'est plus une
+      // legende de l'aside, c'est la feuille d'un bouton. Le verrou suit la forme —
+      // et il la verifie vraiment : un clic, puis le rayon est la.
+      const boutonCatalogue = [...hote.querySelectorAll('button')].find((b) => b.textContent.trim().startsWith(t('filterCatalog')))
+      assert.ok(boutonCatalogue, 'plus de bouton « filtrer par catalogue » : le remplacement a saute')
+      await act(async () => boutonCatalogue.dispatchEvent(new window.MouseEvent('click', { bubbles: true })))
+      assert.match(hote.textContent.replace(/\s+/g, ' '), /Tout le catalogue|GPU/, 'le rayon du catalogue n’est pas atteignable depuis le bouton')
     } finally {
       act(() => racine.unmount())
       hote.remove()
