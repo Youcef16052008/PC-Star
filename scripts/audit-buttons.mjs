@@ -3,7 +3,7 @@
  * Audit boutons — « est-ce que TOUS les boutons font quelque chose de sûr,
  * et est-ce qu'un formulaire vide affiche bien une erreur ? »
  *
- * Complète scripts/jsdom-crawl.mjs (navigation 13 pages × 2 langues) :
+ * Complète scripts/jsdom-crawl.mjs (navigation de toutes les pages × 2 langues) :
  *  1. sur chaque page clé, on clique TOUS les boutons du contenu principal
  *     (désactivés exclus) et on exige ZÉRO erreur JavaScript (window.onerror /
  *     jsdomError hors « not implemented » — alert/confirm/print ne sont pas
@@ -20,6 +20,9 @@ import { existsSync } from 'node:fs'
 import { JSDOM, VirtualConsole } from 'jsdom'
 import { dict } from '../src/i18n.js'
 import { masterCredentials } from './masterEnv.mjs'
+import { patchPerformanceGaps } from './jsdom-perf-gaps.mjs'
+import { pileDeFaute } from './jsdom-error-pile.mjs'
+import { ressourcesDeLaPorte } from './jsdom-subresources.mjs'
 
 const FRONT = 'http://127.0.0.1:4173'
 const API = 'http://127.0.0.1:8787'
@@ -87,25 +90,37 @@ const failures = []
 // de tuer le processus d'audit sans résumé.
 process.on('unhandledRejection', (e) => {
   const msg = String((e && e.message) || e).slice(0, 200)
-  failures.push('rejection non gérée : ' + msg)
+  const pile = pileDeFaute(e)
+  failures.push('rejection non gérée : ' + msg + (pile ? ` [${pile}]` : ''))
 })
 
 /** Erreur JS = échec ; « not implemented » (alert/confirm/print) ignoré, ainsi
- * que les ressources EXTERNES injoignables (Google Fonts en sandbox/CI) — le
- * rendu DOM n'en dépend pas, même filtrage que scripts/jsdom-crawl.mjs. */
+ * que les ressources EXTERNES injoignables — le rendu DOM n'en dépend pas, même
+ * filtrage que scripts/jsdom-crawl.mjs. Les URL distantes sont neutralisees avant
+ * requete par `scripts/jsdom-subresources.mjs` (les deux portes partagent la meme
+ * politique, sinon l'audit herite du flake du crawl). */
 const isSoft = (m) => /not implemented/i.test(m) || /Could not load (link|iframe)/i.test(m)
 
 function openSession(lang, token) {
   return (async () => {
     const errors = []
     const vc = new VirtualConsole()
-    vc.on('jsdomError', (e) => { if (!isSoft(e.message)) errors.push(`jsdomError: ${e.message}`) })
+    vc.on('jsdomError', (e) => {
+      if (isSoft(e.message)) return
+      const pile = pileDeFaute(e)
+      errors.push(`jsdomError: ${e.message}${pile ? ` [${pile}]` : ''}`)
+    })
     const dom = await JSDOM.fromURL(`${FRONT}/`, {
       runScripts: 'dangerously',
-      resources: 'usable',
+      resources: ressourcesDeLaPorte(),
       pretendToBeVisual: true,
       virtualConsole: vc,
       beforeParse(w) {
+        // Les trous d'API de jsdom sont combles AVANT le premier script : sans
+        // Resource Timing, react-dom et le collecteur de rejections du harnais
+        // fabriquent une faute qui n'existe pas dans un navigateur (voir
+        // scripts/jsdom-perf-gaps.mjs).
+        patchPerformanceGaps(w)
         w.localStorage.setItem('pcstar-lang', lang)
         if (token) w.localStorage.setItem('pcstar-api-token', token)
         w.fetch = (input, init) =>

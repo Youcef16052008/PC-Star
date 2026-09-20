@@ -10,15 +10,20 @@ import { ensureStock, setStock, liveStockOf } from './catalog.js'
 import { PRODUCTS, isKnownCategory, isKnownCondition, isKnownKind, isKnownUse, kindForCategory } from '../src/data.js'
 import {
   BARCODE_LIMIT,
+  BRAND_LIMIT,
   CONDITION_NOTE_LIMIT,
   DESCRIPTION_LIMIT,
   MODEL_LIMIT,
+  NAME_LIMIT,
+  SHORT_LIMIT,
   cleanProductText,
   isValidBarcode,
   normalizeProductCompat,
   normalizeProductDetails,
   normalizeProductTags
 } from '../src/productMeta.js'
+// LOT P5 : compter et couper en caracteres (points de code), pas en unites UTF-16.
+import { clipChars, excedeChars } from '../src/textClip.js'
 import { uploadBlob, deleteBlob, isManagedUploadUrl, MAX_BYTES, MAX_PHOTOS } from './blobStore.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -68,7 +73,7 @@ export function normalizeNeeds(value) {
   // cette coupe, une ligne de 4 Ko partait en base puis dans la fiche produit,
   // l'export CSV et le message WhatsApp — `needs` était le seul champ texte non
   // borné du patch.
-  return parts.filter(Boolean).slice(0, 12).map((x) => x.slice(0, MAX_NEED_LINE))
+  return parts.filter(Boolean).slice(0, 12).map((x) => clipChars(x, MAX_NEED_LINE))
 }
 
 /**
@@ -154,6 +159,10 @@ export function createProduct(db, body, id) {
   const name = String(body.name || '').trim()
   const price = Number(body.price)
   if (!name) return { ok: false, error: 'invalid' }
+  // LOT P2 (B12) : le nom était la seule borne que le patch refusait et que la
+  // création ignorait. Refus, pas troncature : le nom est ce qui identifie la
+  // fiche sur l'étiquette, dans le CSV et dans les recherches.
+  if (excedeChars(name, NAME_LIMIT)) return { ok: false, error: 'name_too_long' }
   // `Math.max(0, Number(value) || 0)` laissait passer Infinity à la création,
   // contrairement aux patches. Une valeur non finie finirait sérialisée en
   // `null` et rendrait une fiche impossible à vendre; on refuse avant écriture.
@@ -240,7 +249,11 @@ export function createProduct(db, body, id) {
     id: finalId,
     sku,
     name,
-    brand: String(body.brand || 'PC Star').trim(),
+    // LOT P2 (B12) : `brand` et `short` (ci-dessous) étaient recopiés sans
+    // mesure à la création, alors que le patch les tronque — un champ de 4 000
+    // caractères atterrissait dans la carte produit, l'export CSV et la
+    // sauvegarde. Même `cleanProductText`, mêmes limites, des deux côtés.
+    brand: cleanProductText(body.brand || 'PC Star', BRAND_LIMIT),
     kind,
     category,
     price,
@@ -249,7 +262,7 @@ export function createProduct(db, body, id) {
     reviews: 0,
     related: [],
     photos,
-    short: String(body.short || '').trim(),
+    short: cleanProductText(body.short, SHORT_LIMIT),
     model,
     barcode,
     description,
@@ -281,7 +294,7 @@ export function sanitizeProductPatch(patch = {}) {
   if (patch.name != null) {
     const name = String(patch.name).trim()
     if (!name) return { ok: false, error: 'name' }
-    if (name.length > 120) return { ok: false, error: 'name_too_long' }
+    if (excedeChars(name, NAME_LIMIT)) return { ok: false, error: 'name_too_long' }
     out.name = name
   }
   if (patch.price != null) {
@@ -295,7 +308,7 @@ export function sanitizeProductPatch(patch = {}) {
     if (!Number.isFinite(price) || price <= 0) return { ok: false, error: 'price' }
     out.price = Math.round(price)
   }
-  if (patch.brand != null) out.brand = String(patch.brand).trim().slice(0, 60)
+  if (patch.brand != null) out.brand = cleanProductText(patch.brand, BRAND_LIMIT)
   if (patch.category != null) {
     // LOT 8.10 (A10) : l'ensemble autorisé venait de `PRODUCTS`
     // (`new Set(PRODUCTS.map((p) => p.category))`) — un dérivé du catalogue de
@@ -367,7 +380,7 @@ export function sanitizeProductPatch(patch = {}) {
     if (compat == null) return { ok: false, error: 'compat' }
     out.compat = compat
   }
-  if (patch.short != null) out.short = String(patch.short).slice(0, 200)
+  if (patch.short != null) out.short = cleanProductText(patch.short, SHORT_LIMIT)
   if (patch.sku != null) {
     const sku = String(patch.sku).trim()
     if (!isValidSku(sku)) return { ok: false, error: 'sku' }

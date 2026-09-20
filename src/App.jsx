@@ -21,7 +21,16 @@ import * as api from './api.js'
 import { createDeskStream } from './deskStream.js'
 import { notifyNewOrder, requestNotificationPermission } from './notify.js'
 import { ensureProductPhotos } from './productPhotos.js'
-import { discountPercent, hasSale } from './productMeta.js'
+import { brandsOnSale, discountPercent, hasSale } from './productMeta.js'
+// LOT P6 (S2) : la regle de pagination est partagee avec la page Recherche.
+// LOT P6 (S3) : le pager, le choix de taille de page et la feuille des marques sont
+// des composants partages — les deux ecrans ne recopient plus le meme markup.
+import { PAGE_TAILLE, pageCourante, pagesPour, tailleSure, tranche } from './pager.js'
+import { ChoixTaille, Pager } from './pagerControls.jsx'
+import { BrandSheet } from './brandSheet.jsx'
+import { useFeuilleFiltre } from './filterSheet.js'
+import { filtresRetires, noteRetrait } from './filterDrop.js'
+import { useTaille } from './pagerStore.js'
 import SearchPage from './SearchPage.jsx'
 import BuilderPage from './BuilderPage.jsx'
 import PartThumb from './PartThumb.jsx'
@@ -48,6 +57,7 @@ import {
   shortageMessage
 } from './orderLogic.js'
 import { isStorageBlocked, safeStorage } from './safeStorage.js'
+import { clampVitrine } from './vitrine.js'
 import { t as translate, labelOr, LANGS, langMeta } from './i18n.js'
 import {
   applyDocumentChrome,
@@ -109,6 +119,60 @@ const OAUTH_ME_RETRY_MS = 700
  * produire 20 notifications. Le toast, lui, donne le compte exact.
  */
 const MAX_MISSED_NOTIFY = 3
+
+/*
+ * LOT P4 (V3) — taille d'une page du catalogue de la vitrine. 12, et pas 24 :
+ * la grille est en `col-6 col-md-4 col-xl-3`, donc 12 fiches remplissent
+ * exactement deux largeurs de grille sur un téléphone (2 par ligne) comme sur
+ * un grand écran (4 par ligne) — pas de dernière ligne à moitié vide, et le
+ * client qui cherche voit six lignes de produits au lieu d'un mur de trente.
+ * Exportée pour que `src/p3Vitrine.test.js` verrouille la valeur au lieu de la
+ * recopier : un nombre de pages écrit dans un test est un nombre qui ment.
+ */
+// LOT P6 (S2) : la taille de page n'est plus écrite ici — elle vit dans
+// `src/pager.js`, partagée avec la page Recherche (deux listes, une regle de
+// tranchage). L'alias reste exporté : c'est la constante que les verrous lisent.
+export const SHOP_PAGE_SIZE = PAGE_TAILLE
+
+/*
+ * LOT P6 (S6) — une seule liste pour « où peut-on aller d'ici ».
+ *
+ * Mesuré sur l'arbre rendu : le menu déroulait cinq liens, et la page
+ * « Garantie & RMA » — routée (`page === 'warranty'`), titrée, traduite —
+ * n'avait AUCUN point d'entrée nulle part : ni dans le menu, ni dans le pied de
+ * page (qui ne liste que à propos / confidentialité / conditions). Une page que
+ * personne ne peut atteindre n'est pas une page, c'est du code mort qui se
+ * présente comme du contenu. Et le menu ne proposait qu'une seule porte d'entrée
+ * pour le compte : « Connexion » — le nouveau client tombait sur un formulaire
+ * de mot de passe avant de comprendre qu'il doit créer son compte.
+ *
+ * La règle est donc écrite ici, et les verrous la lisent directement : toute page
+ * routable est soit dans le menu, soit dans `HORS_MENU` avec sa raison. Un
+ * `setPage('x')` qui n'est dans aucune des deux listes est un trou, et une entrée
+ * de menu qui ne route nulle part est un bouton mort.
+ */
+export const PAGES_ROUTABLES = ['shop', 'search', 'builder', 'about', 'orders', 'desk', 'master', 'help', 'profile', 'privacy', 'terms', 'warranty', 'product']
+
+/** Ce que le menu ne liste pas, et pourquoi. Un choix ecrit, pas un oubli. */
+export const HORS_MENU = {
+  product: 'une fiche se choisit dans le catalogue (elle porte un identifiant)',
+  profile: 'le bouton du compte, une fois connecte'
+}
+
+/** Le menu, dans l'ordre où on le lit. `masterOnly` = la page du comptoir. */
+export const MENU_DESTINATIONS = [
+  { id: 'shop', labelKey: 'navShop' },
+  { id: 'search', labelKey: 'navSearch' },
+  { id: 'builder', labelKey: 'navBuilder' },
+  { id: 'about', labelKey: 'navAbout' },
+  { id: 'orders', labelKey: 'navOrders' },
+  { id: 'help', labelKey: 'navHelp', masterOnly: true },
+  { id: 'desk', labelKey: 'navDesk', masterOnly: true },
+  { id: 'master', labelKey: 'navMaster', masterOnly: true },
+  { id: 'privacy', labelKey: 'navPrivacy', groupe: 'info' },
+  { id: 'terms', labelKey: 'navTerms', groupe: 'info' },
+  { id: 'warranty', labelKey: 'legalWarrantyTitle', groupe: 'info' }
+]
 
 /**
  * LOT 3.16 (B19) — âge lisible d'un horodatage, dans la langue de l'interface.
@@ -201,7 +265,12 @@ export function deskBeep() {
     if (!AC) return
     if (!deskAudioCtx || deskAudioCtx.state === 'closed') deskAudioCtx = new AC()
     // autoplay : un contexte peut naître « suspended » → le réveiller.
-    if (deskAudioCtx.state === 'suspended') deskAudioCtx.resume()
+    // LOT P3 (B26) : `resume()` renvoie une promesse. Le `try` de cette
+    // fonction est SYNCHRONE, donc un refus du navigateur (aucun geste
+    // utilisateur) partait en `unhandledrejection` : un bruit de console à
+    // chaque commande annoncée, sans conséquence ailleurs — mais le `catch`
+    // ne coûte rien et le bruit coûtait un diagnostic à chaque audit.
+    if (deskAudioCtx.state === 'suspended') deskAudioCtx.resume().catch(() => {})
     const o = deskAudioCtx.createOscillator()
     const g = deskAudioCtx.createGain()
     o.connect(g)
@@ -248,7 +317,23 @@ function openExternal(e, href) {
   } catch {
     w = null
   }
-  if (!w) window.location.href = href
+  // LOT P3 (B22) : `window.open` ne beneficie PAS du `noopener` implicite des
+  // `<a target="_blank">` — la page ouverte garde `window.opener` sur le
+  // boutique et peut la rediriger. Passer `'noopener'` en 3e argument etait
+  // la refonte refusee ici (voir `ContactPicker.jsx:56-69`) : il fait renvoyer
+  // `null`, ce qui declencherait la navigation meme onglet pour TOUTE
+  // ouverture reussie. Couper le lien apres coup donne la meme protection sans
+  // perdre le sens de `w`.
+  if (w) {
+    try {
+      w.opener = null
+    } catch {
+      /* environnement qui refuse d'ecrire sur l'objet fenetre */
+    }
+    return undefined
+  }
+  window.location.href = href
+  return undefined
 }
 
 // LOT 5.7 (U7) : `cartMessage` vivait ici, sans garde de longueur. La
@@ -292,12 +377,34 @@ export default function App() {
   const [reserved, setReserved] = useState(null)
   const [build, setBuild] = useState({})
   const [authOpen, setAuthOpen] = useState(false)
+  // LOT P6 (S6) : le menu choisit la porte (« Connexion » ou « Créer un compte »).
+  const [authTab, setAuthTab] = useState('login')
+
+  function ouvrirAuth(mode = 'login') {
+    setAuthTab(mode)
+    setAuthOpen(true)
+    setNavOpen(false)
+  }
   const [navOpen, setNavOpen] = useState(false)
   const [cartOpen, setCartOpen] = useState(false)
   const [apiOnline, setApiOnline] = useState(false)
   const [apiUser, setApiUser] = useState(null)
   const [authMode, setAuthMode] = useState('local')
   const [brandFilter, setBrandFilter] = useState(null)
+  // LOT P4 (V2) — les filtres de la vitrine sont deux panneaux fermables ; une
+  // seule ouverture à la fois (deux panneaux ouverts = le même écran qui se
+  // contredit). `brandQuery` ne filtre QUE la liste des marques du panneau : il
+  // ne filtre pas le catalogue, sinon « fermer le panneau » changerait les
+  // résultats sans que personne l'ait demandé.
+  const [shopSheet, setShopSheet] = useState(null)
+  // LOT P6 (S3) : la recherche « une marque » n'est plus un etat de l'ecran — elle
+  // vit dans la feuille (`src/brandSheet.jsx`), pour les deux ecrans a la fois.
+  const [shopTaille, setShopTaille] = useTaille()
+  // LOT P6 (S4) : la marque qu'un changement de categorie rend inutile est retiree,
+  // et le client le lit. Avant, la vitrine gardait la marque et affichait zero fiche.
+  const [shopNote, setShopNote] = useState('')
+  const [shopPage, setShopPage] = useState(1)
+
   const [stockMap, setStockMap] = useState({}) // id -> live server stock
   const [serverCatalog, setServerCatalog] = useState([]) // produits complets servis par l'API (mode API)
   // P10 (P7-11) : le catalogue reçu du serveur est la vérité — mais seulement
@@ -320,7 +427,6 @@ export default function App() {
   useEffect(() => {
     reservationKeyRef.current = null
   }, [cart])
-  const prevOrderCount = useRef(0)
   // P19 : codes déjà vus — la détection par longueur ratait une commande
   // arrivée en même temps qu'une suppression.
   const seenOrderCodes = useRef(null)
@@ -410,6 +516,15 @@ export default function App() {
   }
 
   const shopView = useMemo(() => buildShopView(PRODUCTS, PART_LINES, BASE_PANELS, meta), [meta])
+  /*
+   * LOT P4 (V1) — la vitrine lue par la page d'accueil. Derivée du même `meta`
+   * que les panneaux, et non d'un état parallèle : un compteur qui vivrait dans
+   * son propre `useState` serait différent selon l'onglet qui a écrit le
+   * dernier. Le bornage est la fonction même que côté serveur (`clampVitrine`, :
+   * une clé tapée à la main dans le stockage, ou revenue d'un cache ancien, ne
+   * doit pas afficher `NaN` ni un nombre de 12 chiffres.
+   */
+  const vitrine = clampVitrine(meta.vitrine)
   // Mode API : le catalogue serveur est la source de vérité (masquages et
   // créations du master, stock live, overrides de prix). Offline : repli
   // sur le catalogue statique + meta local.
@@ -424,6 +539,12 @@ export default function App() {
   }, [apiOnline, serverCatalogReady, serverCatalog, shopView.products, stockMap])
   // Le produit affiché peut sortir du catalogue pendant la visite (rupture /
   // masquage) : on garde la dernière référence pour ne pas vider la PDP.
+  // LOT P3 (B25) : ordre de la priorité Algérie, mais uniquement des marques
+  // réellement en rayon (les autres marques du catalogue suivent, triées).
+  // Déclaré ici, après `catalog` : posé plus haut, il lisait une constante en
+  // zone morte de déclaration (TDZ) et faisait tomber tout le montage de `App`.
+  const marquesVendues = useMemo(() => brandsOnSale(catalog, BRANDS_DZ_PRIORITY), [catalog])
+
   const selectedFound = catalog.find((p) => p.id === selectedId)
   const selectedRef = useRef(null)
   if (selectedFound) selectedRef.current = selectedFound
@@ -489,6 +610,31 @@ export default function App() {
     return () => clearTimeout(timer)
   }, [toast])
 
+  /*
+   * LOT P6 (S6) — un lien qui ouvre la porte. `?connexion=1` / `?inscription=1`
+   * ouvrent le panneau d'authentification sur le bon onglet, puis le parametre
+   * est retire de l'URL (comme le jeton OAuth plus bas : une adresse partageable
+   * ne doit rien porter qui n'etait pas demande). Le cas d'usage est celui du
+   * comptoir : une facture, un statut WhatsApp ou un SMS qui dit « connecte-toi
+   * pour voir ta commande » doit deposer le client sur le formulaire, pas sur la
+   * vitrine avec un menu a ouvrir.
+   */
+  useEffect(() => {
+    try {
+      const u = new URL(window.location.href)
+      const inscription = u.searchParams.get('inscription')
+      const connexion = u.searchParams.get('connexion')
+      if (inscription == null && connexion == null) return
+      ouvrirAuth(inscription != null ? 'register' : 'login')
+      u.searchParams.delete('inscription')
+      u.searchParams.delete('connexion')
+      window.history.replaceState({}, '', u.pathname + (u.search ? u.search : '') + u.hash)
+    } catch {
+      /* URL que jsdom refuse : le lien profond est un confort, pas une dependance */
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   /* Bootstrap Offcanvas — focus trap + backdrop via official API */
   useEffect(() => {
     const el = cartElRef.current
@@ -542,12 +688,21 @@ export default function App() {
         // P12 (B25) : jamais en mode dégradé — l'API renverrait des panneaux
         // vides par défaut et écraserait le cache local.
         const m = await api.getMeta()
+        // LOT P4 (V1) : la vitrine voyage avec les panneaux — même requête, même
+        // rafraîchissement, et surtout le MÊME chemin de persistance (voir
+        // `persistMeta` plus bas). `degraded` = l'API a répondu « je n'ai pas la
+        // base » : on garde ce qui est à l'écran au lieu de remettre des zéros
+        // qui feraient croire au client que le comptoir n'a rien livré.
         if (!cancelled && m.ok && !m.data?.degraded && m.data?.meta) {
           const sm = m.data.meta
           persistMeta({
             ...loadMeta(storage),
             hiddenPanelIds: Array.isArray(sm.hiddenPanelIds) ? sm.hiddenPanelIds : [],
-            extraPanels: Array.isArray(sm.extraPanels) ? sm.extraPanels : []
+            extraPanels: Array.isArray(sm.extraPanels) ? sm.extraPanels : [],
+            // LOT P4 (V1) : le serveur est la source de vérité des trois
+            // compteurs comme il l'est des panneaux — la vitrine est la même sur
+            // tous les écrans du magasin, pas celle du dernier navigateur ouvert.
+            vitrine: m.data.vitrine || loadMeta(storage).vitrine
           })
         }
       }
@@ -741,7 +896,10 @@ export default function App() {
   async function handleOrderStatus(code, status) {
     if (apiOnline && authMode === 'api' && isMaster) {
       try {
-        const r = await api.patchOrder(code, status)
+        // LOT P2 (B6) : le statut que CET écran affiche. Fourni au serveur, il
+        // refuse l'écriture obsolète au lieu de l'appliquer à l'aveugle.
+        const visible = reservationsRef.current.find((o) => o?.code === code)?.status || null
+        const r = await api.patchOrder(code, status, visible)
         if (r.ok && r.data?.order) {
           // P21 : horodatage AVANT la mise à jour d'état, pour que la fusion
           // du polling suivant sache que ce statut est plus récent.
@@ -753,6 +911,16 @@ export default function App() {
         // Commande inconnue du serveur (créée en mode local), session non
         // API ou réseau tombé : on bascule sur le repli local au lieu de
         // laisser le bureau bloqué sur « Could not update status ».
+        // Refus pour état dépassé : la vérité est dans la réponse, on la
+        // réapplique à la carte — l'écran ne doit pas rester sur le statut
+        // qu'il vient de perdre.
+        if (r.status === 409 && r.data?.error === 'stale') {
+          if (r.data.order) {
+            syncReservations((prev) => prev.map((o) => (o.code === code ? { ...o, ...r.data.order } : o)))
+          }
+          setToast(t('deskStatusStale'))
+          return false
+        }
         const err = r.data?.error
         if (!r.offline && err !== 'not_found' && err !== 'forbidden') {
           setToast(t('deskStatusFail'))
@@ -824,6 +992,17 @@ export default function App() {
     // jamais cette exception.
     if (!canCancelHere(target, { allowGuest: !user })) {
       setToast(t('orderOnlyNew'))
+      return false
+    }
+    // LOT P3 (B17) : une commande qui VIT SUR LE SERVEUR ne s'annule pas en
+    // local. Avant : l'écran affichait « Commande annulée — stock rétabli »
+    // pendant que la ligne restait `new` au comptoir, et le prochain
+    // `mergeServerOrders` (`src/orderLogic.js:545`) ramenait le statut serveur —
+    // la commande réapparaissait chez le client comme au bureau. Le faux succès
+    // était donc en plus temporaire. Sans session, la seule voie honnête est de
+    // le dire, et la copie locale n'est pas touchée.
+    if (apiOnline && target.localOnly !== true && !user) {
+      setToast(t('orderCancelNeedsLogin'))
       return false
     }
     commitReservations((prev) =>
@@ -969,7 +1148,6 @@ export default function App() {
         }
       }
       seenOrderCodes.current = new Set(server.map((o) => o.code))
-      prevOrderCount.current = server.length
       // LOT 3.11 (B16) : horodatage persisté du dernier pull réussi — pris AVANT
       // l'envoi, donc toute commande créée pendant la requête sera vue comme
       // « arrivée depuis » au prochain démarrage à froid.
@@ -1120,6 +1298,56 @@ export default function App() {
 
 
 
+  function choisirCategorie(id) {
+    // Une marque qui ne vend rien dans la categorie choisie ne peut plus rien
+    // filtrer : la laisser armee affichait « 0 produit » avec un bouton qui
+    // continuait a porter la marque — le client croisait les bras.
+    const { retirees } = filtresRetires(brandFilter ? [brandFilter] : [], (marque) =>
+      id === 'all' || catalog.some((p) => p.category === id && p.brand === marque))
+    if (retirees.length) {
+      setBrandFilter(null)
+      setShopNote(noteRetrait(t, retirees, catLabel(id)))
+    } else {
+      setShopNote('')
+    }
+    setCategory(id)
+  }
+
+  const catLabel = (id) => {
+    const c = CATEGORIES.find((x) => x.id === id)
+    return c ? labelOr(t, `cat_${c.id}`, c.label || c.id) : id
+  }
+  // LOT P6 (S3) : le filtrage par texte de la liste des marques est dans
+  // `BrandSheet` (une fois, pour les deux ecrans) ; `marquesVendues` reste la liste
+  // REDUITE A LA CATEGORIE choisie, et c'est ce lien-la que le verrou V4 surveille.
+  useFeuilleFiltre(shopSheet !== null, () => setShopSheet(null))
+  // Le numero de page est borne a la lecture, pas a l'ecriture : un filtre qui
+  // réduit la liste pendant qu'on est page 4 doit ramener page 1 sans que
+  // l'appelant ait pensé à réinitialiser l'état.
+  const pas = tailleSure(shopTaille)
+  const shopPages = pagesPour(list.length, pas)
+  const shopPageSure = pageCourante(shopPage, shopPages)
+  const pageProduits = tranche(list, shopPageSure, pas)
+
+  useEffect(() => {
+    setShopPage(1)
+  }, [category, brandFilter, query])
+
+  function gotoPage(n) {
+    const next = pageCourante(n, shopPages)
+    setShopPage(next)
+    document.getElementById('catalog')?.scrollIntoView({ behavior: 'smooth' })
+  }
+
+  function resetShopFilters() {
+    setCategory('all')
+    setShopNote('')
+    setBrandFilter(null)
+    setQuery('')
+    setBrandQuery('')
+    setShopPage(1)
+  }
+
   function liveStock(product) {
     const base = stockMap[product.id] != null ? stockMap[product.id] : product.stock
     const inCart = cart.find((i) => i.id === product.id)
@@ -1167,6 +1395,18 @@ export default function App() {
     // P5 (B20) inchangé : plafond = stock VRAIMENT disponible (`stockMap`), pas
     // le `product.stock` statique ; produit sorti du catalogue → plafond 1.
     const max = product ? (stockMap[id] != null ? stockMap[id] : product.stock) : 1
+    // LOT P3 (B19) : avec un stock a zero, `Math.min(0, Math.max(1, 2))`
+    // rendait 0, et le `.filter(qty > 0)` du bas faisait disparaitre la LIGNE :
+    // un clic sur « + » supprimait le produit du panier, sans un mot. Une
+    // montee au-dessus de ce qui reste se refuse et se dit ; la descendre a 0
+    // reste le moyen prevu de retirer la ligne (et fonctionne aussi en rupture).
+    if (max < 1) {
+      const deja = (cart.find((i) => i.id === id) || {}).qty || 0
+      if (Number(qty) > deja) {
+        setToast(t('outOfStock'))
+        return
+      }
+    }
     setCart((prev) =>
       prev
         .map((i) => (i.id === id ? { ...i, qty: Math.min(max, Math.max(1, qty)) } : i))
@@ -1178,7 +1418,10 @@ export default function App() {
     setCart((prev) => prev.filter((i) => i.id !== id))
   }
 
-  const KNOWN_PAGES = ['shop', 'search', 'builder', 'about', 'orders', 'desk', 'master', 'help', 'profile', 'privacy', 'terms', 'warranty', 'product']
+  // LOT P6 (S6) : la liste des pages connues n'est plus recopiee ici — c'est la
+  // liste declaree en tete de module, et le garde-fou de `go()` suit donc
+  // mecaniquement ce que l'ecran sait rendre.
+  const KNOWN_PAGES = PAGES_ROUTABLES
 
   function openProduct(id) {
     // Anti page blanche : référence inexistante/cachée → retour boutique.
@@ -1209,11 +1452,11 @@ export default function App() {
     if (!KNOWN_PAGES.includes(next)) next = 'shop'
     if ((next === 'desk' || next === 'master' || next === 'help') && !isMaster) {
       setToast(t(next === 'help' ? 'masterOnlyGuide' : next === 'desk' ? 'masterOnlyDesk' : 'masterForbidden'))
-      setAuthOpen(true)
+      ouvrirAuth('login')
       return
     }
     if (next === 'profile' && !user) {
-      setAuthOpen(true)
+      ouvrirAuth('login')
       return
     }
     setPage(next)
@@ -1300,6 +1543,9 @@ export default function App() {
         await refreshStock()
         return
       }
+      // LOT P1 (B13) : `unpriced` rejoint les deux refus ci-dessous — un article
+      // sans prix exploitable côté serveur ne reviendra pas par un nouvel envoi
+      // du panier, il faut donc le retirer comme les autres.
       // LOT 8.1 (A1) + LOT 8.2 (A2) : refus DÉFINITIF du serveur sur certaines
       // lignes — produit retiré de la vente par le maître, ou id inconnu du
       // catalogue (onglet ouvert avant un changement de catalogue, commande
@@ -1307,7 +1553,7 @@ export default function App() {
       // le reste reste commandable : sans cela l'utilisateur renvoyait la même
       // commande en boucle sur un échec identique — et le repli hors-ligne
       // pouvait finir par créer une commande locale sur un article fantôme.
-      if (fail.kind === 'unavailable' || fail.kind === 'unknown') {
+      if (fail.kind === 'unavailable' || fail.kind === 'unknown' || fail.kind === 'unpriced') {
         setToast(orderBlockedMessage(fail.lines, t, fail.kind))
         const kept = dropCartLines(cart, fail.lines)
         setCart(kept)
@@ -1536,49 +1782,65 @@ export default function App() {
               type="button"
               aria-label={t('navMenu')}
               aria-expanded={navOpen}
+              // LOT P6 (S6) : `aria-controls` et l'`id` de la cible, poses ensemble —
+              // un controle sans cible annoncee laisse le lecteur d'ecran deviner ou
+              // le pouce va tomber (la feuille n'a pas non plus de role `navigation`).
+              aria-controls={navOpen ? 'nav-sheet' : undefined}
               onClick={() => setNavOpen((v) => !v)}
             >
               <span className="navbar-toggler-icon" />
             </button>
           </div>
-          <div className={`collapse navbar-collapse ${navOpen ? 'show' : ''}`}>
+          {/*
+            * LOT P4 (V5) — le menu latéral prend toute la page. L'ancien
+            * `collapse` déroulait six liens hauts de 40 px sous la barre : sur un
+            * téléphone, la moitié du menu restait sous le clavier ou sous la
+            * ligne de flottaison, et le client qui voulait « se connecter »
+            * voyait un bouton coupé. `.nav-sheet` (voir src/index.css) transforme
+            * ce panneau en feuille pleine page, avec son propre en-tête de
+            * fermeture — indispensable : la feuille couvre la barre, donc le
+            * bouton ☰ n'est plus atteignable une fois ouvert.
+            */}
+          <div className={`collapse navbar-collapse nav-sheet ${navOpen ? 'show' : ''}`} id="nav-sheet">
+            <div className="nav-sheet-head">
+              <strong>{t('navMenu')}</strong>
+              <button type="button" className="btn btn-sm btn-outline-secondary" onClick={() => setNavOpen(false)}>
+                ✕ {t('close')}
+              </button>
+            </div>
+            {/*
+              * LOT P6 (S6) — le menu est GENERE depuis `MENU_DESTINATIONS` : cinq liens
+              * ecrits a la main plus trois blocs `isMaster &&` repetes, c'est une liste
+              * que rien ne relie a la liste des pages que l'ecran sait rendre. La page
+              * « Garantie & RMA » en avait paye le prix : routee, traduite, titree,
+              * et sans un seul lien vers elle.
+              */}
             <ul className="navbar-nav me-auto mb-2 mb-lg-0 align-items-lg-center gap-lg-1">
-              {[
-                ['shop', t('navShop'), page === 'shop' || page === 'product'],
-                ['search', t('navSearch'), page === 'search'],
-                ['builder', t('navBuilder'), page === 'builder'],
-                ['about', t('navAbout'), page === 'about'],
-                // P11 : bouton « Commandes » dans le menu (page unique, tous
-                // clients — un guest voit celles passées depuis cet appareil).
-                ['orders', t('navOrders'), page === 'orders']
-              ].map(([id, label, on]) => (
-                <li className="nav-item" key={id}>
-                  <button type="button" className={`nav-link btn btn-link ${on ? 'active fw-semibold' : ''}`} onClick={() => go(id)}>
-                    {label}
+              {MENU_DESTINATIONS.filter((d) => !d.groupe && (!d.masterOnly || isMaster)).map((d) => {
+                const on = d.id === 'shop' ? page === 'shop' || page === 'product' : page === d.id
+                return (
+                  <li className="nav-item" key={d.id}>
+                    <button type="button" className={`nav-link btn btn-link ${on ? 'active fw-semibold' : ''}`} onClick={() => go(d.id)}>
+                      {t(d.labelKey)}
+                    </button>
+                  </li>
+                )
+              })}
+              {/* Le groupe « informations » : memes cibles de pouce que le reste (la
+                  taille ne descend pas sous 44 px), seulement un separateur et un corps
+                  plus petit — ce ne sont pas les cinq pages qu'on cherche en premier. */}
+              {MENU_DESTINATIONS.some((d) => d.groupe === 'info') && (
+                <li className="nav-item nav-lien-info-tete" key="info-tete" aria-hidden="true">
+                  <span className="nav-link">{t('navInformations')}</span>
+                </li>
+              )}
+              {MENU_DESTINATIONS.filter((d) => d.groupe === 'info').map((d) => (
+                <li className="nav-item nav-lien-info" key={d.id}>
+                  <button type="button" className={`nav-link btn btn-link ${page === d.id ? 'active fw-semibold' : ''}`} onClick={() => go(d.id)}>
+                    {t(d.labelKey)}
                   </button>
                 </li>
               ))}
-              {isMaster && (
-                <li className="nav-item">
-                  <button type="button" className={`nav-link btn btn-link ${page === 'help' ? 'active fw-semibold' : ''}`} onClick={() => go('help')}>
-                    {t('navHelp')}
-                  </button>
-                </li>
-              )}
-              {isMaster && (
-                <li className="nav-item">
-                  <button type="button" className={`nav-link btn btn-link ${page === 'desk' ? 'active fw-semibold' : ''}`} onClick={() => go('desk')}>
-                    {t('navDesk')}
-                  </button>
-                </li>
-              )}
-              {isMaster && (
-                <li className="nav-item">
-                  <button type="button" className={`nav-link btn btn-link ${page === 'master' ? 'active fw-semibold' : ''}`} onClick={() => go('master')}>
-                    {t('navMaster')}
-                  </button>
-                </li>
-              )}
             </ul>
             <div className="d-flex flex-wrap align-items-center gap-2 py-2 py-lg-0">
               <div className="btn-group btn-group-sm" role="group" aria-label={t('lang')}>
@@ -1613,9 +1875,16 @@ export default function App() {
                   </button>
                 </>
               ) : (
-                <button type="button" className="btn btn-sm btn-outline-success" onClick={() => { setAuthOpen(true); setNavOpen(false) }}>
-                  {t('navLogin')}
-                </button>
+                <>
+                  {/* LOT P6 (S6) : les deux entrees, cote a cote. « Connexion » seul
+                      envoyait le nouveau client sur un champ mot de passe. */}
+                  <button type="button" className="btn btn-sm btn-outline-success" onClick={() => ouvrirAuth('login')}>
+                    {t('navLogin')}
+                  </button>
+                  <button type="button" className="btn btn-sm btn-success" onClick={() => ouvrirAuth('register')}>
+                    {t('navSignup')}
+                  </button>
+                </>
               )}
             </div>
           </div>
@@ -1641,10 +1910,22 @@ export default function App() {
                 {t('pcBuilder')}
               </button>
             </div>
+            {/*
+              * LOT P4 (V1) — deux des quatre compteurs changent de nature.
+              * « références » (301 fiches) ne regardait personne : c'est un
+              * chiffre de stock interne. La vitrine dit desormais ce qui se passe
+              * AU comptoir : combien de commandes ont ete prevenues « pretes »
+              * (compte par le serveur, jamais saisi), et — a la demande du
+              * maitre — le nombre de reparations faites, dont il ecrit
+              * lui-meme le libelle et le chiffre (page Admin → Vitrine). Les
+              * clients lisent, ils ne touchent a rien : l'API d'ecriture est
+              * reservee au role maitre, et le troisieme champ n'est pas
+              * ecrasable depuis le navigateur.
+              */}
             <div className="readout">
               <div className="ro">
-                <b>{catalog.length}</b>
-                <span>{t('roRefs')}</span>
+                <b>{vitrine.readyTally}</b>
+                <span>{t('roOrders')}</span>
               </div>
               <div className="ro">
                 <b>{catalog.filter((p) => p.category === 'gpu').length}</b>
@@ -1655,8 +1936,8 @@ export default function App() {
                 <span>{t('roLaptops')}</span>
               </div>
               <div className="ro">
-                <b dir="ltr">0 DA</b>
-                <span>{t('roPay')}</span>
+                <b>{vitrine.repairsDone}</b>
+                <span>{vitrine.repairsLabel || t('roRepairs')}</span>
               </div>
             </div>
           </section>
@@ -1667,156 +1948,177 @@ export default function App() {
 
           {/* P11 : section « Configs Star » + ses cartes supprimées sur demande. */}
 
-          <div className="d-flex flex-wrap gap-2 align-items-center mb-3">
-            {/* P21 : libellé « ماركات جزائرية شائعة » supprimé (filtres conservés). */}
-            <button type="button" className={`btn btn-sm ${!brandFilter ? 'btn-success' : 'btn-outline-secondary'}`} onClick={() => setBrandFilter(null)}>
-              {t('cat_all')}
-            </button>
-            {BRANDS_DZ_PRIORITY.map((b) => (
-              <button key={b} type="button" className={`btn btn-sm ${brandFilter === b ? 'btn-success' : 'btn-outline-secondary'}`} onClick={() => setBrandFilter(brandFilter === b ? null : b)}>
-                {b}
+          {/*
+            * LOT P4 (V2) — les filtres de la vitrine. L'ancienne rangee dressait
+            * TOUTES les marques vendues en puces avant meme le premier produit :
+            * sur un telephone, une page entiere a scroller pour arriver au
+            * catalogue. Chaque filtre devient un bouton qui ouvre son panneau, et
+            * le bouton porte la valeur choisie (« Marques · Raidmax ») — le filtre
+            * reste lisible une fois ferme. Le champ de recherche du panneau
+            * marques ne filtre QUE la liste des marques : s'il filtrait aussi le
+            * catalogue, fermer le panneau aurait change les resultats sans que
+            * personne ne l'ait demande.
+            */}
+          <div className="filters-bar mb-3" id="catalog">
+            <div className="d-flex flex-wrap gap-2 align-items-center">
+              <button
+                type="button"
+                className={`btn btn-sm ${brandFilter ? 'btn-success' : 'btn-outline-success'}`}
+                onClick={() => setShopSheet(shopSheet === 'brands' ? null : 'brands')}
+                aria-expanded={shopSheet === 'brands'}
+                aria-controls={shopSheet === 'brands' ? 'sheet-brands' : undefined}
+              >
+                {t('filterBrands')}
+                {brandFilter ? ` · ${brandFilter}` : ''}
               </button>
-            ))}
+              <button
+                type="button"
+                className={`btn btn-sm ${category !== 'all' ? 'btn-success' : 'btn-outline-success'}`}
+                onClick={() => setShopSheet(shopSheet === 'catalog' ? null : 'catalog')}
+                aria-expanded={shopSheet === 'catalog'}
+                aria-controls={shopSheet === 'catalog' ? 'sheet-catalog' : undefined}
+              >
+                {t('filterCatalog')}
+                {category !== 'all' ? ` · ${catLabel(category)}` : ''}
+              </button>
+              {(brandFilter || category !== 'all' || query.trim()) && (
+                <button type="button" className="btn btn-sm btn-link" onClick={resetShopFilters}>
+                  {t('reset')}
+                </button>
+              )}
+              <ChoixTaille t={t} taille={shopTaille} onTaille={setShopTaille} />
+              <input
+                className="form-control form-control-sm ms-lg-auto"
+                style={{ maxWidth: 280 }}
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder={t('searchPlaceholder')}
+                aria-label={t('navSearch')}
+              />
+            </div>
+
+            {shopSheet === 'brands' && (
+              <div className="filter-sheet" id="sheet-brands" role="group" aria-label={t('filterBrands')}>
+                <BrandSheet
+                  t={t}
+                  marques={marquesVendues}
+                  estActive={(b) => brandFilter === b}
+                  onChoisir={(b) => { setBrandFilter(brandFilter === b ? null : b); setShopNote(''); setShopSheet(null) }}
+                  onTout={() => { setBrandFilter(null); setShopNote(''); setShopSheet(null) }}
+                />
+              </div>
+            )}
+
+            {shopSheet === 'catalog' && (
+              <div className="filter-sheet" id="sheet-catalog" role="group" aria-label={t('filterCatalog')}>
+                <div className="filter-sheet-grid">
+                  {CATEGORIES.map((c) => (
+                    <button
+                      key={c.id}
+                      type="button"
+                      className={`btn btn-sm cat-${c.id} ${category === c.id ? 'btn-success' : 'btn-outline-secondary'}`}
+                      onClick={() => { choisirCategorie(c.id); setShopSheet(null) }}
+                    >
+                      {/* LOT 5.6 (U6) : repli explicite — `t()` renvoie la clé quand
+                          la traduction manque. Une catégorie master ajoutée sans
+                          traduction ne doit pas fuiter jusqu'à l'écran. */}
+                      {labelOr(t, `cat_${c.id}`, c.label || c.id)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
-          <div className="cats mb-4" id="catalog">
-            {CATEGORIES.map((c) => (
-              <button key={c.id} type="button" className={`btn btn-sm cat-${c.id} ${category === c.id ? 'btn-success' : 'btn-outline-secondary'}`} onClick={() => setCategory(c.id)}>
-                {/* LOT 5.6 (U6) : repli explicite — `t()` renvoie la clé quand
-                    la traduction manque, et `cat_ssd` se retrouverait affiché
-                    tel quel. `BuilderPage`/`SearchPage` avaient déjà le motif,
-                    pas la vitrine. Aucune clé ne manque aujourd'hui (13
-                    catégories × 3 langues), mais une catégorie master ajoutée
-                    sans traduction ne doit pas fuiter jusqu'à l'écran. */}
-                {labelOr(t, `cat_${c.id}`, c.label || c.id)}
-              </button>
-            ))}
-            <input
-              className="form-control form-control-sm ms-lg-auto"
-              style={{ maxWidth: 280 }}
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder={t('searchPlaceholder')}
-              aria-label={t('navSearch')}
-            />
-          </div>
+          {shopNote && (
+            <p className="small text-warning mb-2" role="status">{shopNote}</p>
+          )}
+
+          <p className="small text-secondary mb-2">
+            {t('shopCount', { n: list.length })}
+            {shopPages > 1 ? t('shopPageOf', { page: shopPageSure, pages: shopPages }) : ''}
+          </p>
 
           {list.length === 0 ? (
             <div className="empty-state">
               <strong>{t('noProducts')}</strong>
-              <button type="button" className="btn btn-sm btn-outline-success mt-2" onClick={() => { setCategory('all'); setBrandFilter(null); setQuery('') }}>
+              <button type="button" className="btn btn-sm btn-outline-success mt-2" onClick={resetShopFilters}>
                 {t('reset')}
               </button>
             </div>
           ) : (
-            <div className="row g-3">
-              {list.map((p) => {
-                const left = liveStock(p)
-                const st = stockLabel(left, t)
-                return (
-                  <div className="col-6 col-md-4 col-xl-3" key={p.id}>
-                    <div className="card h-100 shadow-sm product-bs-card">
-                      <button className="btn p-0 border-0 position-relative" type="button" onClick={() => openProduct(p.id)} aria-label={p.name}>
-                        <div className="ratio ratio-4x3 photo-frame overflow-hidden">
-                          <PartThumb product={p} />
-                        </div>
-                        <span className={`badge position-absolute top-0 start-0 m-2 ${st.cls}`}>
-                          {st.text}
-                        </span>
-                        {p.photoMode === 'category' && <span className="badge text-bg-light border position-absolute top-0 end-0 m-2">{t('categoryIllustrationBadge')}</span>}
-                      </button>
-                      {/* Corps de carte photocopié sur la maquette :
-                          marque → titre → specs → ligne prix / + panier. */}
-                      <div className="card-body d-flex flex-column">
-                        <span className="cbrand">{p.brand}</span>
-                        <h3 className="h6 card-title">{p.name}</h3>
-                        <div className="specs">
-                          {specRows(p, t).slice(2, 6).map((r) => (
-                            <span className="d-block" key={r.label}>
-                              <i>{r.label}</i> {r.value}
-                            </span>
-                          ))}
-                        </div>
-                        <div className="card-row mt-auto d-flex justify-content-between align-items-center gap-2">
-                          <span className="d-flex flex-column">
-                            <span className="price text-success">{money(p.price, lang)}</span>
-                            {hasSale(p) && <small className="text-danger"><del>{money(p.compareAtPrice, lang)}</del> · −{discountPercent(p)}%</small>}
+            <>
+              <div className="row g-3">
+                {pageProduits.map((p) => {
+                  const left = liveStock(p)
+                  const st = stockLabel(left, t)
+                  return (
+                    <div className="col-6 col-md-4 col-xl-3" key={p.id}>
+                      <div className="card h-100 shadow-sm product-bs-card">
+                        <button className="btn p-0 border-0 position-relative" type="button" onClick={() => openProduct(p.id)} aria-label={p.name}>
+                          <div className="ratio ratio-4x3 photo-frame overflow-hidden">
+                            <PartThumb product={p} />
+                          </div>
+                          <span className={`badge position-absolute top-0 start-0 m-2 ${st.cls}`}>
+                            {st.text}
                           </span>
-                          <button className="btn btn-sm btn-success" type="button" disabled={left <= 0} onClick={() => add(p)}>
-                            {left <= 0 ? t('soldOut') : t('add')}
-                          </button>
+                          {p.photoMode === 'category' && <span className="badge text-bg-light border position-absolute top-0 end-0 m-2">{t('categoryIllustrationBadge')}</span>}
+                        </button>
+                        {/* Corps de carte photocopié sur la maquette :
+                            marque → titre → specs → ligne prix / + panier. */}
+                        <div className="card-body d-flex flex-column">
+                          <span className="cbrand">{p.brand}</span>
+                          <h3 className="h6 card-title">{p.name}</h3>
+                          <div className="specs">
+                            {specRows(p, t).slice(2, 6).map((r) => (
+                              <span className="d-block" key={r.label}>
+                                <i>{r.label}</i> {r.value}
+                              </span>
+                            ))}
+                          </div>
+                          <div className="card-row mt-auto d-flex justify-content-between align-items-center gap-2">
+                            <span className="d-flex flex-column">
+                              <span className="price text-success">{money(p.price, lang)}</span>
+                              {hasSale(p) && <small className="text-danger"><del>{money(p.compareAtPrice, lang)}</del> · −{discountPercent(p)}%</small>}
+                            </span>
+                            <button className="btn btn-sm btn-success" type="button" disabled={left <= 0} onClick={() => add(p)}>
+                              {left <= 0 ? t('soldOut') : t('add')}
+                            </button>
+                          </div>
                         </div>
                       </div>
                     </div>
-                  </div>
-                )
-              })}
-            </div>
+                  )
+                })}
+              </div>
+
+              {/* LOT P6 (S3) : le pager est `Pager` (src/pagerControls.jsx), la
+                  fenetre de numeros vient de `fenetrePages` — ni la vitrine ni la
+                  recherche ne dressent plus un bouton par page. */}
+              <Pager t={t} page={shopPageSure} pages={shopPages} onPage={gotoPage} />
+            </>
           )}
 
-          {/* ── Configurateur : panneau « split » de la maquette ── */}
-          <section className="py-5">
-            <div className="mb-4">
-              <h2 className="h4 mb-1">{t('pcBuilder')}</h2>
-              <p className="small text-secondary mb-0">{t('builderBody', { address: STORE.address })}</p>
-            </div>
-            <div className="split">
+          {/* ── Configurateur : un acces, plus de tableau decoratif ──
+              LOT P4 (V3) : le panneau « split » de la maquette recitait cinq
+              lignes de composants (Ryzen 5 7600 · 42 000, B650 · AM5 · 28 000 …)
+              et un total de 177 000 DA — des nombres ECRITS EN DUR dans le JSX,
+              qui ne venaient ni du catalogue ni d'une vraie configuration, a
+              cote d'une liste de controles de compatibilite simules
+              (« [OK] socket AM5 »). Le client voyait un devis qui n'en etait
+              pas un. Le tout est retire : le catalogue continue en pages
+              au-dessus, et le configurateur reste a un clic. */}
+          <section className="py-4">
+            <div className="d-flex flex-wrap align-items-center justify-content-between gap-2 border-top pt-3">
               <div>
-                <h3 className="h5">{t('builderCheckTitle')}</h3>
-                <p className="small">{t('builderCheckBody')}</p>
-                <div className="check">
-                  <div>
-                    <span className="m" dir="ltr">[OK]</span> {t('chkOkSocket')}
-                  </div>
-                  <div>
-                    <span className="m" dir="ltr">[OK]</span> {t('chkOkRam')}
-                  </div>
-                  <div>
-                    <span className="m" dir="ltr">[OK]</span> {t('chkOkPsu')}
-                  </div>
-                  <div>
-                    <span className="w" dir="ltr">[!]</span> {t('chkWarnCase')}
-                  </div>
-                </div>
-                <div className="d-flex gap-2 mt-4">
-                  <button className="btn btn-success" type="button" onClick={() => go('builder')}>
-                    {t('openBuilder')}
-                  </button>
-                </div>
+                <h2 className="h5 mb-1">{t('pcBuilder')}</h2>
+                <p className="small text-secondary mb-0">{t('builderBody', { address: STORE.address })}</p>
               </div>
-              <div>
-                <div className="slots">
-                  <div className="slot">
-                    <span className="k" dir="ltr">cpu</span>
-                    <span className="v">Ryzen 5 7600</span>
-                    <span className="p" dir="ltr">42 000</span>
-                  </div>
-                  <div className="slot">
-                    <span className="k" dir="ltr">board</span>
-                    <span className="v">B650 · AM5</span>
-                    <span className="p" dir="ltr">28 000</span>
-                  </div>
-                  <div className="slot">
-                    <span className="k" dir="ltr">ram</span>
-                    <span className="v">32 Go DDR5</span>
-                    <span className="p" dir="ltr">19 000</span>
-                  </div>
-                  <div className="slot">
-                    <span className="k" dir="ltr">gpu</span>
-                    <span className="v">RTX 4060 8 Go</span>
-                    <span className="p" dir="ltr">72 000</span>
-                  </div>
-                  <div className="slot">
-                    <span className="k" dir="ltr">psu</span>
-                    <span className="v">750 W 80+ Bronze</span>
-                    <span className="p" dir="ltr">16 000</span>
-                  </div>
-                </div>
-                <div className="total">
-                  <span dir="ltr">est. 410 W</span>
-                  <b dir="ltr">177 000 DA</b>
-                </div>
-              </div>
+              {/* La cle porte deja sa fleche (« Ouvrir le configurateur → ») :
+                  l'ajouter ici la doublait a l'ecran. */}
+              <button className="btn btn-success" type="button" onClick={() => go('builder')}>
+                {t('openBuilder')}
+              </button>
             </div>
           </section>
 
@@ -1991,7 +2293,7 @@ export default function App() {
                   <h2 className="h5">1. {t('authTitle')}</h2>
                   <p>{t('authSimpleNote')}</p>
                   <p className="small text-secondary">{t('helpNoPublicDemo')}</p>
-                  <button type="button" className="btn btn-success" onClick={() => setAuthOpen(true)}>
+                  <button type="button" className="btn btn-success" onClick={() => ouvrirAuth('login')}>
                     {t('navLogin')}
                   </button>
                 </div>
@@ -2176,7 +2478,12 @@ export default function App() {
                     onClick={() => {
                       setReserved(null)
                       setCartOpen(false)
-                      go('profile')
+                      // LOT P3 (B21) : le libellé dit « Mes commandes » et
+                      // envoyait sur le profil. Depuis le LOT 5.x, « Mes
+                      // commandes » est SORTI du profil (`src/OrdersPage.jsx`,
+                      // que `ProfilePage.jsx:6-7` cite lui-même) : le bouton
+                      // menait donc à un écran qui n'affiche aucune commande.
+                      go('orders')
                     }}
                   >
                     {t('viewMyOrders')}
@@ -2383,6 +2690,7 @@ export default function App() {
       {authOpen && (
         <AuthPanel
           t={t}
+          tabInitial={authTab}
           users={users}
           onUsers={persistUsers}
           onSession={(s) => {

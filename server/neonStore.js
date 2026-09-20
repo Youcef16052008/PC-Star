@@ -17,16 +17,132 @@ async function ensureBackupTable(conn) {
   await conn.query('CREATE INDEX IF NOT EXISTS pcstar_backups_created_at_idx ON pcstar_backups (created_at DESC)')
 }
 
-let sql
-let pool
+let sql = null
+let sqlSource = null
+let pool = null
+let poolSource = null
+
+/**
+ * LOT P0 (audit 19/09/2026, B1) — le pool ne doit JAMAIS être un simple cache.
+ *
+ * Le `Pool` exposé par `@neondatabase/serverless` est le `pg` Pool embarqué. Ce
+ * dernier rattache à chaque client rendu inactif un « idle listener » qui, à la
+ * première erreur du socket, fait `pool._remove(client); pool.emit('error', err)`.
+ * Un EventEmitter qui émet `'error'` sans auditeur **jette hors de toute
+ * promesse** : ni le `try/catch` de l'appelant, ni celui de `scheduledBackup()`
+ * (`server/index.js`), ni `readDbSafe()` ne peuvent l'attraper — le processus
+ * meurt. Reproduit en direct avec un PostgreSQL factice qui casse son socket
+ * 1,2 s après le handshake :
+ *
+ *   Error: Connection terminated unexpectedly
+ *       at …/@neondatabase/serverless/index.mjs:1010:76    → exit 1
+ *
+ * Ce n'est pas un scénario exotique : un compute Neon suspendu, un pooler qui
+ * ferme les connexions oisives ou une coupure réseau produisent cette trace, et
+ * `transactionPool()` sert **toutes** les écritures (`updateNeonState`) — un
+ * client idle existe donc entre deux requêtes. Le service est rendu
+ * silencieusement depuis l'application ; le `try/catch` autour du backup
+ * n'y changeait rien.
+ *
+ * Deux gardes, dans l'ordre :
+ *  1. un auditeur `'error'` → plus rien ne remonte jusqu'à Node ;
+ *  2. le pool fautif est **écarté** (`disposeTransactionPool`) et `max: 1` étant
+ *     la seule taille autorisée, la reconstruction est **paresseuse** : le pool
+ *     suivant est créé à la prochaine écriture, sur une connexion neuve.
+ */
+const poolStatus = { created: 0, idleErrors: 0, lastError: null, lastErrorAt: null }
+
+function shortMessage(error) {
+  return String((error && error.message) || error || 'unknown error').slice(0, 300)
+}
+
+/**
+ * Rend un client au pool sans jamais laisser un échec de fermeture parler plus
+ * fort que le résultat de l'appelant : `conn.release()` dans un `finally` lève si
+ * le pool a été écarté entre-temps (le cas B1), ce qui tournerait une écriture
+ * réussie en 500 — exactement l'effet inverse de celui recherché.
+ */
+function releaseQuietly(conn) {
+  try {
+    if (typeof conn?.release === 'function') conn.release()
+  } catch (error) {
+    console.warn('[pcstar-db] client non rendu au pool (fermé ou écarté).', { message: shortMessage(error) })
+  }
+}
+
+/** Écarte le pool courant (fermeture gracieuse, jamais bloquante, jamais bruyante). */
+function disposeTransactionPool() {
+  const dying = pool
+  pool = null
+  poolSource = null
+  if (!dying) return
+  try {
+    Promise.resolve(dying.end()).catch(() => {
+      /* une seconde panne pendant la fermeture n'ajoute rien au diagnostic */
+    })
+  } catch {
+    /* pool déjà fermé */
+  }
+}
+
+/**
+ * Diagnostic — consommé par `GET /api/db/status` (master) et par le test de
+ * non-régression `src/p0NeonPool.test.js`. Aucun secret, aucun identifiant :
+ * compteurs d'erreurs et horodatages seulement.
+ */
+export function neonPoolStatus() {
+  return {
+    ...poolStatus,
+    active: Boolean(pool),
+    // Un pool vivant SANS auditeur 'error' est exactement le défaut B1 : la
+    // sonde sert à le voir revenir.
+    errorListeners: pool ? pool.listenerCount('error') : 0,
+    size: pool ? pool.totalCount : 0,
+    idle: pool ? pool.idleCount : 0
+  }
+}
+
+/** Pool courant, exposé pour le diagnostic et le test B1 (jamais pour écrire). */
+export function peekTransactionPool() {
+  return pool || null
+}
+
 function client() {
-  if (!process.env.DATABASE_URL) return null
-  sql ||= neon(process.env.DATABASE_URL)
+  const url = process.env.DATABASE_URL
+  if (!url) return null
+  // Une URL qui change (rotation de secret, reconfiguration, test) invalide le
+  // cache : sinon le processus resterait collé à l'ancienne base jusqu'au
+  // redémarrage.
+  if (!sql || sqlSource !== url) {
+    sql = neon(url)
+    sqlSource = url
+  }
   return sql
 }
-function transactionPool() {
-  if (!process.env.DATABASE_URL) return null
-  pool ||= new Pool({ connectionString: process.env.DATABASE_URL, max: 1 })
+/**
+ * Le pool de transactions — unique point de création, donc unique endroit où la
+ * garde B1 peut vivre. Exporté pour le diagnostic (`neonPoolStatus`) et pour le
+ * test de non-régression `src/p0NeonPool.test.js` : **jamais** pour conduire une
+ * requête hors de ce module, ce qui court-circuiterait le verrou de ligne.
+ */
+export function transactionPool() {
+  const url = process.env.DATABASE_URL
+  if (!url) return null
+  if (pool && poolSource !== url) disposeTransactionPool()
+  if (!pool) {
+    pool = new Pool({ connectionString: url, max: 1 })
+    poolSource = url
+    poolStatus.created += 1
+    pool.on('error', (error) => {
+      poolStatus.idleErrors += 1
+      poolStatus.lastError = shortMessage(error)
+      poolStatus.lastErrorAt = new Date().toISOString()
+      console.error('[pcstar-db] erreur sur un client idle du pool Neon — pool écarté, reconstruit à la prochaine écriture.', {
+        message: poolStatus.lastError
+      })
+      disposeTransactionPool()
+    })
+  }
   return pool
 }
 
@@ -78,7 +194,7 @@ export async function createNeonBackup(source = 'manual') {
     await conn.query('ROLLBACK').catch(() => {})
     throw error
   } finally {
-    conn.release()
+    releaseQuietly(conn)
   }
 }
 
@@ -116,7 +232,7 @@ export async function restoreNeonBackup(id) {
     await conn.query('ROLLBACK').catch(() => {})
     throw error
   } finally {
-    conn.release()
+    releaseQuietly(conn)
   }
 }
 
@@ -143,7 +259,7 @@ export async function updateNeonState(mutator, fallback) {
     await conn.query('ROLLBACK').catch(() => {})
     throw error
   } finally {
-    conn.release()
+    releaseQuietly(conn)
   }
 }
 
@@ -183,6 +299,6 @@ export async function archiveOrders(mutator, fallback) {
     await conn.query('ROLLBACK').catch(() => {})
     throw error
   } finally {
-    conn.release()
+    releaseQuietly(conn)
   }
 }

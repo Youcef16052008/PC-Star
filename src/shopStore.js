@@ -32,6 +32,8 @@ const MAX_SAVED_SEARCHES = 10
 // (cookies tiers refusés, navigation privée, quota dépassé), ils levaient un
 // `SecurityError` pendant le rendu.
 import { asSafeStorage, safeStorage } from './safeStorage.js'
+import { clampVitrine } from './vitrine.js'
+import { clipChars, excedeChars } from './textClip.js'
 
 export function hashPass(password) {
   let h = 2166136261
@@ -75,9 +77,12 @@ export { normalizePhone, isDzPhone, phoneCarrier }
 import { isKnownCategory, isKnownCondition, isKnownUse, kindForCategory } from './data.js'
 import {
   BARCODE_LIMIT,
+  BRAND_LIMIT,
   CONDITION_NOTE_LIMIT,
   DESCRIPTION_LIMIT,
   MODEL_LIMIT,
+  NAME_LIMIT,
+  SHORT_LIMIT,
   cleanProductText,
   isValidBarcode,
   normalizeProductCompat,
@@ -110,7 +115,12 @@ function emptyMeta() {
     hiddenProductIds: [],
     extraPanels: [],
     hiddenPanelIds: [],
-    photoOverrides: {}
+    photoOverrides: {},
+    // LOT P4 (V1) — la vitrine est stockee comme les panneaux : meme cle, meme
+    // chargement, meme persistance. C'est ce qui fait qu'en mode local (sans
+    // API) la tuile saisie par le maitre survit au rechargement, et qu'en mode
+    // API la valeur du serveur la remplace, sans etat parallele a resynchroniser.
+    vitrine: clampVitrine({})
   }
 }
 
@@ -263,6 +273,10 @@ export function saveMeta(storage = safeStorage, meta) {
 export function registerEmail(users, { email, password, name, phone } = {}) {
   const mail = String(email || '').trim().toLowerCase()
   if (!isEmail(mail)) return { ok: false, error: 'email' }
+  // LOT P5 : memes plafonds qu'a la porte (`POST /api/auth/register`) — un profil
+  // rempli hors ligne doit fusionner sans refus surprise.
+  if (excedeChars(mail, 254)) return { ok: false, error: 'email' }
+  if (name != null && excedeChars(String(name).trim(), 64)) return { ok: false, error: 'name_too_long' }
   if (String(password || '').length < 6) return { ok: false, error: 'password' }
   if (users.some((u) => u.email === mail)) return { ok: false, error: 'exists' }
   const user = {
@@ -290,14 +304,21 @@ export function updateUser(users, id, patch) {
   const idx = users.findIndex((u) => u.id === id)
   if (idx < 0) return { ok: false, error: 'missing' }
   const allowed = {}
-  if (patch.name != null) allowed.name = String(patch.name).trim() || users[idx].name
+  // LOT P5 : le mode local ne doit rien laisser passer que l'API refuserait au
+  // merge — `PUT /api/me` borne le nom a 64 caracteres (et le refus est le meme),
+  // et la « wilaya » se coupe en caracteres, pas en unites UTF-16.
+  if (patch.name != null) {
+    const nom = String(patch.name).trim()
+    if (nom && excedeChars(nom, 64)) return { ok: false, error: 'name_too_long' }
+    allowed.name = nom || users[idx].name
+  }
   if (patch.phone != null) {
     const p = String(patch.phone).trim()
     allowed.phone = p ? normalizePhone(p) : ''
   }
   // P16 : longueur bornée — une « wilaya » de 100 000 caractères partait en
   // base et ressortait dans chaque export CSV du comptoir.
-  if (patch.wilaya != null) allowed.wilaya = String(patch.wilaya).trim().slice(0, 40) || users[idx].wilaya || 'Oran'
+  if (patch.wilaya != null) allowed.wilaya = clipChars(String(patch.wilaya).trim(), 40) || users[idx].wilaya || 'Oran'
 
   const user = { ...users[idx], ...allowed }
   const next = users.slice()
@@ -372,7 +393,19 @@ function skuSlug(title) {
 export function addProduct(meta, { name, price, category, brand, stock, short, photos, sku, condition, uses, warrantyMonths, model, barcode, description, conditionNote, compareAtPrice, lowStockAt, details, tags, compat } = {}, knownSkus = []) {
   const title = String(name || '').trim()
   const n = Number(price)
-  if (!title || !Number.isFinite(n) || n < 0) return { ok: false, error: 'product' }
+  if (!title || !Number.isFinite(n)) return { ok: false, error: 'product' }
+  // LOT P2 (B12) : la règle locale doit être LA règle de l'API, sinon le mode
+  // local enregistre une fiche que le serveur refuserait dès qu'on la rejoue en
+  // `POST` — et deux bornes manquaient ici : `price` à 0 DA (le catalogue
+  // public vend alors à 0, bug corrigé côté patch au LOT 1.12 mais pas ici) et
+  // le nom non mesuré.
+  if (n <= 0) return { ok: false, error: 'price' }
+  // LOT P5 : une mesure en CARACTÈRES (points de code), pas en unités UTF-16 —
+  // un nom de 60 emoji (120 unités, 60 caractères) était refusé ici alors que
+  // l'API l'accepte : le même texte, deux verdicts selon le mode. `excedeChars`
+  // plutôt qu'un compte intégral : la borne se teste avant écriture, sur une
+  // saisie que l'appelant choisit — elle ne doit pas la parcourir pour dire non.
+  if (excedeChars(title, NAME_LIMIT)) return { ok: false, error: 'name_too_long' }
   // Absent → repli `accessories` ; présent mais hors liste (chaîne vide
   // comprise) → refus, comme à l'API : la même règle des deux côtés.
   const cat = category == null ? 'accessories' : String(category)
@@ -421,8 +454,10 @@ export function addProduct(meta, { name, price, category, brand, stock, short, p
     // ces caractères et on retombe sur un suffixe horodaté — jamais « PS- » seul.
     sku: manualSku || uniqueSku(`PS-${skuSlug(title)}`, [...(meta.extraProducts || []), ...knownSkus]),
     name: title,
-    short: String(short || title),
-    brand: String(brand || 'PC Star'),
+    // LOT P2 (B12) : mêmes bornes qu'au serveur (le repli sur le titre reste
+    // sous `SHORT_LIMIT`, puisque `NAME_LIMIT` est plus petit).
+    short: cleanProductText(short || title, SHORT_LIMIT),
+    brand: cleanProductText(brand || 'PC Star', BRAND_LIMIT),
     category: cat,
     condition: productCondition,
     uses: productUses,
@@ -503,6 +538,20 @@ export function togglePanel(meta, id, on) {
   return { ...meta, hiddenPanelIds: [...hidden] }
 }
 
+/**
+ * LOT P3 (B32) : retirer un panneau AJOUTÉ. Les panneaux de base se masquent,
+ * ils ne se suppriment pas (ils portent le rayon du catalogue) ; un panneau
+ * créé par le maître, lui, doit pouvoir disparaître — avant, `extraPanels` ne
+ * s'agrandissait jamais, et la troncature serveur à 12 rendait le 13ᵉ
+ * inatteignable : impossible de faire de la place.
+ */
+export function removePanel(meta, id) {
+  const extraPanels = (meta.extraPanels || []).filter((p) => p.id !== id)
+  const hidden = new Set(meta.hiddenPanelIds || [])
+  hidden.delete(id) // une id supprimée ne doit pas rester dans les masques
+  return { ...meta, extraPanels, hiddenPanelIds: [...hidden] }
+}
+
 export function buildShopView(baseProducts, baseLines, basePanels, meta) {
   const hiddenIds = new Set(meta.hiddenProductIds || [])
   const overrides = meta.photoOverrides || {}
@@ -518,7 +567,12 @@ export function buildShopView(baseProducts, baseLines, basePanels, meta) {
     ...(meta.extraProducts || []).filter((p) => !hiddenIds.has(p.id)).map(withPhotos)
   ]
   const hiddenPanels = new Set(meta.hiddenPanelIds || [])
-  const extraLines = (meta.extraPanels || []).flatMap((panel) =>
+  // LOT P3 (B32) : un panneau ajouté masqué doit disparaître du rayonnage
+  // COMME ses lignes. Avant, `hiddenPanelIds` n'était opposé qu'aux panneaux
+  // de base : le maître pouvait cliquer « OFF » sur un panneau ajouté (le
+  // bouton n'existait d'ailleurs pas), la vitrine continuait de l'afficher.
+  const visibles = (meta.extraPanels || []).filter((panel) => !hiddenPanels.has(panel.id))
+  const extraLines = visibles.flatMap((panel) =>
     panel.categories.map((cat) => ({
       id: `${panel.id}-${cat}`,
       label: cat,
@@ -526,7 +580,7 @@ export function buildShopView(baseProducts, baseLines, basePanels, meta) {
       match: (p) => p.category === cat
     }))
   )
-  const extraPanels = (meta.extraPanels || []).map((panel) => ({
+  const extraPanels = visibles.map((panel) => ({
     id: panel.id,
     titleKey: null,
     titles: panel.titles,

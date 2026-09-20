@@ -252,6 +252,45 @@ export async function startOAuth(provider, { userId = null, intent = 'login', re
  * de le réutiliser. La vérification de son âge est également locale à ce
  * chemin : elle reste effective lorsque Neon n'a pas encore purgé le JSONB.
  */
+/**
+ * LOT P2 (B7) — un compte de démonstration revendiqué par une identité
+ * fournisseur **vérifiée** cesse d'être un compte de démonstration.
+ *
+ * Mesuré avant correctif : la branche « nouvel utilisateur » de `finishIdentity`
+ * posait `demo: false`, mais les deux branches qui rattachent une identité à un
+ * compte existant laissaient le marqueur en place. Trois conséquences, toutes
+ * réelles :
+ *  1. `normalizeDb` (`server/db.js:528-543`) re-positonne à chaque lecture
+ *     l'empreinte de tout compte encore marqué `demo` sur `DEMO_PASSWORD` — le
+ *     mot de passe partagé, publié dans le README et présent dans le bundle.
+ *     Le compte revendiqué restait donc ouvrable à n'importe qui, avec
+ *     l'historique de commandes réelles de la personne qui vient de prouver son
+ *     e-mail chez Google (`email_verified === true`, `server/oauth.js:440`).
+ *  2. La garde S2 (`if (!trusted && byEmail && … && byEmail.demo !== true)`)
+ *     ne protégeait pas ce compte : un callback **non vérifié** pouvaait encore
+ *     y recoller une identité, puisque le marqueur disait « encore une démo ».
+ *  3. `POST /api/auth/login` répondait `demo_locked` à son titulaire, alors
+ *     qu'il n'a plus rien de démonstratif.
+ *
+ * Le mot de passe est remis à `null` et non remplacé : c'est l'état « aucun mot
+ * de passe ne fonctionne », déjà prévu pour les fixtures verrouillées, et le
+ * maître peut en poser un (`/api/master/customers/:id/reset-password`). Les
+ * sessions ouvertes avec le mot de passe partagé sont coupées dans la foulée ;
+ * `finishIdentity` en crée une neuve juste après, pour le titulaire.
+ *
+ * Sous `OAUTH_DEMO=1` le callback n'est pas vérifié (`trusted: false`) : rien
+ * n'est touché, les fixtures de la démo restent ouvrables.
+ */
+function claimDemoAccount(db, user) {
+  if (user.demo !== true) return false
+  user.demo = false
+  user.passwordHash = null
+  for (const [key, sess] of Object.entries(db.sessions || {})) {
+    if (sess && sess.userId === user.id) delete db.sessions[key]
+  }
+  return true
+}
+
 async function finishIdentity(provider, rawIdentity, stateKey, { trusted = false } = {}) {
   const identity = {
     id: String(rawIdentity?.id || '').trim().slice(0, 200),
@@ -297,6 +336,7 @@ async function finishIdentity(provider, rawIdentity, stateKey, { trusted = false
       }
       user.links = user.links || {}
       user.links[provider] = identity
+      if (trusted) claimDemoAccount(db, user)
     } else {
       // Un ancien lien OAuth sur le maître ne devient pas une porte dérobée.
       if (byLink?.role === 'master') {
@@ -354,6 +394,9 @@ async function finishIdentity(provider, rawIdentity, stateKey, { trusted = false
         user.links[provider] = identity
         if (!user.name && identity.name) user.name = identity.name
         if (!user.email && identity.email) user.email = identity.email
+        // LOT P2 (B7) : voir `claimDemoAccount` — le rattachement par
+        // e-mail vérifié est le chemin par lequel un fixture démo devient un vrai client.
+        if (trusted) claimDemoAccount(db, user)
       }
     }
 

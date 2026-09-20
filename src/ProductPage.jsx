@@ -4,7 +4,7 @@ import PartThumb from './PartThumb.jsx'
 import ContactButton from './ContactPicker.jsx'
 import { relatedProducts, specRows } from './media.js'
 import { stockLabel } from './stockLabel.js'
-import { discountPercent, hasSale } from './productMeta.js'
+import { compatLabel, discountPercent, hasSale } from './productMeta.js'
 
 /**
  * LOT 2.6 (F10) — texte du bloc « besoins » d'une fiche produit.
@@ -44,10 +44,11 @@ function Stars({ product, t }) {
 function SpecBadges({ product, t }) {
   const c = product.compat || {}
   const badges = []
-  if (c.socket && !Array.isArray(c.socket)) badges.push({ k: 'socket', v: c.socket })
-  if (Array.isArray(c.socket)) badges.push({ k: 'socket', v: c.socket.join('/') })
-  if (c.memory) badges.push({ k: 'memory', v: c.memory })
-  if (c.form) badges.push({ k: 'form', v: c.form })
+  // LOT P1 (B11) : socket, memoire et format peuvent etre des listes ; le rendu
+  // passe par `compatLabel` au lieu de supposer une chaine.
+  if (c.socket) badges.push({ k: 'socket', v: compatLabel(c.socket, '/') })
+  if (c.memory) badges.push({ k: 'memory', v: compatLabel(c.memory, '/') })
+  if (c.form) badges.push({ k: 'form', v: compatLabel(c.form, '/') })
   if (c.psuWatts) badges.push({ k: 'psu', v: `${c.psuWatts}W` })
   if (c.psuMin) badges.push({ k: 'psuMin', v: `≥${c.psuMin}W` })
   if (!badges.length) return null

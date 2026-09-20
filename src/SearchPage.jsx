@@ -1,7 +1,20 @@
 import { useEffect, useMemo, useState } from 'react'
-import { PRICE_PRESETS, PRODUCT_CONDITIONS, PRODUCT_USES, SOCKETS, STORE, conditionOf, money, starText, usesOf } from './data'
+// LOT P4 (V4) : `PRODUCT_USES`/`usesOf` ne sortent plus de cette page — le
+// filtre « usage » a été retiré sur demande du client (le rayon se choisit dans
+// le catalogue, un usage ne filtre rien que le rayon ne filtre déjà).
+import { PRICE_PRESETS, PRODUCT_CONDITIONS, SOCKETS, STORE, conditionOf, money, starText } from './data'
 import { loadSavedSearches, saveSavedSearches } from './shopStore.js'
 import { stockLabel } from './stockLabel.js'
+// LOT P6 (S2) : memes pages que la vitrine, meme regle — voir `src/pager.js`.
+// LOT P6 (S3) : le client choisit sa taille de page, et le pager comme la feuille
+// des marques sont des composants PARTAGES — un exemplaire pour les deux ecrans,
+// plus de markup recopie qui diverge au premier correctif.
+import { pageCourante, pagesPour, tailleSure, tranche } from './pager.js'
+import { ChoixTaille, Pager } from './pagerControls.jsx'
+import { BrandSheet } from './brandSheet.jsx'
+import { useFeuilleFiltre } from './filterSheet.js'
+import { filtresRetires, noteRetrait } from './filterDrop.js'
+import { useTaille } from './pagerStore.js'
 import PartThumb from './PartThumb.jsx'
 import { discountPercent, hasSale } from './productMeta.js'
 
@@ -16,9 +29,7 @@ const EMPTY = {
   brands: [],
   socket: 'all',
   condition: 'all',
-  use: 'all',
   price: 'any',
-  inStock: false,
   sort: 'featured'
 }
 
@@ -38,6 +49,26 @@ export default function SearchPage({ t, products, lines, panels, lang, liveStock
   const [saved, setSaved] = useState(() => loadSavedSearches())
   const [saveNote, setSaveNote] = useState('')
   const [filtersOpen, setFiltersOpen] = useState(false)
+  // LOT P6 (S1) — les deux filtres que le client a demandes (marques, catalogue)
+  // sont des BOUTONS qui ouvrent leur feuille, au lieu d'un mur de panneaux
+  // toujours deploye. `sheet` porte la feuille ouverte ; `groupeOuvert` porte le
+  // groupe de rayons deploye dans la feuille « catalogue » (par defaut : celui de
+  // la ligne courante, donc les panneaux CPU/GPU n'apparaissent que pour les
+  // pieces PC — et a un clic).
+  const [sheet, setSheet] = useState(null)
+  const [groupeOuvert, setGroupeOuvert] = useState(null)
+  // LOT P6 (S2) : la page courante des resultats. La liste est bornee a la lecture
+  // (`pageCourante`), donc un filtre qui la reduit pendant qu'on est page 4 ramene
+  // page 1 tout seul — mais l'etat se reinitialise quand meme au changement de
+  // filtre, pour que le « Suivant » d'apres reparte du haut de la nouvelle liste.
+  const [page, setPage] = useState(1)
+  // LOT P6 (S3) : douze, vingt-quatre ou quarante-huit fiches par page. Les valeurs
+  // possibles et le bornage vivent dans `src/pager.js` — le select ne propose que ce
+  // qui existe, et tout le reste (URL bidouillée, onglet restauré) retombe sur douze.
+  const [taille, setTaille] = useTaille()
+  // LOT P6 (S4) : la mention du filtre retire (une marque qui ne vend rien dans le
+  // rayon choisi). Elle vit ici, pas dans une alerte globale : elle regarde CE filtre.
+  const [dropNote, setDropNote] = useState('')
 
   const allLines = lines || []
   const allPanels = panels || []
@@ -50,11 +81,28 @@ export default function SearchPage({ t, products, lines, panels, lang, liveStock
     saveSavedSearches(undefined, saved)
   }, [saved])
 
+  const labelDeLigne = (id) => {
+    const l = allLines.find((x) => x.id === id)
+    if (!l || id === EMPTY.line) return t('line_all')
+    return t(`line_${l.id}`) !== `line_${l.id}` ? t(`line_${l.id}`) : l.label
+  }
+
   function set(key, value) {
-    setFilters((f) => {
-      if (key === 'line') return { ...f, line: value, brands: [] }
-      return { ...f, [key]: value }
-    })
+    // LOT P6 (S4) : changer de rayon peut rendre une marque retenue incapable de
+    // filtrer quoi que ce soit. On la retire — mais on le DIT : un etat qui change
+    // sous les yeux du client sans un mot est un defaut poli, pas une faveur.
+    // (La vitrine, elle, gardait la marque et affichait zero fiche : deux ecrans,
+    // deux regles pour le meme geste — c'est `src/filterDrop.js` qui tranche.)
+    if (key === 'line') {
+      const nouvelle = allLines.find((l) => l.id === value)
+      const { gardees, retirees } = filtresRetires(filters.brands, (marque) =>
+        (products || []).some((p) => nouvelle?.match?.(p) && p.brand === marque))
+      setFilters((f) => ({ ...f, line: value, brands: gardees }))
+      setDropNote(noteRetrait(t, retirees, labelDeLigne(value)))
+      return
+    }
+    setDropNote('')
+    setFilters((f) => ({ ...f, [key]: value }))
   }
 
   function toggleBrand(brand) {
@@ -77,28 +125,19 @@ export default function SearchPage({ t, products, lines, panels, lang, liveStock
     const key = PRODUCT_CONDITIONS.find((condition) => condition.id === id)?.labelKey
     return key ? t(key) : id
   }
-  const useLabel = (id) => {
-    if (id === 'all') return t('useAny')
-    const key = PRODUCT_USES.find((use) => use.id === id)?.labelKey
-    return key ? t(key) : id
-  }
-
   const results = useMemo(() => {
     if (!line) return []
     const q = filters.q.trim().toLowerCase()
     let list = (products || []).filter((p) => {
       if (!line.match(p)) return false
-      const left = liveStock(p)
       if (filters.brands.length && !filters.brands.includes(p.brand)) return false
       if (filters.condition !== 'all' && conditionOf(p) !== filters.condition) return false
-      if (filters.use !== 'all' && !usesOf(p).includes(filters.use)) return false
       if (showSocket && filters.socket !== 'all') {
         const sock = p.compat && p.compat.socket
         const ok = Array.isArray(sock) ? sock.includes(filters.socket) : sock === filters.socket
         if (!ok) return false
       }
       if (p.price < preset.min || p.price > preset.max) return false
-      if (filters.inStock && left <= 0) return false
       if (q) {
         // Les champs enrichis par le maître font partie de l'index : un mot-clé,
         // une référence fabricant ou une caractéristique doit réellement aider
@@ -118,27 +157,46 @@ export default function SearchPage({ t, products, lines, panels, lang, liveStock
     return list
   }, [filters, liveStock, preset, line, showSocket, products])
 
+  const pas = tailleSure(taille)
+  const pages = pagesPour(results.length, pas)
+  const pageSure = pageCourante(page, pages)
+  const vus = tranche(results, pageSure, pas)
+
+  function vaEnPage(n) {
+    setPage(pageCourante(n, pages))
+    // Le client doit rester sur les resultats, pas repartir en haut de la page
+    // chercher le champ de recherche — c'est ce que fait la vitrine (LOT P4 V3).
+    document.getElementById('search-results')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
+
+  // LOT P6 (S3) : Echap ferme la feuille et rend le focus au bouton qui l'a ouverte.
+  // Une seule feuille est ouverte a la fois (`setSheet` le garantit), donc un seul
+  // appel du hook — deux appels, c'est deux ecoutes qui se disputent la touche.
+  useFeuilleFiltre(sheet !== null, () => setSheet(null))
+  // Le tiroir mobile des filtres se ferme a la meme touche — mais seulement quand
+  // aucune feuille n'est ouverte : Echap doit fermer une chose a la fois, pas vider
+  // d'un coup les deux surfaces que le client avait deployees.
+  useFeuilleFiltre(filtersOpen && sheet === null, () => setFiltersOpen(false))
+
   const activeChips = []
   if (filters.socket !== 'all') activeChips.push({ key: 'socket', label: filters.socket })
   if (filters.condition !== 'all') activeChips.push({ key: 'condition', label: conditionLabel(filters.condition) })
-  if (filters.use !== 'all') activeChips.push({ key: 'use', label: useLabel(filters.use) })
   if (filters.price !== 'any') activeChips.push({ key: 'price', label: t(PRICE_KEYS[filters.price] || 'price_any') })
-  if (filters.inStock) activeChips.push({ key: 'inStock', label: t('inStoreOnly') })
   filters.brands.forEach((b) => activeChips.push({ key: `brand-${b}`, label: b, brand: b }))
 
   function clearChip(chip) {
     if (chip.key === 'socket') set('socket', 'all')
     else if (chip.key === 'condition') set('condition', 'all')
-    else if (chip.key === 'use') set('use', 'all')
     else if (chip.key === 'price') set('price', 'any')
-    else if (chip.key === 'inStock') set('inStock', false)
     else if (chip.brand) toggleBrand(chip.brand)
   }
 
   function saveSearch() {
-    const title = [lineLabel, filters.q.trim() || null, filters.socket !== 'all' ? filters.socket : null, ...filters.brands]
+    // LOT P6 (S3) : le rayon par defaut n'est pas une choice, il n'a rien a faire
+    // dans le nom de la recherche enregistree (« Tout le catalogue · 7800x3d »).
+    const title = [filters.line !== EMPTY.line ? lineLabel : null, filters.q.trim() || null, filters.socket !== 'all' ? filters.socket : null, ...filters.brands]
       .filter(Boolean)
-      .join(' · ')
+      .join(' · ') || t('searchFree')
     // P10 (P7-14) : bornée à 10 + persistée (localStorage)
     //
     // LOT 6.7 (Q7) — deux défauts d'un coup, et ils se déclenchent ensemble :
@@ -214,6 +272,12 @@ export default function SearchPage({ t, products, lines, panels, lang, liveStock
     )
   }
 
+  // Un changement de filtre remet la page a 1 (voir la note sur l'etat `page`).
+  const signature = JSON.stringify([filters.line, filters.brands, filters.condition, filters.price, filters.socket, filters.sort, filters.q])
+  useEffect(() => {
+    setPage(1)
+  }, [signature])
+
   return (
     <main id="main-content" className="container page py-4" tabIndex={-1}>
       <div className="mb-4">
@@ -229,27 +293,113 @@ export default function SearchPage({ t, products, lines, panels, lang, liveStock
         />
       </div>
 
-      <div className="mb-4">
-        {allPanels.map((panel) => (
-          <div key={panel.id} className="mb-2">
-            <div className="small fw-semibold text-secondary mb-1">{panelTitle(panel)}</div>
-            <div className="d-flex flex-wrap gap-2">
-              {allLines
-                .filter((l) => l.group === panel.id)
-                .map((l) => (
-                  <button
-                    key={l.id}
-                    type="button"
-                    className={`btn btn-sm rounded-pill ${filters.line === l.id ? 'btn-success' : 'btn-outline-secondary'}`}
-                    onClick={() => set('line', l.id)}
-                  >
-                    {t(`line_${l.id}`) !== `line_${l.id}` ? t(`line_${l.id}`) : l.label}
-                  </button>
-                ))}
-            </div>
+      {/*
+        * LOT P6 (S1) — l'ancienne rangee `d-lg-none` dressait TOUS les panneaux
+        * (catalogue, machines, imprimantes, pieces PC, peripheriques, reseau,
+        * lifestyle, bons plans) avec leurs rayons en pastilles, AVANT les
+        * resultats : sur un telephone, une page entiere avant la premiere fiche.
+        * La barre ci-dessous reprend le modele de la vitrine (LOT P4 V2) : deux
+        * boutons, chacun porte la valeur choisie, et le panneau ne s'etale que
+        * sur un clic.
+        */}
+      <div className="filters-bar mb-3">
+        <div className="d-flex flex-wrap gap-2 align-items-center">
+          <button
+            type="button"
+            className={`btn btn-sm ${filters.brands.length ? 'btn-success' : 'btn-outline-success'}`}
+            onClick={() => setSheet(sheet === 'brands' ? null : 'brands')}
+            aria-expanded={sheet === 'brands'}
+            aria-controls={sheet === 'brands' ? 'search-sheet-brands' : undefined}
+          >
+            {t('filterBrands')}
+            {filters.brands.length ? ` · ${filters.brands.length}` : ''}
+          </button>
+          <button
+            type="button"
+            className={`btn btn-sm ${filters.line !== EMPTY.line ? 'btn-success' : 'btn-outline-success'}`}
+            onClick={() => setSheet(sheet === 'catalog' ? null : 'catalog')}
+            aria-expanded={sheet === 'catalog'}
+            aria-controls={sheet === 'catalog' ? 'search-sheet-catalog' : undefined}
+          >
+            {t('filterCatalog')}
+            {/* LOT P6 (S3) : le bouton reporte la valeur CHOISIE, pas la valeur par
+                defaut. « Filtrer par catalogue · Tout le catalogue » se lisait comme
+                une selection active alors que rien n'etait filtre — et le verrou de
+                S1 avait du s'assouplir a la prefixation pour le tolerer. */}
+            {filters.line !== EMPTY.line ? ` · ${lineLabel}` : ''}
+          </button>
+          {/* LOT P6 (S3) : le rayon choisi compte comme un filtre actif. Sans lui, le
+              client qui avait picked un GPU ne voyait plus « Tout effacer » dans la
+              barre — la vitrine, elle, comptait deja sa categorie. Deux regles, une
+              seule vue oubliee. */}
+          {(filters.line !== EMPTY.line || filters.brands.length || filters.condition !== 'all' || filters.price !== 'any' || filters.socket !== 'all' || filters.q.trim()) && (
+            <button type="button" className="btn btn-sm btn-link" onClick={() => { setFilters({ ...EMPTY }); setDropNote('') }}>
+              {t('reset')}
+            </button>
+          )}
+        </div>
+
+        {sheet === 'brands' && (
+          <div className="filter-sheet" id="search-sheet-brands" role="group" aria-label={t('filterBrands')} >
+            <BrandSheet
+              t={t}
+              marques={lineBrands}
+              montreTout={lineBrands.length > 1}
+              estActive={(b) => filters.brands.includes(b)}
+              onChoisir={(b) => { toggleBrand(b); setSheet(null) }}
+              onTout={() => { setFilters((f) => ({ ...f, brands: [] })); setSheet(null) }}
+            />
           </div>
-        ))}
+        )}
+
+        {sheet === 'catalog' && (
+          <div className="filter-sheet" id="search-sheet-catalog" role="group" aria-label={t('filterCatalog')}>
+            <div className="d-flex flex-wrap gap-1 mb-2">
+              {allPanels
+                .filter((panel) => allLines.some((l) => l.group === panel.id))
+                .map((panel) => {
+                  const ouvert = (groupeOuvert ?? line?.group) === panel.id
+                  return (
+                    <button
+                      key={panel.id}
+                      type="button"
+                      className={`btn btn-sm ${ouvert ? 'btn-success' : 'btn-outline-secondary'}`}
+                      onClick={() => setGroupeOuvert(ouvert ? '__ferme__' : panel.id)}
+                      aria-expanded={ouvert}
+                      aria-controls={ouvert ? `search-grid-${panel.id}` : undefined}
+                    >
+                      {panelTitle(panel)}
+                    </button>
+                  )
+                })}
+            </div>
+            {allPanels
+              .filter((panel) => (groupeOuvert ?? line?.group) === panel.id)
+              .map((panel) => (
+                <div className="filter-sheet-grid" key={`grid-${panel.id}`} id={`search-grid-${panel.id}`}>
+                  {allLines
+                    .filter((l) => l.group === panel.id)
+                    .map((l) => (
+                      <button
+                        key={l.id}
+                        type="button"
+                        className={`btn btn-sm ${filters.line === l.id ? 'btn-success' : 'btn-outline-secondary'}`}
+                        onClick={() => { set('line', l.id); setSheet(null); setGroupeOuvert(l.group) }}
+                      >
+                        {t(`line_${l.id}`) !== `line_${l.id}` ? t(`line_${l.id}`) : l.label}
+                      </button>
+                    ))}
+                </div>
+              ))}
+          </div>
+        )}
       </div>
+
+      {dropNote && (
+        // `role="status"` : la mention apparait sans que le client aille la chercher,
+        // un lecteur d'ecran doit la dire au moment ou le filtre change.
+        <p className="small text-warning mb-2" role="status">{dropNote}</p>
+      )}
 
       <div className="d-lg-none mb-3">
         <button type="button" className="btn btn-outline-success w-100" onClick={() => setFiltersOpen(true)}>
@@ -270,6 +420,11 @@ export default function SearchPage({ t, products, lines, panels, lang, liveStock
                 </button>
               </div>
 
+              {/* LOT P6 (S1) : le rayon ne se choisit plus ici — la barre de
+                  boutons au-dessus des resultats porte « Filtrer par catalogue »,
+                  a l'ecran comme sur telephone. Deux surfaces pour la meme regle,
+                  c'est deux occasions de desaccord. */}
+
               <button type="button" className="btn btn-outline-success btn-sm w-100 mb-2" onClick={saveSearch}>
                 {t('saveSearch')}
               </button>
@@ -289,19 +444,11 @@ export default function SearchPage({ t, products, lines, panels, lang, liveStock
                 </div>
               )}
 
-              {lineBrands.length > 0 && (
-                <fieldset className="mb-3">
-                  <legend className="form-label fw-semibold small">{t('brands')}</legend>
-                  <div className="d-flex flex-column gap-1" style={{ maxHeight: 180, overflow: 'auto' }}>
-                    {lineBrands.map((b) => (
-                      <label key={b} className="form-check mb-0">
-                        <input className="form-check-input" type="checkbox" checked={filters.brands.includes(b)} onChange={() => toggleBrand(b)} />
-                        <span className="form-check-label small">{b}</span>
-                      </label>
-                    ))}
-                  </div>
-                </fieldset>
-              )}
+              {/* LOT P6 (S1) : les marques non plus ne sont pas un etage de plus
+                  dans l'aside — elles se choisissent dans la feuille du bouton
+                  « Filtrer par marque », la seule surface qui les liste. Une
+                  liste de 60 cases a cocher, lisible seulement en scrollant, ne
+                  sert personne : le panneau porte un filtre, pas un annuaire. */}
 
               <fieldset className="mb-3">
                 <legend className="form-label fw-semibold small">{t('condition')}</legend>
@@ -313,20 +460,6 @@ export default function SearchPage({ t, products, lines, panels, lang, liveStock
                   <label key={condition.id} className="form-check">
                     <input className="form-check-input" type="radio" name="condition" checked={filters.condition === condition.id} onChange={() => set('condition', condition.id)} />
                     <span className="form-check-label small">{t(condition.labelKey)}</span>
-                  </label>
-                ))}
-              </fieldset>
-
-              <fieldset className="mb-3">
-                <legend className="form-label fw-semibold small">{t('use')}</legend>
-                <label className="form-check">
-                  <input className="form-check-input" type="radio" name="product-use" checked={filters.use === 'all'} onChange={() => set('use', 'all')} />
-                  <span className="form-check-label small">{t('useAny')}</span>
-                </label>
-                {PRODUCT_USES.map((use) => (
-                  <label key={use.id} className="form-check">
-                    <input className="form-check-input" type="radio" name="product-use" checked={filters.use === use.id} onChange={() => set('use', use.id)} />
-                    <span className="form-check-label small">{t(use.labelKey)}</span>
                   </label>
                 ))}
               </fieldset>
@@ -357,26 +490,30 @@ export default function SearchPage({ t, products, lines, panels, lang, liveStock
                 ))}
               </fieldset>
 
-              <fieldset>
-                <legend className="form-label fw-semibold small">{t('availability')}</legend>
-                <label className="form-check" title={t('inStoreOnlyHint')}>
-                  {/* P17 (rapport #3) : en mode API le catalogue public ne contient
-                      déjà QUE du stock > 0 (`publicCatalog`), donc ce filtre ne
-                      change rien tant que le panier est vide. Le tooltip le dit
-                      au lieu de laisser croire à un filtre cassé. */}
-                  <input className="form-check-input" type="checkbox" checked={filters.inStock} onChange={(e) => set('inStock', e.target.checked)} aria-describedby="in-stock-hint" />
-                  <span className="form-check-label small">{t('inStoreOnly')}</span>
-                  <span id="in-stock-hint" className="d-block text-secondary" style={{ fontSize: '0.72rem' }}>{t('inStoreOnlyHint')}</span>
-                </label>
-              </fieldset>
-            </div>
+              {/*
+                * LOT P4 (V4) : le filtre « En magasin seulement » a été retiré sur
+                * demande du client — et le P17 (rapport #3) avait déjà démontré
+                * pourquoi il était vide : en mode API, `publicCatalog` ne contient
+                * QUE ce qui est en stock, donc le case à cocher ne retirait rien.
+                * Un filtre qui ne filtre rien est une promesse non tenue ; le
+                * rayon du catalogue, lui, est devenu un vrai filtre (ci-dessus).
+                */}
+                            </div>
           </div>
         </aside>
 
-        <section className="col-lg-9">
+        <section className="col-lg-9" id="search-results">
           <div className="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
-            <span className="fw-semibold">{t('results', { n: results.length })}</span>
+            {/* LOT P6 (S2) : le compte reste celui de la liste ENTIERE, la mention
+                de page dit ou on est dedans — comme sur la vitrine. Annoncer le
+                nombre de fiches affichees ferait croire que le filtre a perdu des
+                resultats. */}
+            <span className="fw-semibold">
+              {t('results', { n: results.length })}
+              {pages > 1 ? t('shopPageOf', { page: pageSure, pages }) : ''}
+            </span>
             <div className="d-flex flex-wrap gap-2 align-items-center">
+              <ChoixTaille t={t} taille={taille} onTaille={setTaille} />
               <div className="btn-group btn-group-sm" role="group">
                 <button type="button" className={`btn ${view === 'grid' ? 'btn-success' : 'btn-outline-secondary'}`} onClick={() => setView('grid')}>
                   {t('grid')}
@@ -419,7 +556,7 @@ export default function SearchPage({ t, products, lines, panels, lang, liveStock
             </div>
           ) : view === 'grid' ? (
             <div className="row g-3">
-              {results.map((p) => (
+              {vus.map((p) => (
                 <div className="col-6 col-md-4" key={p.id}>
                   <ProductCard p={p} />
                 </div>
@@ -427,7 +564,7 @@ export default function SearchPage({ t, products, lines, panels, lang, liveStock
             </div>
           ) : (
             <div className="d-flex flex-column gap-2">
-              {results.map((p) => {
+              {vus.map((p) => {
                 const left = liveStock(p)
                 const st = stockLabel(left, t)
                 return (
@@ -464,6 +601,13 @@ export default function SearchPage({ t, products, lines, panels, lang, liveStock
               })}
             </div>
           )}
+
+          {/* LOT P6 (S3) : le pager est un composant partage, et sa fenetre de
+              numeros vient de `fenetrePages` — vingt-huit boutons pour trois cent une
+              fiches, ce n'etait pas le mur de pastilles repare, c'etait le meme mur
+              numéroté. `Pager` ne se montre que s'il y a de quoi tourner. */}
+          <Pager t={t} page={pageSure} pages={pages} onPage={vaEnPage} />
+
         </section>
       </div>
 
@@ -502,28 +646,10 @@ export default function SearchPage({ t, products, lines, panels, lang, liveStock
                   {PRODUCT_CONDITIONS.map((condition) => <option key={condition.id} value={condition.id}>{t(condition.labelKey)}</option>)}
                 </select>
               </div>
-              <div className="mb-3">
-                <label className="form-label small">{t('use')}</label>
-                <select className="form-select" value={filters.use} onChange={(e) => set('use', e.target.value)}>
-                  <option value="all">{t('useAny')}</option>
-                  {PRODUCT_USES.map((use) => <option key={use.id} value={use.id}>{t(use.labelKey)}</option>)}
-                </select>
-              </div>
-              <div className="form-check mb-3">
-                <input className="form-check-input" type="checkbox" id="m-stock" checked={filters.inStock} onChange={(e) => set('inStock', e.target.checked)} aria-describedby="m-in-stock-hint" />
-                <label className="form-check-label" htmlFor="m-stock">{t('inStoreOnly')}</label>
-                <span id="m-in-stock-hint" className="d-block text-secondary" style={{ fontSize: '0.72rem' }}>{t('inStoreOnlyHint')}</span>
-              </div>
-              <div className="mb-3">
-                <div className="small fw-semibold mb-1">{t('brands')}</div>
-                <div className="d-flex flex-wrap gap-1">
-                  {lineBrands.map((b) => (
-                    <button key={b} type="button" className={`btn btn-sm ${filters.brands.includes(b) ? 'btn-success' : 'btn-outline-secondary'}`} onClick={() => toggleBrand(b)}>
-                      {b}
-                    </button>
-                  ))}
-                </div>
-              </div>
+              {/* LOT P6 (S2) : les marques ne sont plus une DEUXIEME liste ici —
+                  le bouton « Filtrer par marque », visible a tous les gabarits, les
+                  porte deja. Deux listes de la meme regle, c'est deux listes qui se
+                  contredisent des qu'on en modifie une (le sort de « usage »). */}
               <button type="button" className="btn btn-success w-100" onClick={() => setFiltersOpen(false)}>
                 {t('results', { n: results.length })}
               </button>

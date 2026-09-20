@@ -1,5 +1,6 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
+import fs from 'node:fs'
 
 import {
   makeOrderCode,
@@ -380,5 +381,189 @@ describe('LOT 2.6 (F10) — `needs` : chaîne et tableau acceptés, normalisés 
     assert.equal(liveStockOf(db, 'mig-1'), 4)
     assert.equal(listed.find((p) => p.id === 'mig-1').stock, 4, 'la migration ne touche pas au stock')
     assert.deepEqual(listed.find((p) => p.id === 'mig-1').needs, ['x'])
+  })
+})
+
+// ---------------------------------------------------------------------------
+// LOT P5 — compter et couper en CARACTÈRES, pas en unités UTF-16.
+//
+// Mesuré le 19/09/2026 sur trois champs : un libellé de vitrine « a » + 48 🧰
+// (49 caractères) était stocké en 48 UNITÉS, le dernier étant U+D83E seul — une
+// moitié de paire de substituts, resservie telle quelle au site public, à
+// l'export CSV et au message WhatsApp. Un nom de 33 emoji (66 unités) était de
+// son côté REFUSÉ comme trop long. Les deux erreurs viennent de la même
+// habitude : `.length` et `.slice(0, N)` parlent en unités.
+// ---------------------------------------------------------------------------
+describe('LOT P5 — la coupe de texte ne sépare jamais un caractère en deux', () => {
+  const EMOJI = '\u{1F9F0}' // 🧰 : deux unités UTF-16, un caractère
+
+  it('countChars / clipChars : le compte est en points de code', async () => {
+    const { countChars, clipChars } = await import('./textClip.js')
+    assert.equal(countChars(''), 0)
+    assert.equal(countChars('abc'), 3)
+    assert.equal(countChars(EMOJI), 1, 'un emoji compte 1, pas 2')
+    assert.equal(countChars(EMOJI.repeat(33)), 33, '33 emoji = 33 caracteres (66 unites : c est le compte qui mentait)')
+    assert.equal(countChars(null), 0)
+    assert.equal(countChars(undefined), 0)
+
+    assert.equal(clipChars('abcdef', 3), 'abc')
+    assert.equal(clipChars('abc', 10), 'abc')
+    assert.equal(clipChars('abcdef', 0), '')
+    assert.equal(clipChars('abcdef', -2), '')
+    assert.equal(clipChars(null, 4), '')
+    // Le cas qui corrompait la base : couper au milieu d une paire. Deux
+    // caracteres = « a » + l emoji ENTIER, pas « a » + une moitie de paire.
+    assert.equal(clipChars('a' + EMOJI.repeat(5), 2), 'a' + EMOJI)
+    assert.equal(clipChars('a' + EMOJI.repeat(5), 1), 'a')
+    assert.equal(clipChars(EMOJI.repeat(50), 48), EMOJI.repeat(48))
+    for (const t of [clipChars('a' + EMOJI.repeat(5), 2), clipChars('a' + EMOJI.repeat(5), 1), clipChars(EMOJI.repeat(50), 49)]) {
+      const dernier = t.charCodeAt(t.length - 1)
+      const premier = t.charCodeAt(0)
+      assert.equal(dernier >= 0xd800 && dernier <= 0xdbff, false, 'une tete de paire orpheline en fin de chaine')
+      assert.equal(premier >= 0xdc00 && premier <= 0xdfff, false, 'une queue de paire orpheline en debut de chaine')
+    }
+    // Identite stricte quand rien n est coupe (aucun appelant ne depend de ceci,
+    // mais une copie inutile a chaque champ de chaque fiche serait du gaspillage).
+    const court = 'AM5'
+    assert.equal(clipChars(court, 40), court)
+  })
+
+  it('cleanProductText et normalizeNeeds coupent large, sans moitie de paire', async () => {
+    const { cleanProductText, BRAND_LIMIT } = await import('./productMeta.js')
+    const borne = cleanProductText('  ' + 'a' + EMOJI.repeat(80) + '  ', BRAND_LIMIT)
+    assert.equal(borne.charCodeAt(borne.length - 1) >= 0xd800 && borne.charCodeAt(borne.length - 1) <= 0xdbff, false, 'cleanProductText laisse une tete de paire seule')
+    assert.equal([...borne].length <= BRAND_LIMIT, true, 'plus de caracteres que la borne')
+    assert.equal(cleanProductText(EMOJI.repeat(BRAND_LIMIT), BRAND_LIMIT), EMOJI.repeat(BRAND_LIMIT), `${BRAND_LIMIT} emoji doivent passer entiers`)
+
+    const lignes = normalizeNeeds(Array(30).fill(EMOJI.repeat(MAX_NEED_LINE + 40)))
+    assert.equal(lignes.length, 12, 'le nombre de lignes reste borne')
+    for (const l of lignes) {
+      const d = l.charCodeAt(l.length - 1)
+      assert.equal(d >= 0xd800 && d <= 0xdbff, false, 'une ligne de `needs` se termine par une moitie de paire')
+      assert.equal([...l].length <= MAX_NEED_LINE, true)
+    }
+  })
+
+  it('les bornes qui REFUSENT comptent des caracteres, pas des unites', async () => {
+    const { NAME_LIMIT } = await import('./productMeta.js')
+    const { createProduct } = await import('../server/masterApi.js')
+    const db = { meta: {}, products: {}, stock: {} }
+    // 60 emoji = 120 unites = 60 caracteres : la fiche est acceptee ENTIERE.
+    const nom = EMOJI.repeat(60)
+    const cree = createProduct(db, { name: nom, price: 1000 }, 'p5-1')
+    assert.equal(cree.ok, true, JSON.stringify(cree))
+    assert.equal(cree.product.name, nom, 'le nom a ete tronque alors qu il tient dans la borne')
+    // 121 caracteres : refuse, pas tronque (le nom est une identite).
+    assert.deepEqual(
+      createProduct(db, { name: 'x'.repeat(NAME_LIMIT + 1), price: 1000 }, 'p5-2').error,
+      'name_too_long'
+    )
+  })
+
+  it('les routes ne recomptent plus a la main en unites UTF-16', async () => {
+    // Un `.length > LIMITE` sur du texte saisi est le meme defaut sous un autre
+    // nom : la borne dit « caracteres » au client et decide en unites.
+    const index = fs.readFileSync('server/index.js', 'utf8')
+    assert.equal(/orderName\.length > 64/.test(index), false, 'le nom de commande est recompte en unites')
+    const master = fs.readFileSync('server/masterApi.js', 'utf8')
+    assert.equal(/name\.length > NAME_LIMIT/.test(master), false, 'le nom produit est recompte en unites')
+    // Et elles comparent via `excedeChars` (arret au premier caractere de trop),
+    // pas `countChars(...) >` qui parcourt tout le corps recu pour dire non.
+    for (const [nom, source] of [['server/index.js', index], ['server/masterApi.js', master], ['src/shopStore.js', fs.readFileSync('src/shopStore.js', 'utf8')]]) {
+      assert.match(source, /excedeChars\(/, `${nom} ne borne plus la longueur en caracteres`)
+      assert.equal(/countChars\([^)]*\) > /.test(source), false, `${nom} mesure la totalite d'une saisie pour la refuser`)
+    }
+
+    // A la relecture, deux autres plafonds du meme texte libre comptaient encore
+    // des unites : l'inscription (`regName.length > 64`) et la wilaya du profil
+    // (`String(...).trim().slice(0, 32)`). La regle ne vaut pas pour trois lignes
+    // citees mais pour tout le texte saisi qui entre par la porte.
+    const propre = (src) => src.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:\w])\/\/[^\n]*/g, '$1')
+    // Nommer les sites plutot que les compter : un compte exact se satisfait d'un
+    // `excedeChars(` ajoute n'importe ou dans le fichier, et se rompt pour un
+    // commentaire. La regle, c'est que chaque borne de texte libre de la porte
+    // passe par la fonction.
+    for (const site of ['excedeChars(regName,', 'excedeChars(meName,', 'excedeChars(orderName,', 'excedeChars(email,']) {
+      assert.ok(index.includes(site), `${site.slice(0, -1)} absent de la porte : cette saisie est encore bornee en unites`)
+    }
+    assert.equal(/\b\w*[Nn]ame\.length > \d/.test(propre(index)), false, 'un nom est encore compare a une borne en unites UTF-16')
+    assert.equal(/trim\(\)\.slice\(0, *\d+\)/.test(propre(index)), false, 'un texte libre est encore coupe en unites UTF-16 dans la porte')
+  })
+
+  it('l’inscription locale refuse ce que la porte refuse', async () => {
+    const EMOJI = '\u{1F9F0}'
+    // Le store hors ligne doit dire NON exactement où l'API dit NON : un compte
+    // créé localement avec un champ que la porte refuse part en fusion échouée,
+    // et l'utilisateur ne découvre le problème qu'au premier retour en ligne.
+    const { registerEmail } = await import('./shopStore.js')
+    const adresse = (n) => 'a'.repeat(n - 5) + '@x.dz'
+    assert.equal(registerEmail([], { email: adresse(254), password: 'secret1' }).ok, true, '254 signes refusés en local')
+    assert.equal(registerEmail([], { email: adresse(255), password: 'secret1' }).error, 'email', '255 signes acceptés en local')
+    assert.equal(registerEmail([], { email: 'ok@x.dz', password: 'secret1', name: 'y'.repeat(65) }).error, 'name_too_long')
+    assert.equal(registerEmail([], { email: 'ok@x.dz', password: 'secret1', name: 'y'.repeat(64) }).ok, true)
+    assert.equal(registerEmail([], { email: 'ok@x.dz', password: 'secret1', name: EMOJI.repeat(33) }).ok, true, 'un nom de 33 emoji refuse en local')
+  })
+
+  it('la troncature de secours du message WhatsApp ne sépare pas une paire', async () => {
+    /*
+     * Le message que recoit le comptoir est borne en caracteres pour tenir dans
+     * une URL `wa.me`, et la troncature de secours (un seul article énorme)
+     * faisait `msg.slice(0, limit - 1) + '…'` : `slice` compte des unités, donc
+     * coupait un emoji en deux et laissait la moitié orpheline juste devant le « … ».
+     * La borne de longueur, elle, reste en unités : c'est la taille de l'URL qui
+     * est en jeu ici, pas le nombre de signes visibles — d'ou deux mesures
+     * differentes, volontairement.
+     */
+    const { buildWaMessage } = await import('./orderLogic.js')
+    const { repairPaires } = await import('./textClip.js')
+    const EMOJI = '\u{1F9F0}'
+    const t = (k, v) => (v ? Object.values(v).map((x) => String(x ?? '')).join(' | ') : k)
+    const cart = [{ qty: 1, name: 'Ryzen 7 ' + EMOJI.repeat(40), sku: 'cpu-7800x3d' }]
+    const pickup = { name: 'Ali', phone: '0770650387', slot: '19/09 14:00' }
+    let vue = 0
+    for (let limit = 20; limit <= 80; limit += 3) {
+      const msg = buildWaMessage(cart, 260000, pickup, t, { limit, lang: 'fr' })
+      assert.equal(repairPaires(msg), msg, `le message tronque a ${limit} contient une moitie de paire`)
+      assert.equal(msg.length <= limit, true, `la borne de ${limit} n'est plus respectee`)
+      if (msg.length === limit) vue += 1
+    }
+    assert.ok(vue > 0, 'aucun cas ne touchait la troncature : le verrou ne regardait rien')
+  })
+
+  it('excedeChars : meme reponse que le compte, sans le cout du compte', async () => {
+    const { excedeChars, countChars } = await import('./textClip.js')
+    const EMOJI = '\u{1F9F0}'
+    assert.equal(excedeChars('', 64), false)
+    assert.equal(excedeChars(null, 64), false)
+    assert.equal(excedeChars('a'.repeat(64), 64), false, 'a la borne exactement : on passe')
+    assert.equal(excedeChars('a'.repeat(65), 64), true, 'un de plus : on refuse')
+    assert.equal(excedeChars(EMOJI.repeat(33), 64), false, '33 emoji = 66 unites, mais 33 caracteres')
+    assert.equal(excedeChars(EMOJI.repeat(65), 64), true)
+    assert.equal(excedeChars('abc', 0), true, 'une borne nulle ne laisse rien passer')
+    assert.equal(excedeChars('', 0), false, 'rien a dire sur une chaine vide')
+    assert.equal(excedeChars('abc', NaN), false, "une borne invalide n'invente pas un refus")
+
+    // Accord parfait avec le compte integral sur un echantillon mele.
+    for (let n = 0; n < 120; n += 7) {
+      const t = 'a'.repeat(n % 3) + EMOJI.repeat(n)
+      assert.equal(excedeChars(t, 50), countChars(t) > 50, `divergence a n=${n}`)
+      assert.equal(excedeChars(t, 1), countChars(t) > 1, `divergence a n=${n} (borne 1)`)
+    }
+
+    // Une saisie qui FINIT sur une tete de paire orpheline est le cas ou une borne
+    // mal ecrite INVENTERAIT un refus (2 unites vues la ou il y a 1 caractere) :
+    // la reponse doit rester celle du compte.
+    for (const bout of ['a'.repeat(50) + '\\uD83E', 'a'.repeat(49) + '\\uD83E', 'a'.repeat(51) + '\\uD83E']) {
+      assert.equal(excedeChars(bout, 50), countChars(bout) > 50, 'divergence sur une saisie terminee par une moitie de paire')
+    }
+
+    // Le propriete qui justifie l'existence de la fonction : refuser ne doit pas
+    // couter le prix du texte refuse. 4 Mo de « a » (le maximum qu'un corps de
+    // requete peut raisonnablement porter ici) compares a 64 en O(64).
+    const enormissime = 'a'.repeat(4 * 1024 * 1024)
+    const t0 = process.hrtime.bigint()
+    assert.equal(excedeChars(enormissime, 64), true)
+    const ms = Number(process.hrtime.bigint() - t0) / 1e6
+    assert.ok(ms < 5, `${ms.toFixed(1)} ms pour refuser un nom de 4 Mo : la borne parcourt le corps de la requete`)
   })
 })

@@ -50,7 +50,7 @@ Vue d'ensemble du système : **front SPA React** / **API Node (serverless-ready)
         └──────────────────────────────────────────┘
 ```
 
-**Principe directeur :** le catalogue est **statique** (251 SKU de base / 249 publics quand speakers est en rupture dans `src/data.js`, images dans le repo) → persiste sur Vercel sans base. Les données mutables (users, orders, overrides stock, produits ajoutés) utilisent `store.json` en local et **Neon** dès que `DATABASE_URL` est configurée; aucun état métier n'est alors confié au `/tmp` éphémère de Vercel. Les snapshots opérateur sont bornés dans `pcstar_backups`; un export régulier hors du projet Neon reste requis pour une reprise après incident fournisseur. Voir [NEON-MIGRATION.md](./NEON-MIGRATION.md).
+**Principe directeur :** le catalogue est **statique** (301 produits dans `src/data.js`, dont 300 exposés — un seul est retiré de la vitrine pour rupture ; images dans le repo) → persiste sur Vercel sans base. Les données mutables (users, orders, overrides stock, produits ajoutés) utilisent `store.json` en local et **Neon** dès que `DATABASE_URL` est configurée; aucun état métier n'est alors confié au `/tmp` éphémère de Vercel. Les snapshots opérateur sont bornés dans `pcstar_backups`; un export régulier hors du projet Neon reste requis pour une reprise après incident fournisseur. Voir [NEON-MIGRATION.md](./NEON-MIGRATION.md).
 
 ---
 
@@ -58,8 +58,8 @@ Vue d'ensemble du système : **front SPA React** / **API Node (serverless-ready)
 
 | Fichier | Rôle |
 |---------|------|
-| `App.jsx` (1526 L) | Shell : nav, thème, langue, session, cart, résa, toast, API vs local |
-| `data.js` (830 L) | **Catalogue 251 SKU de base / 249 publics quand speakers est en rupture** (core + EXTRA + DZ_EXTRA), prix DA, specs, `specOf()` |
+| `App.jsx` | Shell : nav, langue, session, cart, résa, toast, API vs local |
+| `data.js` | **Catalogue : 301 produits, 300 exposés** (core + EXTRA + DZ_EXTRA), prix DA, specs, `specOf()` |
 | `dzCatalog.js` | Marques marché algérien, guides, deals, wilayas, hints paiement |
 | `extraCatalog.js` | SKUs supplémentaires (combos, services) |
 | `productPhotos.js` | **3 photos/SKU déterministes** (hash id → rotation d'un pool par famille) |
@@ -68,7 +68,7 @@ Vue d'ensemble du système : **front SPA React** / **API Node (serverless-ready)
 | `shopStore.js` | État boutique + fallback localStorage (`○ local`) |
 | `media.js` | `specRows()` (table PDP), `relatedProducts()` (scoring compat + stock) |
 | `BuilderPage.jsx` | Config PC : socket/mémoire/form factor, wattage, alertes surchauffe, presets |
-| `SearchPage.jsx` | Filtres ligne/marque/prix, offcanvas mobile, 251 SKU de base / 249 publics quand speakers est en rupture |
+| `SearchPage.jsx` | Filtres ligne/marque/prix, offcanvas mobile, catalogue complet (300 produits exposés) |
 | `ProductPage.jsx` | PDP : galerie, zoom, specs, CTA sticky mobile, photos lazy + skeleton |
 | `DeskPage.jsx` | Comptoir : résas, filtres statut, poll 20 s + beep + toast, print CSS, WA |
 | `MasterPage.jsx` | Admin : CRUD produits, masquer, photos, clients, backup, CSV |
@@ -80,7 +80,7 @@ Vue d'ensemble du système : **front SPA React** / **API Node (serverless-ready)
 
 **Routage :** navigation par état (`page`) — pas de dépendance router, pas de hash fragments (les ancres profondes sont gérées par le SEO/sitemap au niveau de la page unique).
 
-**Thème :** ☀/☾/◐ (clair/sombre/système) via token CSS + `prefers-color-scheme`.
+**Thème :** la vitrine est livrée **en clair** (`const theme = 'light'` dans `src/App.jsx`) — le sélecteur ☀/☾/◐ a été retiré sur demande du client (« site blanc »). Les tokens `html[data-theme='dark']` subsistent dans `tokens.css`/`cyber.css` et `src/cyberDesign.test.js` (T2) verrouille toujours le contraste des deux palettes : elles sont en veille, pas supprimées.
 
 ---
 
@@ -134,7 +134,7 @@ Un seul fichier d'entrée `server/index.js` (routeur `node:http`), modules dédi
 
 | Pool | Fichiers | Usage |
 |------|---------:|-------|
-| `lib/` | 105 | shots famille (cpu-1..3, gpu-local-1..2, kb-1..3, …) — attribués aux 251 SKU de base / 249 publics quand speakers est en rupture |
+| `lib/` | 210 | shots famille (cpu-1..3, gpu-local-1..2, kb-1..3, …) — attribués aux fiches produit |
 | `sku/` | 753 | shots par SKU (`{id}-1…3.jpg`) pour les produits prioritaires |
 | legacy racine | 56 | `.jpg`/`.png` historiques (case, chair, cooler, …) |
 | `uploads/` | — | photos master upload (dataURL) en local; sur Vercel, objets Vercel Blob via le proxy `/api/upload-file` |
@@ -246,7 +246,10 @@ print  : CSS ticket (imprimante comptoir)
 npm install
 npm run start:api    # node server/index.js → :8787
 npm run dev          # vite → :5173 (proxy /api)
-npm test             # node --test → 34 tests (store, orders, master, auth, crypto, API)
+npm test             # node --test, toute la suite (store, orders, master, auth,
+                     # crypto, API, docs, design, a11y, i18n…). Le nombre exact
+                     # vit dans `README.md` — « État mesuré » — pas ici : un chiffre
+                     # recopié dans trois fichiers est faux dans deux d'entre eux.
 npm run smoke        # scripts/smoke-e2e.mjs : e2e complet de l'API (fetch)
 npm run build        # bundle → dist/ (chunks react / bootstrap séparés)
 npm run backup       # copie locale bornée, ou snapshot Neon si DATABASE_URL est posée

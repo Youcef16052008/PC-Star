@@ -1,4 +1,6 @@
 import { STORE, money, specOf } from './data.js'
+// LOT P5 : la troncature de secours du message se fait avec `clipChars`.
+import { clipChars } from './textClip.js'
 
 /**
  * Pure order helpers (shared client tests + local fallback).
@@ -69,11 +71,26 @@ export function applyStockRestore(stockMap, items) {
  * La table vit ici et `server/catalog.js` l'importe : une seule définition,
  * donc plus de divergence possible.
  */
+// LOT P2 (B6) — les deux arrières sont retirés.
+//
+// Mesuré avant correctif, serveur live : `preparing → new` et `ready →
+// preparing` répondaient **200**. Aucun bouton du comptoir ne les propose
+// (`DeskPage.jsx:250-285` : new→preparing, new/preparing→ready, ready→picked) :
+// ces deux arrières n'étaient donc atteignables QUE par un appelant qui n'a pas
+// l'état courant — un onglet resté ouvert, un ancien client, un script. Chacun
+// remet la commande en arrière sans rien annuler ni rien rendre : le stock
+// n'est pas touché par un aller-retour (vérifié : 4 = 5 − 1, dans les deux
+// sens), mais la ligne disparaît de la file « prêtes à retirer » et le client
+// reçoit un statut faux. Une table de statut qui autorise un mouvement que
+// personne ne peut déclencher depuis l'interface est une porte, pas une
+// commodité — le recul réel (une fiche marquée « prête » trop tôt) reste
+// possible par la voie honnête : le comptoir annule, la commande repasse en
+// `new` et le stock revient.
 export const ORDER_TRANSITIONS = {
   new: ['preparing', 'ready', 'picked', 'cancelled'],
   pending: ['preparing', 'ready', 'picked', 'cancelled'],
-  preparing: ['new', 'ready', 'picked', 'cancelled'],
-  ready: ['preparing', 'picked', 'cancelled'],
+  preparing: ['ready', 'picked', 'cancelled'],
+  ready: ['picked', 'cancelled'],
   picked: [],
   cancelled: []
 }
@@ -162,6 +179,43 @@ export function localDay(date = new Date()) {
 }
 
 /**
+ * LOT P1 (audit 19/09/2026, B20) — validation RÉELLE d'une date de journée
+ * (`YYYY-MM-DD`), à la place d'un test purement syntaxique.
+ *
+ * La même regex `^\d{4}-\d{2}-\d{2}$` était recopiée à quatre endroits
+ * (serveur : `day`, `pickupDate`, `setOrderPickupDate` ; client : génération du
+ * code de commande). Elle acceptait donc `2026-02-31`, `2026-13-01` ou
+ * `0000-00-00`. Côté serveur, ces valeurs traversent jusqu'à la commande
+ * enregistrée : `day` se retrouve dans le code `PS-20260231-0001`, dans le nom
+ * de l'export CSV et dans le filtre de la liste du comptoir — une commande que
+ * plus personne ne retrouve quand on change de « jour ». Rejoué à l'audit :
+ * `2026-02-31` et `9999-99-99` passaient.
+ *
+ * Un `Date` reconstruit avec ses composants (et non parsé en UTC) est le seul
+ * contrôle qui rejette les jours inexistants sans dérive de fuseau.
+ *
+ * @returns {string} la date normalisée, ou `''` si elle est absente ou fausse
+ */
+export function normalizeDay(value) {
+  const raw = String(value ?? '').trim()
+  const mt = /^(\d{4})-(\d{2})-(\d{2})$/.exec(raw)
+  if (!mt) return ''
+  const y = Number(mt[1])
+  const m = Number(mt[2])
+  const d = Number(mt[3])
+  const date = new Date(y, m - 1, d, 12)
+  if (
+    y < 1970 ||
+    date.getFullYear() !== y ||
+    date.getMonth() !== m - 1 ||
+    date.getDate() !== d
+  ) {
+    return ''
+  }
+  return raw
+}
+
+/**
  * P8 (P7-2) : classification d'un échec de `api.postOrder`.
  * - 'offline'     : backend injoignable → SEUL cas où le repli local est légitime.
  * - 'unavailable' : 409 — produit retiré de la vente par le maître (LOT 8.1 / A1).
@@ -182,6 +236,10 @@ export function orderApiFailure(r) {
   const err = r.data?.error
   if (err === 'unavailable') return { kind: 'unavailable', lines: r.data?.unavailable || [] }
   if (err === 'unknown_product') return { kind: 'unknown', lines: r.data?.unknown || [] }
+  // LOT P1 (audit 19/09/2026, B13) : 400 `unpriced` — ligne connue mais non
+  // tarifable. Refus définitif comme les deux ci-dessus : le panier doit s'en
+  // décharger, sinon chaque nouvel envoi retombe sur le même refus.
+  if (err === 'unpriced') return { kind: 'unpriced', lines: r.data?.unpriced || [] }
   if (err === 'idempotency_conflict') return { kind: 'idempotency' }
   if (r.status === 409 || err === 'stock') {
     return { kind: 'stock', shortages: r.data?.shortages || [] }
@@ -201,15 +259,21 @@ export function orderApiFailure(r) {
  *
  * @param {Array<{id?: string, name?: string}>} lines
  * @param {(key: string, vars?: object) => string} t
- * @param {'unavailable'|'unknown'} kind
+ * @param {'unavailable'|'unknown'|'unpriced'} kind
  */
+const ORDER_BLOCK_KEYS = {
+  unavailable: { base: 'orderUnavailable', detail: 'orderUnavailableDetail' },
+  unknown: { base: 'orderUnknown', detail: 'orderUnknownDetail' },
+  unpriced: { base: 'orderUnpriced', detail: 'orderUnpricedDetail' }
+}
+
 export function orderBlockedMessage(lines, t, kind = 'unavailable', { max = 3 } = {}) {
+  const keys = ORDER_BLOCK_KEYS[kind] || ORDER_BLOCK_KEYS.unavailable
   const list = (Array.isArray(lines) ? lines : []).filter(Boolean)
-  const detail = kind === 'unknown' ? 'orderUnknownDetail' : 'orderUnavailableDetail'
-  if (!list.length) return t(kind === 'unknown' ? 'orderUnknown' : 'orderUnavailable')
+  if (!list.length) return t(keys.base)
   const shown = list.slice(0, Math.max(1, max)).map((l) => l.name || l.id || '?')
   if (list.length > shown.length) shown.push(t('stockShortMore', { n: list.length - shown.length }))
-  return t(detail, { lines: shown.join(' · ') })
+  return t(keys.detail, { lines: shown.join(' · ') })
 }
 
 /**
@@ -344,15 +408,22 @@ export function buildWaMessage(cart, total, pickup, t, { limit = WA_TEXT_LIMIT, 
   // Cas pathologique : une seule ligne dépasse déjà (nom de produit énorme).
   // On tronque alors brutalement — un message coupé et signalé vaut mieux qu'un
   // lien `wa.me` qui ne s'ouvre pas.
-  if (msg.length > limit) msg = `${msg.slice(0, Math.max(0, limit - 1))}…`
+  // LOT P5 : `clipChars` et non `slice` — la troncature de secours tapait au
+  // milieu d'une paire de substituts et laissait une moitié d'emoji collée
+  // devant le « … », dans le message que le comptoir reçoit sur WhatsApp.
+  if (msg.length > limit) msg = `${clipChars(msg, Math.max(0, limit - 1))}…`
   return msg
 }
 
 export function nextOrderCode(existingCodes = [], day) {
-  const d = /^\d{4}-\d{2}-\d{2}$/.test(String(day || ''))
+  // LOT P1 (B20) : `normalizeDay` remplace le test regex — une journée fausse
+  // (2026-02-31) ne fabrique plus un préfixe de code introuvable, on retombe
+  // sur la journée réelle du client.
+  const valid = normalizeDay(day)
+  const d = valid
     ? // Les composants sont passés un par un : `new Date('YYYY-MM-DD')` serait
       // interprété en UTC et reculerait d'un jour avant 1 h à Oran (UTC+1).
-      new Date(Number(day.slice(0, 4)), Number(day.slice(5, 7)) - 1, Number(day.slice(8, 10)), 12)
+      new Date(Number(valid.slice(0, 4)), Number(valid.slice(5, 7)) - 1, Number(valid.slice(8, 10)), 12)
     : new Date()
   const y = d.getFullYear()
   const m = String(d.getMonth() + 1).padStart(2, '0')

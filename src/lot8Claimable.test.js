@@ -350,7 +350,7 @@ describe('LOT 8.3 (A3) — canCancelHere : une seule règle pour le bouton et la
     assert.equal(canCancelHere('PS-20260916-0001'), false)
   })
 
-  it('les 2 nouvelles clés existent dans les 3 langues', () => {
+  it('les 2 nouvelles clés existent dans les deux langues du site', () => {
     for (const key of ['orderNotClaimable', 'orderCancelNotMine']) {
       for (const { id } of LANGS) {
         const v = dict[id]?.[key]

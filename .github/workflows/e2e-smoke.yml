@@ -1,0 +1,92 @@
+name: E2E smoke (Playwright)
+
+# LOT P3 — reste ouvert refermé. Le dépôt contenait déjà `playwright.config.js`,
+# `e2e/smoke.spec.js` et `@playwright/test` en devDependency, mais AUCUN job ne
+# jouait `npm run test:e2e` : le smoke « la vitrine répond / le client se
+# connecte / la session survit au rechargement » n'était vérifié que sur la
+# machine de qui y pensait. Les deux workflows existants couvrent l'API (Neon)
+# et le rendu jsdom ; eux ne peuvent pas dire qu'un VRAI navigateur affiche la
+# boutique — jsdom ne charge ni les polices ni le layout, et le crawl se refuse
+# exprès aux clics destructeurs.
+#
+# Ce job n'ajoute PAS de secret : l'API et le front sont démarrés sur la machine
+# du runner par `scripts/dev-all.mjs` (via `webServer` de la config Playwright),
+# avec des identifiants de fixture. `DEMO_PASSWORD` est posé parce que les deux
+# specs de connexion se branchent sur le compte de démonstration : sans la
+# variable, le serveur seed le compte VERROUILLÉ (401 `demo_locked`, lot 1.19)
+# et les deux se sautent en le disant. AVEC la variable, elles tournent pour de
+# vrai — c'est ce qui a révélé, au premier run du job, que la spec cherchait le
+# bouton d'envoi au mot près et le ratait en français (corrigée depuis, voir
+# `e2e/smoke.spec.js`).
+#
+# Trois moteurs, pas un (chrome = le parc du magasin, webkit = tout ce qui est
+# iPhone/iPad, firefox = Gecko/Fennec) : la liste vit dans `playwright.config.js`
+# et `src/p3ServerHygiene.test.js` verrouille qu'elle est exactement celle que ce
+# job installe. Un `.only` oublié dans une spec rendrait le job muet sans le faire
+# rouge — d'où `--forbid-only`.
+on:
+  pull_request:
+    types:
+      - opened
+      - reopened
+      - synchronize
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    name: Chromium + WebKit + Firefox — vitrine, connexion, session au rechargement
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      MASTER_EMAIL: master-ci@test.pcstar.local
+      MASTER_PASSWORD: ci-master-password-not-for-production
+      DEMO_PASSWORD: ci-demo-password-not-for-production
+      # `CI` : la config Playwright passe `reuseExistingServer` à false — pas de
+      # serveur orphelin réutilisé d'un job précédent.
+      CI: '1'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          # Node 22, comme les deux autres workflows (jsdom 30 exige 22).
+          node-version: 22
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      # L'étape qui manque est là, pas dans le YAML : sans navigateur installé,
+      # `playwright test` échoue sur « Executable doesn't exist » et le job ne
+      # dit rien de l'application. `--with-deps` pose aussi les bibliothèques
+      # système (le runner Ubuntu a sudo gratuit) ; Chromium seul, pas les trois
+      # moteurs — le smoke n'a pas besoin de WebKit et Firefox.
+      # Les trois moteurs déclarés dans `playwright.config.js`, et pas un de
+      # moins : `src/p3ServerHygiene.test.js` verrouille la correspondance entre
+      # la config et cette ligne. Un moteur déclaré mais non installé ne fait pas
+      # échouer le job sur « le moteur manque » — il fait échouer le SMOKE, et le
+      # journal ne dit alors plus rien de l'application.
+      - name: Install Chromium, WebKit, Firefox (et leurs dépendances système)
+        run: npx playwright install --with-deps chromium firefox webkit
+      - name: Run the smoke suite (API + front démarrés par Playwright)
+        # Le reporter `github` (en plus de `list`) écrit chaque test en échec en
+        # ANNOTATION de check-run : lisible via l'API Checks même quand le blob des
+        # logs est injoignable, et positionnée sur la ligne de la spec.
+        run: npm run test:e2e -- --forbid-only --reporter=list,github
+      - name: Journaux et captures en artefact si échec
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-logs
+          path: |
+            test-results
+            playwright-report
+          if-no-files-found: ignore

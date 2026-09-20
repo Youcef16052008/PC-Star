@@ -1,9 +1,16 @@
 #!/usr/bin/env node
 /**
  * L2 (Direction 03 « Terminal Cyber ») — porte de validation :
- * crawl jsdom des 13 pages × 2 langues, 0 erreur JavaScript.
+ * crawl jsdom de TOUTES les pages × 2 langues, 0 erreur JavaScript.
+ * Le nombre de pages est lu sur `PAGES` (ligne 214 pour le résumé) : le
+ * « 13 pages » que ce fichier et trois docs répétaient ne correspondait plus à
+ * rien — le tableau en fait douze, et le résumé imprimait « 2 langues × 13
+ * pages » à côté de « 24 pages rendues » (24 = 12 × 2). Un compteur écrit à la
+ * main dans un message est un compteur qui ment à la première page ajoutée.
  *
- * Usage : `npm run build` puis `npm run crawl`.
+ * Usage : `npm run build:crawl` puis `node scripts/jsdom-crawl.mjs`.
+ * (`npm run crawl` n'existe pas dans `package.json` ; `npm run build` seul ne
+ * suffit pas : le crawl a sa propre variante, `vite.crawl.config.js`.)
  * Le script démarre et arrête LUI-MÊME l'API (:8787) et `vite preview` (:4173).
  *
  * Ce qui compte comme « erreur » : window.onerror et jsdomError (erreur de
@@ -11,12 +18,22 @@
  * avertissements non fatals. Le rendu effectif de chaque page est vérifié
  * par le document.title (mis à jour par page/langue dans App.jsx) et par un
  * marqueur DOM quand il existe.
+ *
+ * Les sous-ressources DISTANTES ne sont pas chargees : l'option `resources` vient
+ * de `scripts/jsdom-subresources.mjs`, qui neutralise toute URL hors de l'origine
+ * de la porte. Sans ca, le crawl depend de la sortie Internet du runner et execute
+ * du code tiers (le chargeur de Google Maps leve chez lui un `TypeError` dans
+ * jsdom) — c'est ce qui a fait rougeoir `fr/orders` sur cinq tetes et jamais en
+ * local. Voir le bloc-commentaire du module pour la mesure complete.
  */
 import { spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { JSDOM, VirtualConsole } from 'jsdom'
 import { dict } from '../src/i18n.js'
 import { masterCredentials } from './masterEnv.mjs'
+import { patchPerformanceGaps } from './jsdom-perf-gaps.mjs'
+import { pileDeFaute } from './jsdom-error-pile.mjs'
+import { ressourcesDeLaPorte } from './jsdom-subresources.mjs'
 
 const FRONT = 'http://127.0.0.1:4173'
 const API = 'http://127.0.0.1:8787'
@@ -40,7 +57,7 @@ async function waitFor(fn, label, timeout = 25000) {
 const buttonByText = (doc, text) =>
   [...doc.querySelectorAll('button')].find((b) => b.textContent.trim() === text)
 
-/* 13 pages : comment les atteindre + marqueur DOM de rendu réel. */
+/* Les pages du site : comment les atteindre + marqueur DOM de rendu réel. */
 const PAGES = [
   ['shop', 'nav', 'navShop', '.product-bs-card'],
   ['search', 'nav', 'navSearch', null],
@@ -96,6 +113,28 @@ if (!existsSync('dist-crawl/index.html')) {
 startProc('node', ['server/index.js'])
 // --host 127.0.0.1 : sans ça vite preview ne lie que la boucle IPv6 (::1)
 // et le crawl (URL IPv4) échoue en ECONNREFUSED.
+// Le port doit etre LIBRE, pas seulement « occupable » : un `npm run preview` laisse
+// a l'ecran repond sur :4173, `--strictPort` fait mourir le notre en silence (enfant
+// detache, stdio ignore), et la porte passe alors sur le bundle de PRODUCTION — verte,
+// mais verte sur la mauvaise chose. Vu en rejouant le lot S3 : vingt-quatre pages en
+// timeout, le message ne disait rien du vrai coupable.
+try {
+  const etranger = await fetch(FRONT)
+  if (etranger.ok) {
+    const corps = await etranger.text()
+    // Le bundle du crawl se reconnait a son <script defer> (deplace apres #root par
+    // scripts/fix-crawl-html.mjs) ; celui de production est un module cross-origin.
+    if (!/defer src="\/assets\/index-/.test(corps)) {
+      console.error(
+        `\n[jsdom-crawl] quelqu'un occupe deja ${FRONT}, et ce n'est pas le bundle du crawl.\n` +
+        '  · arretez le serveur en trop (`npm run preview`, un autre crawl) puis relancez\n' +
+        '  · sans ca la porte verifierait le bundle de production : un vert pour la\n' +
+        '    mauvaise raison, ce que cette porte existe pour empecher\n'
+      )
+      teardown(1)
+    }
+  }
+} catch { /* personne a l'ecoute : la place est libre, comme voulu */ }
 startProc('npx', ['vite', 'preview', '--config', 'vite.crawl.config.js', '--port', '4173', '--strictPort', '--host', '127.0.0.1'])
 await waitFor(async () => (await fetch(`${API}/api/health`)).ok, 'API :8787')
 await waitFor(async () => (await fetch(FRONT)).ok, 'preview :4173')
@@ -117,18 +156,33 @@ for (const lang of LANGS) {
   const errors = []
   const vc = new VirtualConsole() // silence console.*, jsdomError capturé
   vc.on('jsdomError', (e) => {
-    // Non fatal : ressources EXTERNES injoignables en sandbox (Google Fonts,
-    // iframe Google Maps de la page about) — le rendu DOM n'en dépend pas.
+    // Non fatal : ressources EXTERNES injoignables — le rendu DOM n'en dépend
+    // pas. Depuis `jsdom-subresources.mjs`, les URL distantes sont neutralisees
+    // AVANT requete et ne passent donc plus ici ; la liste reste un filet pour ce
+    // qui echapperait au mecanisme (un `about:blank` interne, par exemple).
+    // (La liste des excuses est close : rien n'est filtré d'autre que les
+    // ressources externes. Ajouter un motif ici pour faire passer un rouge est
+    // exactement comment une porte devient muette.)
     if (/Could not load (link|iframe)/i.test(e.message)) return
-    errors.push(`jsdomError: ${e.message}`)
+    // La PILE de la page, pas celle de jsdom : la porte doit dire OU la faute
+    // levee, sinon un rouge ne se repare qu'a la devinette (cinq têtes rouges
+    // sur `fr/orders` avant que ce module n'existe). La logique vit dans
+    // `scripts/jsdom-error-pile.mjs`, verrouillee par un test.
+    const pile = pileDeFaute(e)
+    errors.push(`jsdomError: ${e.message}${pile ? ` [${pile}]` : ''}`)
   })
 
   const dom = await JSDOM.fromURL(`${FRONT}/`, {
     runScripts: 'dangerously',
-    resources: 'usable',
+    resources: ressourcesDeLaPorte(),
     pretendToBeVisual: true,
     virtualConsole: vc,
     beforeParse(w) {
+      // Les trous d'API de jsdom sont combles AVANT le premier script : sans
+      // Resource Timing, react-dom et le collecteur de rejections du harnais
+      // fabriquent une faute qui n'existe pas dans un navigateur (voir
+      // scripts/jsdom-perf-gaps.mjs).
+      patchPerformanceGaps(w)
       w.localStorage.setItem('pcstar-lang', lang)
       w.localStorage.setItem('pcstar-api-token', login.token)
       // Polyfills : le bundle doit tourner dans jsdom comme en navigateur.
@@ -203,5 +257,7 @@ if (failures.length) {
   console.error(`\nCRAWL FAILED (${failures.length}) :\n${failures.map((f) => '  ✗ ' + f).join('\n')}`)
   teardown(1)
 }
-console.log(`\nCRAWL OK — ${results.length} pages rendues (${LANGS.length} langues × 13 pages), 0 erreur`)
+console.log(
+  `\nCRAWL OK — ${results.length} pages rendues (${LANGS.length} langues × ${PAGES.length} pages), 0 erreur`
+)
 teardown(0)

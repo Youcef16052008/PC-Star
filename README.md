@@ -8,10 +8,42 @@ Boutique pickup **PC Star Informatique** — El Makari Les Castors, Oran.
 npm install
 npm run start:api   # :8787 multi-device orders + auth
 npm run dev         # :5173 site (proxies /api)
-npm test            # 807 tests (node:test)
 npm run build       # vite build, then scans dist/ for secrets — fails if any landed there
+npm test            # 1158 tests (node:test, 80 fichiers) — run `npm run build` first: bundleSecrets scans dist/
 npm run check:bundle # re-run only the dist/ secret scan (lot 7.3)
+npm run master:rotate # new master password, written to .env.local — the value is never printed
 ```
+
+## État mesuré (20/09/2026)
+
+- `npm test` : **1158 tests, 0 échec** (80 fichiers `src/*.test.js`, tous branchés dans le script — `src/p3ServerHygiene.test.js` le vérifie). Le total peut bouger de ±1 selon le nombre de chunks que `dist/` contient : `src/bundleSecrets.test.js` fabrique un test par artefact scanné, ce n'est pas une régression. La suite scanne le bundle publié
+  (`src/bundleSecrets.test.js`) : sans `dist/`, elle échoue en cascade — le build
+  est une pré-condition, pas une étape optionnelle.
+- `npm run build:crawl && node scripts/jsdom-crawl.mjs` : 24 pages rendues en
+  jsdom (2 langues × 12 pages — le résumé du script calcule ce produit, il ne le
+  recopie plus : « × 13 pages » a menti pendant des dizaines de sessions), 0 erreur. C'est le seul contrôle qui voit une
+  page React casser au rendu (un import manquant passe `node --check`, le bundle
+  et tous les tests `node:test`) ; `src/moduleWiring.test.js` en garde une partie
+  en secondes.
+- Catalogue de base : **301 produits, 767 photos**. i18n : **2 langues**
+  (`fr`, `en`) et **646 clés** chacune — la parité est vérifiée à chaque
+  exécution par `src/i18n.coverage.test.js`, dans les deux sens (aucune clé appelée sans
+  traduction, aucune traduction sans appel).
+- Statuts de commande : table **à sens unique** (`new → preparing → ready →
+  picked`, annulation libre avant `picked`) ; un écran qui écrit peut passer
+  `expectedStatus` pour refuser une écriture obsolète (409 `stale`) au lieu de la
+  voir s'appliquer.
+- `npm run test:e2e` (Playwright) est **joué en CI** par `.github/workflows/e2e-smoke.yml`
+  sur **trois moteurs** : chromium, webkit, firefox — les deux derniers couvrent
+  iPhone/iPad (WebKit est le seul moteur que iOS autorise) et Firefox Android, que
+  le parc android du magasin ne représente pas. Ni `build:crawl`, ni `jsdom-crawl`,
+  ni les tests `node:test` ne le remplacent : aucun autre contrôle du dépôt ne rend
+  l'application dans un moteur qui a une mise en page, des polices et un vrai clavier.
+  Le job refuse un `.only` oublié (`--forbid-only`) : sans lui, une spec exclusive
+  rend le smoke muet sans le faire rouge. Limites assumées : des desktops émuls, pas
+  les viewport téléphones (couverts par la recette
+  [`docs/RECETTE-RESPONSIVE-DIRECTION-03.md`](docs/RECETTE-RESPONSIVE-DIRECTION-03.md)),
+  et le job ne compare pas des captures d'écran.
 
 ## Demo accounts (click in Login, or type)
 
@@ -83,7 +115,53 @@ Photos: keep shipping under `public/photos/sku/` — add pro shots later, push, 
 `DATABASE_URL` (Neon) **must** be the **pooled** string (`ep-…-pooler.…`) — see
 [docs/NEON-MIGRATION.md](docs/NEON-MIGRATION.md).
 
-## Derniers correctifs (P11 → P21)
+## Derniers correctifs (P0 → P21)
+
+- **P0 → P5 (19–20/09/2026)** — cinq lots trouvés en **utilisant** l'application, chacun avec
+  sa mesure avant/après et son verrou : P0 plus aucun secret dans le bundle ni dans git (le
+  serveur **refuse de démarrer** sans `MASTER_EMAIL` / `MASTER_PASSWORD`, et
+  `scripts/check-bundle.mjs` fait échouer le build si un secret file dans `dist/`) ; P1 → P3
+  erreurs HTTP, limites de corps, garde-fous de commande, surfaces boutique et hygiène du
+  serveur ; P4 connexion et menu en **pleine page** (sur un téléphone du parc, la fenêtre de
+  500 px laissait le clavier manger le formulaire) ; P5 la coupe de texte qui ne sépare plus un
+  caractère en deux, et un compteur de rate-limit qui ne vole plus ~100 µs à chaque requête
+  légitime. **Relire P5 a rapporté six défauts dans les correctifs de P5 eux-mêmes** — dont un
+  refus qui parcourait tout le corps reçu (d'où `excedeChars`, en O(borne), verrouillé sur un
+  4 Mio refusé en < 5 ms). Détail complet, mesure par mesure :
+  [`docs/BUGS-AND-FIXES.md`](docs/BUGS-AND-FIXES.md).
+- **P6 (page Recherche, 20/09/2026)** — la page Recherche dressait **69 rayons** en
+  pastilles avant le premier résultat (huit panneaux à plat sur mobile, les mêmes en radios
+  dans l'aside du bureau). Le filtre devient ce qu'il doit être : deux boutons —
+  « Filtrer par marque », puis « Filtrer par catalogue » — chacun portant la valeur choisie,
+  une feuille qui s'ouvre d'un clic et se referme sur le choix, les rayons d'un seul panneau à la
+  fois (le groupe de la ligne choisie, posé à plat), et la compatibilité (socket) demandée
+  **seulement** aux lignes qui en ont une. L'aside ne duplique plus rien, et le tiroir mobile non
+  plus : la liste des marques qui y vivait encore est partie. Les résultats se **paginent** douze
+  par douze — la règle est écrite une fois pour la vitrine et la recherche, dans `src/pager.js`.
+  Quarante-quatre verrous montés à l'écran : `src/p6SearchSurface.test.js`. Le lot S3 a partagé la
+  règle là où elle avait été recopiée : `src/pagerControls.jsx` (pager fenêtré + choix 12/24/48),
+  `src/brandSheet.jsx` (la feuille des marques avec son champ, pour les deux écrans),
+  `src/filterSheet.js` (Échap). Un pager qui dresse un bouton par page n'a pas réparé le mur de
+  pastilles, il l'a numéroté : 28 boutons, puis 5. Enfin, le filtre qu'un choix rend
+  impossible est **retiré et annoncé** — la règle est une seule fois dans `src/filterDrop.js`,
+  et la phrase que le client lit (`filterDrop`) est la même sur les deux écrans : un état qui
+  change sous les yeux sans explication n'est pas une faveur, c'est un défaut poli. Le lot S5
+  a traité la taille de page comme ce qu'elle est : une **préférence**, stockée sous sa propre
+  clef (`src/pagerStore.js`) et relue par les deux écrans — choisir quarante-huit puis changer
+  d'écran ne fait plus retomber le catalogue à douze, et une clef abîmée se lit « douze » au
+  lieu de casser le montage. Le lot S6 a generé le menu depuis une liste declaree
+  (`MENU_DESTINATIONS`, `HORS_MENU` avec sa raison) : la page « Garantie & RMA » etait
+  routée, traduite, titree — et sans un seul lien vers elle ; et le menu ne proposait
+  qu'une porte (« Connexion ») pour un compte qui n'existe pas encore. Les deux entrees
+  y sont maintenant (`navSignup`), et `?connexion=1` / `?inscription=1` debarquent
+  directement sur le formulaire. `npm run preview` proxyse aussi `/api` (comme le build
+  du crawl : `vite preview` n'heritait pas de `server.proxy`) — sans lui, l'aperçu ne
+  pouvait pas tester le compte maître : tout se croyait hors-ligne.
+- **Rotation du secret maître** — `npm run master:rotate` (`scripts/rotate-master.mjs`) génère
+  un mot de passe de 32 signes, l'écrit dans `.env.local` en `0600`, refuse toute cible que git
+  suivrait, et **n'affiche jamais la valeur** : un secret passé à l'écran se retrouve dans
+  l'historique du shell, la capture d'écran et le fil de discussion. Recette complète, commandes
+  Vercel comprises : [`docs/DEPLOY-VERCEL.md`](docs/DEPLOY-VERCEL.md) § 8 ter.
 
 - **P21 (boutons du comptoir + nettoyage vitrine)** —
   **Comptoir** : « je clique sur préparer / prêt / remis, rien ne change ».
@@ -173,13 +251,15 @@ Photos: keep shipping under `public/photos/sku/` — add pro shots later, push, 
   sur aucun produit), 1 piège UX expliqué dans l'interface (filtre « En stock »),
   2 durcissements (SKU, sockets multiples), et **3 affirmations réfutées** par
   mesure (SKU `PS-` impossible, pas de race `hiddenProductIds`, `pdpWaMsg`
-  identique dans les 3 langues)
+  identique dans les 2 langues du dépôt (`fr`, `en` — l'arabe a été retiré depuis))
 
 - **P16 (lot 4 : durcissement)** — un compte de démo supprimé ne revient plus, le
   rate-limit garde sa fenêtre par bucket, changer de mot de passe exige l'ancien,
   le reset master ne pose plus `client31` tout seul, un patch produit invalide
   (`price: "abc"`, nom de 500 caractères) est refusé au lieu de partir en vitrine,
-  les transitions de statut sont gardées (`picked` ne revient plus en `new`),
+  les transitions de statut sont gardées (`picked` ne revient plus en `new` ;
+  depuis P2/B6 la table est à sens unique et `PATCH /api/orders/:code` accepte
+  `expectedStatus` — une écriture obsolète répond 409 `stale` au lieu de passer),
   l'historique de commandes ne perd plus rien en silence, l'API ne répond plus en
   `CORS *` par défaut, `.env` est enfin lu, et `server/data/store.json` (qui
   contenait les hashes de mots de passe) n'est plus versionné

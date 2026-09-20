@@ -316,7 +316,7 @@ describe('LOT 8.1 + 8.2 — le client classe et nomme les nouveaux refus', () =>
     assert.ok(orderBlockedMessage([{ id: 'ghost' }], t, 'unknown').includes('catalogue'))
   })
 
-  it('les 4 nouvelles clés existent dans les 3 langues (couverture i18n)', () => {
+  it('les 4 nouvelles clés existent dans les deux langues du site (couverture i18n)', () => {
     for (const key of ['orderUnavailable', 'orderUnavailableDetail', 'orderUnknown', 'orderUnknownDetail']) {
       for (const { id } of LANGS) {
         const v = dict[id]?.[key]
@@ -329,7 +329,7 @@ describe('LOT 8.1 + 8.2 — le client classe et nomme les nouveaux refus', () =>
     }
   })
 
-  it('le message de conflit d’idempotence existe dans les trois langues', () => {
+  it('le message de conflit d’idempotence existe dans les deux langues du site', () => {
     for (const { id } of LANGS) {
       const value = dict[id]?.orderRetryConflict
       assert.equal(typeof value, 'string', `${id}:orderRetryConflict absent`)

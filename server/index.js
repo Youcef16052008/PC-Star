@@ -25,6 +25,8 @@ import {
   updateDbAsync,
   verifyPass
 } from './db.js'
+// LOT P4 (V1) : la vitrine (module sans effet de bord, see server/vitrine.js).
+import { vitrineView, applyVitrineEdit } from './vitrine.js'
 import {
   completeDemo,
   completeOAuthCallback,
@@ -55,11 +57,22 @@ import { normalizePhone, isDzPhone, phoneCarrier } from './phone.js'
 // P10 (P7-18) : liste connue des wilayas servies par le shop (source partagée
 // src/data.js, déjà importée côté master via PRODUCTS).
 import { PRODUCTS, SLOTS, WILAYAS_NEAR } from '../src/data.js'
+
+// LOT P3 (B27) : vocabulaire accepté par `PUT /api/me` pour les deux champs
+// décoratifs. Ce sont exactement les valeurs que posent les graines de
+// `server/db.js` (`avatar: 'chip' | 'card' | 'pad' | 'star'`,
+// `accent: 'blue' | 'gold' | 'green' | 'red'`) ; `publicUser` les renvoie telles
+// quelles. Aucun composant ne les compose aujourd'hui — voir la validation.
+const USER_AVATARS = ['chip', 'card', 'pad', 'star']
+const USER_ACCENTS = ['blue', 'gold', 'green', 'red']
 // P19 : notification du master (WhatsApp Cloud API + socket Desk).
 import { broadcastDesk, formatOrderMessage, sendWhatsApp, whatsappConfig } from './notify.js'
 // LOT 8.4 (A4) : budgets d'octets partagés avec le client (compression, garde
 // d'envoi) et détection de l'environnement serverless.
 import { LOCAL_MAX_BODY_BYTES, MAX_UPLOAD_BODY_BYTES, VERCEL_MAX_BODY_BYTES } from '../src/limits.js'
+// LOT P1 (B20) : une seule validation de « journée » pour tout le projet.
+import { normalizeDay } from '../src/orderLogic.js'
+import { clipChars, excedeChars } from '../src/textClip.js'
 import { IS_SERVERLESS, safeUploadName } from './blobStore.js'
 import { attachDeskSocket } from './deskSocket.js'
 import {
@@ -114,6 +127,27 @@ export function corsHeaders() {
   }
 }
 
+/**
+ * LOT P1 (audit 19/09/2026, B3) — un segment de chemin mal encodé est une
+ * REQUÊTE invalide, pas une panne serveur.
+ *
+ * Avant : chaque route appelait `decodeURIComponent(...)` à l'air libre, à
+ * l'intérieur du `try` géant du handler. Une séquence comme `/api/orders/%E0%A4%A`
+ * levait donc un `URIError` attrapé par le `catch` global → **500** (mesuré à
+ * l'audit, avec de surcroît le message interne dans le corps — B2). Un 400
+ * typé est le seul réponse honnête : le client a envoyé une URL indécodable, le
+ * serveur n'a rien qui a cassé.
+ *
+ * @returns {string|null} le segment décodé, `null` s'il est mal formé
+ */
+function pathSegment(raw) {
+  try {
+    return decodeURIComponent(String(raw ?? ''))
+  } catch {
+    return null
+  }
+}
+
 function send(res, status, body, headers = {}) {
   const payload = typeof body === 'string' ? body : JSON.stringify(body)
   const isJson = typeof body !== 'string'
@@ -139,6 +173,25 @@ function send(res, status, body, headers = {}) {
     ...headers
   })
   res.end(payload)
+}
+
+/**
+ * LOT P2 (B28) — la réponse 429 était recopiée à l'identique sur sept routes,
+ * et écrite *autrement* sur deux autres (`error: 'rate_limited'`, sans
+ * `retryAfter` ni en-tête) : `orderApiFailure` clé sur le statut 429 mais lit
+ * `data.retryAfter` pour annoncer la durée d'attente — ces deux-là répondaient
+ * donc « attendez » sans chiffre. L'en-tête standard `Retry-After` (ajouté au
+ * P16 sur une seule route sur neuf) vit désormais ici : une route nouvelle qui
+ * se limite ne peut plus l'oublier, et le corps est inchangé pour les sept qui
+ * étaient justes.
+ */
+function tooManyRequests(res, rl) {
+  return send(
+    res,
+    429,
+    { ok: false, error: 'rate', retryAfter: rl.retryAfter },
+    { 'Retry-After': String(Math.max(1, rl.retryAfter || 1)) }
+  )
 }
 
 /** Réponse HTML sans détail fournisseur ni secret pour les retours OAuth. */
@@ -412,10 +465,7 @@ export async function handler(req, res) {
       // aussi couper un flot de requêtes NON authentifiées, qui coûteraient
       // sinon chacune une lecture de base avant de répondre 401.
       const rl = rateLimit({ windowMs: 60_000, max: 120, key: clientKey(req, 'me') })
-      if (!rl.ok)
-        return send(res, 429, { ok: false, error: 'rate', retryAfter: rl.retryAfter }, {
-          'Retry-After': String(Math.max(1, rl.retryAfter || 1))
-        })
+      if (!rl.ok) return tooManyRequests(res, rl)
       const auth = await userFromReq(req)
       if (!auth) return send(res, 401, { ok: false, error: 'auth' })
       return send(res, 200, { ok: true, user: publicUser(auth.user) })
@@ -436,16 +486,19 @@ export async function handler(req, res) {
       // même adresse — et c'est précisément ce que le 429 `Retry-After`
       // signalerait à tort comme une attaque.
       const rl = rateLimit({ windowMs: 600_000, max: 20, key: clientKey(req, 'register') })
-      if (!rl.ok)
-        return send(res, 429, { ok: false, error: 'rate', retryAfter: rl.retryAfter }, {
-          'Retry-After': String(Math.max(1, rl.retryAfter || 1))
-        })
+      if (!rl.ok) return tooManyRequests(res, rl)
       const body = await readBody(req)
       const email = String(body.email || '')
         .trim()
         .toLowerCase()
       const password = String(body.password || '')
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return send(res, 400, { ok: false, error: 'email' })
+      // LOT P5 : l'expression reguliere autorisait n'importe quelle LONGUEUR — un
+      // e-mail de 100 000 signes etait accepte, stocke, puis resservi dans chaque
+      // export CSV et chaque ligne du comptoir. 254 = la limite d'un `addr-spec`
+      // (RFC 5321) : aucun e-mail reel n'atteint ce plafond, et la base ne grossit
+      // plus au gre du corps de la requete.
+      if (excedeChars(email, 254)) return send(res, 400, { ok: false, error: 'email' })
       if (password.length < 6) return send(res, 400, { ok: false, error: 'password' })
       if (body.phone && !isDzPhone(body.phone)) return send(res, 400, { ok: false, error: 'phone' })
       // LOT 1.9 : le nom n'avait aucune borne — le `maxlength` client n'est
@@ -453,7 +506,10 @@ export async function handler(req, res) {
       // commandes (64) : c'est le même nom, affiché aux mêmes endroits
       // (comptoir, export CSV, WhatsApp).
       const regName = String(body.name || '').trim()
-      if (regName.length > 64) return send(res, 400, { ok: false, error: 'name_too_long' })
+      // LOT P5 : 64 CARACTERES comme la commande et le profil — ce plafond-là
+      // comptait encore des unités UTF-16 (un prénom en emoji, c'est la moitié
+      // de la place) — et se teste avec `excedeChars`, sans parcourir le corps.
+      if (excedeChars(regName, 64)) return send(res, 400, { ok: false, error: 'name_too_long' })
       let token = null
       let user = null
       // P14 (#1) : l'erreur passe par une variable de closure. Avant, elle
@@ -502,11 +558,7 @@ export async function handler(req, res) {
 
     if (req.method === 'POST' && pathname === '/api/auth/login') {
       const rl = rateLimit({ windowMs: 60_000, max: 20, key: clientKey(req, 'login') })
-      if (!rl.ok)
-        return send(res, 429, { ok: false, error: 'rate', retryAfter: rl.retryAfter }, {
-          // P16 : l'en-tête standard manquait — seul le corps le disait.
-          'Retry-After': String(Math.max(1, rl.retryAfter || 1))
-        })
+      if (!rl.ok) return tooManyRequests(res, rl)
       const body = await readBody(req)
       const email = String(body.email || '')
         .trim()
@@ -572,10 +624,7 @@ export async function handler(req, res) {
       // LOT 1.6 : limité (lecture + écriture de base à chaque appel), avant
       // l'authentification pour la même raison que sur GET /api/me.
       const rl = rateLimit({ windowMs: 60_000, max: 30, key: clientKey(req, 'me-write') })
-      if (!rl.ok)
-        return send(res, 429, { ok: false, error: 'rate', retryAfter: rl.retryAfter }, {
-          'Retry-After': String(Math.max(1, rl.retryAfter || 1))
-        })
+      if (!rl.ok) return tooManyRequests(res, rl)
       const auth = await userFromReq(req)
       if (!auth) return send(res, 401, { ok: false, error: 'auth' })
       const body = await readBody(req)
@@ -585,18 +634,43 @@ export async function handler(req, res) {
       // P10 (P7-18) : wilaya bornée — liste connue (le select client ne propose
       // que ces valeurs) + troncature 32 ; sinon on garde l'existant/'Oran'.
       // Avant : n'importe quelle chaîne libre était stockée.
-      const rawWilaya = body.wilaya == null ? null : String(body.wilaya).trim().slice(0, 32)
+      // LOT P5 : `clipChars` — la wilaya est du texte libre cote client, et un
+      // `slice(0, 32)` comptait en unites UTF-16 (32 unites = 16 emoji, et une
+      // coupe au milieu d'une paire laissait un caractere corrompu en base).
+      const rawWilaya = body.wilaya == null ? null : clipChars(String(body.wilaya).trim(), 32)
       // LOT 1.9 : borne identique à l'inscription et aux commandes.
       const meName = body.name == null ? null : String(body.name).trim()
-      if (meName != null && meName.length > 64) return send(res, 400, { ok: false, error: 'name_too_long' })
+      // LOT P5 : 64 CARACTERES, pas 64 unites UTF-16, et via `excedeChars` (le
+      // nom vient du corps de la requete : le refuser ne doit pas le parcourir).
+      if (meName != null && excedeChars(meName, 64)) return send(res, 400, { ok: false, error: 'name_too_long' })
+      // LOT P3 (B27) : `avatar` et `accent` ne sont pas du texte libre, ce sont
+      // des CLÉS DE VOCABULAIRE. Aucun composant ne les lit aujourd'hui — une
+      // valeur déconnectée était donc stockée sans jamais se voir : du poids
+      // dans store.json, dans chaque backup, dans chaque export ; et surtout un
+      // piège pour le premier rendu qui les interpolerait dans un nom de classe
+      // (`avatar-${u.avatar}`), ou une chaîne de plusieurs mégaoctets passée
+      // pour un avatar. On refuse plutôt que de tronquer : hors vocabulaire, il
+      // n'y a rien à corriger. Validation ICI, avant `updateDbAsync` — un
+      // `return` à l'intérieur du callback d'écriture ne répondrait pas au
+      // client, il abandonnerait seulement la mutation.
+      let meAvatar = null
+      if (body.avatar) {
+        meAvatar = String(body.avatar).trim().toLowerCase()
+        if (!USER_AVATARS.includes(meAvatar)) return send(res, 400, { ok: false, error: 'avatar' })
+      }
+      let meAccent = null
+      if (body.accent) {
+        meAccent = String(body.accent).trim().toLowerCase()
+        if (!USER_ACCENTS.includes(meAccent)) return send(res, 400, { ok: false, error: 'accent' })
+      }
       let user = null
       await updateDbAsync((db) => {
         const u = db.users.find((x) => x.id === auth.user.id)
         if (!u) return db
         if (meName != null) u.name = meName || u.name
         if (body.phone != null) u.phone = body.phone ? normalizePhone(body.phone) : ''
-        if (body.avatar) u.avatar = body.avatar
-        if (body.accent) u.accent = body.accent
+        if (meAvatar) u.avatar = meAvatar
+        if (meAccent) u.accent = meAccent
         if (rawWilaya != null) {
           u.wilaya = WILAYAS_NEAR.includes(rawWilaya) ? rawWilaya : (u.wilaya || 'Oran')
         }
@@ -621,7 +695,8 @@ export async function handler(req, res) {
     if (req.method === 'POST' && pathname.startsWith('/api/me/orders/') && pathname.endsWith('/cancel')) {
       const auth = await userFromReq(req)
       if (!auth) return send(res, 401, { ok: false, error: 'auth' })
-      const code = decodeURIComponent(pathname.split('/').slice(-2, -1)[0])
+      const code = pathSegment(pathname.split('/').slice(-2, -1)[0])
+      if (code === null) return send(res, 400, { ok: false, error: 'invalid_code' })
       const uid = auth.user.id
       let result = null
       await updateDbAsync((db) => {
@@ -643,7 +718,7 @@ export async function handler(req, res) {
       const auth = await userFromReq(req)
       if (!auth) return send(res, 401, { ok: false, error: 'auth' })
       const rl = rateLimit({ windowMs: 600_000, max: 10, key: clientKey(req, 'claim') })
-      if (!rl.ok) return send(res, 429, { ok: false, error: 'rate_limited' })
+      if (!rl.ok) return tooManyRequests(res, rl)
       const body = await readBody(req)
       let result = null
       await updateDbAsync((db) => {
@@ -663,8 +738,9 @@ export async function handler(req, res) {
       const auth = await userFromReq(req)
       if (!auth || auth.user.role !== 'master') return send(res, 403, { ok: false, error: 'forbidden' })
       const rl = rateLimit({ windowMs: 60_000, max: 30, key: clientKey(req, 'claim-code') })
-      if (!rl.ok) return send(res, 429, { ok: false, error: 'rate_limited' })
-      const code = decodeURIComponent(pathname.split('/').slice(-2, -1)[0])
+      if (!rl.ok) return tooManyRequests(res, rl)
+      const code = pathSegment(pathname.split('/').slice(-2, -1)[0])
+      if (code === null) return send(res, 400, { ok: false, error: 'invalid_code' })
       let result = null
       await updateDbAsync((db) => {
         result = issueClaimCode(db, code)
@@ -681,10 +757,7 @@ export async function handler(req, res) {
     if (req.method === 'POST' && pathname === '/api/me/password') {
       // LOT 1.6 : limité — chaque appel coûte un scrypt et une écriture.
       const rl = rateLimit({ windowMs: 600_000, max: 5, key: clientKey(req, 'password') })
-      if (!rl.ok)
-        return send(res, 429, { ok: false, error: 'rate', retryAfter: rl.retryAfter }, {
-          'Retry-After': String(Math.max(1, rl.retryAfter || 1))
-        })
+      if (!rl.ok) return tooManyRequests(res, rl)
       const auth = await userFromReq(req)
       if (!auth) return send(res, 401, { ok: false, error: 'auth' })
       const body = await readBody(req)
@@ -747,11 +820,22 @@ export async function handler(req, res) {
     }
 
     // Master reset customer password (demo/store desk)
+    //
+    // LOT P2 (B28) : cette route était la seule à faire dépenser du CPU sans
+    // être limitée — chaque appel coûte un `hashPassAsync` (scrypt, ~50 ms de
+    // CPU) pour le mot de passe fourni, puis un second pour celui qui est
+    // écrit. La limite est posée AVANT `userFromReq` à dessein, comme sur
+    // `/api/me` : un flot non authentifié ne doit pas coûter une lecture de
+    // base par requête. Cinq par minute laisse une marge large pour l'usage
+    // réel (un compte client, une fois).
     if (req.method === 'POST' && pathname.startsWith('/api/master/customers/') && pathname.endsWith('/reset-password')) {
+      const rl = rateLimit({ windowMs: 60_000, max: 5, key: clientKey(req, 'master-reset') })
+      if (!rl.ok) return tooManyRequests(res, rl)
       const auth = await userFromReq(req)
       if (!auth || auth.user.role !== 'master') return send(res, 403, { ok: false, error: 'forbidden' })
       const parts = pathname.split('/')
-      const id = decodeURIComponent(parts[parts.length - 2])
+      const id = pathSegment(parts[parts.length - 2])
+      if (id === null) return send(res, 400, { ok: false, error: 'invalid_id' })
       const body = await readBody(req)
       // P16 (#14) : plus de valeur par défaut. Avant, un corps vide remettait
       // le mot de passe du client à `client31` — devinable, et le master ne
@@ -795,10 +879,7 @@ export async function handler(req, res) {
       // l'audit : 12 appels d'affilée → 12 entrées `oauthPending` en base
       // (purgées à 15 min, mais remplissables en continu).
       const rl = rateLimit({ windowMs: 60_000, max: 10, key: clientKey(req, 'oauth-start') })
-      if (!rl.ok)
-        return send(res, 429, { ok: false, error: 'rate', retryAfter: rl.retryAfter }, {
-          'Retry-After': String(Math.max(1, rl.retryAfter || 1))
-        })
+      if (!rl.ok) return tooManyRequests(res, rl)
       const body = await readBody(req)
       const auth = await userFromReq(req)
       // LOT 1.15 : `intent: 'link'` SANS session était accepté et stocké avec
@@ -926,7 +1007,11 @@ export async function handler(req, res) {
     }
 
     if (req.method === 'GET' && pathname.startsWith('/api/stock/')) {
-      const id = pathname.split('/').pop()
+      // LOT P1 (B3) : même règle que les autres routes paramétrées — le segment
+      // est décodé, et un segment indécodable est un 400 (avant : non décodé, la
+      // recherche portait sur `foo%20bar` là où les autres routes voyaient `foo bar`).
+      const id = pathSegment(pathname.split('/').pop())
+      if (id === null) return send(res, 400, { ok: false, error: 'invalid_id' })
       const { db, ok } = await readDbSafe()
       return send(res, 200, { ok: true, id, stock: liveStockOf(db, id), degraded: !ok })
     }
@@ -941,9 +1026,23 @@ export async function handler(req, res) {
       const stock = db.stock || {}
       const zeroStock = Object.values(stock).filter((v) => (Number(v) || 0) <= 0).length
       const products = publicCatalog(db)
+      // LOT P0 (B1) : l'état du pool de transactions, sous le même régime que le
+      // reste de la sonde — des compteurs et un dernier message, aucun secret.
+      // `idleErrors > 0` raconte une panne de connexion absorbée (compute
+      // suspendu, pooler qui ferme l'inactif) : sans l'auditeur, ces erreurs
+      // tuaient le processus au lieu d'être journalisées ici.
+      let pool = null
+      if (process.env.DATABASE_URL) {
+        try {
+          const { neonPoolStatus } = await import('./neonStore.js')
+          pool = neonPoolStatus()
+        } catch {
+          pool = null
+        }
+      }
       return send(res, 200, {
         ok: true,
-        db: { driver, reachable: ok, error, ms: Date.now() - startedAt, ...dbUrlDiagnostics() },
+        db: { driver, reachable: ok, error, ms: Date.now() - startedAt, pool, ...dbUrlDiagnostics() },
         counts: {
           baseProducts: PRODUCTS.length,
           publicProducts: products.length,
@@ -975,11 +1074,7 @@ export async function handler(req, res) {
 
     if (req.method === 'POST' && pathname === '/api/orders') {
       const rl = rateLimit({ windowMs: 60_000, max: 15, key: clientKey(req, 'order') })
-      if (!rl.ok)
-        return send(res, 429, { ok: false, error: 'rate', retryAfter: rl.retryAfter }, {
-          // P16 : l'en-tête standard manquait — seul le corps le disait.
-          'Retry-After': String(Math.max(1, rl.retryAfter || 1))
-        })
+      if (!rl.ok) return tooManyRequests(res, rl)
       const body = await readBody(req)
       if (!body.name || !Array.isArray(body.items) || !body.items.length) {
         return send(res, 400, { ok: false, error: 'order' })
@@ -1006,7 +1101,11 @@ export async function handler(req, res) {
       // (`phoneCarrier(body.phone)`) et ignore la valeur envoyée — le champ
       // client n'a jamais atteint la base.
       const orderName = String(body.name || '').trim()
-      if (!orderName || orderName.length > 64) return send(res, 400, { ok: false, error: 'name' })
+      // LOT P5 : 64 CARACTERES (points de code), pas 64 unités UTF-16 — un nom de
+      // 33 emoji en comptait 66 et était refusé alors qu'il tient en 33 signes.
+      // `excedeChars` plutôt qu'un compte intégral : la borne se teste sur un corps
+      // que l'appelant choisit, elle ne doit pas le parcourir pour dire non.
+      if (!orderName || excedeChars(orderName, 64)) return send(res, 400, { ok: false, error: 'name' })
       const rawOrderWilaya = body.wilaya == null ? '' : String(body.wilaya).trim()
       const orderWilaya = rawOrderWilaya ? (WILAYAS_NEAR.includes(rawOrderWilaya) ? rawOrderWilaya : null) : 'Oran'
       if (orderWilaya == null) return send(res, 400, { ok: false, error: 'wilaya' })
@@ -1057,6 +1156,10 @@ export async function handler(req, res) {
         // était tarifée 0 DA et la commande acceptée en 201.
         if (result?.error === 'unknown_product')
           return send(res, 400, { ok: false, error: 'unknown_product', unknown: result.unknown })
+        // LOT P1 (B13) : produit connu mais non tarifé. Requête invalide (400)
+        // avec la liste des lignes en cause, sur le modèle de `unknown_product`.
+        if (result?.error === 'unpriced')
+          return send(res, 400, { ok: false, error: 'unpriced', unpriced: result.unpriced })
         if (result?.error === 'idempotency_conflict') return send(res, 409, { ok: false, error: 'idempotency_conflict' })
         return send(res, 400, { ok: false, error: result?.error || 'order' })
       }
@@ -1082,16 +1185,19 @@ export async function handler(req, res) {
     if (req.method === 'PATCH' && pathname.startsWith('/api/orders/')) {
       const auth = await userFromReq(req)
       if (!auth || auth.user.role !== 'master') return send(res, 403, { ok: false, error: 'forbidden' })
-      const code = decodeURIComponent(pathname.split('/').pop())
+      const code = pathSegment(pathname.split('/').pop())
+      if (code === null) return send(res, 400, { ok: false, error: 'invalid_code' })
       const body = await readBody(req)
       const status = String(body.status || '')
       const hasPickup = body.pickupDate != null
       if (!status && !hasPickup) return send(res, 400, { ok: false, error: 'status' })
+      // LOT P2 (B6) : le statut que l'écran affichait au moment du clic.
+      const expectedStatus = body.expectedStatus == null ? null : String(body.expectedStatus)
       let result = null
       await updateDbAsync((db) => {
         result = null
         if (status) {
-          result = setOrderStatus(db, code, status)
+          result = setOrderStatus(db, code, status, expectedStatus)
           // Statut + date en un seul aller-retour (le « prêt » annonce la date).
           if (result?.ok && hasPickup) {
             const pd = setOrderPickupDate(db, code, String(body.pickupDate))
@@ -1103,6 +1209,12 @@ export async function handler(req, res) {
         return db
       })
       if (!result?.ok) {
+        // 409 et non 400 pour `stale` : la requête est correcte, c'est l'état
+        // de l'appelant qui ne l'est pas — le comptoir doit relire, pas corriger
+        // sa saisie.
+        if (result.error === 'stale') {
+          return send(res, 409, { ok: false, error: 'stale', current: result.from, order: result.order })
+        }
         const codeHttp = result?.error === 'not_found' ? 404 : 400
         return send(res, codeHttp, { ok: false, error: result?.error || 'status' })
       }
@@ -1115,7 +1227,8 @@ export async function handler(req, res) {
       const auth = await userFromReq(req)
       if (!auth || auth.user.role !== 'master') return send(res, 403, { ok: false, error: 'forbidden' })
       const parts = pathname.split('/')
-      const code = decodeURIComponent(parts[parts.length - 2])
+      const code = pathSegment(parts[parts.length - 2])
+      if (code === null) return send(res, 400, { ok: false, error: 'invalid_code' })
       let result = null
       await updateDbAsync((db) => {
         result = cancelOrder(db, code)
@@ -1131,7 +1244,8 @@ export async function handler(req, res) {
     if (req.method === 'DELETE' && pathname.startsWith('/api/orders/')) {
       const auth = await userFromReq(req)
       if (!auth || auth.user.role !== 'master') return send(res, 403, { ok: false, error: 'forbidden' })
-      const code = decodeURIComponent(pathname.split('/').pop())
+      const code = pathSegment(pathname.split('/').pop())
+      if (code === null) return send(res, 400, { ok: false, error: 'invalid_code' })
       let result = null
       await updateDbAsync((db) => {
         result = deleteOrder(db, code)
@@ -1194,7 +1308,8 @@ export async function handler(req, res) {
     if (req.method === 'PUT' && pathname.startsWith('/api/master/products/')) {
       const auth = await userFromReq(req)
       if (!auth || auth.user.role !== 'master') return send(res, 403, { ok: false, error: 'forbidden' })
-      const id = decodeURIComponent(pathname.split('/').pop())
+      const id = pathSegment(pathname.split('/').pop())
+      if (id === null) return send(res, 400, { ok: false, error: 'invalid_id' })
       const body = await readBody(req)
       const hasDataUrls = Array.isArray(body.photoDataUrls) && body.photoDataUrls.length > 0
       const putSave = hasDataUrls ? await savePhotoDataUrlsSafe(id, body.photoDataUrls) : { paths: [] }
@@ -1232,14 +1347,21 @@ export async function handler(req, res) {
       const auth = await userFromReq(req)
       if (!auth || auth.user.role !== 'master') return send(res, 403, { ok: false, error: 'forbidden' })
       const parts = pathname.split('/')
-      const id = decodeURIComponent(parts[parts.length - 2])
+      const id = pathSegment(parts[parts.length - 2])
+      if (id === null) return send(res, 400, { ok: false, error: 'invalid_id' })
       const body = await readBody(req)
       let result = null
       await updateDbAsync((db) => {
         result = hideProductMaster(db, id, body.hidden !== false)
         return db
       })
-      if (!result?.ok) return send(res, 400, { ok: false, error: result?.error })
+      // LOT P3 (B16) : même grille de statuts que le PUT de la fiche, juste
+      // au-dessus. `hideProductMaster` délègue à `updateProduct`, qui répond
+      // bien `not_found` pour une id inconnue (server/masterApi.js:480) — mais
+      // cette route, elle, écrasait tout en 400 : masquer une fiche supprimée
+      // entre-temps renvoyait « requête invalide » là où le PUT dit
+      // « introuvable », et le maître ne retentait rien.
+      if (!result?.ok) return send(res, result?.error === 'not_found' ? 404 : 400, { ok: false, error: result?.error })
       return send(res, 200, { ok: true, product: result.product })
     }
 
@@ -1249,7 +1371,8 @@ export async function handler(req, res) {
     if (req.method === 'DELETE' && pathname.startsWith('/api/master/products/')) {
       const auth = await userFromReq(req)
       if (!auth || auth.user.role !== 'master') return send(res, 403, { ok: false, error: 'forbidden' })
-      const id = decodeURIComponent(pathname.split('/').pop())
+      const id = pathSegment(pathname.split('/').pop())
+      if (id === null) return send(res, 400, { ok: false, error: 'invalid_id' })
       let result = null
       await updateDbAsync((db) => {
         result = deleteProductMaster(db, id)
@@ -1275,7 +1398,8 @@ export async function handler(req, res) {
       const auth = await userFromReq(req)
       if (!auth || auth.user.role !== 'master') return send(res, 403, { ok: false, error: 'forbidden' })
       const parts = pathname.split('/')
-      const id = decodeURIComponent(parts[parts.length - 2])
+      const id = pathSegment(parts[parts.length - 2])
+      if (id === null) return send(res, 400, { ok: false, error: 'invalid_id' })
       const body = await readBody(req)
       // Compatibilité : l'ancienne API acceptait les data URLs dans `photos`;
       // la liste de chemins (hors data:) est désormais la galerie à conserver.
@@ -1387,7 +1511,7 @@ export async function handler(req, res) {
       // P16 : `day` finit dans Content-Disposition — sans validation, un CRLF
       // injectait un en-tête (et faisait tomber la route en 500).
       const rawDay = url.searchParams.get('day') // YYYY-MM-DD optional
-      const day = /^\d{4}-\d{2}-\d{2}$/.test(String(rawDay || '')) ? String(rawDay) : ''
+      const day = normalizeDay(rawDay)
       const csv = ordersToCsv((await readDbAsync()).orders || [], { day })
       res.writeHead(200, {
         'Content-Type': 'text/csv; charset=utf-8',
@@ -1432,7 +1556,12 @@ export async function handler(req, res) {
         meta: {
           extraPanels: meta.extraPanels || [],
           hiddenPanelIds: meta.hiddenPanelIds || []
-        }
+        },
+        // LOT P4 (V1) — les trois compteurs de la vitrine, projetes par
+        // `vitrineView` : la page d'accueil n'a besoin que de ca, et surtout pas
+        // du reste de `db.meta` (produits masques, overrides, identifiants de
+        // seed). Un champ ajoute a `meta` ne devient pas public par accident.
+        vitrine: vitrineView(db)
       })
     }
 
@@ -1441,6 +1570,25 @@ export async function handler(req, res) {
       const auth = await userFromReq(req)
       if (!auth || auth.user.role !== 'master') return send(res, 403, { ok: false, error: 'forbidden' })
       return send(res, 200, { ok: true, meta: (await readDbAsync()).meta })
+    }
+
+    // LOT P4 (V1) — le maitre ecrit sa vitrine : le libelle et le nombre de
+    // reparations. Validation et bornage vivent dans `applyVitrineEdit`
+    // (server/vitrine.js), partages avec `normalizeDb` — une seule borne pour la
+    // lecture et pour l'ecriture, sinon le formulaire se reecrit lui-meme a
+    // chaque sauvegarde. `readyTally` est volontairement hors d'atteinte : il est
+    // compte par le serveur a chaque commande passee a « prete ».
+    if (req.method === 'PUT' && pathname === '/api/master/vitrine') {
+      const auth = await userFromReq(req)
+      if (!auth || auth.user.role !== 'master') return send(res, 403, { ok: false, error: 'forbidden' })
+      const body = await readBody(req)
+      let out = null
+      await updateDbAsync((db) => {
+        out = applyVitrineEdit(db, body)
+        return db
+      })
+      if (!out?.ok) return send(res, 400, { ok: false, error: out?.error || 'vitrine' })
+      return send(res, 200, { ok: true, vitrine: out.vitrine })
     }
 
     // P9 (P7-8) : PUT /api/meta SUPPRIMÉ — l'écriture `db.meta = {...db.meta,
@@ -1460,7 +1608,9 @@ export async function handler(req, res) {
     if (req.method === 'DELETE' && pathname.startsWith('/api/customers/')) {
       const auth = await userFromReq(req)
       if (!auth || auth.user.role !== 'master') return send(res, 403, { ok: false, error: 'forbidden' })
-      const id = pathname.split('/').pop()
+      // LOT P1 (B3) : décodé comme le reste (l'API cliente encode déjà l'identifiant).
+      const id = pathSegment(pathname.split('/').pop())
+      if (id === null) return send(res, 400, { ok: false, error: 'invalid_id' })
       // LOT 4.3 (F16) : `purgeUser` annule désormais les commandes en cours du
       // compte (le stock réservé est rendu) et renvoie le détail. La réponse le
       // transmet : le master voit ce que la suppression a entraîné au lieu d'un
@@ -1517,8 +1667,20 @@ export async function handler(req, res) {
       // deviner entre les 4,5 Mo de Vercel et les 15 Mo d'un serveur local.
       return send(res, 413, bodyTooLargePayload(), { Connection: 'close' })
     }
+    // LOT P1 (audit 19/09/2026, B2 + B3) — deux règles :
+    //  · une URI indécodable reste une erreur du CLIENT : 400, jamais 500. Le
+    //    filet ci-dessous couvre les décodages qui ne passent pas par
+    //    `pathSegment()` (modules importés, `searchParams`, etc.).
+    //  · un 500 ne dit QUE « server ». `err.message` partait au client :
+    //    mesuré à l'audit, une écriture impossible répondait
+    //    `{"error":"server","message":"EACCES: permission denied, open
+    //    '/chemin/absolu/store.json.tmp'"}` — l'arborescence du serveur
+    //    offerte à un appelant anonyme. Le détail part en journal, pas en réponse.
+    if (err instanceof URIError) {
+      return send(res, 400, { ok: false, error: 'invalid_uri' })
+    }
     console.error(err)
-    return send(res, 500, { ok: false, error: 'server', message: String(err.message || err) })
+    return send(res, 500, { ok: false, error: 'server' })
   }
 }
 

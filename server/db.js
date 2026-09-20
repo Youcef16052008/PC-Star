@@ -9,6 +9,13 @@ import { PRODUCTS } from '../src/data.js'
 // fsync du répertoire). Le couple tmp+rename seul ne garantissait que
 // l'atomicité : après coupure, `store.json` pouvait être vide ou tronqué.
 import { atomicDurableWriteFileSync, durableWriteFileSync } from './durableWrite.js'
+// LOT P4 (V1) : la vitrine a son module sans effet de bord (voir server/vitrine.js).
+import { clampVitrine } from './vitrine.js'
+// LOT P5 : borner a la LECTURE une adresse electronique heritee d'une base ecrite
+// avant le plafond d'inscription (la porte refuse desormais a 254 signes).
+import { clipChars } from '../src/textClip.js'
+
+export { vitrineView, applyVitrineEdit, VITRINE_LIMITS } from './vitrine.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 /** On Vercel serverless the bundle FS is read-only — persist under /tmp (ephemeral per instance). */
@@ -352,7 +359,13 @@ export function emptyDb() {
       extraProducts: [],
       hiddenProductIds: [],
       extraPanels: [],
-      hiddenPanelIds: []
+      hiddenPanelIds: [],
+      // LOT P4 (V1) — la vitrine : deux compteurs que le comptoir lit sur la
+      // page d'accueil. `readyTally` est écrit par le SERVEUR (une commande
+      // marquée « prête » le fait passer de +1, jamais l'inverse) ;
+      // `repairsLabel` / `repairsDone` sont saisis par le maître et lus par
+      // tout le monde en écriture refusée côté client.
+      vitrine: { repairsLabel: '', repairsDone: 0, readyTally: 0 }
     },
     sessions: {},
     oauthPending: {}
@@ -386,6 +399,17 @@ function ensure() {
  */
 export function normalizeDb(db) {
   let changed = false
+  // LOT P5 : une adresse electronique plus longue que le plafond d'inscription est
+  // BORNEE ici, pas refusee — refuser a la lecture reviendrait a enfermer le
+  // comptoir sur une base qu'il ne peut plus lire. Le plafond est celui de la RFC
+  // 5321 (254) et la coupe se fait en caracteres, sans moitie de paire en fin
+  // d'adresse.
+  for (const u of db.users || []) {
+    if (u && typeof u.email === 'string' && u.email.length > 254) {
+      u.email = clipChars(u.email, 254)
+      changed = true
+    }
+  }
   // LOT 1.20 : résolu UNE fois par normalisation (sha256 bon marché, donc pas
   // de mémoïsation — voir `masterAccountOrNull`). Les trois usages ci-dessous
   // sont désactivés ensemble quand l'environnement ne configure pas de maître.
@@ -492,6 +516,20 @@ export function normalizeDb(db) {
   if (!db.meta) {
     db.meta = emptyDb().meta
     changed = true
+  }
+  // LOT P4 (V1) — la vitrine doit exister avant que qui que ce soit la lise :
+  // `emptyDb()` la sème, une base écrite avant ce lot ne la contient pas, et un
+  // import partiel (`store.json` restauré, snapshot Neon rejoué) peut n'en porter
+  // qu'un morceau. Les trois valeurs sont donc **recalées** ici, avec le même
+  // bornage que `PUT /api/master/vitrine` — une clé stockée à la main (ou venue
+  // d'une sauvegarde d'une époque où la borne était plus haute) ne doit pas
+  // s'afficher en `NaN`, en nombre négatif, ni en texte de 4 000 caractères.
+  {
+    const next = clampVitrine(db.meta.vitrine)
+    if (JSON.stringify(next) !== JSON.stringify(db.meta.vitrine)) {
+      db.meta.vitrine = next
+      changed = true
+    }
   }
   // P16 (#8) : les démos sont injectées UNE fois, au premier démarrage, puis
   // marquées. Avant, ce `forEach` tournait à chaque lecture : un

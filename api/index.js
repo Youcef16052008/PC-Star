@@ -8,11 +8,17 @@ export default async function vercelHandler(req, res) {
   try {
     await handler(req, res)
   } catch (err) {
+    // LOT P1 (audit 19/09/2026, B2) : le message interne ne sort pas de la
+    // fonction. Ce que `server/index.js` applique dans son `catch` global vaut
+    // aussi pour ce dernier filet : une erreur `fs`, SQL ou de parsing de l'URL
+    // détaillait ici chemins et structure de base à un appelant anonyme. Le
+    // détail part dans le journal de la fonction (visibles dans la console
+    // Vercel), la réponse ne porte qu'un code.
     console.error('api error', err)
     if (!res.headersSent) {
       res.statusCode = 500
       res.setHeader('Content-Type', 'application/json')
-      res.end(JSON.stringify({ ok: false, error: 'server', message: String(err?.message || err) }))
+      res.end(JSON.stringify({ ok: false, error: 'server' }))
     }
   }
 }

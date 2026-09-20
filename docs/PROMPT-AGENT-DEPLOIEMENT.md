@@ -12,10 +12,10 @@ remédiation **complète** de l'audit du 17/09/2026 (phases 1 à 7 du
 `docs/PLAN-REMEDIATION-AUDIT-2026-09-17.md`), ouverte dans la **PR #8** vers
 `main`. État de référence validé en local :
 
-- `npm test` : 856 tests, 0 échec
+- `npm test` : la suite entière (`node:test`, 77 fichiers branchés), 0 échec — ne pas recopier le nombre de tests ici, il vit dans `README.md` § « État mesuré »
 - `npm run build` : OK, aucun secret dans le bundle
 - `node scripts/smoke-e2e.mjs` : SMOKE OK 9/9 (API + front lancés)
-- `node scripts/jsdom-crawl.mjs` : 36 pages rendues (3 langues × 13), 0 erreur
+- `node scripts/jsdom-crawl.mjs` : 24 pages rendues (2 langues × 12), 0 erreur
 - `node --import ./scripts/test-env.mjs --test src/phase5Reliability.test.js` : 4/4
   (ce fichier n'est volontairement PAS dans la liste `npm test`)
 

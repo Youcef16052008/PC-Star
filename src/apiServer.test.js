@@ -511,3 +511,29 @@ describe('P14 (#1) — inscription : plus d’empoisonnement par db._err', () =>
     assert.equal(raw.includes('"_lastAuth"'), false, '_lastAuth persisté dans store.json')
   })
 })
+
+describe('P5 — l’e-mail d’inscription a un plafond, comme tout le reste de la saisie', () => {
+  /*
+   * La porte validait la FORME de l'adresse (`^[^\s@]+@[^\s@]+\.[^\s@]+$`) et
+   * aucune LONGUEUR : un e-mail de 100 000 signes était accepté à l'inscription,
+   * stocké dans `users`, puis resservi dans chaque ligne du comptoir et chaque
+   * export CSV. Le plafond retenu est celui d'un `addr-spec` (RFC 5321, 254
+   * signes) : aucune adresse réelle ne l'atteint, donc le refus ne peut pas
+   * enfermer un client légitime — et le corps de la requête ne fixe plus la
+   * taille de la base.
+   */
+  const adresse = (n) => 'a'.repeat(n) + '@x.dz'
+  it('254 signes passent, 255 refusent — et le refus n’est pas écrit en base', async () => {
+    const juste = adresse(254 - 5)
+    assert.equal(juste.length, 254, 'l’adresse de test ne fait pas la longueur voulue')
+    const ok = await call('POST', '/api/auth/register', { body: { email: juste, password: 'secret1', name: 'P5 Long' } })
+    assert.equal(ok.status, 201, `une adresse de 254 signes est refusée : ${JSON.stringify(ok.data)}`)
+
+    const trop = await call('POST', '/api/auth/register', { body: { email: adresse(255 - 5), password: 'secret1' } })
+    assert.equal(trop.status, 400, 'une adresse de 255 signes est acceptée')
+    assert.equal(trop.data.error, 'email', 'le refus ne porte pas le code de la saisie e-mail')
+    const brut = fs.readFileSync(path.join(dir, 'store.json'), 'utf8')
+    assert.equal(brut.includes('a'.repeat(250)), false, 'l’adresse refusée a quand même été écrite en base')
+    assert.ok(brut.includes(juste), 'l’adresse acceptée doit être en base (sinon le 201 est un faux vert)')
+  })
+})
