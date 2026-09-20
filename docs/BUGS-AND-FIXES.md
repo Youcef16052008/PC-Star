@@ -3052,6 +3052,13 @@ négatifs (le markup `{allPanels.map(` hors feuille, les clés `usage`/`inStock`
 d'un verrou à l'autre fait rougir un test pour une raison de harnais, et c'est exactement le
 genre de rouge qui fait sauter une vraie correction.
 
+**Relu sur la CI (`34fe791`) — tout est vert.** `UI audit (crawl + boutons)` **succès en 7 m 37 s**,
+`E2E smoke` **succès** (1 m 36 s, Chromium + WebKit + Firefox), `Setup` + `Create Neon Branch`
+**succès** (2 m 36 s), Vercel **succès**. Les trois portes qui pouvaient voir la différence —
+le crawl qui rend la page Recherche, l'audit qui **clique tous les boutons** de chaque page (les
+deux nouveaux boutons de feuille compris), et le smoke Playwright sur trois moteurs — sont
+vertes : la barre de filtres n'a cassé ni le rendu, ni les formulaires vides, ni la session.
+
 Deux verrous préexistants ont dû être **re-adressés, pas supprimés** — un verrou qui
 pointait sur la légende `Catalogue` de l'aside aurait validé une régression silencieuse :
 `src/p3Vitrine.test.js` (les deux filtres sont des boutons qui ouvrent une feuille) et
