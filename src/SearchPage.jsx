@@ -9,11 +9,12 @@ import { stockLabel } from './stockLabel.js'
 // LOT P6 (S3) : le client choisit sa taille de page, et le pager comme la feuille
 // des marques sont des composants PARTAGES — un exemplaire pour les deux ecrans,
 // plus de markup recopie qui diverge au premier correctif.
-import { PAGE_TAILLE, pageCourante, pagesPour, tailleSure, tranche } from './pager.js'
+import { pageCourante, pagesPour, tailleSure, tranche } from './pager.js'
 import { ChoixTaille, Pager } from './pagerControls.jsx'
 import { BrandSheet } from './brandSheet.jsx'
 import { useFeuilleFiltre } from './filterSheet.js'
 import { filtresRetires, noteRetrait } from './filterDrop.js'
+import { useTaille } from './pagerStore.js'
 import PartThumb from './PartThumb.jsx'
 import { discountPercent, hasSale } from './productMeta.js'
 
@@ -64,7 +65,7 @@ export default function SearchPage({ t, products, lines, panels, lang, liveStock
   // LOT P6 (S3) : douze, vingt-quatre ou quarante-huit fiches par page. Les valeurs
   // possibles et le bornage vivent dans `src/pager.js` — le select ne propose que ce
   // qui existe, et tout le reste (URL bidouillée, onglet restauré) retombe sur douze.
-  const [taille, setTaille] = useState(PAGE_TAILLE)
+  const [taille, setTaille] = useTaille()
   // LOT P6 (S4) : la mention du filtre retire (une marque qui ne vend rien dans le
   // rayon choisi). Elle vit ici, pas dans une alerte globale : elle regarde CE filtre.
   const [dropNote, setDropNote] = useState('')

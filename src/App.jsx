@@ -30,6 +30,7 @@ import { ChoixTaille, Pager } from './pagerControls.jsx'
 import { BrandSheet } from './brandSheet.jsx'
 import { useFeuilleFiltre } from './filterSheet.js'
 import { filtresRetires, noteRetrait } from './filterDrop.js'
+import { useTaille } from './pagerStore.js'
 import SearchPage from './SearchPage.jsx'
 import BuilderPage from './BuilderPage.jsx'
 import PartThumb from './PartThumb.jsx'
@@ -350,7 +351,7 @@ export default function App() {
   const [shopSheet, setShopSheet] = useState(null)
   // LOT P6 (S3) : la recherche « une marque » n'est plus un etat de l'ecran — elle
   // vit dans la feuille (`src/brandSheet.jsx`), pour les deux ecrans a la fois.
-  const [shopTaille, setShopTaille] = useState(PAGE_TAILLE)
+  const [shopTaille, setShopTaille] = useTaille()
   // LOT P6 (S4) : la marque qu'un changement de categorie rend inutile est retiree,
   // et le client le lit. Avant, la vitrine gardait la marque et affichait zero fiche.
   const [shopNote, setShopNote] = useState('')

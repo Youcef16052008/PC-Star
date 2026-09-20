@@ -54,8 +54,9 @@ const { dict, LANGS } = await import('./i18n.js')
 const { PAGE_TAILLE, TAILLES, fenetrePages, pageCourante, pagesPour, POINT_DE_SUSPENSION, tailleSure, tranche } = await import('./pager.js')
 const { default: SearchPage } = await import('./SearchPage.jsx')
 const { PART_LINES, PRODUCTS } = await import('./data.js')
-const { loadSavedSearches } = await import('./shopStore.js')
+const { loadSavedSearches, createMemoryStorage } = await import('./shopStore.js')
 const { filtresRetires, noteRetrait } = await import('./filterDrop.js')
+const { CLE_PAGER, chargerTaille, garderTaille } = await import('./pagerStore.js')
 const React = (await import('react')).default
 const { act } = await import('react')
 const { createRoot } = await import('react-dom/client')
@@ -938,5 +939,87 @@ describe('P6/S4 — une marque que le rayon ne vend plus est retiree, et le clie
     assert.match(vitrine, /filtresRetires\(/, 'la vitrine redecide seule quoi garder de la marque')
     // Le vidage silencieux est mort : c'est la forme exacte du defaut d'avant.
     assert.equal(/line:\s*value,\s*brands:\s*\[\]/.test(recherche), false, 'la page Recherche vide encore les marques en silence quand un rayon est choisi')
+  })
+})
+// ── LOT P6 (S5) : la taille de page est une preference, pas un etat de la page ──
+describe('P6/S5 — le choix de taille survit a la navigation (et au rechargement)', () => {
+  // Mesure avant le correctif, sur la page rendue : choisir 48 affichait bien
+  // « 301 résultat(s) · page 1 sur 7 », mais le stockage ne portait AUCUNE clé, et au
+  // remontage (aller à l'accueil puis revenir — la page Recherche est démontée — ou
+  // recharger) le sélecteur retombait sur 12. Sur trois cents fiches, « 12 » n'est pas
+  // un neutre : c'est vingt-cinq clics que le client refait pour rien.
+  const select = () => hote.querySelector('.pager-taille select')
+  const stocke = () => { try { return JSON.parse(window.localStorage.getItem(CLE_PAGER)) } catch { return null } }
+  /** Lit la taille depuis un stockage pose a la main (cle corrompue, format étranger). */
+  const lireDepuis = (valeurBrute) => {
+    const st = createMemoryStorage()
+    st.setItem(CLE_PAGER, valeurBrute)
+    return chargerTaille(st)
+  }
+
+  it('chargerTaille : ce qui est stocke est relu, ce qui ne lest pas retombe sur douze', () => {
+    assert.equal(chargerTaille(createMemoryStorage()), PAGE_TAILLE, 'un stockage vide ne doit pas inventer de taille')
+    for (const n of TAILLES) {
+      const st = createMemoryStorage()
+      garderTaille(st, n)
+      assert.equal(chargerTaille(st), n, `la taille ${n} ne survit pas a un aller-retour dans le stockage`)
+    }
+    // Un stockage qui leve (navigation durcie, Safari ITP, quota) : ni la lecture ni
+    // l'ecriture ne doivent faire tomber la page — la lecon de F7.
+    const muet = { getItem() { throw new Error('SecurityError') }, setItem() { throw new Error('SecurityError') }, removeItem() { throw new Error('SecurityError') } }
+    assert.equal(chargerTaille(muet), PAGE_TAILLE, 'un stockage qui leve doit se lire comme un stockage vide')
+    assert.equal(garderTaille(muet, 48) === undefined, true, 'leriter sur un stockage qui leve ne doit pas jeter')
+  })
+
+  it('tailleSure est le seul juge : une cle manumisee ne passe pas', () => {
+    assert.equal(lireDepuis('{"taille":99}'), PAGE_TAILLE, 'un 99 ecrit a la main dans la cle ne doit pas devenir un slice faux')
+    assert.equal(lireDepuis('{pas du json'), PAGE_TAILLE, 'une cle corrompue doit se lire vide, pas casser le montage')
+    assert.equal(lireDepuis('null'), PAGE_TAILLE)
+    assert.equal(lireDepuis('{"taille":"24"}'), 24, 'une valeur chaine (edit main, ancien format) est une taille valide')
+    assert.equal(lireDepuis('48'), 48, 'la cle accepte aussi le format sans objet (une valeur seule)')
+    assert.equal(lireDepuis('{"taille":0}'), PAGE_TAILLE)
+    // Ecrire, ce nest jamais autre chose que ce que linterface propose.
+    const st = createMemoryStorage()
+    garderTaille(st, 'beaucoup')
+    assert.equal(JSON.parse(st.getItem(CLE_PAGER)).taille, PAGE_TAILLE, 'crire une taille hors liste ne doit pas empoisonner la cle')
+  })
+
+  it('choisir 48 puis changer decran : la page garde 48, et le stockage le dit', async () => {
+    rend()
+    await settle(120)
+    await choisir(select(), '48')
+    await settle(80)
+    assert.equal(select().value, '48', 'le select na pas suivi le choix')
+    assert.match(mentionPage(), /page 1 sur 7/, 'les pages ne sont pas calcules pour quarante-huit')
+    assert.deepEqual(stocke(), { taille: 48 }, 'le choix na pas ete ecrit : il ne survivra a rien')
+    // Le remontage, cest la navigation (laccueil demonte la page Recherche) ou le
+    // rechargement : meme ecart, meme lecture.
+    rend()
+    await settle(120)
+    assert.equal(select().value, '48', 'remonter la page fait retomber la taille a douze')
+    assert.equal(cartes() > 0, true, 'la taille retenue ne rend aucune fiche')
+    assert.match(mentionPage(), /page 1 sur 7/, 'la taille retenue na pas ete redemander au calcul des pages')
+    // Et on rend lappartement propre : sinon le verrou suivant echoue pour une
+    // raison de stockage partage, pas pour le comportement de la page.
+    await choisir(select(), '12')
+    await settle(80)
+    assert.deepEqual(stocke(), { taille: 12 }, 'revenir a douze doit aussi etre ecrit')
+  })
+
+  it('et la regle est ecrite une fois : les deux ecrans branchent le meme crochet', () => {
+    const recherche = sansCommentaires('src/SearchPage.jsx')
+    const vitrine = sansCommentaires('src/App.jsx')
+    for (const [nom, source] of [['SearchPage', recherche], ['App (vitrine)', vitrine]]) {
+      assert.match(source, /from '\.\/pagerStore\.js'/, `${nom} nimporte pas la preference partagee`)
+      assert.match(source, /useTaille\(\)/, `${nom} garde une taille locale : elle ne survivra a rien`)
+      // Un `useState(PAGE_TAILLE)` restant ici serait un etat parallele, et le
+      // deuxieme select de lecran ne suivrait plus le stockage.
+      assert.equal(/useState\(PAGE_TAILLE\)/.test(source), false, `${nom} initialise encore sa taille pour son compte`)
+    }
+    const module = sansCommentaires('src/pagerStore.js')
+    // La cle est nommee, pas repandue : trois modules qui ecrivent la meme cle avec
+    // des formats differents est la facon la plus rapide de la rendre illisible.
+    assert.equal((module.match(/pcstar-pager/g) || []).length, 1, 'la cle du pager est redeclaree en dur')
+    assert.match(module, /tailleSure\(/, 'la valeur relue ne repasse pas par le garde-fou de linterface')
   })
 })

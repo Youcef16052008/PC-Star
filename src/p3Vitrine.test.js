@@ -672,6 +672,15 @@ describe('P4/V1-V3 — l\u2019écran du client lit la vitrine, et la grille est 
     // Le select reste a la valeur choisie : un controle qui revient a 12 a chaque
     // rendu est un controle qui ne dit pas ou on en est.
     assert.equal(select.value, '48', 'le choix de taille n’a pas été retenu par le contrôle')
+    // LOT P6 (S5) : la taille est une preference, pas un etat de la page. Elle part
+    // donc dans le stockage, sous la cle du pager, et remonte telle quelle au remontage
+    // (rechargement, ou aller voir la page Recherche puis revenir).
+    const cle = JSON.parse(window.localStorage.getItem('pcstar-pager') || 'null')
+    assert.deepEqual(cle, { taille: 48 }, 'le choix de la vitrine na pas ete ecrit : la page Recherche ne le verra jamais')
+    // Et on rend l'appartement propre : le stockage est partage par tout le fichier.
+    await choisir(select, '12')
+    await settle(60)
+    assert.deepEqual(JSON.parse(window.localStorage.getItem('pcstar-pager')), { taille: 12 }, 'revenir a douze doit aussi etre ecrit')
   })
 
   it('le mur de marques n\u2019est pas dans le document tant que le panneau est fermé', async () => {

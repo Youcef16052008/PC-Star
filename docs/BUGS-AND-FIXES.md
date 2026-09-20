@@ -3336,6 +3336,70 @@ Ce qui reste ouvert, écrit ici plutôt que dans une conversation :
   supposerait de garder la marque dans un tiroir — deux états au lieu d'un, et c'est
   précisément comme ça que le filtre « usage » est mort.
 
+
+---
+
+## LOT P6 (S5) — la taille de page est une préférence, pas un état de la page
+
+Mesure sur la page rendue (jsdom, `SearchPage` montée, deux montages séparés pour jouer la
+navigation — la page Recherche est démontée quand on va à l'accueil, comme au rechargement) :
+
+| étape | avant le correctif | après |
+| --- | --- | --- |
+| à l'entrée | select `12` | `12` |
+| choisir 48 | `48`, entête `301 résultat(s) · page 1 sur 7` | idem |
+| ce que porte le stockage | **aucune clef** (`pcstar-pager` absent) | `{"taille": 48}` |
+| re-montage (navigation ou rechargement) | select retombé à **`12`** | `48` |
+| clef écrite à la main, corrompue (`{pas du json`) | — (rien ne la lisait) | se lit **`12`**, sans lever |
+
+Le choix était donc **réel mais local** : l'entête, les pages et les quarante-huit cartes le
+savaient, personne d'autre. Trois cents fiches à douze par page, c'est vingt-cinq clics ; les
+refaire à chaque aller-retour entre l'accueil et la recherche, c'est une corvée inventée par le
+logiciel. Et sur un poste du comptoir, la page reste ouverte des heures — la préférence y vit
+mieux que dans un `useState`.
+
+Deux fausses routes écartées avant d'écrire :
+
+- **la coller dans `meta`** (`pcstar-catalog`) : `meta` est l'état du catalogue, relancé par la
+  synchronisation du maître (`App.jsx` relit `loadMeta` et y applique la valeur du serveur). Une
+  préférence d'affichage n'a rien à faire dans une écriture de maître, et elle disparaîtrait au
+  premier merge ;
+- **écrire dans un `useEffect`** : au premier rendu, l'effet écrit la valeur par défaut par-dessus
+  la valeur stockée chez un client qui n'a rien demandé. L'écriture se fait donc **au choix**, dans
+  le crochet (`useTaille`), et l'unique point d'écriture est le même que celui du `<select>`.
+
+Ce que le module interdit aussi, par construction :
+
+- la lecture se fait dans l'initializer de `useState` — l'endroit exact où F7 faisait tomber tout
+  le site dans l'ErrorBoundary (`localStorage` lève `SecurityError` à la simple lecture de la
+  référence, pendant le rendu). `asSafeStorage` ne lève jamais ; `chargerTaille` non plus, et un
+  stockage muet se lit comme un stockage vide ;
+- la valeur relue repasse par `tailleSure` : un `99`, un `0`, du JSON abîmé ou un ancien format
+  retombent sur douze. Un stockage qui lève à l'écriture ne fait pas échouer le clic — le repli
+  mémoire de `safeStorage` tient la valeur pour la session, c'est ce que l'écran dit déjà ailleurs ;
+- la clef est nommée une fois (`pcstar-pager`) et un verrou de source interdit de la redéclarer
+  en dur dans le module.
+
+Quatre verrous de plus (**1151 tests** ; `src/p6SearchSurface.test.js` passe à 44) : l'aller-retour
+des trois tailles, la tolérance aux clefs abîmées et au stockage muet, le rendu après re-montage
+(le select, l'entête de pagination, **et** le stockage qui doit dire la même chose), et la règle
+unique — ni `App.jsx` ni `SearchPage.jsx` n'ont le droit de garder un `useState(PAGE_TAILLE)`.
+L'étage de la vitrine qui tournait le sélecteur à 48 vérifie maintenant qu'il a bien été écrit,
+puis **rend l'appartement propre** en revenant à douze : le stockage est partagé par tout le
+fichier, et un verrou qui laisse un 48 derrière lui fait rougir le suivant pour une raison de
+harnais.
+
+Reste ouvert, écrit ici :
+
+- la **position** de page n'est pas persistée, et c'est voulu. Se souvenir « page 3 » à travers un
+  changement de filtre ou de taille, c'est atterrir sur une page vide ; la page se déduit de la
+  liste, elle n'est pas une préférence ;
+- la préférence vit dans le navigateur, pas sur le serveur : changer de poste remet à douze. Ce
+  n'est pas un oubli de synchronisation — un goût d'affichage n'a rien à faire dans l'état que le
+  maître écrit pour tout le monde ;
+- un troisième écran de liste devrait appeler `useTaille()` ; rien ne l'y oblige encore, la même
+  remarque que pour la note de filtre retiré.
+
 **Verdicts de la porte, lus sur `a5b4532`** (le commit de ce lot S4) : `E2E smoke
 (Playwright)` ✅ (`35518152555`), `Create/Delete Branch for Pull Request` ✅
 (`35518152560`), `UI audit (crawl + boutons)` ✅ (`35518152544`). Trois verts, après
