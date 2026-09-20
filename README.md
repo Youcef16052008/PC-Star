@@ -9,13 +9,14 @@ npm install
 npm run start:api   # :8787 multi-device orders + auth
 npm run dev         # :5173 site (proxies /api)
 npm run build       # vite build, then scans dist/ for secrets — fails if any landed there
-npm test            # 1025 tests (node:test, 77 fichiers) — run `npm run build` first: bundleSecrets scans dist/
+npm test            # 1101 tests (node:test, 79 fichiers) — run `npm run build` first: bundleSecrets scans dist/
 npm run check:bundle # re-run only the dist/ secret scan (lot 7.3)
+npm run master:rotate # new master password, written to .env.local — the value is never printed
 ```
 
-## État mesuré (19/09/2026)
+## État mesuré (20/09/2026)
 
-- `npm test` : **1025 tests, 0 échec** (77 fichiers `src/*.test.js`, tous branchés dans le script — `src/p3ServerHygiene.test.js` le vérifie). Le total peut bouger de ±1 selon le nombre de chunks que `dist/` contient : `src/bundleSecrets.test.js` fabrique un test par artefact scanné, ce n'est pas une régression. La suite scanne le bundle publié
+- `npm test` : **1101 tests, 0 échec** (79 fichiers `src/*.test.js`, tous branchés dans le script — `src/p3ServerHygiene.test.js` le vérifie). Le total peut bouger de ±1 selon le nombre de chunks que `dist/` contient : `src/bundleSecrets.test.js` fabrique un test par artefact scanné, ce n'est pas une régression. La suite scanne le bundle publié
   (`src/bundleSecrets.test.js`) : sans `dist/`, elle échoue en cascade — le build
   est une pré-condition, pas une étape optionnelle.
 - `npm run build:crawl && node scripts/jsdom-crawl.mjs` : 24 pages rendues en
@@ -114,7 +115,25 @@ Photos: keep shipping under `public/photos/sku/` — add pro shots later, push, 
 `DATABASE_URL` (Neon) **must** be the **pooled** string (`ep-…-pooler.…`) — see
 [docs/NEON-MIGRATION.md](docs/NEON-MIGRATION.md).
 
-## Derniers correctifs (P11 → P21)
+## Derniers correctifs (P0 → P21)
+
+- **P0 → P5 (19–20/09/2026)** — cinq lots trouvés en **utilisant** l'application, chacun avec
+  sa mesure avant/après et son verrou : P0 plus aucun secret dans le bundle ni dans git (le
+  serveur **refuse de démarrer** sans `MASTER_EMAIL` / `MASTER_PASSWORD`, et
+  `scripts/check-bundle.mjs` fait échouer le build si un secret file dans `dist/`) ; P1 → P3
+  erreurs HTTP, limites de corps, garde-fous de commande, surfaces boutique et hygiène du
+  serveur ; P4 connexion et menu en **pleine page** (sur un téléphone du parc, la fenêtre de
+  500 px laissait le clavier manger le formulaire) ; P5 la coupe de texte qui ne sépare plus un
+  caractère en deux, et un compteur de rate-limit qui ne vole plus ~100 µs à chaque requête
+  légitime. **Relire P5 a rapporté six défauts dans les correctifs de P5 eux-mêmes** — dont un
+  refus qui parcourait tout le corps reçu (d'où `excedeChars`, en O(borne), verrouillé sur un
+  4 Mio refusé en < 5 ms). Détail complet, mesure par mesure :
+  [`docs/BUGS-AND-FIXES.md`](docs/BUGS-AND-FIXES.md).
+- **Rotation du secret maître** — `npm run master:rotate` (`scripts/rotate-master.mjs`) génère
+  un mot de passe de 32 signes, l'écrit dans `.env.local` en `0600`, refuse toute cible que git
+  suivrait, et **n'affiche jamais la valeur** : un secret passé à l'écran se retrouve dans
+  l'historique du shell, la capture d'écran et le fil de discussion. Recette complète, commandes
+  Vercel comprises : [`docs/DEPLOY-VERCEL.md`](docs/DEPLOY-VERCEL.md) § 8 ter.
 
 - **P21 (boutons du comptoir + nettoyage vitrine)** —
   **Comptoir** : « je clique sur préparer / prêt / remis, rien ne change ».

@@ -273,6 +273,10 @@ export function saveMeta(storage = safeStorage, meta) {
 export function registerEmail(users, { email, password, name, phone } = {}) {
   const mail = String(email || '').trim().toLowerCase()
   if (!isEmail(mail)) return { ok: false, error: 'email' }
+  // LOT P5 : memes plafonds qu'a la porte (`POST /api/auth/register`) — un profil
+  // rempli hors ligne doit fusionner sans refus surprise.
+  if (excedeChars(mail, 254)) return { ok: false, error: 'email' }
+  if (name != null && excedeChars(String(name).trim(), 64)) return { ok: false, error: 'name_too_long' }
   if (String(password || '').length < 6) return { ok: false, error: 'password' }
   if (users.some((u) => u.email === mail)) return { ok: false, error: 'exists' }
   const user = {

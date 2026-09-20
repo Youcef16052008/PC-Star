@@ -2909,3 +2909,77 @@ jsdom **24 pages, 0 erreur** ; audit boutons **32 vérifications, 0 erreur**.
 Branch` **succès** (2 m 24 s), Vercel **succès** (`all-intelligence/pc-star`). Une porte n'a pas
 été ouverte par le passage en `clipChars` : la crawl de production reste à 24 pages, 0 erreur,
 avec l'intercepteur qui fait rougir la moindre sous-ressource distante.
+
+### Outil de la relecture : `npm run master:rotate`, et deux bornes trouvées en le écrivant
+
+**Pourquoi un script, pas une réponse.** « Donne-moi l'e-mail et le mot de passe du compte
+maître » est une impasse *vouloir* : le dépôt ne contient rien à donner (`server/db.js` refuse de
+démarrer sans `MASTER_EMAIL` / `MASTER_PASSWORD`, aucun défaut codé en dur ;
+`scripts/check-bundle.mjs` fait échouer le build si un secret file dans `dist/`). La seule
+manœuvre utile est d'en **poser un neuf**, et elle restait manuelle — donc jouée une fois sur
+trois, avec la valeur recopiée dans le terminal, dans l'historique du shell et parfois dans un
+fil de discussion. D'où `scripts/rotate-master.mjs`, branché en `npm run master:rotate` :
+
+- il génère 32 signes (réglable de 20 à 128 — le plancher de 20 est celui de
+  `docs/DEPLOY-VERCEL.md` §7, et un script qui accepterait `--length=6` fabriquerait le défaut
+  qu'il est censé réparer) ;
+- l'alphabet exclut tout ce qui casse un `.env`, un shell ou un collage dans le tableau de bord
+  (guillemets, `$`, backtick, backslash, `#`, espaces et métacaractères) et garantit une
+  minuscule, une majuscule, un chiffre et un symbole — tirage `crypto.randomInt`, Fisher-Yates,
+  sans biais ;
+- il écrit dans `.env.local` en `0600`, remplace la ligne en place, replie les doublons hérités
+  (deux `MASTER_PASSWORD=` dans un même fichier, c'est un secret dont on ne sait plus lequel
+  sert) et ne touche à aucune autre clé ;
+- il **refuse toute cible que git suivrait** — vérifié par `git check-ignore`, pas par une liste
+  de noms — avant d'écrire quoi que ce soit, et sort en 1 avec la raison ; `--force` reste la
+  sortie de secours assumée ;
+- il n'affiche **jamais** la valeur, et ne propose aucune option qui la ferait passer par la
+  ligne de commande (`--password=…`, c'est `ps` + l'historique + le journal de CI).
+
+Treize verrous dans `src/p5RotateMaster.test.js`, joués en exécution et non en lecture de source :
+la valeur relue par le **parseur du projet** (`server/env.js`) est bien celle écrite (un alphabet
+mal choisi produit une chaîne que `parseEnv` tronque, et le maître devient injoignable sans que
+personne ne comprenne pourquoi) ; `--dry-run` ne crée ni ne modifie aucun fichier ; rejouer change
+la valeur et laisse `MASTER_EMAIL` en place ; une cible suivie par git est refusée **et le
+fichier n'existe pas après** ; la sortie ne contient pas la valeur de *cette* exécution (lecture
+du fichier avant, pas après trois autres). Deux mutations de contrôle — afficher la valeur, puis
+neutraliser le refus de cible — font bien rougir les verrous correspondants (2/2 attrapées), ce
+qui est la seule preuve qu'ils ne sont pas verts pour rien.
+
+**Deux bornes trouvées en relisant les appels d'inscription.** La première est un défaut de la
+porte, pas de l'outil :
+
+1. `POST /api/auth/register` validait la **forme** de l'e-mail (`^[^\s@]+@[^\s@]+\.[^\s@]+$`) et
+   aucune **longueur** : une adresse de 100 000 signes était acceptée, stockée dans `users`, puis
+   resservie dans chaque ligne du comptoir et chaque export CSV — exactement le défaut que P16
+   avait tué pour la wilaya. Le plafond retenu est celui d'un `addr-spec` (RFC 5321, **254
+   signes**) : aucune adresse réelle ne l'atteint, donc le refus ne peut pas enfermer un client
+   légitime. Mesuré en HTTP vrai dans `src/apiServer.test.js` : 254 → 201, 255 → 400 `email`,
+   et `store.json` ne porte pas la valeur refusée (le 400 n'est pas un refus *après* écriture).
+2. `registerEmail` du **mode local** ne bornait ni l'e-mail ni le nom : un compte créé hors
+   ligne fusionnait en refus surprise. Les deux plafonds sont maintenant les mêmes des deux
+   côtés (254 / 64, même code `name_too_long`), verrouillés côte à côte dans le même test que la
+   parité du lot P5 — une borne qui n'a la même valeur que d'un seul côté n'est pas une borne.
+
+Et la **règle du lot P5** tient : le refus est pour la saisie, la borne pour la lecture.
+`normalizeDb` ramène donc à 254 signes une adresse déjà présente dans une base écrite avant ce
+plafond (une adresse légitime n'est pas touchée, le booléen `changed` — qui décide de la
+persistance — est vérifié, et la coupe ne laisse aucune moitié de paire en fin d'adresse).
+Verrou dans `src/dbIntegrity.test.js`, qui est le dossier du module.
+
+**Note pour la prochaine session — un rouge qui n'était pas un rouge.** L'espace de travail a
+été restauré entre deux tours sans `node_modules/`, sans `dist/` et **sans les refs locales**
+(HEAD était revenu à `4f7134e`, la tête de `main`, alors que les fichiers, eux, étaient à jour).
+`npm test` rougeait alors sur *tous* les fichiers à la fois, avec
+`Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'esbuild' imported from
+scripts/jsx-test-loader.mjs` — zéro assertion exécutée, donc aucune régression. Réflexe à garder
+devant un « tout est rouge en 7 secondes » : vérifier `ls node_modules | wc -l`, `ls dist` et
+`git log --oneline -1` **avant** de chercher un défaut applicatif ; puis `npm ci`,
+`npm run build`, et repositionnement de la branche sur la tête poussée
+(`git fetch origin <branche>` + `git update-ref refs/heads/<branche> FETCH_HEAD^{commit}` +
+`git reset --mixed <branche>`, qui ne touche aucun fichier) — l'arbre de travail déjà à jour
+ressort alors en trois fichiers modifiés, ceux du tour en cours, et rien d'autre.
+
+**Portes rejouées après l'outil.** `npm test` **1101 / 1101** (304 suites, 79 fichiers de test) ;
+`npm run build` **490,10 kB** (146,93 gzip) avec le scan anti-secret sur 9 artefacts, aucun
+secret ; crawl jsdom **24 pages, 0 erreur** ; audit boutons **32 vérifications, 0 erreur**.

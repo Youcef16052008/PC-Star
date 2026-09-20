@@ -11,6 +11,9 @@ import { PRODUCTS } from '../src/data.js'
 import { atomicDurableWriteFileSync, durableWriteFileSync } from './durableWrite.js'
 // LOT P4 (V1) : la vitrine a son module sans effet de bord (voir server/vitrine.js).
 import { clampVitrine } from './vitrine.js'
+// LOT P5 : borner a la LECTURE une adresse electronique heritee d'une base ecrite
+// avant le plafond d'inscription (la porte refuse desormais a 254 signes).
+import { clipChars } from '../src/textClip.js'
 
 export { vitrineView, applyVitrineEdit, VITRINE_LIMITS } from './vitrine.js'
 
@@ -396,6 +399,17 @@ function ensure() {
  */
 export function normalizeDb(db) {
   let changed = false
+  // LOT P5 : une adresse electronique plus longue que le plafond d'inscription est
+  // BORNEE ici, pas refusee — refuser a la lecture reviendrait a enfermer le
+  // comptoir sur une base qu'il ne peut plus lire. Le plafond est celui de la RFC
+  // 5321 (254) et la coupe se fait en caracteres, sans moitie de paire en fin
+  // d'adresse.
+  for (const u of db.users || []) {
+    if (u && typeof u.email === 'string' && u.email.length > 254) {
+      u.email = clipChars(u.email, 254)
+      changed = true
+    }
+  }
   // LOT 1.20 : résolu UNE fois par normalisation (sha256 bon marché, donc pas
   // de mémoïsation — voir `masterAccountOrNull`). Les trois usages ci-dessous
   // sont désactivés ensemble quand l'environnement ne configure pas de maître.

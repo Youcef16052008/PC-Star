@@ -479,9 +479,29 @@ describe('LOT P5 — la coupe de texte ne sépare jamais un caractère en deux',
     // (`String(...).trim().slice(0, 32)`). La regle ne vaut pas pour trois lignes
     // citees mais pour tout le texte saisi qui entre par la porte.
     const propre = (src) => src.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:\w])\/\/[^\n]*/g, '$1')
-    assert.equal((index.match(/excedeChars\(/g) || []).length, 3, 'une route de la porte borne encore un nom en unites')
+    // Nommer les sites plutot que les compter : un compte exact se satisfait d'un
+    // `excedeChars(` ajoute n'importe ou dans le fichier, et se rompt pour un
+    // commentaire. La regle, c'est que chaque borne de texte libre de la porte
+    // passe par la fonction.
+    for (const site of ['excedeChars(regName,', 'excedeChars(meName,', 'excedeChars(orderName,', 'excedeChars(email,']) {
+      assert.ok(index.includes(site), `${site.slice(0, -1)} absent de la porte : cette saisie est encore bornee en unites`)
+    }
     assert.equal(/\b\w*[Nn]ame\.length > \d/.test(propre(index)), false, 'un nom est encore compare a une borne en unites UTF-16')
     assert.equal(/trim\(\)\.slice\(0, *\d+\)/.test(propre(index)), false, 'un texte libre est encore coupe en unites UTF-16 dans la porte')
+  })
+
+  it('l’inscription locale refuse ce que la porte refuse', async () => {
+    const EMOJI = '\u{1F9F0}'
+    // Le store hors ligne doit dire NON exactement où l'API dit NON : un compte
+    // créé localement avec un champ que la porte refuse part en fusion échouée,
+    // et l'utilisateur ne découvre le problème qu'au premier retour en ligne.
+    const { registerEmail } = await import('./shopStore.js')
+    const adresse = (n) => 'a'.repeat(n - 5) + '@x.dz'
+    assert.equal(registerEmail([], { email: adresse(254), password: 'secret1' }).ok, true, '254 signes refusés en local')
+    assert.equal(registerEmail([], { email: adresse(255), password: 'secret1' }).error, 'email', '255 signes acceptés en local')
+    assert.equal(registerEmail([], { email: 'ok@x.dz', password: 'secret1', name: 'y'.repeat(65) }).error, 'name_too_long')
+    assert.equal(registerEmail([], { email: 'ok@x.dz', password: 'secret1', name: 'y'.repeat(64) }).ok, true)
+    assert.equal(registerEmail([], { email: 'ok@x.dz', password: 'secret1', name: EMOJI.repeat(33) }).ok, true, 'un nom de 33 emoji refuse en local')
   })
 
   it('la troncature de secours du message WhatsApp ne sépare pas une paire', async () => {

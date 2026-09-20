@@ -493,6 +493,12 @@ export async function handler(req, res) {
         .toLowerCase()
       const password = String(body.password || '')
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return send(res, 400, { ok: false, error: 'email' })
+      // LOT P5 : l'expression reguliere autorisait n'importe quelle LONGUEUR — un
+      // e-mail de 100 000 signes etait accepte, stocke, puis resservi dans chaque
+      // export CSV et chaque ligne du comptoir. 254 = la limite d'un `addr-spec`
+      // (RFC 5321) : aucun e-mail reel n'atteint ce plafond, et la base ne grossit
+      // plus au gre du corps de la requete.
+      if (excedeChars(email, 254)) return send(res, 400, { ok: false, error: 'email' })
       if (password.length < 6) return send(res, 400, { ok: false, error: 'password' })
       if (body.phone && !isDzPhone(body.phone)) return send(res, 400, { ok: false, error: 'phone' })
       // LOT 1.9 : le nom n'avait aucune borne — le `maxlength` client n'est
