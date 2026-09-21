@@ -125,6 +125,12 @@ workflow est **manuel** et démarre en **mode annonce** : il liste les branches
 `preview/pr-<n>-…` dont la PR est fermée, puis s'arrête. On relance avec
 `dry_run` décoché pour supprimer réellement.
 
+> Le bouton n'apparaît qu'une fois le fichier **sur la branche par défaut** :
+> GitHub ne résout `workflow_dispatch` que là (`gh workflow run neon-cleanup.yml`
+> répond `404` tant que le workflow n'est pas sur `main`). Avant la fusion, le
+> relevé se lit quand même avec `npm run db:branches:neon`, et la suppression se
+> fait depuis le tableau de bord Neon.
+
 Ce qu'il ne fait jamais (verrouillé par `src/phase5Reliability.test.js`) :
 
 - supprimer une branche qui ne s'appelle pas `preview/pr-<numéro>-…` ;
