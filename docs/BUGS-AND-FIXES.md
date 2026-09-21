@@ -3817,3 +3817,14 @@ suivant, dans l'ordre du catalogue élargi.
 - Les 5 écrans qui ont reçu un packshot n'affichent qu'**une** photo (la leur) là où les fiches
   du comptoir en montrent trois : c'est voulu (une image honnête plutôt qu'un trio inventé), mais
   ça se verra dans la galerie d'une fiche produit.
+
+### Chantier photos — suivi des lots
+
+Même recette pour chaque lot : génération, conversion (sRGB, Lanczos, 1200 × 900, `.jpg` q82 +
+`.webp` q80), `node scripts/wirePackshots.mjs`, `src/catalogExpansion.test.js` puis la suite.
+`node scripts/audit-photos.mjs` donne le reste à faire.
+
+| Lot | Références servies | Reste |
+| --- | --- | --- |
+| P27 (écrans, impression, caisses, pilotes) | 18 | 64 |
+| Réseau & Wi‑Fi | 10 (net-*) | 54 |
