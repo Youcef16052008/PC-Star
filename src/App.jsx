@@ -153,13 +153,33 @@ export const SHOP_PAGE_SIZE = PAGE_TAILLE
  */
 export const PAGES_ROUTABLES = ['shop', 'search', 'builder', 'about', 'orders', 'desk', 'master', 'help', 'profile', 'privacy', 'terms', 'warranty', 'product']
 
-/** Ce que le menu ne liste pas, et pourquoi. Un choix ecrit, pas un oubli. */
+/**
+ * Ce que le menu ne liste pas, et pourquoi. Un choix ecrit, pas un oubli.
+ *
+ * 21/09/2026 — les trois pages legales QUITTENT le menu sur demande du client
+ * (« supprime le bouton : Informations ; Conditions ; Confidentialite ;
+ * Garantie & RMA »). Le menu redevient la liste courte de ce qu'on vient
+ * chercher ; les textes legaux restent atteignables depuis le pied de page, ou
+ * on les cherche. Elles doivent donc rester declarees ici : le verrou de
+ * `src/p3Vitrine.test.js` refuse qu'une page routee n'ait AUCUN lien, et la
+ * liste `MENU_DESTINATIONS` + `HORS_MENU` doit couvrir `PAGES_ROUTABLES` en
+ * entier (c'est ce qui a fait sortir « Garantie & RMA » de l'oubli au lot P6).
+ */
 export const HORS_MENU = {
   product: 'une fiche se choisit dans le catalogue (elle porte un identifiant)',
-  profile: 'le bouton du compte, une fois connecte'
+  profile: 'le bouton du compte, une fois connecte',
+  privacy: 'texte legal : lien du pied de page, pas une entree du menu',
+  terms: 'texte legal : lien du pied de page, pas une entree du menu',
+  warranty: 'texte legal : lien du pied de page, pas une entree du menu'
 }
 
-/** Le menu, dans l'ordre où on le lit. `masterOnly` = la page du comptoir. */
+/**
+ * Le menu, dans l'ordre où on le lit. `masterOnly` = la page du comptoir.
+ * Cinq entrees publiques, trois au maitre, et rien d'autre : au-dela, la barre
+ * passe sur deux lignes des que la fenetre descend sous 1 300 px (mesure du
+ * 21/09 : « Garantie & RMA » se coupait en deux lignes a 1 440 px, la colonne
+ * « Connexion / Creer un compte » empilait trois boutons).
+ */
 export const MENU_DESTINATIONS = [
   { id: 'shop', labelKey: 'navShop' },
   { id: 'search', labelKey: 'navSearch' },
@@ -168,10 +188,7 @@ export const MENU_DESTINATIONS = [
   { id: 'orders', labelKey: 'navOrders' },
   { id: 'help', labelKey: 'navHelp', masterOnly: true },
   { id: 'desk', labelKey: 'navDesk', masterOnly: true },
-  { id: 'master', labelKey: 'navMaster', masterOnly: true },
-  { id: 'privacy', labelKey: 'navPrivacy', groupe: 'info' },
-  { id: 'terms', labelKey: 'navTerms', groupe: 'info' },
-  { id: 'warranty', labelKey: 'legalWarrantyTitle', groupe: 'info' }
+  { id: 'master', labelKey: 'navMaster', masterOnly: true }
 ]
 
 /**
@@ -659,6 +676,34 @@ export default function App() {
     if (cartOpen) oc.show()
     else oc.hide()
   }, [cartOpen])
+
+  /**
+   * 21/09/2026 — le menu ouvert est une FEUILLE PLEIN ÉCRAN sous 1 200 px.
+   *
+   * Deux défauts mesurés dans un vrai moteur (Chromium 153, 390×844) :
+   *
+   *  1. la feuille ne couvrait que 61 px — la hauteur de la barre. Cause : la
+   *     barre portait `backdrop-filter`, propriété qui crée un BLOC CONTENEUR
+   *     pour ses descendants `position: fixed` (CSS Filter Effects) : le
+   *     `inset: 0` de `.nav-sheet.show` se résolvait contre la barre, pas
+   *     contre la fenêtre. Le flou est donc passé sur `::before` (src/index.css)
+   *     — même verre dépoli, plus de piège ;
+   *  2. la page continuait de défiler DERRIÈRE la feuille, et le bouton
+   *     WhatsApp flottant (z-index 1040) passait par-dessus les liens. D'où
+   *     `body.nav-sheet-open` : défilement verrouillé, flottants retirés — la
+   *     règle n'existe que sous 1 200 px, où la feuille couvre l'écran.
+   */
+  useEffect(() => {
+    if (!navOpen) return undefined
+    const { body } = document
+    body.classList.add('nav-sheet-open')
+    const previous = body.style.overflow
+    body.style.overflow = 'hidden'
+    return () => {
+      body.classList.remove('nav-sheet-open')
+      body.style.overflow = previous
+    }
+  }, [navOpen])
 
   useEffect(() => {
     let cancelled = false
@@ -1758,21 +1803,51 @@ export default function App() {
         </div>
       </div>
 
-      <nav className="navbar navbar-expand-lg sticky-top border-bottom shop-navbar">
+      {/* Barre de navigation. `navbar-expand-xl` (et non `-lg`) :
+          mesure du 21/09 — a 1 024 et 1 199 px, la rangee des cinq liens plus
+          les deux portes du compte ne tenaient pas, la barre passait sur deux
+          lignes et « Garantie & RMA » se coupait en deux. Entre 992 et
+          1 199 px, le menu part donc dans la feuille plein ecran, comme sur un
+          telephone ; au-dela, tout tient sur une seule rangee. Les classes
+          `-lg` du bloc ont suivi en `-xl` (Bootstrap : la classe de la barre
+          commande les autres). */}
+      <nav className="navbar navbar-expand-xl sticky-top border-bottom shop-navbar">
         <div className="container">
           <button type="button" className="navbar-brand btn btn-link text-decoration-none p-0 logo" onClick={() => go('shop')} aria-label="PC Star Informatique — accueil">
             <img src="/logo.png" alt="PC Star Informatique" className="logo-img" />
           </button>
-          <div className="d-flex align-items-center gap-2 order-lg-last ms-auto ms-lg-0">
+          <div className="d-flex align-items-center gap-2 order-xl-last ms-auto ms-xl-0 nav-actions">
+            {/*
+              * Le panier : une ICONE, pas le mot « Panier » (demande du client,
+              * 21/09). Un pictogramme de panier avec sa pastille de quantite se
+              * lit d'un coup d'oeil dans un coin de barre, la ou le mot prenait
+              * la place de deux liens. Le nom reste dans `aria-label` (avec le
+              * compte) et dans `title` : un bouton sans texte doit porter son
+              * nom pour un lecteur d'ecran, et la cible tactile reste a 44 px
+              * minimum (voir `.btn-cart`, src/index.css).
+              */}
             <button
+              id="nav-cart"
               type="button"
-              className="btn btn-success position-relative"
+              className="btn btn-success btn-cart position-relative"
               onClick={() => setCartOpen(true)}
+              title={count > 0 ? `${t('navCart')} (${count})` : t('navCart')}
               aria-label={count > 0 ? `${t('navCart')} (${count})` : t('navCart')}
             >
-              {t('navCart')}
+              <svg className="icon-cart" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <path
+                  d="M2.75 3.75h2.1l2.2 10.9a1.9 1.9 0 0 0 1.86 1.52h7.5a1.9 1.9 0 0 0 1.86-1.5l1.4-6.42H6.1"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.7"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+                <circle cx="9.6" cy="20" r="1.35" fill="currentColor" />
+                <circle cx="17.1" cy="20" r="1.35" fill="currentColor" />
+              </svg>
               {count > 0 && (
-                <span className="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger" aria-hidden="true">
+                <span className="cart-count badge rounded-pill bg-danger" aria-hidden="true">
                   {count}
                 </span>
               )}
@@ -1814,9 +1889,14 @@ export default function App() {
               * que rien ne relie a la liste des pages que l'ecran sait rendre. La page
               * « Garantie & RMA » en avait paye le prix : routee, traduite, titree,
               * et sans un seul lien vers elle.
+              *
+              * 21/09/2026 — le groupe « Informations » (titre + trois liens legaux)
+              * a ete retire sur demande du client : il ajoutait quatre lignes au menu
+              * pour des pages que personne ne vient chercher dans une barre de
+              * navigation. Elles restent dans le pied de page (voir `HORS_MENU`).
               */}
-            <ul className="navbar-nav me-auto mb-2 mb-lg-0 align-items-lg-center gap-lg-1">
-              {MENU_DESTINATIONS.filter((d) => !d.groupe && (!d.masterOnly || isMaster)).map((d) => {
+            <ul className="navbar-nav me-auto mb-2 mb-xl-0 align-items-xl-center">
+              {MENU_DESTINATIONS.filter((d) => !d.masterOnly).map((d) => {
                 const on = d.id === 'shop' ? page === 'shop' || page === 'product' : page === d.id
                 return (
                   <li className="nav-item" key={d.id}>
@@ -1826,23 +1906,52 @@ export default function App() {
                   </li>
                 )
               })}
-              {/* Le groupe « informations » : memes cibles de pouce que le reste (la
-                  taille ne descend pas sous 44 px), seulement un separateur et un corps
-                  plus petit — ce ne sont pas les cinq pages qu'on cherche en premier. */}
-              {MENU_DESTINATIONS.some((d) => d.groupe === 'info') && (
-                <li className="nav-item nav-lien-info-tete" key="info-tete" aria-hidden="true">
-                  <span className="nav-link">{t('navInformations')}</span>
+              {/*
+                * 21/09/2026 — « Guide », « Liste comptoir » et « Admin » passent
+                * derrière UN bouton « Gestion ». Mesure : avec les trois liens
+                * dépliés, la rangée demandait 1 163 px à elle seule (huit liens
+                * + quatre actions) pour 979 px disponibles à 1 200 px — la barre
+                * se cassait en deux lignes, puis la colonne du compte en quatre.
+                * Ce sont des pages de comptoir, pas des rayons de la boutique :
+                * un menu déroulant les garde à un clic sans disputer la place
+                * des cinq destinations publiques.
+                *
+                * `<details>`/`<summary>` natifs plutôt qu'un état React : le
+                * clavier (Entrée/Espace) et l'annonce « replié/déplié » sont
+                * fournis par le navigateur, et le menu se referme au clic d'une
+                * entrée (voir `onSelect`).
+                */}
+              {isMaster && (
+                <li className="nav-item nav-gestion" key="gestion">
+                  <details className="nav-drop">
+                    <summary className="nav-link">{t('navManage')}</summary>
+                    <ul className="nav-drop-list">
+                      {MENU_DESTINATIONS.filter((d) => d.masterOnly).map((d) => (
+                        <li key={d.id}>
+                          <button
+                            type="button"
+                            className={`nav-link btn btn-link ${page === d.id ? 'active fw-semibold' : ''}`}
+                            onClick={(e) => {
+                              // Le panneau reste ouvert après la navigation : on
+                              // le referme sur l'élément lui-même, sans état React
+                              // à synchroniser avec `<details>`.
+                              e.currentTarget.closest('details')?.removeAttribute('open')
+                              go(d.id)
+                            }}
+                          >
+                            {t(d.labelKey)}
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  </details>
                 </li>
               )}
-              {MENU_DESTINATIONS.filter((d) => d.groupe === 'info').map((d) => (
-                <li className="nav-item nav-lien-info" key={d.id}>
-                  <button type="button" className={`nav-link btn btn-link ${page === d.id ? 'active fw-semibold' : ''}`} onClick={() => go(d.id)}>
-                    {t(d.labelKey)}
-                  </button>
-                </li>
-              ))}
             </ul>
-            <div className="d-flex flex-wrap align-items-center gap-2 py-2 py-lg-0">
+            {/* Le compte et la langue : sur un telephone, ce bloc descend en bas de
+                la feuille (`margin-top: auto`) — c'est la deuxieme chose qu'on y
+                cherche apres les pages, et elle ne doit pas etre coupee. */}
+            <div className="nav-sheet-actions d-flex flex-wrap align-items-center gap-2 py-2 py-xl-0">
               <div className="btn-group btn-group-sm" role="group" aria-label={t('lang')}>
                 {LANGS.map((l) => (
                   <button key={l.id} type="button" className={`btn ${lang === l.id ? 'btn-success' : 'btn-outline-secondary'}`} onClick={() => changeLang(l.id)}>
@@ -2420,12 +2529,17 @@ export default function App() {
       )}
 
       {/* Footer photocopié sur la maquette : © à gauche, liens à droite.
-          (Garantie retirée sur demande explicite du client.) */}
+          21/09/2026 — « Garantie & RMA » rejoint les deux autres textes legaux
+          ici. Ces trois pages ont quitte le menu sur demande du client ; elles
+          restent atteignables depuis le pied de page, sinon `go('warranty')`
+          n'existerait plus nulle part et la page redeviendrait le code mort
+          que le lot P6 avait justement sorti de l'ombre. */}
       <footer className="site-footer mt-auto">
         <div className="container py-4 d-flex flex-wrap justify-content-between align-items-center gap-3">
           <p className="small mb-0">© 2026 PC STAR INFORMATIQUE — ORAN, DZ</p>
-          <div className="footer-links d-flex gap-3">
+          <div className="footer-links d-flex flex-wrap gap-3">
             <button type="button" onClick={() => go('about')}>{t('navAbout')}</button>
+            <button type="button" onClick={() => go('warranty')}>{t('navWarranty')}</button>
             <button type="button" onClick={() => go('privacy')}>{t('navPrivacy')}</button>
             <button type="button" onClick={() => go('terms')}>{t('navTerms')}</button>
           </div>

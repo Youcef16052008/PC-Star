@@ -16,7 +16,10 @@ export const dict = {
     navLogin: 'Connexion',
     // Le menu doit proposer les deux entrees, pas une seule qui mene a l'autre.
     navSignup: 'Créer un compte',
-    navInformations: 'Informations',
+    // 21/09/2026 — « Gestion » : le menu du comptoir (Guide, Liste comptoir,
+    // Admin) tient derrière un seul bouton. Les trois pages ne sont plus des
+    // entrees de la rangee : a huit liens, elle se cassait en deux lignes.
+    navManage: 'Gestion',
     navLogout: 'Déconnexion',
     navProfile: 'Mon profil',
     navMaster: 'Admin',
@@ -706,7 +709,7 @@ export const dict = {
     navCart: 'Cart',
     navLogin: 'Log in',
     navSignup: 'Sign up',
-    navInformations: 'Information',
+    navManage: 'Manage',
     navLogout: 'Log out',
     navProfile: 'My profile',
     navMaster: 'Admin',

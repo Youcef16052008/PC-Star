@@ -3499,3 +3499,109 @@ Reste ouvert, écrit ici :
 étages de ce lot sur trois moteurs, le bac à sable n'ayant pas pu télécharger les navigateurs.
 Un verrou que je n'ai pas exécuté chez moi est annoncé comme tel dans le texte, et la CI le
 tranche — dans un sens comme dans l'autre.
+
+---
+
+## P24 — Barre de navigation : la feuille ne mesurait que 61 px, le panier s'écrit en icône (demande client du 21/09/2026)
+
+Demande reçue telle quelle : « regarde cette incomplete menu c'est quoi ça c'est pourri fix le
+je veux quelque chose de pro », plus trois points précis — **supprimer** les boutons
+« Informations », « Conditions », « Confidentialité » et « Garantie & RMA », remplacer le mot
+« Panier » par une **icône**, un bouton attrayant **dans le coin droit en haut**. Quatre défauts
+mesurés dans un vrai moteur (Chromium 153, `npm run dev` sur 5173) derrière cette phrase.
+
+### 1. Le menu ouvert ne couvrait que 61 px 🔴
+
+Mesure : `#nav-sheet` faisait **390 × 61 px** en 390 × 844, c'est-à-dire la hauteur de la barre.
+`inset: 0` était bien calculé à 0 — mais résolu **contre la barre**, pas contre la fenêtre.
+Cause : `backdrop-filter` sur `.shop-navbar` (le verre dépoli) crée un **bloc conteneur pour les
+descendants `position: fixed`** (CSS Filter Effects 1). La feuille pleine page était son
+descendant direct. Le flou est passé sur `::before` (aucun descendant ne l'hérite), la barre
+redevient transparente : même verre, plus de piège. Trois autres défauts du même écran corrigés
+dans la foulée, chacun vérifié à l'écran :
+
+- les entrées du menu s'alignaient **au centre** de chaque ligne (elles portent `.btn`, donc
+  `justify-content: center`) : la feuille est `align-items: stretch` et les liens
+  `justify-content: flex-start` / `text-align: start` ;
+- les boutons de compte, en bas de la feuille, passaient **sous la pastille de notification**
+  (`z-index: 1100` posé à la main dans `App.jsx`). Deux étages, et le premier ne suffisait pas :
+  la feuille monte à `1110` — mais `.sticky-top` de Bootstrap pose `1020` sur la barre, qui est
+  un **contexte d'empilement** : à l'intérieur, la feuille ne se compare qu'aux éléments de la
+  barre. C'est donc `body.nav-sheet-open .shop-navbar { z-index: 1120 }` qui règle le cas,
+  vérifié `elementFromPoint` en main : le clic au centre de « Connexion » atteint bien le bouton ;
+- la page **défilait derrière** la feuille et le bouton WhatsApp flottant (1040) passait
+  par-dessus les liens : `body.nav-sheet-open` verrouille le défilement et retire les flottants
+  sous 1 200 px.
+
+### 2. La barre passait sur deux lignes dès 1 440 px 🟠
+
+Mesure de la rangée à 1 200 px : **1 033 px demandés pour 966 px disponibles**, et la colonne du
+compte se cassait en deux puis en quatre. Trois causes additionnées : les quatre entrées légales
+du menu (dont « Garantie & RMA » sur deux lignes), les 8 px de marge par lien de Bootstrap, et
+`backdrop-filter` (encore lui) qui désactivait les raccourcis de peinture sur toute la barre.
+Corrections : le groupe « Informations » disparaît (point 3), `navbar-expand-xl` au lieu de
+`-lg` — entre 992 et 1 200 px le menu part dans la feuille plein écran comme sur un téléphone —
+marge par lien à 6 px, boutons courts (12 px) pour la langue et le compte, et le panier réduit à
+48 px. Résultat mesuré : **une seule rangée de 1 200 à 1 920 px**, visiteur comme maître.
+
+### 3. Les textes légaux sortent du menu, la page reste atteignable 🟡
+
+« Informations / Conditions / Confidentialité / Garantie & RMA » quittent la barre (demande
+écrite). Les trois pages restent **atteignables depuis le pied de page** — « Garantie & RMA » y
+entre, elle n'y était pas. C'est le point que le lot P6 avait corrigé dans l'autre sens (une page
+routée que rien n'ouvre est du code mort qui se prend pour du contenu) : `HORS_MENU` porte
+désormais les trois, avec leur raison, et le verrou de `src/p3Vitrine.test.js` continue d'exiger
+que `MENU_DESTINATIONS` + `HORS_MENU` couvrent `PAGES_ROUTABLES` en entier.
+
+### 4. Le panier devient une icône, le comptoir se range derrière un bouton 🟡
+
+- **Panier** : pictogramme SVG en `currentColor` dans le bouton `btn-success` du coin droit
+  (46 × 48 px, pastille de quantité collée au coin), le nom restant dans `aria-label` et `title`
+  — un bouton sans texte doit porter son nom pour un lecteur d'écran. Les harnais qui le
+  désignent par `.app .navbar button.btn-success` (lot2UI, lot3UI, lot3StorageBlocked, lot8UI)
+  n'ont pas bougé d'une ligne.
+- **Comptoir** : « Guide », « Liste comptoir » et « Admin » passent derrière un `<details>`
+  « Gestion » — natif, donc clavier et annonce « replié/déplié » fournis par le navigateur, et
+  refermé au clic d'une entrée. Huit liens plus quatre actions ne tiennent pas dans 966 px ; trois
+  pages de comptoir ne méritent pas de disputer la place des cinq destinations publiques.
+
+### 5. La porte « audit boutons » cherchait le panier à son texte 🟡
+
+`scripts/audit-buttons.mjs` désignait le bouton du panier par son libellé visible. Une icône n'en
+a plus : **8 échecs** (« bouton panier introuvable », « bouton de navigation introuvable ») sur
+une interface parfaitement cliquable. Le harnais cherche désormais le **nom accessible**
+(`aria-label`) quand le texte manque — c'est ce qu'un lecteur d'écran annonce, et c'est la forme
+qui survit à un bouton écrit en pictogramme. Le reste de la porte est inchangé : le libellé garde
+la priorité quand il existe, le compteur collé (« Panier12 ») reste reconnu. Relancée :
+**AUDIT OK — 32 vérifications**, crawl jsdom **24 pages, 0 erreur**.
+
+### 6. Deux défauts de pied de page trouvés par le harnais 🟡
+
+La porte Playwright a refusé deux clics, et elle avait raison : la feuille **couvre** le pied de
+page tant qu'elle est ouverte (le test ferme maintenant la feuille par son propre en-tête), et le
+bouton WhatsApp flottant **recouvrait le lien « Garantie »** en 390 × 780 — le pied de page
+réserve désormais la hauteur du FAB sous son contenu. Un lien que le doigt ne peut pas atteindre
+n'est pas un lien.
+
+### Verrous
+
+Sept verrous de plus dans `src/p3Vitrine.test.js` (54 tests) : flou hors de la barre, feuille
+`align-items: stretch`, entrées alignées à gauche, feuille au-dessus du toast, palier unique
+1 199,98 px, bloc du compte en bas de feuille, panier icône + `aria-label`, et « Gestion » qui
+ouvre exactement les trois pages du maître puis se referme. La porte Playwright
+(`e2e/smoke.spec.js`) suit le déménagement de « Garantie & RMA » vers le pied de page et vérifie
+que les **sept** cibles de la feuille (cinq pages + deux portes du compte) sont dans le viewport
+après défilement. Suite complète : **1 163 tests verts** côté `node:test`, 5/5 en Chromium côté
+Playwright.
+
+### Reste ouvert, écrit ici
+
+- `.nav-sheet.show` fixe `z-index: 1110` alors que le toast est posé à `1100` **dans le JSX** :
+  deux nombres qui doivent rester dans le bon ordre et vivent dans deux fichiers. Un token
+  (`--z-toast`, `--z-sheet`) serait plus honnête — non fait ici pour ne pas élargir le lot.
+- La colonne du compte reste un empilement vertical de boutons sous 1 200 px, et deux boutons
+  côte à côte au-dessus : c'est le même bloc, deux dispositions, donc deux endroits à relire.
+- **Aucun identifiant maître n'est publié dans ce dépôt** (`src/masterSecrets.test.js` le vérifie
+  sur tout l'arbre, `scripts/check-bundle.mjs` sur le bundle). Un mot de passe qui a circulé se
+  **remplace**, il ne se retrouve pas : `npm run master:rotate` en écrit un neuf dans `.env.local`
+  (0600, jamais affiché), puis `docs/DEPLOY-VERCEL.md` § 8 ter pour Vercel.

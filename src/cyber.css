@@ -86,10 +86,12 @@ h1, h2, h3, h4, h5, h6,
   }
 }
 
-/* ── 4. Nav sticky : blur + filet, logo terminal, liens chanfreinés. ── */
+/* ── 4. Nav sticky : blur + filet, logo terminal, liens chanfreinés. ──
+      Le flou est porté par `::before` (index.css) et non par la barre :
+      `backdrop-filter` sur la barre en faisait un bloc conteneur pour la
+      feuille de menu `position: fixed`, qui se réduisait à 61 px de haut. */
 .shop-navbar {
-  background: color-mix(in srgb, var(--bg) 92%, transparent) !important;
-  backdrop-filter: blur(12px);
+  background: transparent !important;
   border-color: var(--line) !important;
 }
 
@@ -110,7 +112,9 @@ h1, h2, h3, h4, h5, h6,
 
 .shop-navbar .nav-link {
   font-family: var(--font-display);
-  font-size: 15.5px;
+  /* 15 px et non 15,5 : mesure du 21/09, six entrees + quatre actions ne
+     tenaient pas la rangee a 1 200 px (1 033 px demandes pour 966 px). */
+  font-size: 15px;
   font-weight: 600;
   color: var(--ink-2) !important;
   border-radius: 8px;
@@ -140,7 +144,9 @@ html[data-theme='light'] .navbar-toggler-icon {
   filter: brightness(0.55);
 }
 
-@media (max-width: 991.98px) {
+/* Palier 1 200 px : même seuil que `navbar-expand-xl` (src/App.jsx) et que la
+   feuille plein écran (src/index.css) — trois fichiers, un seul palier. */
+@media (max-width: 1199.98px) {
   .navbar-collapse .nav-link {
     display: flex;
     align-items: center;

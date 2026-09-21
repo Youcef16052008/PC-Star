@@ -70,19 +70,124 @@ a:focus-visible {
   ) !important;
 }
 
+/*
+ * ── La barre : le verre dépoli passe sur ::before, PAS sur la barre ──────────
+ *
+ * `backdrop-filter` sur un élément en fait un BLOC CONTENEUR pour ses
+ * descendants `position: fixed` (CSS Filter Effects 1). La feuille de menu
+ * (`.nav-sheet.show`, plus bas) est exactement cela : `position: fixed;
+ * inset: 0`. Posée sur la barre, son `inset: 0` se résolvait donc contre les
+ * 62 px de la barre au lieu de la fenêtre : le menu ouvert s'affichait sur UNE
+ * LIGNE (« Menu » + « ✕ Fermer »), le reste des liens débordant sous le hero —
+ * mesuré le 21/09/2026 dans Chromium 153 en 390×844 : feuille 390×61 au lieu
+ * de 390×844, `inset` calculé à 0 mais hauteur contrainte.
+ *
+ * Le flou est donc porté par `::before` (aucun descendant ne l'hérite, rien
+ * n'est capturé) : même verre dépoli, plus de piège. Et c'est la BARRE qui
+ * redevient transparente, pas le pseudo-élément — sinon le verre ne se verrait
+ * plus du tout.
+ */
 .shop-navbar {
-  background: color-mix(in srgb, var(--card) 94%, transparent) !important;
-  backdrop-filter: blur(12px);
+  background: transparent !important;
   border-color: var(--line) !important;
+  /* Rangée serrée : 6 px de marge intérieure au lieu des 8 px de Bootstrap, et
+     des boutons courts (12 px) pour la langue et le compte. Mesure du 21/09 en
+     1 200 px : la rangée demandait 1 033 px pour 966 disponibles — la colonne
+     du compte se cassait en deux puis en quatre. Une barre qui tient sur une
+     ligne vaut deux pixels de marge en moins. */
+  --bs-navbar-nav-link-padding-x: 0.375rem;
+}
+
+.shop-navbar .btn-sm,
+.shop-navbar .btn-group-sm > .btn {
+  padding-inline: 0.75rem;
+}
+
+.shop-navbar::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: color-mix(in srgb, var(--card) 94%, transparent);
+  backdrop-filter: blur(12px);
 }
 
 .shop-navbar .nav-link {
   color: var(--muted) !important;
+  white-space: nowrap;
 }
 
 .shop-navbar .nav-link.active,
 .shop-navbar .nav-link:hover {
   color: var(--ink) !important;
+}
+
+/*
+ * ── Le panier : une icône dans le coin droit, pas un mot ────────────────────
+ *
+ * Demande du client (21/09/2026) : « change l'écriture par un icon de panier
+ * et bouton attractive at the right corner at top ». Le bouton reste le
+ * `btn-success` que la charte réserve à l'action principale — les harnais qui
+ * le désignent par `.app .navbar button.btn-success` (lot2UI, lot3UI,
+ * lot3StorageBlocked, lot8UI) continuent de le trouver.
+ *
+ * Sélecteurs préfixés par `.shop-navbar` : cyber.css est chargé APRÈS
+ * index.css et son `.btn { padding: 10px 24px }` a la même spécificité — sans
+ * le préfixe, le bouton mesurait 72 px de large au lieu de 48 (mesuré en
+ * Chromium), ce qui suffisait à faire passer les cinq liens ET le compte sur
+ * deux lignes entre 1 200 et 1 399 px.
+ */
+.shop-navbar .btn-cart {
+  min-width: 48px;
+  min-height: 46px;
+  padding-inline: 12px;
+  border-radius: 10px;
+  box-shadow: 0 6px 16px color-mix(in srgb, var(--blue) 26%, transparent);
+  transition: transform 0.15s ease, box-shadow 0.15s ease, filter 0.15s ease;
+}
+
+.shop-navbar .btn-cart:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 22px color-mix(in srgb, var(--blue) 34%, transparent);
+}
+
+/* Le panier est le dernier bloc de la barre : `justify-content: space-between`
+   (Bootstrap) ne lui laisse aucune marge quand la rangée est pleine — mesuré
+   en 1 440 px, le bouton du panier commençait exactement où finissait « Créer
+   un compte ». Douze pixels les séparent, et le panier est l'action principale :
+   elle se voit. */
+@media (min-width: 1200px) {
+  /* Le souffle va au bloc du COMPTE (avant-dernier), pas au panier : le panier
+     est collé au bord droit, lui ajouter une marge gauche ne le déplace pas et
+     se contente de recouvrir le bouton voisin (mesuré : 0 px d'écart avant, et
+     toujours 0 après). Une marge à droite du bloc précédent décale bien la
+     rangée et ouvre les douze pixels. */
+  .shop-navbar .nav-sheet-actions {
+    margin-inline-end: 0.75rem;
+  }
+}
+
+.shop-navbar .btn-cart:active {
+  transform: translateY(0);
+}
+
+.shop-navbar .btn-cart .icon-cart {
+  width: 22px;
+  height: 22px;
+  display: block;
+}
+
+/* Pastille de quantité, collée au coin du bouton : elle doit rester lisible
+   quand le panier dépasse 9 (trois signes) sans pousser la barre. */
+.shop-navbar .btn-cart .cart-count {
+  position: absolute;
+  top: -0.35rem;
+  inset-inline-end: -0.35rem;
+  min-width: 1.25rem;
+  padding: 0.15rem 0.3rem;
+  font-size: 0.7rem;
+  line-height: 1;
+  border: 2px solid var(--card);
 }
 
 .shop-navbar .navbar-brand.logo,
@@ -297,6 +402,95 @@ html[data-theme='dark'] .text-bg-light {
   color: var(--blue-on) !important; /* L0 : --blue-on (9.25:1) au lieu de #fff (1.72:1 sur cyan) */
 }
 
+/*
+ * ── « Gestion » : le menu du comptoir (Guide / Liste comptoir / Admin) ───────
+ *
+ * Un `<details>` natif, présenté comme les autres entrées de la barre. Sur
+ * grand écran le panneau se pose SOUS le bouton (position absolue, comme le
+ * menu du bouton de contact) ; dans la feuille plein écran, il se déplie en
+ * place — une liste qui s'ouvre en superposition dans un panneau déjà plein
+ * écran cacherait les liens suivants.
+ */
+.nav-gestion {
+  position: relative;
+}
+
+.nav-drop > summary.nav-link {
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 10px 14px;
+  min-height: 44px;
+  /* Même pastille que les liens voisins — ils portent `.btn`, et la barre se
+     lit comme une seule rangée de pastilles, pas comme un lien nu à côté. */
+  border: 1px solid var(--line-hi);
+  border-radius: 8px;
+}
+
+.nav-drop > summary.nav-link:hover {
+  border-color: var(--danger);
+  color: var(--ink) !important;
+}
+
+.nav-drop > summary.nav-link::-webkit-details-marker {
+  display: none;
+}
+
+.nav-drop > summary.nav-link::after {
+  content: '▾';
+  font-size: 0.8em;
+  line-height: 1;
+  transition: transform 0.15s ease;
+}
+
+.nav-drop[open] > summary.nav-link::after {
+  transform: rotate(180deg);
+}
+
+.nav-drop-list {
+  list-style: none;
+  margin: 0;
+  min-width: 13rem;
+}
+
+@media (min-width: 1200px) {
+  .nav-drop-list {
+    position: absolute;
+    top: calc(100% + 8px);
+    inset-inline-end: 0;
+    z-index: 1070;
+    padding: 6px;
+    border-radius: 12px;
+    background: var(--card);
+    border: 1px solid var(--line-hi);
+    box-shadow: 0 14px 34px var(--shadow);
+  }
+
+  .nav-drop-list .nav-link {
+    width: 100%;
+    justify-content: flex-start;
+    min-height: 44px;
+  }
+}
+
+@media (max-width: 1199.98px) {
+  .nav-drop > summary.nav-link {
+    min-height: 48px;
+    padding-inline: 0;
+    font-size: 1.125rem;
+  }
+
+  .nav-drop-list {
+    padding-inline-start: 0.75rem;
+  }
+
+  .nav-drop-list .nav-link {
+    min-height: 44px;
+  }
+}
+
 .btn-success {
   /* L0 : l'accent du site passe par le « success » Bootstrap — piloté par
      tokens (--blue), plus de vert codé en dur. Texte = --blue-on : 9.25:1
@@ -318,6 +512,17 @@ html[data-theme='dark'] .text-bg-light {
   border-top: 1px solid var(--line);
   background: color-mix(in srgb, var(--card) 80%, transparent);
   color: var(--muted);
+}
+
+/* Le bouton de contact est fixé en bas à gauche (`wa-fab-wrap`, z-index 1040).
+   Sous 768 px, la dernière rangée du pied de page passait dessous : le clic sur
+   « Garantie » tombait sur le bouton WhatsApp (mesuré en 390×780 le 21/09, le
+   harnais e2e a refusé le clic pour cette raison). On réserve la hauteur du FAB
+   sous le contenu — le pied de page reste atteignable au doigt. */
+@media (max-width: 767.98px) {
+  .site-footer .container {
+    padding-bottom: 5.5rem !important;
+  }
 }
 
 .social-btn {
@@ -747,19 +952,38 @@ html[data-theme='light'] .text-secondary {
   display: none;
 }
 
-@media (max-width: 991.98px) {
+/*
+ * ── LOT P4 (V5) — le menu prend la page ─────────────────────────────────────
+ *
+ * Sous 1 200 px, la barre n'a pas la place des cinq liens plus le compte : le
+ * menu devient une feuille plein écran. (Le palier était 992 px ; mesure du
+ * 21/09 — entre 992 et 1 199 px, la rangée passait sur deux lignes et
+ * « Garantie & RMA » se coupait en deux.) Il doit rester cohérent avec
+ * `navbar-expand-xl` dans src/App.jsx : la classe de la barre décide quand le
+ * menu est déroulé, ces règles décident à quoi il ressemble.
+ */
+@media (max-width: 1199.98px) {
   /* La feuille couvre la barre : le bouton ☰ n'est plus atteignable une fois
      ouvert, donc la feuille porte sa PROPRE fermeture. Sans cet en-tête, le
      seul moyen de sortir du menu serait de choisir une page. */
   .nav-sheet.show {
     position: fixed;
     inset: 0;
-    z-index: 1080;
+    /* Au-dessus du toast (z-index 1100, posé à la main dans src/App.jsx) :
+       sinon la notification du panier recouvrait les boutons de compte, qui
+       sont en bas de la feuille — mesuré en 390×844 le 21/09. Reste sous
+       `.skip-link` (2000), qui doit garder le premier plan au clavier. */
+    z-index: 1110;
     display: flex;
     flex-direction: column;
+    /* Bootstrap pose `align-items: center` sur `.navbar-collapse` : sans cette
+       ligne, l'en-tête, la liste et les boutons se réduisent à la largeur de
+       leur texte et flottent au milieu de la feuille. */
+    align-items: stretch;
     gap: 0.25rem;
-    padding: 0.75rem 1rem 2rem;
+    padding: 0.75rem 1rem 1.5rem;
     overflow-y: auto;
+    overscroll-behavior: contain;
     background: var(--card, #fff);
   }
 
@@ -777,28 +1001,83 @@ html[data-theme='light'] .text-secondary {
     min-height: 44px;
   }
 
-  /* LOT P6 (S6) — le groupe « informations » du menu : separe, plus leger de
-     corps, mais la cible reste a 44 px (le pouce ne se negocie pas). */
-  .nav-sheet .nav-lien-info .nav-link,
-  .nav-sheet .nav-lien-info-tete .nav-link {
-    font-size: 0.9375rem;
-    min-height: 44px;
-    padding-block: 0.25rem;
-  }
-
-  .nav-sheet .nav-lien-info-tete .nav-link {
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    font-size: 0.75rem;
-    color: var(--bs-secondary-color);
-  }
-
-  /* Le pouce d'abord : six lignes de menu lisibles de près, pas huit en petit. */
-  .nav-sheet .navbar-nav .nav-link {
+  /* Le pouce d'abord : des lignes de menu lisibles de près. `justify-content`
+     et `text-align` explicites : les liens portent `.btn`, donc
+     `justify-content: center` (cyber.css) — sans ces deux lignes, les entrées
+     du menu s'alignaient au centre de chaque ligne au lieu de former une
+     liste lisible au bord gauche. */
+  .nav-sheet .navbar-nav .nav-link,
+  .nav-sheet .nav-drop > summary.nav-link {
     font-size: 1.125rem;
     min-height: 48px;
     display: flex;
     align-items: center;
+    justify-content: flex-start;
+    text-align: start;
+    padding-inline: 0.5rem;
+  }
+
+  /* Langue puis les deux portes du compte, empilées et pleine largeur : au
+     pouce, une colonne de boutons larges vaut mieux que quatre boutons serrés
+     sur une ligne (ils étaient coupés par la pastille de notification). */
+  .nav-sheet .nav-sheet-actions {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.5rem;
+  }
+
+  .nav-sheet .nav-sheet-actions .btn-group {
+    width: 100%;
+  }
+
+  .nav-sheet .nav-sheet-actions .btn-group > .btn {
+    flex: 1 1 0;
+    min-height: 44px;
+  }
+
+  .nav-sheet .nav-sheet-actions > .btn {
+    width: 100%;
+    min-height: 46px;
+  }
+
+  /* La liste occupe la feuille, le compte et la langue descendent en bas :
+     ce qu'on cherche après les pages reste sous le pouce, et un écran large
+     (téléphone en paysage) ne laisse pas ce bloc flotter au milieu. */
+  .nav-sheet .navbar-nav {
+    width: 100%;
+    flex-direction: column;
+  }
+
+  .nav-sheet .nav-sheet-actions {
+    width: 100%;
+    margin-top: auto;
+    padding-top: 1rem;
+    border-top: 1px solid var(--line, #dee2e6);
+  }
+
+  /* Menu ouvert = feuille plein écran : rien ne doit passer par-dessus ni
+     défiler derrière. Le bouton WhatsApp flottant (z-index 1040), le CTA
+     collant de la fiche produit (1030) et la pastille d'état API (1050)
+     vivent hors de la barre — ils la chevaucheraient, l'un sous l'autre.
+     `body.nav-sheet-open` est posé par l'effet de src/App.jsx. */
+  body.nav-sheet-open {
+    overflow: hidden;
+  }
+
+  /* …et la BARRE monte avec elle. `.sticky-top` de Bootstrap pose `z-index:
+     1020` sur la barre : elle forme un contexte d'empilement, donc le
+     `z-index: 1110` de la feuille ne se compare qu'à l'INTÉRIEUR de ce
+     contexte — face au toast (1100), c'est 1020 qui compte, et la pastille
+     recouvrait encore les boutons de compte (constaté après la première
+     correction : la feuille monte, la barre restait en dessous). */
+  body.nav-sheet-open .shop-navbar {
+    z-index: 1120;
+  }
+
+  body.nav-sheet-open .wa-fab-wrap,
+  body.nav-sheet-open .pdp-sticky-cta,
+  body.nav-sheet-open .api-status {
+    display: none !important;
   }
 }
 
