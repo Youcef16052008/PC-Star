@@ -56,7 +56,37 @@ jobs:
         env:
           NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
           NEON_PROJECT_ID: ${{ vars.NEON_PROJECT_ID }}
-        run: node scripts/neon-branches.mjs
+        run: |
+          # Ce pas tourne AVANT le checkout : il ne peut compter que sur l'image du
+          # runner (curl et jq y sont preinstalles). Le meme inventaire, depuis un
+          # poste, se lit avec `node scripts/neon-branches.mjs`.
+          if [ -z "$NEON_API_KEY" ]; then
+            echo "::warning title=Inventaire Neon::NEON_API_KEY absente des secrets du depot."
+            exit 0
+          fi
+          if [ -z "$NEON_PROJECT_ID" ]; then
+            echo "::warning title=Inventaire Neon::NEON_PROJECT_ID absente des variables du depot."
+            exit 0
+          fi
+          code=$(curl -sS -o /tmp/neon-branches.json -w '%{http_code}' \
+            -H "Authorization: Bearer $NEON_API_KEY" \
+            -H 'Accept: application/json' \
+            "https://console.neon.tech/api/v2/projects/$NEON_PROJECT_ID/branches?limit=100" || echo 000)
+          echo "HTTP $code"
+          if [ "$code" != "200" ]; then
+            echo "::warning title=Inventaire Neon::HTTP $code sur l API Neon — 401 cle revoquee, 404 projet introuvable, 422 plafond de branches atteint."
+            head -c 400 /tmp/neon-branches.json 2>/dev/null || true
+            exit 0
+          fi
+          total=$(jq '.branches | length' /tmp/neon-branches.json)
+          preview=$(jq '[.branches[] | select(.name | startswith("preview/"))] | length' /tmp/neon-branches.json)
+          echo "branches : $total (dont $preview preview/*)"
+          jq -r '.branches[].name' /tmp/neon-branches.json | sed 's/^/  - /'
+          if [ "$preview" -ge 9 ]; then
+            echo "::warning title=Inventaire Neon::HTTP 200 - $total branches dont $preview preview/* : la limite du plan (10) est proche ou atteinte. Supprimer les preview/pr-* dont la PR est fermee."
+          else
+            echo "::notice title=Inventaire Neon::HTTP 200 - $total branches dont $preview preview/*."
+          fi
       - name: Create Neon Branch
         id: create_neon_branch
         uses: neondatabase/create-branch-action@v6
