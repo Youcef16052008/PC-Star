@@ -3833,3 +3833,4 @@ Même recette pour chaque lot : génération, conversion (sRGB, Lanczos, 1200 ×
 | 3 portables, GPU/SSD/carte mère, 3 onduleurs | 10 | 24 |
 | Boîtiers micro-ATX (2) — et 8 visuels du lot précédent régénérés | 2 | 22 |
 | Parafoudre, accessoires laptop (6), tablettes (3) | 10 | 12 |
+| Multimédia (5) et téléphonie (3), chaise gamer, bureau | 10 | 2 |
