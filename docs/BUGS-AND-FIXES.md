@@ -3831,3 +3831,4 @@ Même recette pour chaque lot : génération, conversion (sRGB, Lanczos, 1200 ×
 | Consommables, bras écran, 2 bureautiques | 10 | 44 |
 | Bureautique, serveurs, 2 portables | 10 | 34 |
 | 3 portables, GPU/SSD/carte mère, 3 onduleurs | 10 | 24 |
+| Boîtiers micro-ATX (2) — et 8 visuels du lot précédent régénérés | 2 | 22 |

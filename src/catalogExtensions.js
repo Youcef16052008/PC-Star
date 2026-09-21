@@ -157,9 +157,9 @@ export const CATALOG_EXTENSIONS = [
   p('mb-asrock-b450m', 'ASR-B450M-HDV', 'ASRock B450M-HDV R4.0 · AM4', 'ASRock', 'part', 'motherboard', 11500, 5,
     'AM4 · mATX · DDR4 · M.2', { packshot: '/photos/pack/mb-asrock-b450m.jpg', photoGroup: 'motherboard-studio', uses: ['office', 'student'], compat: { socket: 'AM4', memory: 'DDR4', form: 'mATX' } }),
   p('case-havit-matx', 'HAV-MC-RC', 'Boîtier Havit Micro ATX', 'Havit', 'part', 'case', 5400, 6,
-    'mATX · USB 3.0 · 1 ventilateur', { photoGroup: 'case-studio', uses: ['office', 'student'], compat: { form: 'mATX' }, tags: ['case'] }),
+    'mATX · USB 3.0 · 1 ventilateur', { packshot: '/photos/pack/case-havit-matx.jpg', photoGroup: 'case-studio', uses: ['office', 'student'], compat: { form: 'mATX' }, tags: ['case'] }),
   p('case-cm-q300l', 'CM-Q300L', 'Cooler Master MasterBox Q300L mATX', 'Cooler Master', 'part', 'case', 7900, 4,
-    'mATX · mesh · 2 ventilateurs', { photoGroup: 'case-studio', uses: ['gaming', 'office'], compat: { form: 'mATX' }, tags: ['case'] }),
+    'mATX · mesh · 2 ventilateurs', { packshot: '/photos/pack/case-cm-q300l.jpg', photoGroup: 'case-studio', uses: ['gaming', 'office'], compat: { form: 'mATX' }, tags: ['case'] }),
 
   // ——— Réseau, onduleurs et électricité ———
   p('net-tp-ax12', 'TPL-AX12', 'TP-Link Archer AX12 Wi‑Fi 6', 'TP-Link', 'accessory', 'network', 8200, 7,
