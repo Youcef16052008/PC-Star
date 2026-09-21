@@ -121,3 +121,80 @@ describe('P14 (#4) — le Builder traduit les avertissements de compatibilité',
     assert.ok(!text.includes('[object Object]'), 'objet rendu tel quel dans la liste GPU')
   })
 })
+
+/* ------------------------------------------------------------------------ */
+/* P26 — le boîtier et l'alimentation sont REQUIS (demande client 21/09)      */
+/* ------------------------------------------------------------------------ */
+
+describe('P26 — le boîtier et l’alimentation sont requis, pas optionnels', () => {
+  const REQUIS = ['motherboard', 'cpu', 'ram', 'case', 'psu']
+
+  it('les emplacements obligatoires sont déclarés une seule fois, dans les données', () => {
+    assert.deepEqual(
+      BUILDER_SLOTS.filter((s) => s.required).map((s) => s.key),
+      REQUIS,
+      'la liste des emplacements obligatoires a bougé : boîtier et alimentation en font partie'
+    )
+  })
+
+  it('à l’écran : « Requis » sur les deux, et la config ne s’ajoute pas sans eux', () => {
+    const board = P('mb-b650')
+    const cpu = P('cpu-7800x3d')
+    const ram = P('ram-32')
+    const host = mount({ ...emptyBuild(), motherboard: board, cpu, ram })
+    const bouton = () => host.querySelector('button.btn.btn-success.w-100')
+    assert.ok(bouton(), 'bouton « ajouter la config » introuvable')
+    assert.equal(bouton().disabled, true, 'une config sans boîtier ni alimentation s’ajoute encore')
+    // Le traducteur de ce fichier rend la CLÉ : « need » est « Requis » à l'écran,
+    // « optional » est « Optionnel ». Les deux emplacements doivent avoir changé.
+    for (const key of ['case', 'psu']) {
+      const slot = BUILDER_SLOTS.find((s) => s.key === key)
+      const btn = [...host.querySelectorAll('button')].find((b) => (b.textContent || '').includes(slot.label))
+      assert.ok(btn, `emplacement ${key} introuvable dans la barre du configurateur`)
+      assert.ok((btn.textContent || '').includes('need'), `l’emplacement ${key} ne dit pas « Requis » : ${(btn.textContent || '').trim()}`)
+      assert.equal((btn.textContent || '').includes('optional'), false, `l’emplacement ${key} s’annonce encore « Optionnel »`)
+    }
+  })
+
+  it('le message de manque lit les données : les deux nouveaux y sont nommés', async () => {
+    const { missingRequired } = await import('./orderLogic.js')
+    const trois = { ...emptyBuild(), motherboard: P('mb-b650'), cpu: P('cpu-7800x3d'), ram: P('ram-32') }
+    assert.deepEqual(
+      missingRequired(BUILDER_SLOTS, trois).map((s) => s.key),
+      ['case', 'psu'],
+      'le message d’ajout ignorait encore le boîtier et l’alimentation'
+    )
+    const complet = { ...trois, case: P('case-atx'), psu: P('psu-750') }
+    assert.deepEqual(missingRequired(BUILDER_SLOTS, complet), [], 'une config complète est déclarée incomplète')
+    // Le texte reçu par `setToast` porte ces deux libellés (t() rend la clé en
+    // test : ce sont donc les libellés des données qui apparaissent).
+    const libelles = missingRequired(BUILDER_SLOTS, trois).map((s) => s.label).join(', ')
+    assert.ok(/Boîtier/.test(libelles) && /Alimentation/.test(libelles), `libellés de manque : ${libelles}`)
+  })
+
+  it('le récap parle comme les vignettes : « Requis » / « Optionnel », un seul mot', () => {
+    const host = mount({ ...emptyBuild(), motherboard: P('mb-b650'), cpu: P('cpu-7800x3d'), ram: P('ram-32') })
+    const texte = host.textContent || ''
+    assert.ok(texte.includes('need'), 'le récap a perdu le mot des vignettes pour un emplacement requis')
+    assert.ok(texte.includes('optional'), 'le récap a perdu le mot des vignettes pour un emplacement optionnel')
+    assert.equal(texte.includes('skip'), false, 'le récap dit encore « Passer » là où la vignette dit « Optionnel »')
+    assert.equal(texte.includes('required'), false, 'le récap dit encore « Obligatoire » là où la vignette dit « Requis »')
+  })
+
+  it('et une fois les deux remplis, la config complète s’ajoute', () => {
+    const build = {
+      ...emptyBuild(),
+      motherboard: P('mb-b650'),
+      cpu: P('cpu-7800x3d'),
+      ram: P('ram-32'),
+      case: P('case-atx'),
+      psu: P('psu-750')
+    }
+    assert.deepEqual(checkCompatibility(Object.values(build).filter(Boolean)), [], 'fixture : la config complète n’est plus compatible')
+    const host = mount(build)
+    const bouton = host.querySelector('button.btn.btn-success.w-100')
+    assert.ok(bouton, 'bouton « ajouter la config » introuvable')
+    assert.equal(bouton.disabled, false, 'une config complète (boîtier + alimentation) reste bloquée')
+    assert.equal((bouton.textContent || '').includes('optional'), false, 'la barre annonce encore un emplacement optionnel')
+  })
+})

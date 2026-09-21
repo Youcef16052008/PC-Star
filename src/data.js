@@ -1055,7 +1055,15 @@ const BUILDER_ORDER = [
   'motherboard', 'cpu', 'ram', 'gpu', 'ssd', 'hdd', 'case', 'psu', 'cooler', 'fan', 'misc',
   'keyboard', 'mouse', 'headset', 'monitor', 'controller', 'webcam', 'mic', 'mousepad', 'speakers', 'network'
 ]
-const BUILDER_REQUIRED = new Set(['motherboard', 'cpu', 'ram'])
+// Demande client du 21/09/2026 : « PSU et BOITIER sont requis, pas optionnels ».
+//
+// Une config sans alimentation ni boîtier n'est pas une config : elle se vendait
+// pourtant (le bouton d'ajout ne regardait que carte mère, CPU et RAM), et le
+// client se retrouvait avec des composants qu'il ne pouvait pas monter. Les deux
+// emplacements sont donc REQUIS, comme les trois premiers — l'inscription
+// « Optionnel » disparaît de la vignette, et le bouton d'ajout reste grisé tant
+// qu'ils sont vides (`requiredReady`, `src/BuilderPage.jsx`).
+const BUILDER_REQUIRED = new Set(['motherboard', 'cpu', 'ram', 'case', 'psu'])
 const BUILDER_NEEDS_BOARD = new Set(['cpu', 'ram', 'cooler'])
 
 export const BUILDER_SLOTS = BUILDER_ORDER.map((id) => {

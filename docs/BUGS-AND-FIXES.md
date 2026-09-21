@@ -3685,3 +3685,53 @@ des deux ne sait dire « entre 42 000 et 137 000 ».
   non plus) : `EMPTY` reste l'ouverture de la page. Aucune demande en ce sens.
 - La vitrine garde le filtre marque **mono-sélection** : le mode multiple est opt-in côté recherche.
   L'étendre à la vitrine est une demande à part entière, pas un effet de bord.
+
+## LOT P26 — configurateur : le boîtier et l'alimentation sont requis, pas optionnels (demande client du 21/09/2026)
+
+Demande, mot pour mot : « there is things we still need to fix them like PSU and boitier sont
+requis pas optionel ». Le configurateur laissait en effet ajouter une config sans boîtier ni
+alimentation : le bouton d'ajout ne regardait que la carte mère, le CPU et la mémoire, et les deux
+emplacements s'annonçaient « Optionnel » dans la barre d'emplacements.
+
+### 1. Une seule liste d'emplacements requis
+
+`BUILDER_REQUIRED` (`src/data.js`) passe de trois clés à cinq : `motherboard`, `cpu`, `ram`,
+**`case`, `psu`**. Aucun autre code de la page n'avait à bouger — `requiredReady` se calcule déjà
+depuis les données : la vignette cesse de dire « Optionnel », le récap latéral passe de « Passer »
+à « Optionnel », et le bouton « Ajouter la config au panier » reste grisé tant que les cinq ne sont
+pas remplis (il portait déjà `!requiredReady || !socketOk || !heatOk`).
+
+Un verrou protège la liste (`src/BuilderPage.test.js`, `deepEqual` sur les clés requises), et la
+fixture de `src/reportP17.test.js` se complète (boîtier + alimentation) — sans quoi son verrou de
+socket testait un bouton grisé pour une mauvaise raison.
+
+### 2. Les deux défauts que la demande a mis au jour sur la même page
+
+- **Le message d'ajout mentait déjà.** Il portait « Carte mère, CPU et RAM requis » écrit en dur et
+  n'avait pas suivi la demande. Il reçoit maintenant la liste : `missingRequired()` ajouté à
+  `src/orderLogic.js` rend les emplacements requis encore vides, et `toastNeedCore` devient
+  « Il manque : {slots} » / « Missing: {slots} » — le texte ne peut plus diverger des données.
+- **Deux vocabulaires pour une promesse.** Les vignettes disaient « Requis » / « Optionnel »
+  (`need` / `optional`) quand le récap latéral disait « Obligatoire » / « Passer »
+  (`required` / `skip`). Le récap parle désormais comme les vignettes ; la clé `skip` part (gardée
+  morte par `src/i18n.coverage.test.js`), `required` reste — le formulaire produit s'en sert encore
+  pour un champ vide. Les trois copies du même ternaire de libellé d'emplacement deviennent un seul
+  `labelDuSlot()`.
+
+### Mesures et portes
+
+- `src/BuilderPage.test.js` : **5 → 7 tests** — 3 pour la demande (liste requise, « Requis » sur
+  boîtier et alimentation + bouton grisé, config complète qui s'ajoute), 2 pour la suite (le message
+  qui nomme ce qui manque, le vocabulaire unique du récap).
+- Le jeu de fichiers du configurateur (`BuilderPage`, `i18n.coverage`, `reportP17`, `lot6Quality`,
+  `p2CompatNull`) : **55 verts**. Suite complète : **1 173 tests verts** (contre 1 168 au lot P25).
+- `npm run build` (9 fichiers, `check-bundle` — aucun secret), `scripts/jsdom-crawl.mjs`
+  24 pages / 0 erreur, `scripts/audit-buttons.mjs` 32 vérifications OK.
+
+### Reste ouvert, écrit ici
+
+- Aucun rendu dans un vrai moteur cette session (navigateurs Playwright non installables hors-ligne) :
+  la page a été vérifiée en jsdom et par les deux harnais, pas à l'œil sur un Chromium.
+- L'emplacement « Écrans » du configurateur suit encore `p.category === 'accessories'` : il
+  accueillera les nouvelles références d'écrans quand le rayon « Écrans » du catalogue existera
+  (lot suivant), pas avant — sinon la vignette promettrait des écrans que le rayon ne montre pas.

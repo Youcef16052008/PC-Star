@@ -223,6 +223,9 @@ test('A9 — les fonctionnalités retirées ne laissent plus de clés derrière 
     // les « recherches sauvées » (bouton, puces, persistance) et les six tranches
     // de prix, remplacées par deux bornes tapées au clavier.
     'recherches sauvées (retirées au lot P25)': ['saveSearch', 'searchSaved', 'searchFree'],
+    // LOT P26 — le récap de config disait « Obligatoire » / « Passer » là où les
+    // vignettes disaient « Requis » / « Optionnel » : un seul vocabulaire reste.
+    'second mot pour l’emplacement optionnel du configurateur (lot P26)': ['skip'],
     'tranches de prix du filtre (remplacées par le prix tapé, lot P25)': [
       'price_any',
       'price_u15',

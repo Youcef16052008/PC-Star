@@ -206,14 +206,19 @@ describe('P17 (#5) — la garde socket tolère les sockets multiples', () => {
     // La RAM est un slot REQUIS : sans elle le bouton reste désactivé pour une
     // tout autre raison (requiredReady) et le test ne prouverait rien.
     const ram = { id: 'ram-test', name: '16 Go DDR5', category: 'memory', price: 100, stock: 5, compat: { memory: 'DDR5' } }
+    // LOT P26 : le boîtier et l'alimentation sont REQUIS (demande client du
+    // 21/09/2026) — sans eux, le bouton d'ajout resterait grisé pour une raison
+    // qui n'a rien à voir avec le socket, et ce verrou ne prouverait rien.
+    const box = { id: 'case-test', name: 'Boîtier ATX', category: 'case', price: 100, stock: 5, compat: { form: 'ATX' } }
+    const psu = { id: 'psu-test', name: 'Alim 650 W', category: 'case', price: 100, stock: 5, compat: { psuWatts: 650 } }
     const noop = () => {}
 
     const addButtonFor = (cpu) => {
       const host = mount(
         React.createElement(BuilderPage, {
           t,
-          products: [board, cpu, cpuMulti, cpuOther, ram],
-          build: { ...Object.fromEntries(BUILDER_SLOTS.map((s) => [s.key, null])), motherboard: board, cpu, ram },
+          products: [board, cpu, cpuMulti, cpuOther, ram, box, psu],
+          build: { ...Object.fromEntries(BUILDER_SLOTS.map((s) => [s.key, null])), motherboard: board, cpu, ram, case: box, psu },
           setBuild: noop,
           liveStock: () => 5,
           onAdd: noop,
