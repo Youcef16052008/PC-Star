@@ -88,7 +88,9 @@ Le journal du job dit seulement que l'action a échoué. Trois causes demandent
 trois gestes différents, et rien ne les sépare — d'où un pas de diagnostic posé
 **avant** la tentative (`Inventaire des branches Neon`, `continue-on-error` : il
 informe, il ne décide pas du vert) qui imprime le code HTTP de l'API Neon et la
-liste des branches existantes :
+liste des branches existantes. Le même constat sort en **annotation de check**
+(`::notice::` / `::warning::`) : il se lit dans l'onglet Checks du PR, sans ouvrir
+le journal du job :
 
 | Ce que le diagnostic montre | Ce qui se passe | Le geste |
 | --- | --- | --- |
