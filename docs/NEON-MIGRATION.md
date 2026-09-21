@@ -82,6 +82,32 @@ zéro avant la suite unitaire isolée. Ces gates utilisent les secrets
 `NEON_API_KEY` et la variable de dépôt `NEON_PROJECT_ID`; une panne Neon fait
 échouer la CI. La branche est supprimée à la fermeture de la PR.
 
+### « Create Neon Branch » échoue en quelques secondes
+
+Le journal du job dit seulement que l'action a échoué. Trois causes demandent
+trois gestes différents, et rien ne les sépare — d'où un pas de diagnostic posé
+**avant** la tentative (`Inventaire des branches Neon`, `continue-on-error` : il
+informe, il ne décide pas du vert) qui imprime le code HTTP de l'API Neon et la
+liste des branches existantes :
+
+| Ce que le diagnostic montre | Ce qui se passe | Le geste |
+| --- | --- | --- |
+| HTTP 401 | `NEON_API_KEY` révoquée ou expirée | régénérer la clé côté Neon, la recoller dans le secret de dépôt |
+| HTTP 404 | `NEON_PROJECT_ID` ne vise plus le projet | corriger la **variable** de dépôt (pas le secret) |
+| HTTP 200 et ~10 branches `preview/*` | plafond de branches du plan | supprimer les `preview/pr-*` dont la PR est fermée |
+| réseau injoignable | panne côté Neon | réessayer le job |
+
+Le même inventaire se lit depuis un poste, sans passer par la CI :
+
+```bash
+NEON_API_KEY='…' NEON_PROJECT_ID='…' node scripts/neon-branches.mjs
+```
+
+Le script n'écrit rien : ni création, ni suppression. Il faut environ dix
+branches de PR pour saturer un plan gratuit ; les branches portent une date
+d'expiration, mais une branche créée avant la mise en place de ce réglage n'en a
+pas — c'est celle-là qu'il faut supprimer à la main.
+
 ## Diagnostiquer « plus de produits »
 
 ```bash

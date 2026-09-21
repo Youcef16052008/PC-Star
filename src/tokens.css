@@ -51,6 +51,18 @@ html[data-theme='dark'] {
   --brand-blue: #6d8bff;
   --brand-red: #ff4d55;
 
+  /* Empilement — l'ORDRE vit ici, plus recopié dans trois fichiers.
+     Mesuré le 21/09 : barre Bootstrap 1020 < FAB contact 1040 < toast 1100
+     < feuille de menu 1110 < barre remontée avec la feuille 1120
+     < lien d'évitement clavier 2000. Deux nombres qui doivent rester dans cet
+     ordre mais vivent chacun dans un fichier différent finissent par diverger :
+     c'est arrivé (les boutons de compte passaient sous la pastille). */
+  --z-fab: 1040;
+  --z-toast: 1100;
+  --z-sheet: 1110;
+  --z-sheet-nav: 1120;
+  --z-skip: 2000;
+
   /* Dégradés / ombres */
   --hero-from: #101a33;
   --hero-to: #0a1020;

@@ -11,6 +11,8 @@ npm run dev         # :5173 site (proxies /api)
 npm run build       # vite build, then scans dist/ for secrets — fails if any landed there
 npm test            # suite complète (node:test) — run `npm run build` first: bundleSecrets scans dist/
 npm run check:bundle # re-run only the dist/ secret scan (lot 7.3)
+npm run photos:audit # références qui n'ont pas encore leur propre photo
+npm run photos:wire  # câble les photos livrées (`/photos/pack/<id>.jpg`) dans le catalogue
 npm run master:rotate # new master password, written to .env.local — the value is never printed
 ```
 

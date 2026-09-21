@@ -2781,7 +2781,7 @@ export default function App() {
       </div>
 
       {toastText && (
-        <div className="position-fixed bottom-0 end-0 p-3" style={{ zIndex: 1100 }}>
+        <div className="position-fixed bottom-0 end-0 p-3" style={{ zIndex: 'var(--z-toast)' }}>
           <div className="toast show align-items-center text-bg-success border-0 pc-toast" role="status" aria-live="polite">
             <div className="d-flex align-items-center w-100">
               <div className="toast-body flex-grow-1">

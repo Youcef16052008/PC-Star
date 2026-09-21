@@ -46,6 +46,17 @@ jobs:
     steps:
       - name: Get branch expiration date as an env variable (2 weeks from now)
         run: echo "EXPIRES_AT=$(date -u --date '+14 days' +'%Y-%m-%dT%H:%M:%SZ')" >> "$GITHUB_ENV"
+      # P27 — le diagnostic qui manquait. Quand la creation echoue en quelques
+      # secondes, le journal ne dit pas POURQUOI : cle refusee, variable de
+      # projet disparue, ou plafond de branches du plan atteint ? Ce pas
+      # interroge l'API Neon et imprime la reponse AVANT la tentative.
+      # `continue-on-error` : il informe, il ne decide jamais du vert ni du rouge.
+      - name: Inventaire des branches Neon (diagnostic)
+        continue-on-error: true
+        env:
+          NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+          NEON_PROJECT_ID: ${{ vars.NEON_PROJECT_ID }}
+        run: node scripts/neon-branches.mjs
       - name: Create Neon Branch
         id: create_neon_branch
         uses: neondatabase/create-branch-action@v6

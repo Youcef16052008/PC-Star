@@ -3852,3 +3852,25 @@ faisait basculer en `custom` qu'un produit en mode `category` — une **vraie ph
 sur une fiche à packshot laissait donc la fiche se déclarer « visuel généré ». Les deux endroits
 (produit créé par le maître, produit du catalogue de base) traitent maintenant `category` **et**
 `packshot`, et une liste de photos vidée rend à la fiche son visuel généré d'origine.
+
+### Suite du lot — trois points de dette soldés (21/09/2026)
+
+1. **L'empilement a une seule source** (`src/tokens.css`). Le toast portait `zIndex: 1100` **dans
+   App.jsx** et la feuille de menu `z-index: 1110` **dans index.css** : deux nombres qui doivent
+   rester dans le bon ordre et vivaient dans deux fichiers. L'échelle est désormais écrite une fois
+   (`--z-fab`, `--z-toast`, `--z-sheet`, `--z-sheet-nav`, `--z-skip`) et les six usages la lisent.
+   Le verrou de `src/p3Vitrine.test.js` ne recopie plus les nombres : il **compare les valeurs des
+   tokens** (`z-toast < z-sheet < z-sheet-nav`) et vérifie que le CSS et le JSX lisent bien leurs
+   variables — un nombre remis à la main dans App.jsx le fait rougir.
+2. **Les deux outils photos entrent dans les scripts npm** : `npm run photos:audit` (relevé des
+   références encore servies par une illustration de rayon) et `npm run photos:wire` (câblage
+   idempotent des photos livrées). Documentés dans le bloc de commandes du README.
+3. **La panne CI Neon a un diagnostic.** Le pas `Create Neon Branch` échoue en quelques secondes et
+   le journal ne dit pas pourquoi : clé révoquée, variable de projet disparue, ou plafond de branches
+   du plan. `scripts/neon-branches.mjs` interroge l'API Neon (lecture seule : ni création ni
+   suppression) et imprime code HTTP + inventaire des branches ; le workflow le lance **avant** la
+   tentative, en `continue-on-error` (il informe, il ne décide pas du vert). Le tableau
+   « cause → geste » est dans `docs/NEON-MIGRATION.md`.
+
+Portes après ces trois points : `npm test` 1173/1173 (316 suites), build + check-bundle « aucun
+secret », crawl jsdom 24 pages / 0 erreur, `p3DocsAging` + `p3ServerHygiene` verts.

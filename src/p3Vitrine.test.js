@@ -567,15 +567,32 @@ describe('P4/V5 — le menu et la connexion prennent la page', () => {
     )
     assert.match(css, /\.nav-sheet\.show\s*\{[^}]*align-items:\s*stretch/, 'les entrees se reduisent a la largeur de leur texte au lieu de former une liste')
     assert.match(css, /\.nav-sheet \.navbar-nav \.nav-link[\s\S]{0,220}?justify-content:\s*flex-start/, 'les entrees du menu s alignent au centre de leur ligne')
-    assert.match(css, /\.nav-sheet\.show\s*\{[^}]*z-index:\s*11[1-9]\d/, 'la feuille passe sous le toast (1100) : les boutons de compte sont recouverts')
+    // LOT P27 (suite) : les trois nombres vivaient dans trois fichiers (le toast
+    // dans App.jsx, la feuille et la barre dans index.css). Le verrou lit
+    // maintenant l'echelle dans src/tokens.css et compare les VALEURS : il
+    // attrape la divergence que la recopie de nombres laissait passer.
+    const tokens = fs.readFileSync(path.join(process.cwd(), 'src/tokens.css'), 'utf8')
+    const zToken = (nom) => {
+      const m = tokens.match(new RegExp('--' + nom + ':\\s*(\\d+)'))
+      assert.ok(m, '--' + nom + ' manque dans src/tokens.css')
+      return Number(m[1])
+    }
+    assert.ok(zToken('z-toast') < zToken('z-sheet'), 'la feuille passe sous le toast : les boutons de compte sont recouverts')
     // …et le `z-index` de la feuille ne suffit PAS : `.sticky-top` de Bootstrap
     // pose 1020 sur la barre, qui devient un contexte d'empilement — comparer
-    // la feuille (1110) au toast (1100) se fait donc DANS la barre. Il faut
-    // monter la barre entière au-dessus du toast quand le menu est ouvert.
+    // la feuille au toast se fait donc DANS la barre. Il faut monter la barre
+    // entière au-dessus du toast quand le menu est ouvert.
+    assert.ok(zToken('z-sheet') < zToken('z-sheet-nav'), 'la barre reste sous le toast (contexte d empilement) : les boutons de compte sont recouverts')
+    assert.match(css, /\.nav-sheet\.show\s*\{[^}]*z-index:\s*var\(--z-sheet\)/, 'la feuille ne lit plus son token')
     assert.match(
       css,
-      /body\.nav-sheet-open \.shop-navbar\s*\{[^}]*z-index:\s*11[2-9]\d/,
-      'la barre reste a 1020 (contexte d empilement) : le toast recouvre encore les boutons de compte'
+      /body\.nav-sheet-open \.shop-navbar\s*\{[^}]*z-index:\s*var\(--z-sheet-nav\)/,
+      'la barre ne lit plus son token'
+    )
+    assert.match(
+      sansCommentaires('src/App.jsx'),
+      /zIndex:\s*'var\(--z-toast\)'/,
+      'le toast a repris un nombre en dur'
     )
     assert.match(css, /@media \(max-width:\s*1199\.98px\)[\s\S]*?\.nav-sheet\.show\s*\{/, 'le palier de la feuille et celui de `navbar-expand-xl` ont diverge')
   })

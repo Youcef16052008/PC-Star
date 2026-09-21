@@ -566,7 +566,7 @@ html[data-theme='dark'] .text-bg-light {
   position: fixed;
   bottom: 20px;
   inset-inline-start: 20px;
-  z-index: 1040;
+  z-index: var(--z-fab);
   /* Palette 3 couleurs (bleu/rouge/blanc) : le FAB contact passe au bleu
      de la marque au lieu du vert WhatsApp. */
   background: #2947d0;
@@ -640,7 +640,7 @@ html[data-theme='dark'] .text-bg-light {
   position: fixed;
   bottom: 20px;
   inset-inline-start: 20px;
-  z-index: 1040;
+  z-index: var(--z-fab);
 }
 
 .wa-fab-wrap .wa-fab {
@@ -686,7 +686,7 @@ html[data-theme='dark'] .text-bg-light {
   position: absolute;
   left: -9999px;
   top: 0;
-  z-index: 2000;
+  z-index: var(--z-skip);
   background: var(--blue);
   color: var(--blue-on); /* L0 : encre sombre sur accent (AA) au lieu de #fff */
   padding: 8px 14px;
@@ -973,8 +973,8 @@ html[data-theme='light'] .text-secondary {
     /* Au-dessus du toast (z-index 1100, posé à la main dans src/App.jsx) :
        sinon la notification du panier recouvrait les boutons de compte, qui
        sont en bas de la feuille — mesuré en 390×844 le 21/09. Reste sous
-       `.skip-link` (2000), qui doit garder le premier plan au clavier. */
-    z-index: 1110;
+       `.skip-link` (--z-skip), qui doit garder le premier plan au clavier. */
+    z-index: var(--z-sheet);
     display: flex;
     flex-direction: column;
     /* Bootstrap pose `align-items: center` sur `.navbar-collapse` : sans cette
@@ -1072,7 +1072,7 @@ html[data-theme='light'] .text-secondary {
      recouvrait encore les boutons de compte (constaté après la première
      correction : la feuille monte, la barre restait en dessous). */
   body.nav-sheet-open .shop-navbar {
-    z-index: 1120;
+    z-index: var(--z-sheet-nav);
   }
 
   body.nav-sheet-open .wa-fab-wrap,
