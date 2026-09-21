@@ -244,7 +244,7 @@ export const CATALOG_EXTENSIONS = [
   p('fur-desk-120', 'DESK-120-60', 'Bureau PC 120 × 60 cm', 'Generic', 'accessory', 'furniture', 18500, 3,
     'Plateau bois · structure métal', { packshot: '/photos/pack/fur-desk-120.jpg', uses: ['office', 'gaming', 'student'] }),
   p('fur-laptop-stand', 'STAND-ALU-LAP', 'Support laptop aluminium réglable', 'Ugreen', 'accessory', 'furniture', 3600, 9,
-    'Ventilé · pliable', { uses: ['student', 'business'] }),
+    'Ventilé · pliable', { packshot: '/photos/pack/fur-laptop-stand.jpg', uses: ['student', 'business'] }),
   p('fur-safe-20', 'SAFE-20L', 'Coffre-fort électronique 20 L', 'Generic', 'accessory', 'furniture', 23800, 2,
-    'Code PIN · clé de secours', { uses: ['business', 'retail'] })
+    'Code PIN · clé de secours', { packshot: '/photos/pack/fur-safe-20.jpg', uses: ['business', 'retail'] })
 ]

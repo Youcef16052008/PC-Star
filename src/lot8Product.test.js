@@ -606,9 +606,12 @@ describe('fiche maître professionnelle : métadonnées commerciales et techniqu
     assert.equal(updateProduct(db, base.id, { compareAtPrice: base.price - 1 }).error, 'compare_at_price')
   })
 
-  it('une vraie photo maître remplace le statut d’illustration de rayon', () => {
+  it('une vraie photo maître remplace le visuel généré (illustration ou packshot)', () => {
     const db = fakeDb()
-    const illustrated = PRODUCTS.find((product) => product.photoMode === 'category')
+    // LOT P27 : le catalogue élargi n'a plus AUCUNE fiche en `category` — chaque
+    // référence a reçu son packshot. Le test garde son intention : une photo
+    // livrée par le comptoir prend le pas sur le visuel généré, quel qu'il soit.
+    const illustrated = PRODUCTS.find((product) => product.photoMode === 'category' || product.photoMode === 'packshot')
     assert.ok(illustrated, 'un produit des nouveaux rayons existe')
     const updated = updateProduct(db, illustrated.id, { photos: ['/uploads/real-photo.jpg'] })
     assert.equal(updated.ok, true)

@@ -3817,6 +3817,13 @@ suivant, dans l'ordre du catalogue élargi.
 - Les 5 écrans qui ont reçu un packshot n'affichent qu'**une** photo (la leur) là où les fiches
   du comptoir en montrent trois : c'est voulu (une image honnête plutôt qu'un trio inventé), mais
   ça se verra dans la galerie d'une fiche produit.
+- Les **37 illustrations de rayon** (`public/catalog/*.jpg`) ne sont plus référencées par aucune
+  fiche : décision de les **garder**. Elles documentent le rayon, pèsent ~4 Mo au total, et serviront
+  si une référence est ajoutée sans photo — un écran noir avec le repère de la famille reste un repli
+  honnête. Le jour où le rayon lui-même est figé, un nettoyage sera possible en une commande.
+- Le visuel d'un packshot est une **illustration générée**, pas la photo du produit reçu : c'est le
+  même régime que les photos catalogue déjà en ligne (assumé, aucune mention ajoutée), et le jour où
+  le comptoir photographie réellement une référence, sa photo maître prend le statut `custom`.
 
 ### Chantier photos — suivi des lots
 
@@ -3834,3 +3841,14 @@ Même recette pour chaque lot : génération, conversion (sRGB, Lanczos, 1200 ×
 | Boîtiers micro-ATX (2) — et 8 visuels du lot précédent régénérés | 2 | 22 |
 | Parafoudre, accessoires laptop (6), tablettes (3) | 10 | 12 |
 | Multimédia (5) et téléphonie (3), chaise gamer, bureau | 10 | 2 |
+| Support laptop, coffre-fort (2) — **chantier clos** | 2 | **0** |
+
+Clos le 21/09/2026 : `node scripts/audit-photos.mjs` ne relève plus **aucune** référence sur une
+illustration de rayon. Les 82 fiches du catalogue élargi montrent leur propre photo ; les 37
+fichiers `/catalog/*.jpg` restent livrés sur le disque (voir « Reste ouvert »).
+
+Un bug de données a été trouvé par le verrou en fermant le chantier : `server/masterApi.js` ne
+faisait basculer en `custom` qu'un produit en mode `category` — une **vraie photo maître** livrée
+sur une fiche à packshot laissait donc la fiche se déclarer « visuel généré ». Les deux endroits
+(produit créé par le maître, produit du catalogue de base) traitent maintenant `category` **et**
+`packshot`, et une liste de photos vidée rend à la fiche son visuel généré d'origine.
