@@ -3829,3 +3829,4 @@ Même recette pour chaque lot : génération, conversion (sRGB, Lanczos, 1200 ×
 | P27 (écrans, impression, caisses, pilotes) | 18 | 64 |
 | Réseau & Wi‑Fi | 10 (net-*) | 54 |
 | Consommables, bras écran, 2 bureautiques | 10 | 44 |
+| Bureautique, serveurs, 2 portables | 10 | 34 |

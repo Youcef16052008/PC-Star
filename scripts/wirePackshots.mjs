@@ -37,7 +37,8 @@ for (const m of src.matchAll(/\bp\('([a-z0-9-]+)'/g)) {
     console.log('OPTIONS INTROUVABLES', id)
     continue
   }
-  src = `${src.slice(0, brace + 1)} packshot: '${rel}',${src.slice(brace + 1)}`
+  const glue = /^[A-Za-z_$]/.test(src.slice(brace + 1)) ? ' ' : ''
+  src = `${src.slice(0, brace + 1)} packshot: '${rel}',${glue}${src.slice(brace + 1)}`
   cables++
 }
 
