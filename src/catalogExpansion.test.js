@@ -18,7 +18,7 @@ test('catalogue étendu : tous les rayons prioritaires ont des références navi
     'printer', 'scanner', 'pos', 'consumables',
     'desktop', 'allinone', 'tablet', 'server',
     'network', 'power', 'laptop_accessories',
-    'multimedia', 'furniture', 'phone'
+    'multimedia', 'furniture', 'phone', 'monitor'
   ]
 
   assert.ok(CATALOG_EXTENSIONS.length >= 60, 'le catalogue élargi contient une sélection exploitable')
@@ -49,13 +49,28 @@ test('catalogue étendu : occasion et usages sont des métadonnées filtrables',
   assert.ok(PRODUCTS.some(pos.match), 'un raccourci POS retourne des produits')
 })
 
-test('catalogue étendu : ses illustrations de rayon sont livrées et ne prétendent pas être des photos SKU', () => {
+test('catalogue étendu : chaque référence a son illustration de rayon, ou sa photo livrée', () => {
   const publicDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../public')
   const groups = new Set()
+  let packshots = 0
   for (const product of CATALOG_EXTENSIONS) {
-    assert.equal(product.photoMode, 'category', `${product.id} déclare une illustration de catégorie`)
-    assert.equal(product.photos.length, 1, `${product.id} garde une seule illustration honnête`)
+    assert.equal(product.photos.length, 1, `${product.id} garde un seul visuel — pas de trio fantôme`)
     const src = product.photos[0]
+    // P27 : deux formes honnêtes, et rien d'autre. Soit la référence a reçu sa
+    // propre photo studio (`/photos/pack/<id>.jpg`, générée pour le rayon), soit
+    // elle garde l'illustration de famille et le dit (`photoMode: 'category'`).
+    if (product.photoMode === 'packshot') {
+      packshots++
+      assert.match(src, /^\/photos\/pack\/[a-z0-9-]+\.jpg$/, `${product.id} : chemin de packshot inattendu (${src})`)
+      assert.deepEqual(photosForProduct(product), [src], `${product.id} ne déclenche pas les variantes /photos/sku`)
+      const file = src.slice(1) // '/photos/pack/<id>.jpg' → 'photos/pack/<id>.jpg'
+      assert.ok(fs.existsSync(path.join(publicDir, file)), `photo livrée absente : ${src}`)
+      // Le webp est sondé en premier par `photoCandidates` : sans lui, chaque
+      // vignette ferait un 404 avant de retomber sur le jpg.
+      assert.ok(fs.existsSync(path.join(publicDir, file.replace(/\.jpg$/, '.webp'))), `webp absent pour ${src}`)
+      continue
+    }
+    assert.equal(product.photoMode, 'category', `${product.id} déclare une illustration de catégorie`)
     assert.match(src, /^\/catalog\/[a-z-]+\.jpg$/, `${product.id} ne demande pas un faux chemin SKU`)
     assert.deepEqual(photosForProduct(product), [src], `${product.id} ne déclenche pas les variantes /photos/sku`)
     groups.add(src.slice('/catalog/'.length))
@@ -63,4 +78,5 @@ test('catalogue étendu : ses illustrations de rayon sont livrées et ne préten
   for (const file of groups) {
     assert.ok(fs.existsSync(path.join(publicDir, 'catalog', file)), `visuel généré livré : ${file}`)
   }
+  assert.ok(packshots >= 2, `les référence qui ont reçu leur photo la déclarent (${packshots} aujourd'hui)`)
 })

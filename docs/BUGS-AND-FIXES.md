@@ -3735,3 +3735,85 @@ socket testait un bouton grisé pour une mauvaise raison.
 - L'emplacement « Écrans » du configurateur suit encore `p.category === 'accessories'` : il
   accueillera les nouvelles références d'écrans quand le rayon « Écrans » du catalogue existera
   (lot suivant), pas avant — sinon la vignette promettrait des écrans que le rayon ne montre pas.
+
+## LOT P27 — les écrans ont leur rayon, et les références sans photo reçoivent la leur (21/09/2026)
+
+Demande, mot pour mot : « do all what you recommande in these point take decisions by yourself ».
+Trois chantiers menés ensemble, tous mesurés.
+
+### 1. Rayon « Écrans »
+
+Le catalogue promettait un rayon d'écrans depuis le premier jour : `PART_LINES` porte « Écrans »,
+le configurateur a un emplacement « Écrans », et cinq écrans se vendaient — rangés dans
+« Accessoires PC », au milieu des claviers et des souris. Le rayon existait partout sauf dans le
+filtre du magasin.
+
+- `CATEGORIES` gagne `monitor` (« Écrans »), avec `cat_monitor` en fr et en ;
+- la ligne de recherche `monitor` passe de la devinette (`p.category === 'accessories'` + regex
+  sur le nom) à `byCategory('monitor')` : elle liste le rayon, elle ne le cherche plus ;
+- quatre écrans en ligne de plus (Samsung Odyssey G3 24″, LG UltraGear 27″ QHD,
+  Dell P2723DE 27″ QHD, Samsung Smart Monitor S6 32″) s'ajoutent à l'AOC 24B3HA2 ;
+- trois écrans déjà en catalogue (`mon-vg27`, `mon-g27q`, `mon-mag274`) changent seulement de
+  rayon : ils ont de vraies photos au comptoir, ils n'avaient pas besoin d'une illustration ;
+- la fiche cœur `monitor` s'appelait « ASUS TUF VG27AQ » avec le SKU `XG27ACS` (un ROG Strix) :
+  deux produits sous une seule fiche. Elle reprend son vrai nom, « ASUS ROG Strix XG27ACS 27″ » ;
+  le TUF VG27AQ3A garde la sienne, avec sa photo réelle.
+
+Le rayon compte donc **9 écrans**, tous avec au moins une photo. Le « Reste ouvert » du lot P26
+(l'emplacement « Écrans » du configurateur accroché à `accessories`) est fermé par ce déplacement.
+
+### 2. Photos livrées par référence (mode `packshot`)
+
+78 références du catalogue élargi n'avaient qu'**une illustration de rayon partagée** — la même
+image pour dix produits réseau, la même pour sept imprimantes. Le mécanisme de photo livrée est
+donc posé : `photoMode: 'packshot'` (déclaré par `extra.packshot` dans `p()`), un fichier par
+référence dans `/photos/pack/<id>.jpg` **et son `.webp`** (le navigateur sonde le webp en premier :
+sans lui, un 404 par vignette), 1200 × 900, même recette de conversion que le catalogue sku.
+`photosForProduct` sert ce fichier tel quel, ni le trio `/photos/sku/` (deux chemins fantômes) ni
+l'illustration de famille ; le badge « illustration de catégorie » disparaît, la vignette n'est plus
+annoncée comme la photo d'un rayon mais comme celle de la référence.
+
+Le verrou `catalogExpansion.test.js` accepte les deux formes honnêtes et refuse tout le reste :
+une photo livrée doit exister sur le disque **avec son webp**, l'illustration de rayon doit garder
+`photoMode: 'category'`, et chaque fiche garde **une seule** image (jamais un trio inventé).
+
+Livrées à ce lot : **13 packshots** — 5 écrans, les imprimantes et scanners du rayon, les trois
+caisses, et deux pilotes (imprimante laser, portable 15″). Le reste du catalogue élargi suit au lot
+suivant, dans l'ordre du catalogue élargi.
+
+### 3. Décisions prises seules, et pourquoi
+
+- **Les écrans déménagent** (plutôt que de créer un rayon vide à côté de cinq écrans rangés
+  ailleurs) — voir § 1 ;
+- **la fiche au mauvais nom est renommée** sur son SKU réel, pas fusionnée : le prix et la
+  référence restent au comptoir, on n'efface pas une fiche pour un doublon de nom apparent ;
+- **les illustrations de rayon restent en place** pour les 64 références pas encore servies : un
+  écran noir avec le repère de sa famille vaut mieux que la photo d'un autre rayon ;
+- **le README est remesuré** (1173 tests, 305 produits, 771 photos, 659 clés) et son bloc de
+  commandes ne recopie plus un compte de tests d'une autre époque — c'est le seul endroit autorisé
+  à porter ces chiffres, autant qu'ils soient vrais ;
+- **`public/catalog/components-studio.jpg`** : livré, plus référencé par personne depuis que les
+  fiches composants du rayon élargi ont leur photo — laissé en place, il servira si une nouvelle
+  fiche composant arrive ; le verrou de `catalogExpansion` ne vérifie que les groupes référencés.
+
+### Vérifications
+
+| Contrôle | Résultat |
+| --- | --- |
+| `npm test` | **1173 tests / 316 suites / 0 échec** |
+| `npm run build` | OK — `index-BijTEyyJ.js` 499,23 kB (gzip 150,29), check-bundle « 9 fichier(s) : aucun secret » |
+| `npm run build:crawl` + `jsdom-crawl` | 24 pages rendues, 0 erreur |
+| `audit-buttons` | 32 vérifications OK |
+
+### Reste ouvert, écrit ici
+
+- Aucun rendu dans un vrai moteur cette session (les navigateurs Playwright ne s'installent pas
+  hors-ligne) : le nouveau rayon et les packshots ont été vus en jsdom, en ImageMagick et par les
+  deux harnais — la première chose à regarder avec un Chromium reste l'écran du configurateur et
+  la grille des rayons.
+- 64 références attendent encore leur photo (consommables, postes de bureau, portables, réseau,
+  onduleurs, accessoires laptop, tablettes, multimédia, téléphonie, mobilier) : même recette, même
+  dossier, câblage par le même outil.
+- Les 5 écrans qui ont reçu un packshot n'affichent qu'**une** photo (la leur) là où les fiches
+  du comptoir en montrent trois : c'est voulu (une image honnête plutôt qu'un trio inventé), mais
+  ça se verra dans la galerie d'une fiche produit.

@@ -504,6 +504,7 @@ html[dir='rtl'] .hero h1 {
 .cats .cat-accessories.btn::before { content: '◨'; }
 .cats .cat-repair.btn::before { content: '◩'; }
 .cats .cat-usb.btn::before { content: '◪'; }
+.cats .cat-monitor.btn::before { content: '▭'; }
 
 @media (max-width: 991.98px) {
   .cats {

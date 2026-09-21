@@ -111,6 +111,10 @@ export const CATEGORIES = [
   { id: 'usb', label: 'USB & flash' },
   { id: 'console', label: 'Consoles' },
   { id: 'repair', label: 'Réparations' },
+  // LOT P27 : les écrans quittent « Accessoires PC » pour leur propre rayon.
+  // Ils y étaient noyés au milieu des claviers et des souris, alors que le
+  // configurateur leur réserve un emplacement « Écrans » depuis toujours.
+  { id: 'monitor', label: 'Écrans' },
   { id: 'accessories', label: 'Accessoires PC' }
 ]
 
@@ -215,7 +219,7 @@ export const PART_LINES = [
   { id: 'keyboard', label: 'Claviers', group: 'peripherals', match: (p) => p.category === 'accessories' && /keyboard|clavier|apex|huntsman|alloy/.test(hay(p)) },
   { id: 'mouse', label: 'Souris', group: 'peripherals', match: (p) => p.category === 'accessories' && /mouse|souris|viper|rival|haste/.test(hay(p)) && !/pad/.test(hay(p)) },
   { id: 'headset', label: 'Casques', group: 'peripherals', match: (p) => p.category === 'accessories' && /headset|casque|arctis|blackshark|cloud|g pro x 2/.test(hay(p)) },
-  { id: 'monitor', label: 'Écrans', group: 'peripherals', match: (p) => (p.category === 'accessories' && /monitor|écran|ecran|27"|24"/.test(hay(p))) },
+  { id: 'monitor', label: 'Écrans', group: 'peripherals', match: byCategory('monitor') },
   { id: 'controller', label: 'Manettes', group: 'peripherals', match: (p) => p.category === 'accessories' && /controller|manette|xbox|dualsense|dualshock|8bitdo/.test(hay(p)) },
   { id: 'webcam', label: 'Webcams', group: 'peripherals', match: (p) => p.category === 'accessories' && /webcam|brio|c920/.test(hay(p)) },
   { id: 'mic', label: 'Microphones', group: 'peripherals', match: (p) => p.category === 'accessories' && /mic|yeti/.test(hay(p)) && !/casque|headset/.test(hay(p)) },
@@ -665,10 +669,13 @@ const PRODUCTS_CORE = [
   {
     id: 'monitor',
     sku: 'XG27ACS',
-    name: 'ASUS TUF VG27AQ 27" 165Hz',
+    // LOT P27 : le nom disait « TUF VG27AQ » alors que le SKU `XG27ACS` est un
+    // ROG Strix — deux produits différents vendus sous une seule fiche. La
+    // fiche reprend son vrai nom ; le TUF VG27AQ3A garde la sienne (`mon-vg27`).
+    name: 'ASUS ROG Strix XG27ACS 27"',
     brand: 'ASUS',
     kind: 'accessory',
-    category: 'accessories',
+    category: 'monitor',
     price: 57500,
     stock: 5,
     rating: 4.6,

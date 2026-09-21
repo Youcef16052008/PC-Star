@@ -320,6 +320,7 @@ a:focus-visible {
 .cat-usb { background: linear-gradient(145deg, #4a63d8, #243a6c); }
 .cat-console { background: linear-gradient(145deg, #d81f26, #6b0f14); }
 .cat-repair { background: linear-gradient(145deg, #ff5a61, #8a1218); }
+.cat-monitor { background: linear-gradient(145deg, #2d7f9e, #12303f); }
 
 /* Stars */
 .stars {
