@@ -3855,7 +3855,14 @@ sur une fiche à packshot laissait donc la fiche se déclarer « visuel génér�
 
 ### Suite du lot — trois points de dette soldés (21/09/2026)
 
-1. **L'empilement a une seule source** (`src/tokens.css`). Le toast portait `zIndex: 1100` **dans
+1. **L'empilement a une seule source** (`src/tokens.css`) — et il est **complet**. La colonne entière
+   est nommée, du fond vers l'avant : `--z-behind` (décor), `--z-sticky` (carte de filtres, sous le
+   `1020` de Bootstrap qui n'est pas à nous), `--z-bar-mobile`, `--z-fab`, `--z-status`,
+   `--z-dropdown`, `--z-toast`, `--z-sheet`, `--z-sheet-nav`, `--z-skip`. Il ne reste **aucun**
+   `z-index` numérique dans le dépôt (vérifié par recherche sur `src/` et les feuilles) : le verrou
+   de `src/p3Vitrine.test.js` refuse un nombre en dur et exige que l'échelle lue dans `tokens.css`
+   soit **strictement croissante** — l'ordre se relit à un endroit, plus dans cinq. Détail de
+   départ : Le toast portait `zIndex: 1100` **dans
    App.jsx** et la feuille de menu `z-index: 1110` **dans index.css** : deux nombres qui doivent
    rester dans le bon ordre et vivaient dans deux fichiers. L'échelle est désormais écrite une fois
    (`--z-fab`, `--z-toast`, `--z-sheet`, `--z-sheet-nav`, `--z-skip`) et les six usages la lisent.

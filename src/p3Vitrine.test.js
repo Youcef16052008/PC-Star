@@ -594,6 +594,27 @@ describe('P4/V5 — le menu et la connexion prennent la page', () => {
       /zIndex:\s*'var\(--z-toast\)'/,
       'le toast a repris un nombre en dur'
     )
+    // Toute la colonne est nommée, pas seulement les deux couches qui s'étaient
+    // contredites : l'ordre se relit dans tokens.css, du fond vers l'avant.
+    const colonne = [...tokens.matchAll(/--z-([a-z-]+):\s*(-?\d+)/g)].map((m) => ({ nom: m[1], valeur: Number(m[2]) }))
+    assert.ok(colonne.length >= 8, `l'échelle d'empilement a perdu des couches : ${colonne.map((c) => c.nom).join(', ')}`)
+    for (let i = 1; i < colonne.length; i++) {
+      assert.ok(
+        colonne[i].valeur > colonne[i - 1].valeur,
+        `${colonne[i - 1].nom} (${colonne[i - 1].valeur}) n'est plus sous ${colonne[i].nom} (${colonne[i].valeur}) : l'échelle doit être croissante`
+      )
+    }
+    // …et un nombre ne doit pas revenir se cacher dans la feuille de style.
+    const feuille = sansCommentaires('src/index.css')
+    const nombres = [...feuille.matchAll(/z-index:\s*(-?\d+)/g)].map((m) => m[1])
+    assert.deepEqual(nombres, [], `des z-index en dur sont revenus dans src/index.css : ${nombres.join(', ')}`)
+
+    // Le troisième nombre de la colonne vit dans le JSX : le verrou le vérifie
+    // aussi, et pas seulement la feuille de style.
+    assert.ok(
+      colonne.findIndex((c) => c.nom === 'behind') >= 0 && colonne.findIndex((c) => c.nom === 'skip') === colonne.length - 1,
+      'le fond (--z-behind) doit ouvrir la colonne et le lien d\'évitement (--z-skip) la fermer'
+    )
     assert.match(css, /@media \(max-width:\s*1199\.98px\)[\s\S]*?\.nav-sheet\.show\s*\{/, 'le palier de la feuille et celui de `navbar-expand-xl` ont diverge')
   })
 

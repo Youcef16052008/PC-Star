@@ -107,7 +107,7 @@ a:focus-visible {
   content: '';
   position: absolute;
   inset: 0;
-  z-index: -1;
+  z-index: var(--z-behind);
   background: color-mix(in srgb, var(--card) 94%, transparent);
   backdrop-filter: blur(12px);
 }
@@ -461,7 +461,7 @@ html[data-theme='dark'] .text-bg-light {
     position: absolute;
     top: calc(100% + 8px);
     inset-inline-end: 0;
-    z-index: 1070;
+    z-index: var(--z-dropdown);
     padding: 6px;
     border-radius: 12px;
     background: var(--card);
@@ -515,7 +515,7 @@ html[data-theme='dark'] .text-bg-light {
   color: var(--muted);
 }
 
-/* Le bouton de contact est fixé en bas à gauche (`wa-fab-wrap`, z-index 1040).
+/* Le bouton de contact est fixé en bas à gauche (`wa-fab-wrap`, --z-fab).
    Sous 768 px, la dernière rangée du pied de page passait dessous : le clic sur
    « Garantie » tombait sur le bouton WhatsApp (mesuré en 390×780 le 21/09, le
    harnais e2e a refusé le clic pour cette raison). On réserve la hauteur du FAB
@@ -602,7 +602,7 @@ html[data-theme='dark'] .text-bg-light {
   position: absolute;
   top: calc(100% + 6px);
   inset-inline-start: 0;
-  z-index: 1070;
+  z-index: var(--z-dropdown);
   min-width: 230px;
   padding: 6px;
   border-radius: 12px;
@@ -652,7 +652,7 @@ html[data-theme='dark'] .text-bg-light {
   position: fixed;
   top: 10px;
   inset-inline-end: 10px;
-  z-index: 1050;
+  z-index: var(--z-status);
   font-size: 11px;
   font-weight: 700;
   padding: 4px 8px;
@@ -721,7 +721,7 @@ html[data-theme='dark'] .text-bg-light {
 
 /* Sticky filter cards clear fixed navbar */
 .sticky-lg-top {
-  z-index: 1010;
+  z-index: var(--z-sticky);
 }
 
 @media (max-width: 768px) {
@@ -750,7 +750,7 @@ html[data-theme='dark'] .text-bg-light {
   bottom: 0;
   left: 0;
   right: 0;
-  z-index: 1030;
+  z-index: var(--z-bar-mobile);
   padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
   background: color-mix(in srgb, var(--card) 92%, transparent);
   backdrop-filter: blur(10px);
@@ -970,7 +970,7 @@ html[data-theme='light'] .text-secondary {
   .nav-sheet.show {
     position: fixed;
     inset: 0;
-    /* Au-dessus du toast (z-index 1100, posé à la main dans src/App.jsx) :
+    /* Au-dessus du toast (--z-toast) :
        sinon la notification du panier recouvrait les boutons de compte, qui
        sont en bas de la feuille — mesuré en 390×844 le 21/09. Reste sous
        `.skip-link` (--z-skip), qui doit garder le premier plan au clavier. */
@@ -1057,7 +1057,7 @@ html[data-theme='light'] .text-secondary {
   }
 
   /* Menu ouvert = feuille plein écran : rien ne doit passer par-dessus ni
-     défiler derrière. Le bouton WhatsApp flottant (z-index 1040), le CTA
+     défiler derrière. Le bouton WhatsApp flottant (--z-fab), le CTA
      collant de la fiche produit (1030) et la pastille d'état API (1050)
      vivent hors de la barre — ils la chevaucheraient, l'un sous l'autre.
      `body.nav-sheet-open` est posé par l'effet de src/App.jsx. */
@@ -1067,7 +1067,7 @@ html[data-theme='light'] .text-secondary {
 
   /* …et la BARRE monte avec elle. `.sticky-top` de Bootstrap pose `z-index:
      1020` sur la barre : elle forme un contexte d'empilement, donc le
-     `z-index: 1110` de la feuille ne se compare qu'à l'INTÉRIEUR de ce
+     `--z-sheet` de la feuille ne se compare qu'à l'INTÉRIEUR de ce
      contexte — face au toast (1100), c'est 1020 qui compte, et la pastille
      recouvrait encore les boutons de compte (constaté après la première
      correction : la feuille monte, la barre restait en dessous). */
