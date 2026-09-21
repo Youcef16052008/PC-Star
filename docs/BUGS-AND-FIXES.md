@@ -3876,6 +3876,14 @@ sur une fiche à packshot laissait donc la fiche se déclarer « visuel génér�
    `docs/NEON-MIGRATION.md`), pas à une ligne de ce dépôt. L'inventaire est aussi une commande :
    `npm run db:branches:neon`.
 
+   Le nettoyage, lui, est à portée de clic : le workflow **« Neon — nettoyage des branches de PR »**
+   (`workflow_dispatch`, **mode annonce par défaut**) liste les `preview/pr-<n>-…` dont la PR est
+   fermée, puis s'arrête ; une seconde exécution avec `dry_run` décoché supprime. Trois garde-fous,
+   vérifiés au banc avec un `curl` de test — donc pas seulement relus : jamais la branche par défaut
+   du projet, jamais une branche hors du motif `preview/pr-N-…`, **jamais dans le doute** (une PR
+   dont l'état est illisible est conservée). Un verrou de `src/phase5Reliability.test.js` refuse tout
+   déclencheur automatique sur ce workflow : il ne peut pas partir tout seul.
+
    Piège rencontré et corrigé dans le même lot : le premier jet de ce pas appelait
    `node scripts/neon-branches.mjs` — or il tourne **avant le checkout**, donc le fichier n'existe
    pas encore sur le runner. `continue-on-error` masquait l'échec (étape rapportée « success »,

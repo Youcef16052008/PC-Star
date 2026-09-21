@@ -44,6 +44,33 @@ describe('Phase 5 — sauvegardes Neon et isolation CI', () => {
     assert.doesNotMatch(workflow, /Run full test suite against Neon/)
   })
 
+  it('le nettoyage des branches Neon ne peut pas supprimer par accident', () => {
+    // P27 — le projet est tombé au plafond du plan (10 branches, dont 8
+    // `preview/*`) et la création de branche a échoué en 422. Le workflow de
+    // nettoyage existe pour rendre ces branches récupérables d'un clic ; ce
+    // verrou garantit qu'il ne peut pas faire de dégât tout seul. Chaque
+    // assertion ci-dessous est la contre-épreuve d'un garde-fou vérifié au banc
+    // avec un `curl` de test (PR fermée / ouverte / introuvable / illisible).
+    const wf = read('.github/workflows/neon-cleanup.yml')
+    assert.match(wf, /workflow_dispatch:/, 'le nettoyage doit rester déclenchable à la main')
+    assert.doesNotMatch(
+      wf,
+      /^\s{2}(push|pull_request|schedule):/m,
+      'un déclencheur automatique est revenu sur un workflow qui supprime des branches'
+    )
+    assert.match(wf, /default: true/, 'le mode annonce n est plus le défaut : une exécution supprimerait sans le dire')
+    assert.match(wf, /inputs\.dry_run/, 'la suppression ne dépend plus d un choix explicite')
+    assert.match(wf, /select\(\.default \| not\)/, 'la branche par défaut du projet n est plus protégée')
+    assert.match(wf, /garde \(hors motif/, 'une branche hors du motif preview/pr-N-… peut entrer dans la liste')
+    // La liste des branches à supprimer se remplit à DEUX endroits, et seulement
+    // là : PR fermée, PR introuvable. Un troisième cas (ou un déplacement) doit
+    // faire rougir ce test.
+    const ajouts = wf.split('>> /tmp/orphelines.txt')
+    assert.equal(ajouts.length - 1, 2, 'la liste à supprimer se remplit ailleurs que dans les deux cas prévus')
+    assert.match(ajouts[0], /state" = "closed"/, 'une PR ouverte peut entrer dans la liste')
+    assert.match(ajouts[1], /PR #\$n introuvable/, 'une PR introuvable n entre plus dans la liste')
+  })
+
   it('distingue snapshot Neon et export indépendant dans la documentation d’exploitation', () => {
     const docs = read('docs/NEON-MIGRATION.md')
     assert.match(docs, /pcstar_backups/)

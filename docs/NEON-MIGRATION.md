@@ -118,6 +118,24 @@ branches de PR pour saturer un plan gratuit ; les branches portent une date
 d'expiration, mais une branche créée avant la mise en place de ce réglage n'en a
 pas — c'est celle-là qu'il faut supprimer à la main.
 
+### Nettoyer les branches de PR orphelines
+
+Onglet **Actions → « Neon — nettoyage des branches de PR » → Run workflow**. Le
+workflow est **manuel** et démarre en **mode annonce** : il liste les branches
+`preview/pr-<n>-…` dont la PR est fermée, puis s'arrête. On relance avec
+`dry_run` décoché pour supprimer réellement.
+
+Ce qu'il ne fait jamais (verrouillé par `src/phase5Reliability.test.js`) :
+
+- supprimer une branche qui ne s'appelle pas `preview/pr-<numéro>-…` ;
+- toucher à la branche par défaut du projet (`.default`) ;
+- supprimer quoi que ce soit quand l'état de la PR n'a pas pu être lu — un
+  « 500 » de l'API GitHub conserve la branche. **Le doute ne supprime pas.**
+
+Au banc (avec un `curl` de test) : PR fermée → supprimée ; PR ouverte → gardée ;
+PR introuvable → supprimée ; PR illisible → gardée ; `main` et une branche hors
+motif → jamais considérées.
+
 ## Diagnostiquer « plus de produits »
 
 ```bash
