@@ -1172,7 +1172,10 @@ describe('P4 — le dictionnaire suit la page (aucune clé morte, aucune langue 
   })
 
   it('les clés des filtres retirés et du décor supprimé sont parties partout', () => {
-    const lues = ['inStoreOnly', 'inStoreOnlyHint', 'useAny', 'availability', 'roRefs', 'roPay', 'builderCheckTitle', 'builderCheckBody', 'chkOkSocket', 'chkOkRam', 'chkOkPsu', 'chkWarnCase']
+    // LOT P25 (S6) : les trois cles des « recherches sauvées » et les six tranches
+    // de prix sont arrivees ici avec leur retrait — la page Recherche ne les lit
+    // plus, et `src/i18n.coverage.test.js` tient le meme compte de son cote.
+    const lues = ['inStoreOnly', 'inStoreOnlyHint', 'useAny', 'availability', 'roRefs', 'roPay', 'builderCheckTitle', 'builderCheckBody', 'chkOkSocket', 'chkOkRam', 'chkOkPsu', 'chkWarnCase', 'saveSearch', 'searchSaved', 'searchFree', 'price_any', 'price_u15', 'price_15_30', 'price_30_50', 'price_50_100', 'price_100p']
     for (const l of LANGS) {
       for (const cle of lues) {
         assert.equal(cle in dict[l.id], false, `${l.id} : la cle ${cle} ne sert plus a rien`)

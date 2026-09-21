@@ -23,8 +23,10 @@
 const KEY_USERS = 'pcstar-users'
 const KEY_META = 'pcstar-catalog'
 const KEY_SESSION = 'pcstar-session'
-const KEY_SAVED_SEARCHES = 'pcstar-saved-searches'
-const MAX_SAVED_SEARCHES = 10
+// LOT P25 (S6) : `KEY_SAVED_SEARCHES` / `MAX_SAVED_SEARCHES` sont partis avec les
+// « recherches sauvées » — le client a demandé leur retrait (« sauver la sauvegarde
+// n'est pas utile »). Rien n'écrit plus `pcstar-saved-searches` : une clé de stockage
+// sans lecteur, c'est une fonctionnalité qu'on croit encore avoir.
 
 // LOT 3.1 (F7 + F8) : accès au stockage qui ne lève jamais + repli mémoire.
 // `loadUsers` / `loadSession` / `loadMeta` étaient appelés dans les
@@ -216,27 +218,6 @@ export function loadUsers(storage = safeStorage) {
 
 export function saveUsers(storage = safeStorage, users) {
   asSafeStorage(storage).setItem(KEY_USERS, JSON.stringify(users))
-}
-
-/** P10 (P7-14) : recherches sauvées persistées (bornées à 10). */
-export function loadSavedSearches(storage = safeStorage) {
-  try {
-    const raw = asSafeStorage(storage).getItem(KEY_SAVED_SEARCHES)
-    if (!raw) return []
-    const list = JSON.parse(raw)
-    return Array.isArray(list) ? list.slice(0, MAX_SAVED_SEARCHES) : []
-  } catch {
-    return []
-  }
-}
-
-export function saveSavedSearches(storage = safeStorage, list = []) {
-  // P15 (#5) : `null` explicite (c'était l'appel de SearchPage) écrasait le
-  // paramètre par défaut → AUCUNE persistance, toute la feature P7-14 était
-  // inopérante. On retombe sur localStorage quand aucun storage n'est fourni.
-  // `asSafeStorage` couvre le quota et le stockage bloqué : les recherches sauvées
-  // restent en mémoire pour la page, sans `try/catch` local.
-  asSafeStorage(storage).setItem(KEY_SAVED_SEARCHES, JSON.stringify((list || []).slice(0, MAX_SAVED_SEARCHES)))
 }
 
 export function loadSession(storage = safeStorage) {

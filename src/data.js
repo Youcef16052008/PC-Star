@@ -336,14 +336,10 @@ export function kindForCategory(category) {
 
 export const SOCKETS = ['AM4', 'AM5', 'LGA1700', 'LGA1851']
 
-export const PRICE_PRESETS = [
-  { id: 'any', label: 'Any price', min: 0, max: 999999 },
-  { id: 'u15', label: 'Under 15 000 DA', min: 0, max: 15000 },
-  { id: '15-30', label: '15 000 – 30 000 DA', min: 15000, max: 30000 },
-  { id: '30-50', label: '30 000 – 50 000 DA', min: 30000, max: 50000 },
-  { id: '50-100', label: '50 000 – 100 000 DA', min: 50000, max: 100000 },
-  { id: '100+', label: '100 000 DA+', min: 100000, max: 999999 }
-]
+// LOT P25 (S6) : `PRICE_PRESETS` (six tranches de prix) est parti avec le filtre
+// qu'il servait — le client tape désormais ses deux bornes (100 DA … 10 000 000 DA,
+// `src/priceRange.js`). Six tranches décidées par le magasin ne savent pas dire
+// « entre 42 000 et 137 000 ».
 
 export const GUIDES = [
   { id: 'dz-budget', titleKey: 'guideHomeBudgetTitle', bodyKey: 'guideHomeBudgetBody' },

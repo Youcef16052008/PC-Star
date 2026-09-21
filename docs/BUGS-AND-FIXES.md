@@ -3605,3 +3605,83 @@ Playwright.
   sur tout l'arbre, `scripts/check-bundle.mjs` sur le bundle). Un mot de passe qui a circulé se
   **remplace**, il ne se retrouve pas : `npm run master:rotate` en écrit un neuf dans `.env.local`
   (0600, jamais affiché), puis `docs/DEPLOY-VERCEL.md` § 8 ter pour Vercel.
+
+## LOT P25 — page Recherche : le prix se tape, marques et rayons se retiennent par plusieurs, la sauvegarde s'en va (demande client du 21/09/2026)
+
+Trois demandes, mot pour mot : « delete moi cette chose sauver la sauvegarde elle n'est pas utile »,
+« le filtre contient les marques, le catalogue […] il faut qu'il soit avancé » (choisir **3 ou 5**
+marques ou rayons **à la fois**), et « le prix écrit par le client au clavier — minimum 100 DA,
+maximum 10 000 000 DA ».
+
+### 1. Les recherches sauvées sont retirées
+
+Partis ensemble, parce qu'un morceau qui survit est le début du retour :
+
+| Ce qui est parti | Où |
+|---|---|
+| État `saved` / `saveNote`, effet de persistance, `saveSearch()`, bouton « Sauver cette recherche », puces des recherches | `src/SearchPage.jsx` |
+| `loadSavedSearches` / `saveSavedSearches` + `KEY_SAVED_SEARCHES` / `MAX_SAVED_SEARCHES` | `src/shopStore.js` |
+| Clés `saveSearch`, `searchSaved`, `searchFree` (fr **et** en) | `src/i18n.js` |
+| 4 verrous (P10/P15) et les 2 verrous Q7 (« ids uniques », « borne à 10 ») | `src/shopStore.test.js`, `src/lot6Quality.test.js` |
+
+Le verrou de non-retour vit maintenant dans `src/p6SearchSurface.test.js` : la page, `shopStore.js`
+et le dictionnaire sont balayés (`pcstar-saved-searches`, `saveSearch`, `saved.map`, les trois clés),
+et `src/i18n.coverage.test.js` garde leur nom dans `groupesRetirés` — une clé qui revient sans écran
+pour la lire rougit.
+
+### 2. Marques **et** rayons se retiennent par plusieurs
+
+Mesuré avant : les deux feuilles se refermaient sur le **premier** clic (`onChoisir` → `setSheet(null)`).
+Comparer trois marques demandait trois allers-retours et trois fois la même phrase retapée dans le
+champ « chercher une marque » ; choisir un second rayon **remplaçait** le premier.
+
+- `src/brandSheet.jsx` gagne un mode **explicite** `multiple` (le clic bascule, la feuille reste
+  ouverte, un pied `piedLabel`/`onPied` ferme) — et un pied qui porte **le compte des résultats**, qui
+  bouge à chaque bascule. Le mode par défaut reste mono-sélection : la vitrine (`src/App.jsx`) garde
+  son contrat, un composant partagé qui change de comportement sous son premier client est la
+  divergence de demain.
+- La feuille catalogue bascule les rayons de la même façon. `all` n'entre **jamais** dans la
+  sélection : choisir « Tout le catalogue » la **vide** (sinon le filtre dirait « GPU et tout le
+  catalogue »). Chaque rayon retenu a sa puce dans les filtres actifs, et le bouton de la barre
+  reporte `· 3 rayons` (son nom, quand il n'y en a qu'un).
+- La règle P6/S4 (une marque qui ne vend rien dans le rayon choisi est retirée **et annoncée**) juge
+  désormais sur l'**ensemble** des rayons retenus : une marque tient dès qu'elle vend dans l'un d'eux.
+  `src/filterDrop.js` n'a pas bougé — seule la liste qu'on lui passe a changé de taille.
+
+### 3. Le prix se tape (100 DA … 10 000 000 DA)
+
+Avant : six cases dans l'aside du bureau (`Moins de 15 000 DA`, `15 000 – 30 000`, …, `100 000 DA+`)
+et un `<select>` de six tranches dans le tiroir mobile — **deux formes pour une règle**, et aucune
+des deux ne sait dire « entre 42 000 et 137 000 ».
+
+- `src/priceRange.js` porte la règle : le texte du champ est réduit aux chiffres (`textePrix`), une
+  borne hors fenêtre est **corrigée à la sortie du champ** (`texteBorne` : « 50 » devient « 100 »),
+  un champ vide veut dire « pas de borne » (jamais 0), et `min > max` est **signalé**
+  (`priceInverted`) au lieu d'être échangé en silence sous les yeux du client.
+- `src/priceRange.jsx` est le **seul** bloc de prix : les deux surfaces le rendent avec deux
+  `idPrefix` (`prix-bureau`, `prix-mobile`), `inputMode="numeric"` (clavier numérique sur téléphone),
+  le suffixe de devise de `src/format.js` et la fenêtre autorisée écrite sous les champs (reliée par
+  `aria-describedby`). La puce de filtre porte le prix **écrit** (`42 000 DA – 137 000 DA`).
+- `PRICE_PRESETS` (`src/data.js`), `PRICE_KEYS` et les six clés `price_*` sont partis avec les
+  tranches ; `src/i18n.coverage.test.js` les garde dans `groupesRetirés`.
+
+### Mesures et portes
+
+- `src/p6SearchSurface.test.js` : **46 → 55 tests** (55 verts) — dont 2 pour la règle du prix
+  testée pour elle-même, 4 à l'écran (bornes, hors-fenêtre + sortie du champ, paire inversée,
+  tiroir mobile = même état), et 3 de non-retour.
+- `src/shopStore.test.js` 21 → 17 verts, `src/lot6Quality.test.js` 28 → 26 verts.
+- Suite complète : **1 168 tests verts** (contre 1 163). `scripts/jsdom-crawl.mjs` : 24 pages,
+  0 erreur. `scripts/audit-buttons.mjs` : **32 vérifications OK**. `npm run build` :
+  9 fichiers, `check-bundle` — aucun secret.
+
+### Reste ouvert, écrit ici
+
+- **Aucun rendu dans un vrai moteur cette session** : les navigateurs Playwright ne sont pas
+  installés hors-ligne (`npx playwright install chromium` échoue au téléchargement), donc le prix
+  tapé, la feuille à trois marques et le tiroir mobile n'ont été vus qu'en jsdom + les deux harnais.
+  C'est la première chose à regarder à la prochaine session qui a un Chromium.
+- Le montant tapé n'est **pas** mémorisé d'une visite à l'autre (les rayons, les marques et l'état
+  non plus) : `EMPTY` reste l'ouverture de la page. Aucune demande en ce sens.
+- La vitrine garde le filtre marque **mono-sélection** : le mode multiple est opt-in côté recherche.
+  L'étendre à la vitrine est une demande à part entière, pas un effet de bord.

@@ -34,6 +34,11 @@ export const dict = {
     roRepairs: 'réparations faites',
     filterBrands: 'Filtrer par marque',
     filterCatalog: 'Filtrer par catalogue',
+    // LOT P25 (S6) : plusieurs rayons retenus a la fois — le bouton dit « 3 rayons »
+    // au-dela d'un, et la feuille porte sa sortie (« Voir les 47 résultats »), qui
+    // suit chaque bascule.
+    linesChosen: '{n} rayons',
+    filterApply: 'Voir les {n} résultat(s)',
     brandSearchPh: 'Chercher une marque',
     noBrands: 'Aucune marque ne correspond.',
     shopCount: '{n} produits',
@@ -246,13 +251,10 @@ export const dict = {
     searchOneType: 'Explorez tous les rayons — composants, ordinateurs, imprimantes, réseau, accessoires et occasion. Retrait à {address}.',
     filters: 'Filtres',
     reset: 'Tout effacer',   // EN « Reset » : le verbe francais, pas l'anglicisme
-    // Le nom d'une recherche enregistree sans aucun filtre — sans lui, la puce etait
-    // vide, et une puce vide ne se relit pas deux jours plus tard.
-    searchFree: 'Recherche libre',
     // Le filtre qu'on retire sous les yeux du client, dit a voix haute (lot S4).
+    // LOT P25 (S6) : il nomme desormais TOUS les rayons retenus — la regle est
+    // partagee, seule la liste qu'on lui passe a change de taille.
     filterDrop: '{brands} ne vend rien dans {line} — filtre marque retiré.',
-    saveSearch: 'Sauver cette recherche',
-    searchSaved: 'Recherche sauvée',
     brands: 'Marques',
     socket: 'Socket',
     any: 'Tous',
@@ -380,12 +382,16 @@ export const dict = {
     line_chairs: 'Chaises PC',
     line_desks: 'Bureaux & supports',
     line_deals: 'Occasion & bonnes affaires',
-    price_any: 'Tout prix',
-    price_u15: 'Moins de 15 000 DA',
-    price_15_30: '15 000 – 30 000 DA',
-    price_30_50: '30 000 – 50 000 DA',
-    price_50_100: '50 000 – 100 000 DA',
-    price_100p: '100 000 DA+',
+    // LOT P25 (S6) : le client TAPE ses deux bornes (100 DA … 10 000 000 DA). Les
+    // six tranches de l'ancien filtre (`price_any`, `price_u15`, `price_15_30`,
+    // `price_30_50`, `price_50_100`, `price_100p`) sont parties avec lui : garder
+    // six libelles qu'aucun ecran ne lit, c'est promettre un filtre qui n'existe plus.
+    priceMin: 'Prix minimum',
+    priceMax: 'Prix maximum',
+    priceWindow: 'Prix tapé au clavier : de {min} à {max}.',
+    priceInverted: 'Le prix minimum dépasse le maximum — aucune fiche ne peut correspondre.',
+    priceFrom: 'À partir de {v}',
+    priceUpTo: "Jusqu'à {v}",
     masterOnlyGuide: 'Guide réservé au master.',
     masterOnlyGuideNote: 'Page interne magasin — invisible pour les clients.',
     masterOnlyDesk: 'Liste comptoir réservée au master.',
@@ -721,6 +727,8 @@ export const dict = {
     roRepairs: 'repairs done',
     filterBrands: 'Filter by brand',
     filterCatalog: 'Filter by catalogue',
+    linesChosen: '{n} departments',
+    filterApply: 'See the {n} result(s)',
     brandSearchPh: 'Search a brand',
     noBrands: 'No brand matches.',
     shopCount: '{n} products',
@@ -926,10 +934,7 @@ export const dict = {
     searchOneType: 'Explore every department — parts, computers, printers, network, accessories and used stock. Pickup at {address}.',
     filters: 'Filters',
     reset: 'Reset',
-    searchFree: 'Free search',
     filterDrop: '{brands} sells nothing in {line} — brand filter removed.',
-    saveSearch: 'Save this search',
-    searchSaved: 'Search saved',
     brands: 'Brands',
     socket: 'Socket',
     any: 'Any',
@@ -1057,12 +1062,12 @@ export const dict = {
     line_chairs: 'PC chairs',
     line_desks: 'Desks & stands',
     line_deals: 'Used & good deals',
-    price_any: 'Any price',
-    price_u15: 'Under 15 000 DA',
-    price_15_30: '15 000 – 30 000 DA',
-    price_30_50: '30 000 – 50 000 DA',
-    price_50_100: '50 000 – 100 000 DA',
-    price_100p: '100 000 DA+',
+    priceMin: 'Minimum price',
+    priceMax: 'Maximum price',
+    priceWindow: 'Price typed on the keyboard: from {min} to {max}.',
+    priceInverted: 'The minimum price is above the maximum — no item can match.',
+    priceFrom: 'From {v}',
+    priceUpTo: 'Up to {v}',
     masterOnlyGuide: 'Guide is master-only.',
     masterOnlyGuideNote: 'Internal shop page — hidden from customers.',
     masterOnlyDesk: 'Desk list is master-only.',

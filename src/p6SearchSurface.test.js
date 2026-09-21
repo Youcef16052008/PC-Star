@@ -19,6 +19,16 @@
  *  · une seule feuille est ouverte à la fois, et le bouton porte la valeur choisie
  *    une fois la feuille refermée (sinon le filtre choisi devient invisible).
  *
+ * LOT P25 (S6) — le client a ensuite demande trois choses sur cette meme page :
+ *  · les « recherches sauvees » sont retirees (« sauver la sauvegarde n'est pas
+ *    utile ») — le bouton, les puces, la persistance et la cle i18n sont partis, et
+ *    un verrou interdit leur retour ;
+ *  · les marques ET les catalogues se retiennent PAR PLUSIEURS (trois, cinq, ou
+ *    moins, ou plus) : les deux feuilles ne se referment plus sur un clic, elles
+ *    portent leur sortie (« Voir les N resultats ») et le compte suit chaque bascule ;
+ *  · le prix se TAPE au clavier, borne a 100 DA … 10 000 000 DA (`src/priceRange.js`),
+ *    au lieu des six tranches decidees par le magasin.
+ *
  * Comme dans `src/p3Vitrine.test.js`, les libellés sont comparés via `t()` (même
  * dictionnaire, même process) ou sur une sous-chaîne ASCII : le conteneur peut
  * réécrire les accents en double encodage, et un test qui tape une chaîne
@@ -53,8 +63,13 @@ process.env.PCSTAR_DATA_DIR = dir
 const { dict, LANGS } = await import('./i18n.js')
 const { PAGE_TAILLE, TAILLES, fenetrePages, pageCourante, pagesPour, POINT_DE_SUSPENSION, tailleSure, tranche } = await import('./pager.js')
 const { default: SearchPage } = await import('./SearchPage.jsx')
-const { PART_LINES, PRODUCTS } = await import('./data.js')
-const { loadSavedSearches, createMemoryStorage } = await import('./shopStore.js')
+const { PART_LINES, PRODUCTS, money } = await import('./data.js')
+// LOT P25 (S6) : les regles du prix tape, testees pour elles-memes.
+const { PRIX_MAX, PRIX_MIN, bornesPrix, prixRetenu, texteBorne, textePrix } = await import('./priceRange.js')
+// LOT P25 (S6) : `loadSavedSearches` n'est plus importe ici — la fonctionnalite a
+// ete retiree sur demande du client, et un import qui survit au retrait est la
+// premiere piece du retour en arriere.
+const { createMemoryStorage } = await import('./shopStore.js')
 const { filtresRetires, noteRetrait } = await import('./filterDrop.js')
 const { CLE_PAGER, chargerTaille, garderTaille } = await import('./pagerStore.js')
 const React = (await import('react')).default
@@ -145,6 +160,21 @@ const choisir = (el, valeur) =>
   act(async () => {
     Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, 'value').set.call(el, valeur)
     el.dispatchEvent(new window.Event('change', { bubbles: true }))
+  })
+/**
+ * Ecrire dans un champ React : le setter natif puis l'evenement que React ecoute
+ * (`input`, pas `change` — un `<input>` de texte ne leve pas `change` a chaque
+ * frappe, et un verrou qui simule mal le clavier ne prouve rien du clavier).
+ */
+const taper = (el, valeur) =>
+  act(async () => {
+    Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set.call(el, valeur)
+    el.dispatchEvent(new window.Event('input', { bubbles: true }))
+  })
+/** Sortir du champ : React branche `onBlur` sur `focusout` (qui bulle), pas `blur`. */
+const flou = (el) =>
+  act(async () => {
+    el.dispatchEvent(new window.FocusEvent('focusout', { bubbles: true }))
   })
 const echap = () =>
   act(async () => {
@@ -247,7 +277,7 @@ describe('P6/S1 — la barre de filtres : deux boutons, rien d’étalé avant l
     assert.equal(hote.querySelector('#search-sheet-catalog') == null, true, 'un second clic n’a pas refermé la feuille')
   })
 
-  it('choisir un rayon ferme la feuille, filtre les résultats, et le bouton porte le nom du rayon', async () => {
+  it('choisir un rayon filtre les résultats, et le bouton porte le nom du rayon', async () => {
     rend()
     await settle(120)
     await clique(bouton(t('filterCatalog')))
@@ -262,9 +292,16 @@ describe('P6/S1 — la barre de filtres : deux boutons, rien d’étalé avant l
     const avant = totalAnnonce()
     await clique(gpu)
     await settle(80)
-    assert.equal(hote.querySelector('#search-sheet-catalog') == null, true, 'la feuille est restée ouverte apres le choix')
+    // LOT P25 (S6) : le rayon s'AJOUTE a la selection, donc la feuille reste ouverte
+    // et c'est son pied qui ferme. Le verrou precedent exigeait la fermeture au
+    // premier clic — c'est exactement ce que le client a demande de changer (« trois
+    // ou cinq rayons d'un coup » demandait trois allers-retours).
+    assert.ok(hote.querySelector('#search-sheet-catalog'), 'la feuille s’est refermée sur un rayon : P25 la garde ouverte')
     assert.notEqual(totalAnnonce(), avant, 'changer de rayon ne change rien aux résultats (filtre décoratif)')
-    assert.match(bouton([...boutons()].map((b) => b.textContent.trim()).find((x) => x.startsWith(t('filterCatalog')))).textContent, /GPU|graphics/i, 'le bouton ne porte pas le rayon choisi')
+    assert.match(bouton(t('filterCatalog')).textContent, /GPU|graphics/i, 'le bouton ne porte pas le rayon choisi')
+    await clique(boutonExact(t('filterApply', { n: totalAnnonce() })))
+    await settle(60)
+    assert.equal(hote.querySelector('#search-sheet-catalog') == null, true, 'la sortie de la feuille ne la ferme pas')
   })
 
   it('la feuille des marques filtre réellement, et son bouton porte le nombre choisi', async () => {
@@ -279,14 +316,13 @@ describe('P6/S1 — la barre de filtres : deux boutons, rien d’étalé avant l
     await clique(marquent[0])
     await settle(80)
     const choisie = marquent[0].textContent.trim()
-    assert.equal(hote.querySelector('#search-sheet-brands') == null, true, 'la feuille est restée ouverte apres le choix')
+    assert.ok(hote.querySelector('#search-sheet-brands'), 'la feuille s’est refermée sur la marque : P25 la garde ouverte')
     assert.ok(totalAnnonce() < avant, `la marque « ${choisie} » ne réduit pas les résultats (${totalAnnonce()} vs ${avant})`)
     assert.equal(cartes() > 0, true, 'la marque choisie ne rend aucune fiche')
     const boutonMarque = boutons().find((b) => b.textContent.trim().startsWith(t('filterBrands')))
-    assert.match(boutonMarque.textContent, /·\s*1/, 'le bouton ne dit pas qu’une marque est active une fois la feuille fermée')
-    // Le meme bouton, une seconde fois : la feuille se rouvre et la marque choisie
-    // y est marquee active (sinon le client ne peut pas la retirer sans la retrouver).
-    await clique(boutonMarque)
+    assert.match(boutonMarque.textContent, /·\s*1/, 'le bouton ne dit pas qu’une marque est active')
+    // La marque choisie est marquee active dans la feuille (sinon le client ne peut
+    // pas la retirer sans la retrouver).
     const active = [...hote.querySelectorAll('#search-sheet-brands button')].find((b) => b.textContent.trim() === choisie)
     assert.match(active.className, /btn-success/, 'la marque choisie n’est pas marquee active dans la feuille')
   })
@@ -307,11 +343,14 @@ describe('P6/S1 — la barre de filtres : deux boutons, rien d’étalé avant l
     await clique(bouton(t('filterBrands')))
     const marquent = [...hote.querySelectorAll('#search-sheet-brands button')].filter((b) => b.textContent.trim() !== t('cat_all'))
     await clique(marquent[1])
-    await clique(bouton(t('filterBrands')))
+    await settle(60)
+    // LOT P25 (S6) : la feuille ne s'est pas refermee sur la marque, « Tout » efface
+    // donc la selection sur place — le client revient a la liste entiere sans rouvrir.
     const avant = totalAnnonce()
     await clique([...hote.querySelectorAll('#search-sheet-brands button')].find((b) => b.textContent.trim() === t('cat_all')))
     await settle(80)
     assert.ok(totalAnnonce() > avant, 'revenir a « tout » n’a rien rendu')
+    assert.equal(boutons().find((b) => b.textContent.trim().startsWith(t('filterBrands'))).textContent.trim(), t('filterBrands'), 'le bouton garde la marque effacée')
   })
 })
 
@@ -436,14 +475,30 @@ describe('P6/S2 — les résultats de la recherche tiennent une page', () => {
 })
 
 describe('P6/S1 — la compatibilité n’est demandée qu’aux pièces qui en ont une', () => {
-  /** Ouvre la feuille catalogue, deplie le groupe demande, choisit le rayon. */
+  /**
+   * Choisit UN rayon, et un seul, pour ce verrou-ci.
+   *
+   * LOT P25 (S6) : la feuille ne se referme plus sur un choix et les rayons
+   * s'additionnent (« cpu puis laptop » retiendrait les deux, et le socket
+   * resterait demande). Une selection de depart est donc remise a zero avant
+   * chaque etape, par le « Tout effacer » de la barre — puis on deplie le groupe
+   * du rayon seulement s'il ne l'est pas deja.
+   */
   async function choisisRayon(idRayon) {
-    await clique(bouton(t('filterCatalog')))
+    const effacer = [...hote.querySelectorAll(`${BARRE} button`)].find((b) => b.textContent.trim() === t('reset'))
+    if (effacer) {
+      await clique(effacer)
+      await settle(40)
+    }
+    if (hote.querySelector('#search-sheet-catalog') == null) await clique(bouton(t('filterCatalog')))
     const feuille = hote.querySelector('#search-sheet-catalog')
     assert.ok(feuille, 'la feuille catalogue ne s’est pas ouverte')
     const ligne = PART_LINES.find((l) => l.id === idRayon)
-    const tete = [...feuille.querySelectorAll('button')].find((b) => b.textContent.trim() === t(`panel_${ligne.group}`) || b.textContent.trim() === (dict.fr[`panel_${ligne.group}`] ?? dict.fr[`panel${ligne.group[0].toUpperCase()}${ligne.group.slice(1)}`]))
-    if (tete) await clique(tete)
+    if (hote.querySelector(`#search-grid-${ligne.group}`) == null) {
+      const tete = [...feuille.querySelectorAll('button')].find((b) => b.textContent.trim() === t(`panel_${ligne.group}`) || b.textContent.trim() === (dict.fr[`panel_${ligne.group}`] ?? dict.fr[`panel${ligne.group[0].toUpperCase()}${ligne.group.slice(1)}`]))
+      if (tete) await clique(tete)
+      await settle(40)
+    }
     const boutonRayon = boutonExact(t(`line_${idRayon}`)) || boutonExact(ligne.label)
     assert.ok(boutonRayon, `le rayon « ${idRayon} » n’apparait pas dans la feuille (groupe ${ligne.group})`)
     await clique(boutonRayon)
@@ -701,22 +756,114 @@ describe('P6/S3 — la feuille des marques, la fenêtre de pages et le clavier',
     assert.match(select.closest('label').textContent, new RegExp(t('pageSize')), 'le texte visible ne nomme plus le contrôle')
   })
 
-  it('une recherche enregistrée se nomme, et ne porte pas le défaut du catalogue', async () => {
+  it('la feuille des marques garde PLUSIEURS marques, et la sortie dit ce que ça donne', async () => {
     rend()
     await settle(120)
-    await clique(bouton(t('saveSearch')))
+    await clique(bouton(t('filterBrands')))
+    const feuille = hote.querySelector('#search-sheet-brands')
+    assert.ok(feuille, 'la feuille des marques ne s’ouvre pas : rien à verrouiller')
+    const puces = [...feuille.querySelectorAll('.filter-sheet-grid button')]
+      .map((b) => b.textContent.trim())
+      .filter((x) => x !== t('cat_all'))
+    assert.ok(puces.length >= 3, `${puces.length} marque(s) proposée(s) : il en faut trois pour ce verrou`)
+    const toutes = totalAnnonce()
+    // TROIS marques d'un seul passage — c'est la demande, mot pour mot.
+    for (const marque of puces.slice(0, 3)) {
+      await clique(boutonExact(marque))
+      await settle(40)
+    }
+    // La feuille est TOUJOURS ouverte : refermer sur le premier clic, c'était trois
+    // allers-retours et trois fois la même recherche tapée dans le champ.
+    assert.ok(hote.querySelector('#search-sheet-brands'), 'la feuille s’est refermée sur la première marque')
+    const boutonMarque = boutons().find((b) => b.textContent.trim().startsWith(t('filterBrands')))
+    assert.match(boutonMarque.textContent, /·\s*3/, `le bouton ne dit pas trois marques : ${boutonMarque.textContent.trim()}`)
+    const apres = totalAnnonce()
+    assert.ok(apres < toutes, `trois marques ne réduisent pas la liste (${apres} vs ${toutes})`)
+    // Chaque marque retenue est marquée dans la feuille, et se retire d'un clic.
+    for (const marque of puces.slice(0, 3)) {
+      const active = [...hote.querySelectorAll('#search-sheet-brands button')].find((b) => b.textContent.trim() === marque)
+      assert.match(active.className, /btn-success/, `« ${marque} » n’est pas marquée active dans la feuille`)
+    }
+    // La sortie est un bouton qui porte le compte des résultats, et il ferme.
+    const sortie = [...hote.querySelectorAll('#search-sheet-brands button')].find((b) => b.textContent.trim() === t('filterApply', { n: apres }))
+    assert.ok(sortie, `la feuille n’offre pas de sortie avec le compte (${apres})`)
+    await clique(sortie)
     await settle(60)
-    // La source de verite, c'est ce qui est persiste (et `saved.map` rend une puce
-    // par entree) — pas une classe Bootstrap qui habille aussi la bascule Grille/
-    // Liste et les numeros du pager.
-    const dernier = loadSavedSearches()[0]
-    assert.ok(dernier, 'la recherche nenregistrée na rien laisse en magasin')
-    // Sans aucun filtre, la puce a quand meme un nom : « Recherche libre ». Une puce
-    // vide ne se relit pas deux jours plus tard.
-    assert.equal(dernier.title, t('searchFree'), `nom de la recherche sans filtre : ${JSON.stringify(dernier.title)}`)
-    assert.equal(loadSavedSearches().some((x) => String(x.title).includes(t('line_all'))), false, 'le défaut du catalogue est devenu un choix dans le nom')
-    const puces = [...hote.querySelectorAll('.filter-sheet button, .d-flex.flex-wrap.gap-1.mb-3 button')].map((b) => b.textContent.trim())
-    assert.ok(puces.includes(t('searchFree')), `la puce narrive pas a lecran : ${puces.join(' | ')}`)
+    assert.equal(hote.querySelector('#search-sheet-brands') == null, true, 'la sortie ne ferme pas la feuille')
+    // Un clic de plus sur une puce déjà retenue la retire : 3 marques → 2, et la
+    // liste RETRECIT (retenir une marque AJOUTE ses fiches, la relâcher les enlève).
+    await clique(boutonMarque)
+    assert.ok(hote.querySelector('#search-sheet-brands'), 'le bouton n’a pas rouvert la feuille')
+    await clique(boutonExact(puces[0]))
+    await settle(60)
+    const apresRetrait = totalAnnonce()
+    assert.ok(apresRetrait < apres, `relâcher une marque n’enlève pas ses fiches (${apresRetrait} vs ${apres})`)
+    const reste = boutons().find((b) => b.textContent.trim().startsWith(t('filterBrands')))
+    assert.match(reste.textContent, /·\s*2/, `le bouton ne redescend pas à deux marques : ${reste.textContent.trim()}`)
+  })
+
+  it('le catalogue aussi : trois rayons retenus ensemble, et les puces les nomment', async () => {
+    rend()
+    await settle(120)
+    await clique(bouton(t('filterCatalog')))
+    const feuille = () => hote.querySelector('#search-sheet-catalog')
+    assert.ok(feuille(), 'la feuille catalogue ne s’ouvre pas')
+    // On déplie le groupe des pièces PC — c'est là qu'il y a de quoi choisir trois
+    // rayons qui ne se recouvrent pas.
+    const tete = [...feuille().querySelectorAll('button')].find((b) => b.textContent.trim() === t('panelParts'))
+    assert.ok(tete, 'l’en-tête « pièces PC » n’est pas dans la feuille')
+    await clique(tete)
+    await settle(60)
+    const rayons = ['gpu', 'cpu', 'motherboard'].map((id) => {
+      const ligne = PART_LINES.find((l) => l.id === id)
+      return () => boutonExact(t(`line_${id}`)) || boutonExact(ligne.label)
+    })
+    const cibles = rayons.map((f) => f())
+    for (const cible of cibles) assert.ok(cible, 'un des rayons de la fixture n’est plus dans la feuille')
+    const avant = totalAnnonce()
+    for (const cible of cibles) {
+      await clique(cible)
+      await settle(40)
+    }
+    assert.ok(feuille(), 'la feuille s’est refermée sur le premier rayon')
+    const boutonCat = boutons().find((b) => b.textContent.trim().startsWith(t('filterCatalog')))
+    assert.match(boutonCat.textContent, new RegExp(t('linesChosen', { n: 3 }).replace(/\d/, '\\d')), `le bouton ne dit pas trois rayons : ${boutonCat.textContent.trim()}`)
+    const apres = totalAnnonce()
+    assert.ok(apres > 0 && apres < avant, `trois rayons ne filtrent pas (${apres} vs ${avant})`)
+    // Chaque rayon retenu est une puce (« GPU × ») parmi les filtres actifs : il se
+    // retire d'un clic, sans rouvrir la feuille pour retrouver où il était.
+    const puces = () => [...hote.querySelectorAll('button')].filter((b) => b.textContent.trim().endsWith('×')).map((b) => b.textContent.trim())
+    for (const id of ['gpu', 'cpu', 'motherboard']) {
+      const libelle = t(`line_${id}`) !== `line_${id}` ? t(`line_${id}`) : PART_LINES.find((l) => l.id === id).label
+      assert.ok(puces().some((x) => x.startsWith(libelle)), `le rayon ${id} n’a pas sa puce (${puces().join(' | ')})`)
+    }
+    await clique([...hote.querySelectorAll('button')].find((b) => b.textContent.trim() === `${t('line_gpu')} ×`))
+    await settle(60)
+    const apresRetrait = totalAnnonce()
+    assert.ok(apresRetrait < apres, `relâcher un rayon n’enlève pas ses fiches (${apresRetrait} vs ${apres})`)
+    const boutonCat2 = boutons().find((b) => b.textContent.trim().startsWith(t('filterCatalog')))
+    assert.match(boutonCat2.textContent, new RegExp(t('linesChosen', { n: 2 }).replace(/\d/, '\\d')), `le bouton ne redescend pas à deux rayons : ${boutonCat2.textContent.trim()}`)
+  })
+
+  it('« Tout le catalogue » vide la sélection au lieu de s’y ajouter', async () => {
+    rend()
+    await settle(120)
+    await clique(bouton(t('filterCatalog')))
+    await clique([...hote.querySelectorAll('#search-sheet-catalog button')].find((b) => b.textContent.trim() === t('panelParts')))
+    await settle(60)
+    await clique(boutonExact(t('line_gpu')))
+    await settle(60)
+    // La pastille « Tout le catalogue » vit dans le groupe « Explorer » : on y
+    // revient comme le client le ferait (un groupe deplie a la fois).
+    await clique([...hote.querySelectorAll('#search-sheet-catalog button')].find((b) => b.textContent.trim() === t('panelCatalog')))
+    await settle(40)
+    const avant = totalAnnonce()
+    assert.ok(avant < produits.length, 'le rayon GPU n’a rien filtré')
+    await clique(boutonExact(t('line_all')))
+    await settle(60)
+    assert.equal(totalAnnonce(), produits.length, '« Tout le catalogue » ne rend pas toute la liste')
+    const boutonCat = boutons().find((b) => b.textContent.trim().startsWith(t('filterCatalog')))
+    assert.equal(boutonCat.textContent.trim(), t('filterCatalog'), `le bouton porte encore une sélection : ${boutonCat.textContent.trim()}`)
   })
 
 describe('P6/S3 — la forme des verrous (le pige est arrivé deux fois dans ce lot)', () => {
@@ -884,7 +1031,9 @@ describe('P6/S4 — une marque que le rayon ne vend plus est retiree, et le clie
     await settle(60)
     const feuille = hote.querySelector('#search-sheet-brands')
     assert.ok(feuille, 'la feuille des marques ne se rouvre pas')
-    const actives = [...feuille.querySelectorAll('button')].filter((b) => /btn-success/.test(b.className)).map((b) => b.textContent.trim())
+    // La grille, pas la feuille entiere : depuis P25 le pied de feuille (« Voir les
+    // N résultats ») est un bouton vert lui aussi, et il ne dit rien des marques.
+    const actives = [...feuille.querySelectorAll('.filter-sheet-grid button')].filter((b) => /btn-success/.test(b.className)).map((b) => b.textContent.trim())
     assert.deepEqual(actives.filter((x) => x !== t('cat_all')), [], `une marque est encore marquee active : ${actives.join(', ')}`)
     await clique(bouton(t('filterBrands')))
     await settle(60)
@@ -1021,5 +1170,179 @@ describe('P6/S5 — le choix de taille survit a la navigation (et au rechargemen
     // des formats differents est la facon la plus rapide de la rendre illisible.
     assert.equal((module.match(/pcstar-pager/g) || []).length, 1, 'la cle du pager est redeclaree en dur')
     assert.match(module, /tailleSure\(/, 'la valeur relue ne repasse pas par le garde-fou de linterface')
+  })
+})
+
+/* ------------------------------------------------------------------------ */
+/* LOT P25 (S6) — le prix se tape, la sauvegarde s'en va.                    */
+/* ------------------------------------------------------------------------ */
+
+describe('P6/S6 — la règle du prix, testée pour elle-même', () => {
+  it('bornePrix : la fenêtre du client (100 DA … 10 000 000 DA) est appliquée, pas devinée', () => {
+    assert.equal(PRIX_MIN, 100)
+    assert.equal(PRIX_MAX, 10000000)
+    assert.deepEqual(bornesPrix('', ''), { min: null, max: null, actif: false, inverse: false }, 'un champ vide est « pas de borne », pas « 0 »')
+    assert.equal(bornesPrix('0', '').min, PRIX_MIN, 'sous 100 DA, la borne remonte au minimum annoncé')
+    assert.equal(bornesPrix('', '99999999999').max, PRIX_MAX, 'au-dessus de 10 000 000 DA, la borne redescend')
+    assert.equal(bornesPrix('42000', '137000').min, 42000, 'un prix dans la fenêtre est gardé tel quel')
+    assert.equal(bornesPrix('42000', '137000').max, 137000)
+    assert.equal(bornesPrix('42000', '137000').actif, true)
+    assert.equal(bornesPrix('42000', '137000').inverse, false)
+    // Le cas que le client provoque en tapant : on ne l'échange pas sous ses yeux,
+    // on le dit (`priceInverted`) et la liste ne peut rien rendre.
+    assert.equal(bornesPrix('137000', '42000').inverse, true, 'un minimum au-dessus du maximum n’est pas signalé')
+    assert.equal(prixRetenu(100000, bornesPrix('137000', '42000')), false, 'la paire inversée ne filtre rien')
+  })
+
+  it('le clavier : ce qui sort du champ, et ce qu\'il affiche quand on en sort', () => {
+    assert.equal(textePrix('12 000 DA'), '12000', 'les espaces et le suffixe collés depuis WhatsApp ne sont pas des chiffres')
+    assert.equal(textePrix('-50'), '50', 'le signe n’a pas de sens sur un prix')
+    assert.equal(textePrix('abc'), '')
+    assert.equal(textePrix(null), '')
+    assert.equal(texteBorne('50'), '100', 'le champ affiche la borne APPLIQUÉE, pas la saisie refusée')
+    assert.equal(texteBorne('20000000'), '10000000')
+    assert.equal(texteBorne('90000'), '90000', 'une saisie valide n’est pas retouchée')
+    assert.equal(texteBorne(''), '', 'un champ vidé le reste')
+    assert.equal(prixRetenu(99999, bornesPrix('100000', '')), false)
+    assert.equal(prixRetenu(100000, bornesPrix('100000', '')), true, 'la borne est INCLUSE : « à partir de » veut dire à partir de')
+    assert.equal(prixRetenu(1, bornesPrix('', '')), true, 'sans borne, tout passe')
+    assert.equal(prixRetenu(5000, bornesPrix('', '10000')), true)
+    assert.equal(prixRetenu(10001, bornesPrix('', '10000')), false)
+  })
+})
+
+describe('P6/S6 — le prix tapé à l’écran : deux champs, une puce, aucune tranche', () => {
+  it('les bornes tapées filtrent la liste, et la puce porte le prix écrit', async () => {
+    rend()
+    await settle(120)
+    const min = hote.querySelector('#prix-bureau-min')
+    const max = hote.querySelector('#prix-bureau-max')
+    assert.ok(min, 'le champ « prix minimum » est absent de l’aside du bureau')
+    assert.ok(max, 'le champ « prix maximum » est absent de l’aside du bureau')
+    // La fenêtre autorisée est écrite sous les champs (et reliée aux deux par
+    // `aria-describedby`) : le client qui tape « 50 » doit pouvoir lire d'avance
+    // pourquoi ce sera 100.
+    const fenetre = hote.querySelector('#prix-bureau-fenetre')
+    assert.ok(fenetre, 'la fenêtre autorisée (100 DA … 10 000 000 DA) n’est pas écrite')
+    assert.match(fenetre.textContent, /100/)
+    assert.match(fenetre.textContent, /10[^\d]*000[^\d]*000/)
+    assert.equal(min.getAttribute('aria-describedby'), 'prix-bureau-fenetre')
+    // Un champ de saisie, pas une liste déroulante ni six cases.
+    assert.equal(min.getAttribute('inputmode'), 'numeric', 'le clavier numérique ne s’ouvre pas sur un téléphone')
+    assert.equal(cases().filter((c) => c.name === 'price').length, 0, 'des cases de prix sont encore rendues')
+
+    const avant = totalAnnonce()
+    await taper(min, '100000')
+    await settle(60)
+    const attendu = produits.filter((p) => p.price >= 100000).length
+    assert.equal(totalAnnonce(), attendu, `la borne basse ne filtre pas (${totalAnnonce()} au lieu de ${attendu})`)
+    assert.ok(totalAnnonce() < avant, 'la borne tapée ne change rien à la liste')
+    await taper(max, '200000')
+    await settle(60)
+    const deux = produits.filter((p) => p.price >= 100000 && p.price <= 200000).length
+    assert.equal(totalAnnonce(), deux, `les deux bornes ne filtrent pas (${totalAnnonce()} au lieu de ${deux})`)
+    // La puce nomme le prix écrit, avec le formatage de `money` (une seule règle).
+    const libelle = `${money(100000, 'fr')} – ${money(200000, 'fr')}`
+    assert.ok(boutons().some((b) => b.textContent.trim() === `${libelle} ×`), `aucune puce « ${libelle} » (${boutons().map((b) => b.textContent.trim()).filter((x) => x.endsWith('×')).join(' | ')})`)
+    // Et la retirer rend toute la liste.
+    await clique(boutons().find((b) => b.textContent.trim() === `${libelle} ×`))
+    await settle(60)
+    assert.equal(totalAnnonce(), produits.length, 'retirer la puce de prix ne rend pas la liste entière')
+    assert.equal(min.value, '', 'la puce retirée laisse la borne dans le champ')
+  })
+
+  it('une borne hors fenêtre est corrigée à la sortie du champ, pas en silence', async () => {
+    rend()
+    await settle(120)
+    const min = hote.querySelector('#prix-bureau-min')
+    await taper(min, '50')
+    await settle(60)
+    // Pendant la frappe, c'est la borne APPLIQUÉE qui filtre déjà (100 DA) : le
+    // client ne peut pas croire qu'il cherche sous 100 DA.
+    assert.equal(totalAnnonce(), produits.filter((p) => p.price >= PRIX_MIN).length, 'une borne sous 100 DA filtre sous 100 DA')
+    // …et la puce dit la borne appliquée, pas celle qui a été tapée : c'est elle
+    // que le client relit pour comprendre ce qui filtre.
+    const puce = (libelle) => boutons().some((b) => b.textContent.trim() === `${libelle} ×`)
+    assert.ok(puce(t('priceFrom', { v: money(PRIX_MIN, 'fr') })), `la puce ne dit pas la borne appliquée (100 DA) : ${boutons().map((b) => b.textContent.trim()).filter((x) => x.endsWith('×')).join(' | ')}`)
+    await flou(min)
+    await settle(60)
+    assert.equal(min.value, '100', `le champ n’affiche pas la borne appliquée (${min.value})`)
+    await taper(min, '99999999999')
+    await flou(min)
+    await settle(60)
+    assert.equal(min.value, '10000000', `le plafond de 10 000 000 DA ne s’écrit pas (${min.value})`)
+    assert.ok(puce(t('priceFrom', { v: money(PRIX_MAX, 'fr') })), 'la puce ne dit pas le plafond appliqué (10 000 000 DA)')
+    assert.equal(totalAnnonce(), produits.filter((p) => p.price >= PRIX_MAX).length, 'le plafond appliqué n’est pas celui qu’on lit dans le champ')
+  })
+
+  it('un minimum au-dessus du maximum se dit, et ne se corrige pas en douce', async () => {
+    rend()
+    await settle(120)
+    const min = hote.querySelector('#prix-bureau-min')
+    const max = hote.querySelector('#prix-bureau-max')
+    await taper(min, '300000')
+    await taper(max, '200000')
+    await settle(60)
+    assert.equal(totalAnnonce(), 0, 'une paire de bornes inversée rend des fiches')
+    const alerte = [...hote.querySelectorAll('[role="alert"]')].map((n) => n.textContent.trim())
+    assert.ok(alerte.includes(t('priceInverted')), `la paire inversée n’est pas dite : ${alerte.join(' | ')}`)
+    assert.equal(min.getAttribute('aria-invalid'), 'true', 'le champ fautif n’est pas marqué pour un lecteur d’écran')
+    // On ne re-ecrit pas la saisie du client : les deux champs portent ce qu'il a tape.
+    assert.equal(min.value, '300000')
+    assert.equal(max.value, '200000')
+    await taper(min, '150000')
+    await settle(60)
+    assert.equal(totalAnnonce(), produits.filter((p) => p.price >= 150000 && p.price <= 200000).length, 'corriger la borne ne relance pas le filtre')
+    assert.equal([...hote.querySelectorAll('[role="alert"]')].filter((n) => n.textContent.trim() === t('priceInverted')).length, 0, 'l’alerte reste après correction')
+  })
+
+  it('le tiroir mobile rend le meme bloc, sur le meme etat', async () => {
+    rend()
+    await settle(120)
+    await clique(bouton(t('filtersMobile')))
+    await settle(60)
+    const min = hote.querySelector('#prix-mobile-min')
+    assert.ok(min, 'le tiroir mobile n’offre pas les deux champs de prix')
+    assert.ok(hote.querySelector('#prix-mobile-max'), 'le champ « maximum » manque au tiroir')
+    assert.ok(hote.querySelector('#prix-mobile-fenetre'), 'la fenêtre autorisée manque au tiroir')
+    await taper(min, '100000')
+    await settle(60)
+    assert.equal(totalAnnonce(), produits.filter((p) => p.price >= 100000).length, 'le tiroir ne filtre pas sur le meme etat que l’aside')
+    // Le meme composant veut dire deux `id` distincts, jamais deux fois le meme.
+    const ids = [...hote.querySelectorAll('input[id^="prix-"]')].map((i) => i.id)
+    assert.equal(new Set(ids).size, ids.length, `deux champs partagent un id : ${ids.join(', ')}`)
+  })
+})
+
+describe('P6/S6 — ce qui ne doit pas revenir : les tranches de prix et les recherches sauvées', () => {
+  const page = sansCommentaires('src/SearchPage.jsx')
+  const store = sansCommentaires('src/shopStore.js')
+  const donnees = sansCommentaires('src/data.js')
+
+  it('la page ne lit plus aucune tranche de prix, et la table a disparu', () => {
+    for (const motif of ['PRICE_PRESETS', 'PRICE_KEYS', 'price_any', 'price_u15', 'price_15_30', 'price_30_50', 'price_50_100', 'price_100p', 'name="price"']) {
+      assert.equal(page.includes(motif), false, `« ${motif} » est encore lu par la page Recherche`)
+    }
+    assert.equal(/export const PRICE_PRESETS/.test(donnees), false, 'la table des six tranches est revenue dans les données')
+  })
+
+  it('les recherches sauvees sont parties avec leur stockage, et rien ne les relit', () => {
+    for (const motif of ['saveSearch', 'searchSaved', 'searchFree', 'loadSavedSearches', 'saveSavedSearches', 'saved.map', 'saveNote']) {
+      assert.equal(page.includes(motif), false, `« ${motif} » est encore lu par la page Recherche`)
+    }
+    for (const motif of ['pcstar-saved-searches', 'KEY_SAVED_SEARCHES', 'MAX_SAVED_SEARCHES', 'loadSavedSearches', 'saveSavedSearches']) {
+      assert.equal(store.includes(motif), false, `« ${motif} » survit dans shopStore.js : une clé sans lecteur est une fonctionnalité qu’on croit avoir`)
+    }
+    for (const { id } of LANGS) {
+      for (const cle of ['saveSearch', 'searchSaved', 'searchFree', 'price_any', 'price_u15', 'price_15_30', 'price_30_50', 'price_50_100', 'price_100p']) {
+        assert.equal(cle in dict[id], false, `${id} : la clé ${cle} est revenue sans écran pour la lire`)
+      }
+    }
+  })
+
+  it('le prix est une regle partagee, pas une saisie recopiee dans le JSX', () => {
+    assert.match(page, /from '\.\/priceRange\.js'/, 'la page recalcule ses bornes au lieu de passer par la règle')
+    assert.match(page, /from '\.\/priceRange\.jsx'/, 'la page redresse ses champs de prix à la main')
+    assert.equal(/bornesPrix\(/.test(page), true, 'les bornes ne passent plus par le module partagé')
   })
 })
