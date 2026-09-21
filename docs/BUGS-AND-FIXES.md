@@ -3830,3 +3830,4 @@ Même recette pour chaque lot : génération, conversion (sRGB, Lanczos, 1200 ×
 | Réseau & Wi‑Fi | 10 (net-*) | 54 |
 | Consommables, bras écran, 2 bureautiques | 10 | 44 |
 | Bureautique, serveurs, 2 portables | 10 | 34 |
+| 3 portables, GPU/SSD/carte mère, 3 onduleurs | 10 | 24 |
