@@ -88,7 +88,9 @@ Le journal du job dit seulement que l'action a échoué. Trois causes demandent
 trois gestes différents, et rien ne les sépare — d'où un pas de diagnostic posé
 **avant** la tentative (`Inventaire des branches Neon`, `continue-on-error` : il
 informe, il ne décide pas du vert) qui imprime le code HTTP de l'API Neon et la
-liste des branches existantes. Le même constat sort en **annotation de check**
+liste des branches existantes. Ce pas tourne **avant le checkout** : il n'appelle
+donc pas le dépôt, il interroge l'API en shell (`curl` et `jq` sont préinstallés
+sur l'image du runner). Le même constat sort en **annotation de check**
 (`::notice::` / `::warning::`) : il se lit dans l'onglet Checks du PR, sans ouvrir
 le journal du job :
 
@@ -98,11 +100,17 @@ le journal du job :
 | HTTP 404 | `NEON_PROJECT_ID` ne vise plus le projet | corriger la **variable** de dépôt (pas le secret) |
 | HTTP 200 et ~10 branches `preview/*` | plafond de branches du plan | supprimer les `preview/pr-*` dont la PR est fermée |
 | réseau injoignable | panne côté Neon | réessayer le job |
+| HTTP 422 à l'étape suivante, avec un inventaire à 10 branches | plafond du plan atteint | supprimer les `preview/pr-*` orphelines |
+
+Mesuré sur ce dépôt : l'inventaire annonce **10 branches dont 8 `preview/*`** — le projet est pile
+au plafond du plan gratuit (10 branches), et la création échoue en `422` (l'API Neon répond
+`BRANCH_LIMIT_EXCEEDED` sous ce code). Une branche de PR est supprimée à la fermeture de la PR :
+celles qui restent viennent de PR restées ouvertes, ou d'avant la pose de la date d'expiration.
 
 Le même inventaire se lit depuis un poste, sans passer par la CI :
 
 ```bash
-NEON_API_KEY='…' NEON_PROJECT_ID='…' node scripts/neon-branches.mjs
+NEON_API_KEY='…' NEON_PROJECT_ID='…' npm run db:branches:neon
 ```
 
 Le script n'écrit rien : ni création, ni suppression. Il faut environ dix

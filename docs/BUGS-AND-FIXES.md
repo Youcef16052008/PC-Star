@@ -3865,12 +3865,22 @@ sur une fiche à packshot laissait donc la fiche se déclarer « visuel génér�
 2. **Les deux outils photos entrent dans les scripts npm** : `npm run photos:audit` (relevé des
    références encore servies par une illustration de rayon) et `npm run photos:wire` (câblage
    idempotent des photos livrées). Documentés dans le bloc de commandes du README.
-3. **La panne CI Neon a un diagnostic.** Le pas `Create Neon Branch` échoue en quelques secondes et
-   le journal ne dit pas pourquoi : clé révoquée, variable de projet disparue, ou plafond de branches
-   du plan. `scripts/neon-branches.mjs` interroge l'API Neon (lecture seule : ni création ni
-   suppression) et imprime code HTTP + inventaire des branches ; le workflow le lance **avant** la
-   tentative, en `continue-on-error` (il informe, il ne décide pas du vert). Le tableau
-   « cause → geste » est dans `docs/NEON-MIGRATION.md`.
+3. **La panne CI Neon est diagnostiquée, et sa cause est mesurée.** Le pas `Create Neon Branch`
+   échouait en quelques secondes en annonçant seulement `AxiosError: status code 422`. Le pas
+   `Inventaire des branches Neon` (posé **avant** la tentative, en `continue-on-error` : il informe,
+   il ne décide pas du vert) interroge l'API en lecture seule et publie son constat en **annotation
+   de check** — lisible dans l'onglet Checks, alors que le journal du job, lui, ne l'était pas.
+   Verdict au premier passage : **`HTTP 200 - 10 branches dont 8 preview/*`** — le projet est pile
+   au plafond du plan gratuit (10 branches), d'où le 422 de la création. Le geste tient donc à une
+   suppression de branches orphelines côté Neon (tableau « cause → geste » dans
+   `docs/NEON-MIGRATION.md`), pas à une ligne de ce dépôt. L'inventaire est aussi une commande :
+   `npm run db:branches:neon`.
+
+   Piège rencontré et corrigé dans le même lot : le premier jet de ce pas appelait
+   `node scripts/neon-branches.mjs` — or il tourne **avant le checkout**, donc le fichier n'existe
+   pas encore sur le runner. `continue-on-error` masquait l'échec (étape rapportée « success »,
+   aucune annotation, et un diagnostic muet qui *paraissait* marcher). Le pas interroge maintenant
+   l'API en shell ; `scripts/neon-branches.mjs` reste l'outil local.
 
 Portes après ces trois points : `npm test` 1173/1173 (316 suites), build + check-bundle « aucun
 secret », crawl jsdom 24 pages / 0 erreur, `p3DocsAging` + `p3ServerHygiene` verts.

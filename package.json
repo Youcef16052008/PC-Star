@@ -20,6 +20,7 @@
     "db:export:neon": "node scripts/export-neon.mjs",
     "db:restore:neon": "node scripts/restore-neon.mjs",
     "db:doctor": "node scripts/neon-doctor.mjs",
+    "db:branches:neon": "node scripts/neon-branches.mjs",
     "test:neon:concurrency": "node scripts/test-neon-concurrency.mjs",
     "test:neon:backup": "node scripts/test-neon-backup-restore.mjs",
     "photos:check": "node scripts/ingestSkuPhotos.mjs",
