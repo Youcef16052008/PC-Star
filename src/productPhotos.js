@@ -156,6 +156,11 @@ export function photosForProduct(product) {
   // ajouter les trois chemins /photos/sku/ inexistants causerait des 404 et
   // ferait croire que le magasin a fourni trois photos du même article.
   if (product?.photoMode === 'category') return existing.slice(0, 1)
+  // P27 : une fiche peut être livrée avec SA photo (packshot studio par
+  // référence, un seul fichier). On la montre telle quelle — ni le trio
+  // /photos/sku/ (deux chemins fantômes = 2 × 404 par vignette), ni
+  // l'illustration de rayon qui ne parle pas de cette référence-là.
+  if (product?.photoMode === 'packshot') return existing.slice(0, 12)
   const sku = skuPhotoPaths(product.id)
 
   // Master / runtime overrides: keep non-catalog paths (data URLs, /uploads/, http…)

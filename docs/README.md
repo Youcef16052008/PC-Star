@@ -65,6 +65,6 @@ npm run dev         # site :5173 (proxy /api)
 npm test            # la suite entière (node:test, 77 fichiers)
 ```
 
-Comptes démo : [GUIDE-DEMO.md](GUIDE-DEMO.md) (bouton « Guide » dans le menu du site, master only).
+Comptes démo : [GUIDE-DEMO.md](GUIDE-DEMO.md) (menu **Gestion → Guide** dans le site, master only).
 Contrôles de non-régression : [../README.md](../README.md) § « Contrôles » — c'est là
 que les portes de CI sont décrites, pas ici.

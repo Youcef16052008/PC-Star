@@ -137,7 +137,11 @@ describe('8.8 (A8) — une seule table de locales, dérivée de la langue', () =
     assert.equal(F.currencyFor('fr'), 'DA')
     assert.equal(F.currencyFor('en'), 'DA')
     assert.equal(F.currencyFor('ar'), 'DA', 'un ancien choix arabe retombe sur le suffixe français')
-    assert.equal(dict.en.price_u15.includes('DA'), true, 'les filtres de prix anglais disent « DA »')
+    // LOT P25 (S6) : le suffixe se lisait sur les libelles de tranches de prix
+    // (`price_u15`) qui ecrivaient « DA » en dur ; ces libelles sont partis avec le
+    // filtre, et les bornes de la fenetre de prix passent par `money()`. Ce qui doit
+    // rester vrai : un prix affiche en anglais dit « DA » — la devise ne se traduit pas.
+    assert.equal(F.money(10000000, 'en').includes('DA'), true, 'un prix anglais dit « DA »')
   })
 })
 

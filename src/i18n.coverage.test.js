@@ -218,7 +218,22 @@ test('A9 — les fonctionnalités retirées ne laissent plus de clés derrière 
     'comparateur de produits (hors-scope volontaire, ROADMAP-10)': ['inCompare', 'compareUpTo', 'addToCompare', 'compareTitle', 'clearAll', 'compareNeed', 'compareN'],
     'paiement 3× / CCP / BaridiMob (cash uniquement)': ['pay3xBadge', 'or3x', 'pay3xDesk', 'payCcp', 'payBaridi'],
     'thème clair/sombre (code supprimé au lot 6.3)': ['themeLight', 'themeDark', 'themeSystem'],
-    'avatars et couleurs d’accent profil (retirés)': ['profileAvatar', 'profileAccent']
+    'avatars et couleurs d’accent profil (retirés)': ['profileAvatar', 'profileAccent'],
+    // LOT P25 (S6) — deux retraits demandés par le client sur la page Recherche :
+    // les « recherches sauvées » (bouton, puces, persistance) et les six tranches
+    // de prix, remplacées par deux bornes tapées au clavier.
+    'recherches sauvées (retirées au lot P25)': ['saveSearch', 'searchSaved', 'searchFree'],
+    // LOT P26 — le récap de config disait « Obligatoire » / « Passer » là où les
+    // vignettes disaient « Requis » / « Optionnel » : un seul vocabulaire reste.
+    'second mot pour l’emplacement optionnel du configurateur (lot P26)': ['skip'],
+    'tranches de prix du filtre (remplacées par le prix tapé, lot P25)': [
+      'price_any',
+      'price_u15',
+      'price_15_30',
+      'price_30_50',
+      'price_50_100',
+      'price_100p'
+    ]
   }
   for (const [groupe, clés] of Object.entries(groupesRetirés)) {
     for (const key of clés) {

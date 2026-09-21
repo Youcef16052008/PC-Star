@@ -27,6 +27,7 @@ const MARK = {
   phone: 'MOB',
   usb: 'USB',
   console: 'PAD',
+  monitor: 'MON',
   repair: 'FIX'
 }
 

@@ -111,6 +111,10 @@ export const CATEGORIES = [
   { id: 'usb', label: 'USB & flash' },
   { id: 'console', label: 'Consoles' },
   { id: 'repair', label: 'Réparations' },
+  // LOT P27 : les écrans quittent « Accessoires PC » pour leur propre rayon.
+  // Ils y étaient noyés au milieu des claviers et des souris, alors que le
+  // configurateur leur réserve un emplacement « Écrans » depuis toujours.
+  { id: 'monitor', label: 'Écrans' },
   { id: 'accessories', label: 'Accessoires PC' }
 ]
 
@@ -215,7 +219,7 @@ export const PART_LINES = [
   { id: 'keyboard', label: 'Claviers', group: 'peripherals', match: (p) => p.category === 'accessories' && /keyboard|clavier|apex|huntsman|alloy/.test(hay(p)) },
   { id: 'mouse', label: 'Souris', group: 'peripherals', match: (p) => p.category === 'accessories' && /mouse|souris|viper|rival|haste/.test(hay(p)) && !/pad/.test(hay(p)) },
   { id: 'headset', label: 'Casques', group: 'peripherals', match: (p) => p.category === 'accessories' && /headset|casque|arctis|blackshark|cloud|g pro x 2/.test(hay(p)) },
-  { id: 'monitor', label: 'Écrans', group: 'peripherals', match: (p) => (p.category === 'accessories' && /monitor|écran|ecran|27"|24"/.test(hay(p))) },
+  { id: 'monitor', label: 'Écrans', group: 'peripherals', match: byCategory('monitor') },
   { id: 'controller', label: 'Manettes', group: 'peripherals', match: (p) => p.category === 'accessories' && /controller|manette|xbox|dualsense|dualshock|8bitdo/.test(hay(p)) },
   { id: 'webcam', label: 'Webcams', group: 'peripherals', match: (p) => p.category === 'accessories' && /webcam|brio|c920/.test(hay(p)) },
   { id: 'mic', label: 'Microphones', group: 'peripherals', match: (p) => p.category === 'accessories' && /mic|yeti/.test(hay(p)) && !/casque|headset/.test(hay(p)) },
@@ -336,14 +340,10 @@ export function kindForCategory(category) {
 
 export const SOCKETS = ['AM4', 'AM5', 'LGA1700', 'LGA1851']
 
-export const PRICE_PRESETS = [
-  { id: 'any', label: 'Any price', min: 0, max: 999999 },
-  { id: 'u15', label: 'Under 15 000 DA', min: 0, max: 15000 },
-  { id: '15-30', label: '15 000 – 30 000 DA', min: 15000, max: 30000 },
-  { id: '30-50', label: '30 000 – 50 000 DA', min: 30000, max: 50000 },
-  { id: '50-100', label: '50 000 – 100 000 DA', min: 50000, max: 100000 },
-  { id: '100+', label: '100 000 DA+', min: 100000, max: 999999 }
-]
+// LOT P25 (S6) : `PRICE_PRESETS` (six tranches de prix) est parti avec le filtre
+// qu'il servait — le client tape désormais ses deux bornes (100 DA … 10 000 000 DA,
+// `src/priceRange.js`). Six tranches décidées par le magasin ne savent pas dire
+// « entre 42 000 et 137 000 ».
 
 export const GUIDES = [
   { id: 'dz-budget', titleKey: 'guideHomeBudgetTitle', bodyKey: 'guideHomeBudgetBody' },
@@ -669,10 +669,13 @@ const PRODUCTS_CORE = [
   {
     id: 'monitor',
     sku: 'XG27ACS',
-    name: 'ASUS TUF VG27AQ 27" 165Hz',
+    // LOT P27 : le nom disait « TUF VG27AQ » alors que le SKU `XG27ACS` est un
+    // ROG Strix — deux produits différents vendus sous une seule fiche. La
+    // fiche reprend son vrai nom ; le TUF VG27AQ3A garde la sienne (`mon-vg27`).
+    name: 'ASUS ROG Strix XG27ACS 27"',
     brand: 'ASUS',
     kind: 'accessory',
-    category: 'accessories',
+    category: 'monitor',
     price: 57500,
     stock: 5,
     rating: 4.6,
@@ -1059,7 +1062,15 @@ const BUILDER_ORDER = [
   'motherboard', 'cpu', 'ram', 'gpu', 'ssd', 'hdd', 'case', 'psu', 'cooler', 'fan', 'misc',
   'keyboard', 'mouse', 'headset', 'monitor', 'controller', 'webcam', 'mic', 'mousepad', 'speakers', 'network'
 ]
-const BUILDER_REQUIRED = new Set(['motherboard', 'cpu', 'ram'])
+// Demande client du 21/09/2026 : « PSU et BOITIER sont requis, pas optionnels ».
+//
+// Une config sans alimentation ni boîtier n'est pas une config : elle se vendait
+// pourtant (le bouton d'ajout ne regardait que carte mère, CPU et RAM), et le
+// client se retrouvait avec des composants qu'il ne pouvait pas monter. Les deux
+// emplacements sont donc REQUIS, comme les trois premiers — l'inscription
+// « Optionnel » disparaît de la vignette, et le bouton d'ajout reste grisé tant
+// qu'ils sont vides (`requiredReady`, `src/BuilderPage.jsx`).
+const BUILDER_REQUIRED = new Set(['motherboard', 'cpu', 'ram', 'case', 'psu'])
 const BUILDER_NEEDS_BOARD = new Set(['cpu', 'ram', 'cooler'])
 
 export const BUILDER_SLOTS = BUILDER_ORDER.map((id) => {

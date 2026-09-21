@@ -470,6 +470,19 @@ export function pickupForUser(user, prev = {}, defaults = {}) {
 }
 
 /** Builder power recap from picked parts. */
+/** P26 — ce qu'il manque pour qu'une config soit vendable.
+ *
+ * Le configurateur avait deux listes d'emplacements « requis » qui pouvaient
+ * diverger : le bouton d'ajout regardait `required`, et le message d'erreur
+ * recopiait « carte mère, CPU et RAM » en dur. Le client a demandé le boîtier et
+ * l'alimentation en plus (21/09/2026) : le message mentait donc déjà. Il reçoit
+ * maintenant la liste depuis `BUILDER_SLOTS` — une seule source, aucun texte à
+ * remettre à jour quand la liste bouge.
+ */
+export function missingRequired(slots, build) {
+  return (slots || []).filter((s) => s.required && !build?.[s.key])
+}
+
 export function buildPowerRecap(parts) {
   const list = (parts || []).filter(Boolean)
   let tdp = 0

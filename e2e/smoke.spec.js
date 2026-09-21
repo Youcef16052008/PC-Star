@@ -139,6 +139,12 @@ test('demo session survives a page reload', async ({ page }) => {
  * c'est si le bas de la feuille est ATTEIGNABLE — un panneau qui déborde sans défiler
  * rend des liens présents dans le DOM et impossibles à cliquer. D'où `toBeInViewport`
  * après défilement : la cible doit être sous le pouce, pas seulement dans l'arbre.
+ *
+ * 21/09/2026 — le client a demandé le retrait des trois textes légaux du menu
+ * (« supprime le bouton Informations ; Conditions ; Confidentialité ; Garantie &
+ * RMA »). Ce test garde ses deux objets — les pages sont atteignables, les deux
+ * portes du compte sont dans la feuille — et suit le déménagement : le lien vers
+ * « Garantie & RMA » est désormais dans le pied de page.
  */
 test('phone menu: every routed page is reachable, and the sign-up door opens the register form', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 780 })
@@ -147,12 +153,26 @@ test('phone menu: every routed page is reachable, and the sign-up door opens the
   const feuille = page.locator('#nav-sheet')
   await expect(feuille).toBeVisible()
 
-  const garantie = feuille.getByRole('button', { name: L('legalWarrantyTitle'), exact: true })
+  // Ce que la feuille doit offrir, et qui doit etre SOUS LE POUCE : les cinq
+  // destinations publiques, puis les deux portes du compte en bas. Un lien
+  // present dans le DOM mais hors du viewport, c'est « le menu n'a pas les
+  // autres pages » au sens propre.
+  for (const cle of ['navShop', 'navSearch', 'navBuilder', 'navAbout', 'navOrders', 'navLogin', 'navSignup']) {
+    const lien = feuille.getByRole('button', { name: L(cle), exact: true })
+    await expect(lien).toBeVisible()
+    await lien.scrollIntoViewIfNeeded()
+    await expect(lien).toBeInViewport()
+  }
+
+  // La feuille se referme par son propre en-tête : tant qu'elle est ouverte,
+  // elle couvre le pied de page (et c'est bien ce qu'on veut d'elle).
+  await feuille.locator('.nav-sheet-head .btn').click()
+  await expect(feuille).toBeHidden()
+
+  // 21/09/2026 — les textes legaux ont quitte le menu (demande du client) :
+  // « Garantie & RMA » se rejoint depuis le pied de page, et la page s'ouvre.
+  const garantie = page.locator('.site-footer').getByRole('button', { name: L('navWarranty'), exact: true })
   await expect(garantie).toBeVisible()
-  // Le bas de la feuille doit etre atteignable : un lien present dans le DOM et hors
-  // du viewport, c'est exactement « le menu n'a pas les autres pages », au sens propre.
-  await garantie.scrollIntoViewIfNeeded()
-  await expect(garantie).toBeInViewport()
   await garantie.click()
   await expect(page.locator('#main-content h1')).toHaveText(L('legalWarrantyTitle'))
 

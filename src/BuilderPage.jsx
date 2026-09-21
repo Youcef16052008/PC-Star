@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { BUILDER_SLOTS, STORE, caseFitsBoard, checkCompatibility, money, socketsMatch, specOf, splitWarnings } from './data'
-import { BUILD_PRESETS, applyPreset, buildPowerRecap } from './orderLogic.js'
+import { BUILD_PRESETS, applyPreset, buildPowerRecap, missingRequired } from './orderLogic.js'
 // LOT P1 (B11) : comparaison des listes de compatibilite (memoire, format) —
 // la meme regle que le controle de coherence dans `src/data.js`.
 import { compatIntersects, compatLabel } from './productMeta.js'
@@ -38,12 +38,25 @@ export default function BuilderPage({ t, lang = 'fr', products, build, setBuild,
   // tolérance que `socketOk` : une donnée de socket absente ne disqualifie pas
   // (on ne peut pas prouver l'incompatibilité), comme `!cpu || !board || ...`.
   const socketOk = !cpu || !board || socketsMatch(cpu.compat?.socket, board.compat?.socket)
-  const requiredReady = BUILDER_SLOTS.filter((s) => s.required).every((s) => build[s.key])
+  // P26 : la liste des emplacements requis vit dans les données ; le bouton et
+  // le message d'erreur la lisent tous les deux ici (avant, le message recopiait
+  // « carte mère, CPU et RAM » et n'a pas suivi quand le client a demandé le
+  // boîtier et l'alimentation).
+  const missing = missingRequired(BUILDER_SLOTS, build)
+  const requiredReady = missing.length === 0
   const total = picked.reduce((s, p) => s + p.price, 0)
   const power = useMemo(() => buildPowerRecap(picked), [picked])
   const locked = slot.needsBoard && !board
   const heatOk = blocks.length === 0
-  const slotLabel = t(`line_${slot.key}`) !== `line_${slot.key}` ? t(`line_${slot.key}`) : slot.label
+  // Un emplacement se nomme d'une seule façon : sa clé i18n `line_<key>` quand
+  // elle existe, sinon le libellé des données. Le même ternaire était recopié
+  // trois fois (onglet, barre d'emplacements, récap).
+  const labelDuSlot = (s) => {
+    const key = `line_${s.key}`
+    const label = t(key)
+    return label !== key ? label : s.label
+  }
+  const slotLabel = labelDuSlot(slot)
 
   const options = useMemo(() => {
     if (locked) return []
@@ -122,7 +135,7 @@ export default function BuilderPage({ t, lang = 'fr', products, build, setBuild,
       return
     }
     if (!requiredReady) {
-      setToast(t('toastNeedCore'))
+      setToast(t('toastNeedCore', { slots: missing.map(labelDuSlot).join(', ') }))
       return
     }
     if (!socketOk) {
@@ -213,7 +226,7 @@ export default function BuilderPage({ t, lang = 'fr', products, build, setBuild,
 
           <div className="d-flex flex-wrap gap-2 mb-3">
             {slots.map((s) => {
-              const lab = t(`line_${s.key}`) !== `line_${s.key}` ? t(`line_${s.key}`) : s.label
+              const lab = labelDuSlot(s)
               const has = Boolean(build[s.key])
               const active = slotKey === s.key
               return (
@@ -331,7 +344,7 @@ export default function BuilderPage({ t, lang = 'fr', products, build, setBuild,
               ) : (
                 <ul className="list-group list-group-flush mb-3">
                   {BUILDER_SLOTS.map((s) => {
-                    const lab = t(`line_${s.key}`) !== `line_${s.key}` ? t(`line_${s.key}`) : s.label
+                    const lab = labelDuSlot(s)
                     return (
                       <li key={s.key} className={`list-group-item px-0 d-flex justify-content-between align-items-center ${build[s.key] ? '' : 'text-secondary'}`}>
                         <button type="button" className="btn btn-link btn-sm p-0 text-decoration-none" onClick={() => chooseSlot(s.key)}>
@@ -343,7 +356,10 @@ export default function BuilderPage({ t, lang = 'fr', products, build, setBuild,
                             <button type="button" className="btn-close btn-sm" aria-label={t('remove')} onClick={() => clearSlot(s.key)} />
                           </span>
                         ) : (
-                          <em className="small">{s.required ? t('required') : t('skip')}</em>
+                          // P26 : même vocabulaire que la vignette d'emplacement
+                          // (« Requis » / « Optionnel ») — « Obligatoire » et
+                          // « Passer » disaient la même chose autrement.
+                          <em className="small">{s.required ? t('need') : t('optional')}</em>
                         )}
                       </li>
                     )

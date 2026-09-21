@@ -41,7 +41,7 @@ npm run start:api
 npm run dev
 ```
 
-Page **Guide** dans le menu du site = même contenu.
+Page **Guide** dans le menu du site (menu **Gestion → Guide**, master only) = même contenu.
 
 > **Comptes de démonstration (clients) :** leur mot de passe n'est plus publié
 > ici non plus (lot 1.19). Côté serveur il vient de la variable d'environnement

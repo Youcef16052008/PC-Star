@@ -482,7 +482,13 @@ describe('P4/V5 — le menu et la connexion prennent la page', () => {
     assert.match(css, /\.nav-sheet-head\s*\{\s*display:\s*none/, "l\u2019en-tete de fermeture doit etre masque sur grand ecran")
     // Cibles : le pouce, pas la souris (regle des 44 px du harnais responsive).
     assert.match(css, /\.nav-sheet-head \.btn\s*\{[^}]*min-height:\s*44px/)
-    assert.match(css, /\.nav-sheet \.navbar-nav \.nav-link\s*\{[^}]*min-height:\s*4[4-9]px|\.nav-sheet \.navbar-nav \.nav-link\s*\{[^}]*min-height:\s*[5-9]\dpx/)
+    // Le selecteur est une LISTE depuis le 21/09 (les liens et le resume
+    // « Gestion » partagent la meme regle) : d'ou `[^{]*` avant l'accolade.
+    assert.match(
+      css,
+      /\.nav-sheet \.navbar-nav \.nav-link[^{]*\{[^}]*min-height:\s*(4[4-9]|[5-9]\d)px/,
+      'les liens du menu descendent sous 44 px'
+    )
   })
 
   // ── LOT P6 (S6) : le menu doit dire ou l'on peut aller ────────────────────
@@ -532,9 +538,124 @@ describe('P4/V5 — le menu et la connexion prennent la page', () => {
     const app = sansCommentaires('src/App.jsx')
     assert.match(app, /aria-controls=\{navOpen \? 'nav-sheet' : undefined\}/, 'le bouton du menu ne nomme pas sa cible (ou la nomme quand elle est fermee)')
     assert.match(app, /id="nav-sheet"/, "la feuille du menu n'a pas d'identifiant")
-    // Le groupe « informations » doit rester a la taille du pouce : separer ne veut
-    // pas dire retrecir la cible (la regle des 44 px du harnais responsive).
-    assert.match(css, /\.nav-sheet \.nav-lien-info \.nav-link[\s\S]{0,160}?min-height:\s*4[4-9]px/, 'les liens « informations » descendent sous 44 px')
+  })
+
+  /*
+   * 21/09/2026 — refonte de la barre, quatre verrous de plus. Chacun est la
+   * contre-epreuve d'un defaut mesuré dans un vrai moteur (Chromium 153) :
+   *
+   *  · la feuille de menu ne mesurait que 61 px de haut (la hauteur de la
+   *    barre) : `backdrop-filter` sur `.shop-navbar` en fait un bloc conteneur
+   *    pour ses descendants `position: fixed`, et `inset: 0` se resolvait
+   *    contre la barre ;
+   *  · les entrees du menu s'alignaient au centre de chaque ligne : elles
+   *    portent `.btn`, donc `justify-content: center` (cyber.css) ;
+   *  · les boutons de compte, en bas de la feuille, passaient SOUS la pastille
+   *    de notification (z-index 1100 pose a la main dans App.jsx) ;
+   *  · la feuille est ouverte jusqu'a 1 199,98 px : entre 992 et 1 200 px,
+   *    `navbar-expand-lg` tenait cinq liens plus le compte sur deux lignes.
+   */
+  it('la feuille de menu tient l ecran : flou hors de la barre, liens alignes, cibles au-dessus du toast', () => {
+    assert.match(
+      css,
+      /\.shop-navbar::before\s*\{[^}]*backdrop-filter:\s*blur/,
+      'le flou doit etre pose sur ::before : sur la barre, il capture la feuille fixe (hauteur 61 px mesuree)'
+    )
+    assert.ok(
+      !/\.shop-navbar\s*\{[^}]*backdrop-filter/.test(css),
+      'backdrop-filter est revenu sur .shop-navbar : la feuille de menu sera reduite a la hauteur de la barre'
+    )
+    assert.match(css, /\.nav-sheet\.show\s*\{[^}]*align-items:\s*stretch/, 'les entrees se reduisent a la largeur de leur texte au lieu de former une liste')
+    assert.match(css, /\.nav-sheet \.navbar-nav \.nav-link[\s\S]{0,220}?justify-content:\s*flex-start/, 'les entrees du menu s alignent au centre de leur ligne')
+    // LOT P27 (suite) : les trois nombres vivaient dans trois fichiers (le toast
+    // dans App.jsx, la feuille et la barre dans index.css). Le verrou lit
+    // maintenant l'echelle dans src/tokens.css et compare les VALEURS : il
+    // attrape la divergence que la recopie de nombres laissait passer.
+    const tokens = fs.readFileSync(path.join(process.cwd(), 'src/tokens.css'), 'utf8')
+    const zToken = (nom) => {
+      const m = tokens.match(new RegExp('--' + nom + ':\\s*(\\d+)'))
+      assert.ok(m, '--' + nom + ' manque dans src/tokens.css')
+      return Number(m[1])
+    }
+    assert.ok(zToken('z-toast') < zToken('z-sheet'), 'la feuille passe sous le toast : les boutons de compte sont recouverts')
+    // …et le `z-index` de la feuille ne suffit PAS : `.sticky-top` de Bootstrap
+    // pose 1020 sur la barre, qui devient un contexte d'empilement — comparer
+    // la feuille au toast se fait donc DANS la barre. Il faut monter la barre
+    // entière au-dessus du toast quand le menu est ouvert.
+    assert.ok(zToken('z-sheet') < zToken('z-sheet-nav'), 'la barre reste sous le toast (contexte d empilement) : les boutons de compte sont recouverts')
+    assert.match(css, /\.nav-sheet\.show\s*\{[^}]*z-index:\s*var\(--z-sheet\)/, 'la feuille ne lit plus son token')
+    assert.match(
+      css,
+      /body\.nav-sheet-open \.shop-navbar\s*\{[^}]*z-index:\s*var\(--z-sheet-nav\)/,
+      'la barre ne lit plus son token'
+    )
+    assert.match(
+      sansCommentaires('src/App.jsx'),
+      /zIndex:\s*'var\(--z-toast\)'/,
+      'le toast a repris un nombre en dur'
+    )
+    // Toute la colonne est nommée, pas seulement les deux couches qui s'étaient
+    // contredites : l'ordre se relit dans tokens.css, du fond vers l'avant.
+    const colonne = [...tokens.matchAll(/--z-([a-z-]+):\s*(-?\d+)/g)].map((m) => ({ nom: m[1], valeur: Number(m[2]) }))
+    assert.ok(colonne.length >= 8, `l'échelle d'empilement a perdu des couches : ${colonne.map((c) => c.nom).join(', ')}`)
+    for (let i = 1; i < colonne.length; i++) {
+      assert.ok(
+        colonne[i].valeur > colonne[i - 1].valeur,
+        `${colonne[i - 1].nom} (${colonne[i - 1].valeur}) n'est plus sous ${colonne[i].nom} (${colonne[i].valeur}) : l'échelle doit être croissante`
+      )
+    }
+    // …et un nombre ne doit pas revenir se cacher dans la feuille de style.
+    const feuille = sansCommentaires('src/index.css')
+    const nombres = [...feuille.matchAll(/z-index:\s*(-?\d+)/g)].map((m) => m[1])
+    assert.deepEqual(nombres, [], `des z-index en dur sont revenus dans src/index.css : ${nombres.join(', ')}`)
+
+    // Le troisième nombre de la colonne vit dans le JSX : le verrou le vérifie
+    // aussi, et pas seulement la feuille de style.
+    assert.ok(
+      colonne.findIndex((c) => c.nom === 'behind') >= 0 && colonne.findIndex((c) => c.nom === 'skip') === colonne.length - 1,
+      'le fond (--z-behind) doit ouvrir la colonne et le lien d\'évitement (--z-skip) la fermer'
+    )
+    assert.match(css, /@media \(max-width:\s*1199\.98px\)[\s\S]*?\.nav-sheet\.show\s*\{/, 'le palier de la feuille et celui de `navbar-expand-xl` ont diverge')
+  })
+
+  it('le compte et la langue descendent en bas de la feuille, chacun sur sa ligne', () => {
+    assert.match(css, /\.nav-sheet \.nav-sheet-actions\s*\{[^}]*margin-top:\s*auto/, 'le bloc du compte ne se detache pas du bas de la feuille')
+    assert.match(css, /\.nav-sheet \.nav-sheet-actions\s*\{[^}]*flex-direction:\s*column/, 'trois boutons plus la langue tiennent sur une ligne de 390 px : ils seront coupes')
+    assert.match(css, /\.nav-sheet \.nav-sheet-actions > \.btn\s*\{[^}]*width:\s*100%/, 'les portes du compte ne prennent pas la largeur de la feuille')
+  })
+
+  it('le menu ne liste plus les textes legaux, et le pied de page les porte tous les trois', () => {
+    // Demande du client (21/09/2026) : « supprime le bouton Informations ;
+    // Conditions ; Confidentialite ; Garantie & RMA ». Le groupe « informations »
+    // disparait du menu — et les trois pages restent atteignables, sinon c'est le
+    // retour du defaut que le lot P6 avait corrige (une page routee que rien
+    // n'ouvre).
+    assert.ok(
+      !MENU_DESTINATIONS.some((d) => ['privacy', 'terms', 'warranty'].includes(d.id)),
+      'un texte legal est revenu dans le menu'
+    )
+    const app = sansCommentaires('src/App.jsx')
+    for (const id of ['privacy', 'terms', 'warranty']) {
+      assert.match(app, new RegExp(`go\\('${id}'\\)`), `plus aucun lien vers « ${id} » : page routee et inatteignable`)
+    }
+    const pied = app.slice(app.indexOf('site-footer'))
+    assert.match(pied, /go\('warranty'\)/, 'le pied de page ne porte pas « Garantie & RMA »')
+    assert.ok(!/nav-lien-info|navInformations/.test(app), 'le groupe « informations » survit dans le code')
+  })
+
+  it('le panier est une icone dans le coin droit, nommee pour un lecteur d ecran', () => {
+    const app = sansCommentaires('src/App.jsx')
+    // Le libelle visible disparait au profit du pictogramme : le nom accessible
+    // doit rester (WCAG 4.1.2) — c'est aussi l'ancre du lot 3UI, qui retrouve le
+    // bouton par `aria-label`.
+    assert.match(app, /className="icon-cart"/, 'le bouton du panier n a plus d icone')
+    assert.match(app, /id="nav-cart"/, 'le bouton du panier a perdu son identifiant')
+    assert.match(
+      app,
+      /aria-label=\{count > 0 \? `\$\{t\('navCart'\)\} \(\$\{count\}\)` : t\('navCart'\)\}/,
+      'le bouton du panier n annonce plus son nom ni son compte'
+    )
+    assert.match(css, /\.shop-navbar \.btn-cart\s*\{[^}]*min-width:\s*48px/, 'la cible du panier descend sous 44 px')
   })
 
   it('la modale de connexion est pleine page (classe de Bootstrap, pas un custom)', () => {
@@ -832,8 +953,8 @@ describe('P4/V1-V3 — l\u2019écran du client lit la vitrine, et la grille est 
   })
 
   // ── LOT P6 (S6) : le menu mene bien aux pages, et les deux portes du compte ──
-  it('le menu liste les pages du site — « Garanties » y compris, et le clic y mene', async () => {
-    const liens = () => [...hote.querySelectorAll('.nav-sheet .nav-item button')]
+  it('le menu liste les pages de la boutique ; les textes legaux passent par le pied de page', async () => {
+    const liens = () => [...hote.querySelectorAll('.nav-sheet .navbar-nav > .nav-item button, .nav-sheet .nav-drop-list button')]
     const attendus = MENU_DESTINATIONS.filter((d) => !d.masterOnly).map((d) => t(d.labelKey))
     const rendus = liens().map((b) => b.textContent.trim())
     for (const libelle of attendus) {
@@ -843,14 +964,88 @@ describe('P4/V1-V3 — l\u2019écran du client lit la vitrine, et la grille est 
     for (const d of MENU_DESTINATIONS.filter((x) => x.masterOnly)) {
       assert.equal(rendus.includes(t(d.labelKey)), false, `le menu offre « ${d.labelKey} » a un visiteur que le routeur refuserait`)
     }
-    // La page qui n'avait AUCUN entree : garantie. Le menu la liste, le clic l'ouvre.
-    const garantie = liens().find((b) => b.textContent.trim() === t('legalWarrantyTitle'))
-    assert.ok(garantie, "le menu ne mene pas a la page « Garantie & RMA »")
+    // Le client a demande le retrait des trois textes legaux du menu : ils ne
+    // doivent plus y figurer, ni sous leur libelle, ni sous celui de la page.
+    for (const libelle of ['Informations', t('legalWarrantyTitle')]) {
+      assert.equal(
+        [...hote.querySelectorAll('.nav-sheet button')].some((b) => b.textContent.trim() === libelle),
+        false,
+        `« ${libelle} » est encore une entree du menu`
+      )
+    }
+    // Mais « Garantie » (la page qui n'avait AUCUN lien avant le lot P6) reste
+    // atteignable : le pied de page la porte, et le clic l'ouvre.
+    const garantie = [...hote.querySelectorAll('.site-footer button')].find((b) => b.textContent.trim() === t('navWarranty'))
+    assert.ok(garantie, 'le pied de page ne mene pas a la page « Garantie & RMA »')
     await clique(garantie)
     await settle(80)
     const titre = hote.querySelector('#main-content h1, #main-content h2')
     assert.ok(titre, 'la page garantie ne rend pas de titre')
-    assert.equal(titre.textContent.trim(), t('legalWarrantyTitle'), 'le titre de la page garantie n est pas celui du menu')
+    assert.equal(titre.textContent.trim(), t('legalWarrantyTitle'), 'le titre de la page garantie n est pas celui annonce par le lien')
+  })
+
+  it('le comptoir se range derriere UN bouton : « Gestion » ouvre les trois pages du maitre', async () => {
+    // Avant : huit entrees plus quatre actions = 1 163 px demandes pour 966 px
+    // disponibles a 1 200 px — la rangee se cassait en deux, puis en quatre.
+    // Session locale du maitre : `loadUsers` ne seede plus de compte maitre en
+    // mode local (lot 1.1), on le pose donc dans le stockage, comme le ferait
+    // une connexion. Le nettoyage en `finally` remet l'apartement d'aplomb pour
+    // les tests suivants (« hors connexion : le menu propose les deux portes »).
+    // API injoignable : sans cela, le faux `fetch` pose par les tests serveur
+    // plus haut dans ce fichier repond `{ ok: true }` a `/api/health`, l'app
+    // s'annonce en mode API et la session locale (donc le role maitre) est
+    // ignoree.
+    const fetchAvant = globalThis.fetch
+    globalThis.fetch = async () => {
+      throw new Error('offline')
+    }
+    window.fetch = globalThis.fetch
+    safeStorage.setItem('pcstar-users', JSON.stringify([{ id: 'master-pcstar', role: 'master', name: 'PC Star Desk', email: 'master@test.pcstar.local' }]))
+    safeStorage.setItem('pcstar-session', JSON.stringify({ userId: 'master-pcstar' }))
+    const hoteMaitre = window.document.createElement('div')
+    window.document.body.appendChild(hoteMaitre)
+    const racineMaitre = createRoot(hoteMaitre)
+    try {
+      await act(async () => {
+        racineMaitre.render(React.createElement(App))
+      })
+      await settle(160)
+      const resume = [...hoteMaitre.querySelectorAll('.nav-sheet .nav-drop > summary')].find((b) => b.textContent.trim().startsWith(t('navManage')))
+      assert.ok(resume, 'le bouton « Gestion » est absent du menu du maitre')
+      const panneau = hoteMaitre.querySelector('.nav-sheet .nav-drop')
+      assert.equal(panneau.hasAttribute('open'), false, 'le panneau du comptoir s ouvre tout seul')
+      await clique(resume)
+      await settle(60)
+      assert.equal(panneau.hasAttribute('open'), true, 'le clic sur « Gestion » n ouvre pas le panneau')
+      const dedans = [...panneau.querySelectorAll('.nav-drop-list button')].map((b) => b.textContent.trim())
+      assert.deepEqual(
+        dedans,
+        MENU_DESTINATIONS.filter((d) => d.masterOnly).map((d) => t(d.labelKey)),
+        'le panneau ne liste pas exactement les pages reservees au maitre'
+      )
+      // Une entree du panneau mene a sa page, et le panneau se referme : laisse
+      // ouvert, il masquerait la rangee apres la navigation.
+      await clique(panneau.querySelectorAll('.nav-drop-list button')[0])
+      await settle(150)
+      assert.equal(hoteMaitre.querySelector('.nav-sheet .nav-drop').hasAttribute('open'), false, 'le panneau reste ouvert apres la navigation')
+      // `querySelectorAll(...)[0]` et non `querySelector('#main-content h1')` :
+      // deux instances de l'app vivent dans le meme document jsdom a ce stade
+      // (le montage de la section 6 est encore en place), et le raccourci par
+      // identifiant de jsdom y repond `null` la ou `querySelectorAll` trouve.
+      const titre = hoteMaitre.querySelectorAll('#main-content h1')[0]
+      assert.ok(titre, 'la page du comptoir ne rend pas de titre')
+      assert.equal(titre.textContent.trim(), t('helpTitle'), 'le panneau n ouvre pas la page annoncee')
+    } finally {
+      await act(async () => {
+        racineMaitre.unmount()
+      })
+      hoteMaitre.remove()
+      globalThis.fetch = fetchAvant
+      window.fetch = fetchAvant
+      window.localStorage.removeItem('pcstar-session')
+      window.localStorage.removeItem('pcstar-users')
+      resetSafeStorage()
+    }
   })
 
   it('le declencheur du menu nomme la feuille qu il ouvre, seulement quand elle est ouverte', async () => {
@@ -1015,7 +1210,10 @@ describe('P4 — le dictionnaire suit la page (aucune clé morte, aucune langue 
   })
 
   it('les clés des filtres retirés et du décor supprimé sont parties partout', () => {
-    const lues = ['inStoreOnly', 'inStoreOnlyHint', 'useAny', 'availability', 'roRefs', 'roPay', 'builderCheckTitle', 'builderCheckBody', 'chkOkSocket', 'chkOkRam', 'chkOkPsu', 'chkWarnCase']
+    // LOT P25 (S6) : les trois cles des « recherches sauvées » et les six tranches
+    // de prix sont arrivees ici avec leur retrait — la page Recherche ne les lit
+    // plus, et `src/i18n.coverage.test.js` tient le meme compte de son cote.
+    const lues = ['inStoreOnly', 'inStoreOnlyHint', 'useAny', 'availability', 'roRefs', 'roPay', 'builderCheckTitle', 'builderCheckBody', 'chkOkSocket', 'chkOkRam', 'chkOkPsu', 'chkWarnCase', 'saveSearch', 'searchSaved', 'searchFree', 'price_any', 'price_u15', 'price_15_30', 'price_30_50', 'price_50_100', 'price_100p']
     for (const l of LANGS) {
       for (const cle of lues) {
         assert.equal(cle in dict[l.id], false, `${l.id} : la cle ${cle} ne sert plus a rien`)

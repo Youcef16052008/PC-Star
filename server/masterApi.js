@@ -452,7 +452,11 @@ export function updateProduct(db, id, rawPatch) {
     }
     if (patch.photos != null && Array.isArray(patch.photos)) {
       cur.photos = patch.photos.slice(0, MAX_PHOTOS)
-      if (cur.photoMode === 'category' && cur.photos.length) cur.photoMode = 'custom'
+      // LOT P27 : deux visuels générés existent désormais — l'illustration de rayon
+      // (`category`) et le packshot livré par référence (`packshot`). Une photo
+      // montée par le maître remplace les deux : la fiche repasse en `custom`,
+      // sinon elle continuerait de se déclarer « visuel généré » avec une vraie photo.
+      if ((cur.photoMode === 'category' || cur.photoMode === 'packshot') && cur.photos.length) cur.photoMode = 'custom'
     }
     // LOT 2.6 (F10), second volet : `needs` n'était repris que dans la branche
     // « override du catalogue de base » ci-dessous. Pour un produit CRÉÉ par le
@@ -490,7 +494,11 @@ export function updateProduct(db, id, rawPatch) {
   }
   const effectivePrice = Number(next.price ?? base.price)
   if (Number(next.compareAtPrice) > 0 && Number(next.compareAtPrice) < effectivePrice) return { ok: false, error: 'compare_at_price' }
-  if (patch.photos != null && base.photoMode === 'category') next.photoMode = patch.photos.length ? 'custom' : 'category'
+  if (patch.photos != null && (base.photoMode === 'category' || base.photoMode === 'packshot')) {
+    // Même règle que pour un produit créé par le maître : une vraie photo prend le
+    // statut `custom` ; une liste vidée rend au produit son visuel généré d'origine.
+    next.photoMode = patch.photos.length ? 'custom' : base.photoMode
+  }
   if (patch.stock != null) {
     setStock(db, id, Math.max(0, Math.floor(Number(patch.stock) || 0)))
   }

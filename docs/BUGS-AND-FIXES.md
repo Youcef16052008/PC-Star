@@ -3499,3 +3499,403 @@ Reste ouvert, écrit ici :
 étages de ce lot sur trois moteurs, le bac à sable n'ayant pas pu télécharger les navigateurs.
 Un verrou que je n'ai pas exécuté chez moi est annoncé comme tel dans le texte, et la CI le
 tranche — dans un sens comme dans l'autre.
+
+---
+
+## P24 — Barre de navigation : la feuille ne mesurait que 61 px, le panier s'écrit en icône (demande client du 21/09/2026)
+
+Demande reçue telle quelle : « regarde cette incomplete menu c'est quoi ça c'est pourri fix le
+je veux quelque chose de pro », plus trois points précis — **supprimer** les boutons
+« Informations », « Conditions », « Confidentialité » et « Garantie & RMA », remplacer le mot
+« Panier » par une **icône**, un bouton attrayant **dans le coin droit en haut**. Quatre défauts
+mesurés dans un vrai moteur (Chromium 153, `npm run dev` sur 5173) derrière cette phrase.
+
+### 1. Le menu ouvert ne couvrait que 61 px 🔴
+
+Mesure : `#nav-sheet` faisait **390 × 61 px** en 390 × 844, c'est-à-dire la hauteur de la barre.
+`inset: 0` était bien calculé à 0 — mais résolu **contre la barre**, pas contre la fenêtre.
+Cause : `backdrop-filter` sur `.shop-navbar` (le verre dépoli) crée un **bloc conteneur pour les
+descendants `position: fixed`** (CSS Filter Effects 1). La feuille pleine page était son
+descendant direct. Le flou est passé sur `::before` (aucun descendant ne l'hérite), la barre
+redevient transparente : même verre, plus de piège. Trois autres défauts du même écran corrigés
+dans la foulée, chacun vérifié à l'écran :
+
+- les entrées du menu s'alignaient **au centre** de chaque ligne (elles portent `.btn`, donc
+  `justify-content: center`) : la feuille est `align-items: stretch` et les liens
+  `justify-content: flex-start` / `text-align: start` ;
+- les boutons de compte, en bas de la feuille, passaient **sous la pastille de notification**
+  (`z-index: 1100` posé à la main dans `App.jsx`). Deux étages, et le premier ne suffisait pas :
+  la feuille monte à `1110` — mais `.sticky-top` de Bootstrap pose `1020` sur la barre, qui est
+  un **contexte d'empilement** : à l'intérieur, la feuille ne se compare qu'aux éléments de la
+  barre. C'est donc `body.nav-sheet-open .shop-navbar { z-index: 1120 }` qui règle le cas,
+  vérifié `elementFromPoint` en main : le clic au centre de « Connexion » atteint bien le bouton ;
+- la page **défilait derrière** la feuille et le bouton WhatsApp flottant (1040) passait
+  par-dessus les liens : `body.nav-sheet-open` verrouille le défilement et retire les flottants
+  sous 1 200 px.
+
+### 2. La barre passait sur deux lignes dès 1 440 px 🟠
+
+Mesure de la rangée à 1 200 px : **1 033 px demandés pour 966 px disponibles**, et la colonne du
+compte se cassait en deux puis en quatre. Trois causes additionnées : les quatre entrées légales
+du menu (dont « Garantie & RMA » sur deux lignes), les 8 px de marge par lien de Bootstrap, et
+`backdrop-filter` (encore lui) qui désactivait les raccourcis de peinture sur toute la barre.
+Corrections : le groupe « Informations » disparaît (point 3), `navbar-expand-xl` au lieu de
+`-lg` — entre 992 et 1 200 px le menu part dans la feuille plein écran comme sur un téléphone —
+marge par lien à 6 px, boutons courts (12 px) pour la langue et le compte, et le panier réduit à
+48 px. Résultat mesuré : **une seule rangée de 1 200 à 1 920 px**, visiteur comme maître.
+
+### 3. Les textes légaux sortent du menu, la page reste atteignable 🟡
+
+« Informations / Conditions / Confidentialité / Garantie & RMA » quittent la barre (demande
+écrite). Les trois pages restent **atteignables depuis le pied de page** — « Garantie & RMA » y
+entre, elle n'y était pas. C'est le point que le lot P6 avait corrigé dans l'autre sens (une page
+routée que rien n'ouvre est du code mort qui se prend pour du contenu) : `HORS_MENU` porte
+désormais les trois, avec leur raison, et le verrou de `src/p3Vitrine.test.js` continue d'exiger
+que `MENU_DESTINATIONS` + `HORS_MENU` couvrent `PAGES_ROUTABLES` en entier.
+
+### 4. Le panier devient une icône, le comptoir se range derrière un bouton 🟡
+
+- **Panier** : pictogramme SVG en `currentColor` dans le bouton `btn-success` du coin droit
+  (46 × 48 px, pastille de quantité collée au coin), le nom restant dans `aria-label` et `title`
+  — un bouton sans texte doit porter son nom pour un lecteur d'écran. Les harnais qui le
+  désignent par `.app .navbar button.btn-success` (lot2UI, lot3UI, lot3StorageBlocked, lot8UI)
+  n'ont pas bougé d'une ligne.
+- **Comptoir** : « Guide », « Liste comptoir » et « Admin » passent derrière un `<details>`
+  « Gestion » — natif, donc clavier et annonce « replié/déplié » fournis par le navigateur, et
+  refermé au clic d'une entrée. Huit liens plus quatre actions ne tiennent pas dans 966 px ; trois
+  pages de comptoir ne méritent pas de disputer la place des cinq destinations publiques.
+
+### 5. La porte « audit boutons » cherchait le panier à son texte 🟡
+
+`scripts/audit-buttons.mjs` désignait le bouton du panier par son libellé visible. Une icône n'en
+a plus : **8 échecs** (« bouton panier introuvable », « bouton de navigation introuvable ») sur
+une interface parfaitement cliquable. Le harnais cherche désormais le **nom accessible**
+(`aria-label`) quand le texte manque — c'est ce qu'un lecteur d'écran annonce, et c'est la forme
+qui survit à un bouton écrit en pictogramme. Le reste de la porte est inchangé : le libellé garde
+la priorité quand il existe, le compteur collé (« Panier12 ») reste reconnu. Relancée :
+**AUDIT OK — 32 vérifications**, crawl jsdom **24 pages, 0 erreur**.
+
+### 6. Deux défauts de pied de page trouvés par le harnais 🟡
+
+La porte Playwright a refusé deux clics, et elle avait raison : la feuille **couvre** le pied de
+page tant qu'elle est ouverte (le test ferme maintenant la feuille par son propre en-tête), et le
+bouton WhatsApp flottant **recouvrait le lien « Garantie »** en 390 × 780 — le pied de page
+réserve désormais la hauteur du FAB sous son contenu. Un lien que le doigt ne peut pas atteindre
+n'est pas un lien.
+
+### Verrous
+
+Sept verrous de plus dans `src/p3Vitrine.test.js` (54 tests) : flou hors de la barre, feuille
+`align-items: stretch`, entrées alignées à gauche, feuille au-dessus du toast, palier unique
+1 199,98 px, bloc du compte en bas de feuille, panier icône + `aria-label`, et « Gestion » qui
+ouvre exactement les trois pages du maître puis se referme. La porte Playwright
+(`e2e/smoke.spec.js`) suit le déménagement de « Garantie & RMA » vers le pied de page et vérifie
+que les **sept** cibles de la feuille (cinq pages + deux portes du compte) sont dans le viewport
+après défilement. Suite complète : **1 163 tests verts** côté `node:test`, 5/5 en Chromium côté
+Playwright.
+
+### Reste ouvert, écrit ici
+
+- `.nav-sheet.show` fixe `z-index: 1110` alors que le toast est posé à `1100` **dans le JSX** :
+  deux nombres qui doivent rester dans le bon ordre et vivent dans deux fichiers. Un token
+  (`--z-toast`, `--z-sheet`) serait plus honnête — non fait ici pour ne pas élargir le lot.
+- La colonne du compte reste un empilement vertical de boutons sous 1 200 px, et deux boutons
+  côte à côte au-dessus : c'est le même bloc, deux dispositions, donc deux endroits à relire.
+- **Aucun identifiant maître n'est publié dans ce dépôt** (`src/masterSecrets.test.js` le vérifie
+  sur tout l'arbre, `scripts/check-bundle.mjs` sur le bundle). Un mot de passe qui a circulé se
+  **remplace**, il ne se retrouve pas : `npm run master:rotate` en écrit un neuf dans `.env.local`
+  (0600, jamais affiché), puis `docs/DEPLOY-VERCEL.md` § 8 ter pour Vercel.
+
+## LOT P25 — page Recherche : le prix se tape, marques et rayons se retiennent par plusieurs, la sauvegarde s'en va (demande client du 21/09/2026)
+
+Trois demandes, mot pour mot : « delete moi cette chose sauver la sauvegarde elle n'est pas utile »,
+« le filtre contient les marques, le catalogue […] il faut qu'il soit avancé » (choisir **3 ou 5**
+marques ou rayons **à la fois**), et « le prix écrit par le client au clavier — minimum 100 DA,
+maximum 10 000 000 DA ».
+
+### 1. Les recherches sauvées sont retirées
+
+Partis ensemble, parce qu'un morceau qui survit est le début du retour :
+
+| Ce qui est parti | Où |
+|---|---|
+| État `saved` / `saveNote`, effet de persistance, `saveSearch()`, bouton « Sauver cette recherche », puces des recherches | `src/SearchPage.jsx` |
+| `loadSavedSearches` / `saveSavedSearches` + `KEY_SAVED_SEARCHES` / `MAX_SAVED_SEARCHES` | `src/shopStore.js` |
+| Clés `saveSearch`, `searchSaved`, `searchFree` (fr **et** en) | `src/i18n.js` |
+| 4 verrous (P10/P15) et les 2 verrous Q7 (« ids uniques », « borne à 10 ») | `src/shopStore.test.js`, `src/lot6Quality.test.js` |
+
+Le verrou de non-retour vit maintenant dans `src/p6SearchSurface.test.js` : la page, `shopStore.js`
+et le dictionnaire sont balayés (`pcstar-saved-searches`, `saveSearch`, `saved.map`, les trois clés),
+et `src/i18n.coverage.test.js` garde leur nom dans `groupesRetirés` — une clé qui revient sans écran
+pour la lire rougit.
+
+### 2. Marques **et** rayons se retiennent par plusieurs
+
+Mesuré avant : les deux feuilles se refermaient sur le **premier** clic (`onChoisir` → `setSheet(null)`).
+Comparer trois marques demandait trois allers-retours et trois fois la même phrase retapée dans le
+champ « chercher une marque » ; choisir un second rayon **remplaçait** le premier.
+
+- `src/brandSheet.jsx` gagne un mode **explicite** `multiple` (le clic bascule, la feuille reste
+  ouverte, un pied `piedLabel`/`onPied` ferme) — et un pied qui porte **le compte des résultats**, qui
+  bouge à chaque bascule. Le mode par défaut reste mono-sélection : la vitrine (`src/App.jsx`) garde
+  son contrat, un composant partagé qui change de comportement sous son premier client est la
+  divergence de demain.
+- La feuille catalogue bascule les rayons de la même façon. `all` n'entre **jamais** dans la
+  sélection : choisir « Tout le catalogue » la **vide** (sinon le filtre dirait « GPU et tout le
+  catalogue »). Chaque rayon retenu a sa puce dans les filtres actifs, et le bouton de la barre
+  reporte `· 3 rayons` (son nom, quand il n'y en a qu'un).
+- La règle P6/S4 (une marque qui ne vend rien dans le rayon choisi est retirée **et annoncée**) juge
+  désormais sur l'**ensemble** des rayons retenus : une marque tient dès qu'elle vend dans l'un d'eux.
+  `src/filterDrop.js` n'a pas bougé — seule la liste qu'on lui passe a changé de taille.
+
+### 3. Le prix se tape (100 DA … 10 000 000 DA)
+
+Avant : six cases dans l'aside du bureau (`Moins de 15 000 DA`, `15 000 – 30 000`, …, `100 000 DA+`)
+et un `<select>` de six tranches dans le tiroir mobile — **deux formes pour une règle**, et aucune
+des deux ne sait dire « entre 42 000 et 137 000 ».
+
+- `src/priceRange.js` porte la règle : le texte du champ est réduit aux chiffres (`textePrix`), une
+  borne hors fenêtre est **corrigée à la sortie du champ** (`texteBorne` : « 50 » devient « 100 »),
+  un champ vide veut dire « pas de borne » (jamais 0), et `min > max` est **signalé**
+  (`priceInverted`) au lieu d'être échangé en silence sous les yeux du client.
+- `src/priceRange.jsx` est le **seul** bloc de prix : les deux surfaces le rendent avec deux
+  `idPrefix` (`prix-bureau`, `prix-mobile`), `inputMode="numeric"` (clavier numérique sur téléphone),
+  le suffixe de devise de `src/format.js` et la fenêtre autorisée écrite sous les champs (reliée par
+  `aria-describedby`). La puce de filtre porte le prix **écrit** (`42 000 DA – 137 000 DA`).
+- `PRICE_PRESETS` (`src/data.js`), `PRICE_KEYS` et les six clés `price_*` sont partis avec les
+  tranches ; `src/i18n.coverage.test.js` les garde dans `groupesRetirés`.
+
+### Mesures et portes
+
+- `src/p6SearchSurface.test.js` : **46 → 55 tests** (55 verts) — dont 2 pour la règle du prix
+  testée pour elle-même, 4 à l'écran (bornes, hors-fenêtre + sortie du champ, paire inversée,
+  tiroir mobile = même état), et 3 de non-retour.
+- `src/shopStore.test.js` 21 → 17 verts, `src/lot6Quality.test.js` 28 → 26 verts.
+- Suite complète : **1 168 tests verts** (contre 1 163). `scripts/jsdom-crawl.mjs` : 24 pages,
+  0 erreur. `scripts/audit-buttons.mjs` : **32 vérifications OK**. `npm run build` :
+  9 fichiers, `check-bundle` — aucun secret.
+
+### Reste ouvert, écrit ici
+
+- **Aucun rendu dans un vrai moteur cette session** : les navigateurs Playwright ne sont pas
+  installés hors-ligne (`npx playwright install chromium` échoue au téléchargement), donc le prix
+  tapé, la feuille à trois marques et le tiroir mobile n'ont été vus qu'en jsdom + les deux harnais.
+  C'est la première chose à regarder à la prochaine session qui a un Chromium.
+- Le montant tapé n'est **pas** mémorisé d'une visite à l'autre (les rayons, les marques et l'état
+  non plus) : `EMPTY` reste l'ouverture de la page. Aucune demande en ce sens.
+- La vitrine garde le filtre marque **mono-sélection** : le mode multiple est opt-in côté recherche.
+  L'étendre à la vitrine est une demande à part entière, pas un effet de bord.
+
+## LOT P26 — configurateur : le boîtier et l'alimentation sont requis, pas optionnels (demande client du 21/09/2026)
+
+Demande, mot pour mot : « there is things we still need to fix them like PSU and boitier sont
+requis pas optionel ». Le configurateur laissait en effet ajouter une config sans boîtier ni
+alimentation : le bouton d'ajout ne regardait que la carte mère, le CPU et la mémoire, et les deux
+emplacements s'annonçaient « Optionnel » dans la barre d'emplacements.
+
+### 1. Une seule liste d'emplacements requis
+
+`BUILDER_REQUIRED` (`src/data.js`) passe de trois clés à cinq : `motherboard`, `cpu`, `ram`,
+**`case`, `psu`**. Aucun autre code de la page n'avait à bouger — `requiredReady` se calcule déjà
+depuis les données : la vignette cesse de dire « Optionnel », le récap latéral passe de « Passer »
+à « Optionnel », et le bouton « Ajouter la config au panier » reste grisé tant que les cinq ne sont
+pas remplis (il portait déjà `!requiredReady || !socketOk || !heatOk`).
+
+Un verrou protège la liste (`src/BuilderPage.test.js`, `deepEqual` sur les clés requises), et la
+fixture de `src/reportP17.test.js` se complète (boîtier + alimentation) — sans quoi son verrou de
+socket testait un bouton grisé pour une mauvaise raison.
+
+### 2. Les deux défauts que la demande a mis au jour sur la même page
+
+- **Le message d'ajout mentait déjà.** Il portait « Carte mère, CPU et RAM requis » écrit en dur et
+  n'avait pas suivi la demande. Il reçoit maintenant la liste : `missingRequired()` ajouté à
+  `src/orderLogic.js` rend les emplacements requis encore vides, et `toastNeedCore` devient
+  « Il manque : {slots} » / « Missing: {slots} » — le texte ne peut plus diverger des données.
+- **Deux vocabulaires pour une promesse.** Les vignettes disaient « Requis » / « Optionnel »
+  (`need` / `optional`) quand le récap latéral disait « Obligatoire » / « Passer »
+  (`required` / `skip`). Le récap parle désormais comme les vignettes ; la clé `skip` part (gardée
+  morte par `src/i18n.coverage.test.js`), `required` reste — le formulaire produit s'en sert encore
+  pour un champ vide. Les trois copies du même ternaire de libellé d'emplacement deviennent un seul
+  `labelDuSlot()`.
+
+### Mesures et portes
+
+- `src/BuilderPage.test.js` : **5 → 7 tests** — 3 pour la demande (liste requise, « Requis » sur
+  boîtier et alimentation + bouton grisé, config complète qui s'ajoute), 2 pour la suite (le message
+  qui nomme ce qui manque, le vocabulaire unique du récap).
+- Le jeu de fichiers du configurateur (`BuilderPage`, `i18n.coverage`, `reportP17`, `lot6Quality`,
+  `p2CompatNull`) : **55 verts**. Suite complète : **1 173 tests verts** (contre 1 168 au lot P25).
+- `npm run build` (9 fichiers, `check-bundle` — aucun secret), `scripts/jsdom-crawl.mjs`
+  24 pages / 0 erreur, `scripts/audit-buttons.mjs` 32 vérifications OK.
+
+### Reste ouvert, écrit ici
+
+- Aucun rendu dans un vrai moteur cette session (navigateurs Playwright non installables hors-ligne) :
+  la page a été vérifiée en jsdom et par les deux harnais, pas à l'œil sur un Chromium.
+- L'emplacement « Écrans » du configurateur suit encore `p.category === 'accessories'` : il
+  accueillera les nouvelles références d'écrans quand le rayon « Écrans » du catalogue existera
+  (lot suivant), pas avant — sinon la vignette promettrait des écrans que le rayon ne montre pas.
+
+## LOT P27 — les écrans ont leur rayon, et les références sans photo reçoivent la leur (21/09/2026)
+
+Demande, mot pour mot : « do all what you recommande in these point take decisions by yourself ».
+Trois chantiers menés ensemble, tous mesurés.
+
+### 1. Rayon « Écrans »
+
+Le catalogue promettait un rayon d'écrans depuis le premier jour : `PART_LINES` porte « Écrans »,
+le configurateur a un emplacement « Écrans », et cinq écrans se vendaient — rangés dans
+« Accessoires PC », au milieu des claviers et des souris. Le rayon existait partout sauf dans le
+filtre du magasin.
+
+- `CATEGORIES` gagne `monitor` (« Écrans »), avec `cat_monitor` en fr et en ;
+- la ligne de recherche `monitor` passe de la devinette (`p.category === 'accessories'` + regex
+  sur le nom) à `byCategory('monitor')` : elle liste le rayon, elle ne le cherche plus ;
+- quatre écrans en ligne de plus (Samsung Odyssey G3 24″, LG UltraGear 27″ QHD,
+  Dell P2723DE 27″ QHD, Samsung Smart Monitor S6 32″) s'ajoutent à l'AOC 24B3HA2 ;
+- trois écrans déjà en catalogue (`mon-vg27`, `mon-g27q`, `mon-mag274`) changent seulement de
+  rayon : ils ont de vraies photos au comptoir, ils n'avaient pas besoin d'une illustration ;
+- la fiche cœur `monitor` s'appelait « ASUS TUF VG27AQ » avec le SKU `XG27ACS` (un ROG Strix) :
+  deux produits sous une seule fiche. Elle reprend son vrai nom, « ASUS ROG Strix XG27ACS 27″ » ;
+  le TUF VG27AQ3A garde la sienne, avec sa photo réelle.
+
+Le rayon compte donc **9 écrans**, tous avec au moins une photo. Le « Reste ouvert » du lot P26
+(l'emplacement « Écrans » du configurateur accroché à `accessories`) est fermé par ce déplacement.
+
+### 2. Photos livrées par référence (mode `packshot`)
+
+78 références du catalogue élargi n'avaient qu'**une illustration de rayon partagée** — la même
+image pour dix produits réseau, la même pour sept imprimantes. Le mécanisme de photo livrée est
+donc posé : `photoMode: 'packshot'` (déclaré par `extra.packshot` dans `p()`), un fichier par
+référence dans `/photos/pack/<id>.jpg` **et son `.webp`** (le navigateur sonde le webp en premier :
+sans lui, un 404 par vignette), 1200 × 900, même recette de conversion que le catalogue sku.
+`photosForProduct` sert ce fichier tel quel, ni le trio `/photos/sku/` (deux chemins fantômes) ni
+l'illustration de famille ; le badge « illustration de catégorie » disparaît, la vignette n'est plus
+annoncée comme la photo d'un rayon mais comme celle de la référence.
+
+Le verrou `catalogExpansion.test.js` accepte les deux formes honnêtes et refuse tout le reste :
+une photo livrée doit exister sur le disque **avec son webp**, l'illustration de rayon doit garder
+`photoMode: 'category'`, et chaque fiche garde **une seule** image (jamais un trio inventé).
+
+Livrées à ce lot : **13 packshots** — 5 écrans, les imprimantes et scanners du rayon, les trois
+caisses, et deux pilotes (imprimante laser, portable 15″). Le reste du catalogue élargi suit au lot
+suivant, dans l'ordre du catalogue élargi.
+
+### 3. Décisions prises seules, et pourquoi
+
+- **Les écrans déménagent** (plutôt que de créer un rayon vide à côté de cinq écrans rangés
+  ailleurs) — voir § 1 ;
+- **la fiche au mauvais nom est renommée** sur son SKU réel, pas fusionnée : le prix et la
+  référence restent au comptoir, on n'efface pas une fiche pour un doublon de nom apparent ;
+- **les illustrations de rayon restent en place** pour les 64 références pas encore servies : un
+  écran noir avec le repère de sa famille vaut mieux que la photo d'un autre rayon ;
+- **le README est remesuré** (1173 tests, 305 produits, 771 photos, 659 clés) et son bloc de
+  commandes ne recopie plus un compte de tests d'une autre époque — c'est le seul endroit autorisé
+  à porter ces chiffres, autant qu'ils soient vrais ;
+- **`public/catalog/components-studio.jpg`** : livré, plus référencé par personne depuis que les
+  fiches composants du rayon élargi ont leur photo — laissé en place, il servira si une nouvelle
+  fiche composant arrive ; le verrou de `catalogExpansion` ne vérifie que les groupes référencés.
+
+### Vérifications
+
+| Contrôle | Résultat |
+| --- | --- |
+| `npm test` | **1173 tests / 316 suites / 0 échec** |
+| `npm run build` | OK — `index-BijTEyyJ.js` 499,23 kB (gzip 150,29), check-bundle « 9 fichier(s) : aucun secret » |
+| `npm run build:crawl` + `jsdom-crawl` | 24 pages rendues, 0 erreur |
+| `audit-buttons` | 32 vérifications OK |
+
+### Reste ouvert, écrit ici
+
+- Aucun rendu dans un vrai moteur cette session (les navigateurs Playwright ne s'installent pas
+  hors-ligne) : le nouveau rayon et les packshots ont été vus en jsdom, en ImageMagick et par les
+  deux harnais — la première chose à regarder avec un Chromium reste l'écran du configurateur et
+  la grille des rayons.
+- 64 références attendent encore leur photo (consommables, postes de bureau, portables, réseau,
+  onduleurs, accessoires laptop, tablettes, multimédia, téléphonie, mobilier) : même recette, même
+  dossier, câblage par le même outil.
+- Les 5 écrans qui ont reçu un packshot n'affichent qu'**une** photo (la leur) là où les fiches
+  du comptoir en montrent trois : c'est voulu (une image honnête plutôt qu'un trio inventé), mais
+  ça se verra dans la galerie d'une fiche produit.
+- Les **37 illustrations de rayon** (`public/catalog/*.jpg`) ne sont plus référencées par aucune
+  fiche : décision de les **garder**. Elles documentent le rayon, pèsent ~4 Mo au total, et serviront
+  si une référence est ajoutée sans photo — un écran noir avec le repère de la famille reste un repli
+  honnête. Le jour où le rayon lui-même est figé, un nettoyage sera possible en une commande.
+- Le visuel d'un packshot est une **illustration générée**, pas la photo du produit reçu : c'est le
+  même régime que les photos catalogue déjà en ligne (assumé, aucune mention ajoutée), et le jour où
+  le comptoir photographie réellement une référence, sa photo maître prend le statut `custom`.
+
+### Chantier photos — suivi des lots
+
+Même recette pour chaque lot : génération, conversion (sRGB, Lanczos, 1200 × 900, `.jpg` q82 +
+`.webp` q80), `node scripts/wirePackshots.mjs`, `src/catalogExpansion.test.js` puis la suite.
+`node scripts/audit-photos.mjs` donne le reste à faire.
+
+| Lot | Références servies | Reste |
+| --- | --- | --- |
+| P27 (écrans, impression, caisses, pilotes) | 18 | 64 |
+| Réseau & Wi‑Fi | 10 (net-*) | 54 |
+| Consommables, bras écran, 2 bureautiques | 10 | 44 |
+| Bureautique, serveurs, 2 portables | 10 | 34 |
+| 3 portables, GPU/SSD/carte mère, 3 onduleurs | 10 | 24 |
+| Boîtiers micro-ATX (2) — et 8 visuels du lot précédent régénérés | 2 | 22 |
+| Parafoudre, accessoires laptop (6), tablettes (3) | 10 | 12 |
+| Multimédia (5) et téléphonie (3), chaise gamer, bureau | 10 | 2 |
+| Support laptop, coffre-fort (2) — **chantier clos** | 2 | **0** |
+
+Clos le 21/09/2026 : `node scripts/audit-photos.mjs` ne relève plus **aucune** référence sur une
+illustration de rayon. Les 82 fiches du catalogue élargi montrent leur propre photo ; les 37
+fichiers `/catalog/*.jpg` restent livrés sur le disque (voir « Reste ouvert »).
+
+Un bug de données a été trouvé par le verrou en fermant le chantier : `server/masterApi.js` ne
+faisait basculer en `custom` qu'un produit en mode `category` — une **vraie photo maître** livrée
+sur une fiche à packshot laissait donc la fiche se déclarer « visuel généré ». Les deux endroits
+(produit créé par le maître, produit du catalogue de base) traitent maintenant `category` **et**
+`packshot`, et une liste de photos vidée rend à la fiche son visuel généré d'origine.
+
+### Suite du lot — trois points de dette soldés (21/09/2026)
+
+1. **L'empilement a une seule source** (`src/tokens.css`) — et il est **complet**. La colonne entière
+   est nommée, du fond vers l'avant : `--z-behind` (décor), `--z-sticky` (carte de filtres, sous le
+   `1020` de Bootstrap qui n'est pas à nous), `--z-bar-mobile`, `--z-fab`, `--z-status`,
+   `--z-dropdown`, `--z-toast`, `--z-sheet`, `--z-sheet-nav`, `--z-skip`. Il ne reste **aucun**
+   `z-index` numérique dans le dépôt (vérifié par recherche sur `src/` et les feuilles) : le verrou
+   de `src/p3Vitrine.test.js` refuse un nombre en dur et exige que l'échelle lue dans `tokens.css`
+   soit **strictement croissante** — l'ordre se relit à un endroit, plus dans cinq. Détail de
+   départ : Le toast portait `zIndex: 1100` **dans
+   App.jsx** et la feuille de menu `z-index: 1110` **dans index.css** : deux nombres qui doivent
+   rester dans le bon ordre et vivaient dans deux fichiers. L'échelle est désormais écrite une fois
+   (`--z-fab`, `--z-toast`, `--z-sheet`, `--z-sheet-nav`, `--z-skip`) et les six usages la lisent.
+   Le verrou de `src/p3Vitrine.test.js` ne recopie plus les nombres : il **compare les valeurs des
+   tokens** (`z-toast < z-sheet < z-sheet-nav`) et vérifie que le CSS et le JSX lisent bien leurs
+   variables — un nombre remis à la main dans App.jsx le fait rougir.
+2. **Les deux outils photos entrent dans les scripts npm** : `npm run photos:audit` (relevé des
+   références encore servies par une illustration de rayon) et `npm run photos:wire` (câblage
+   idempotent des photos livrées). Documentés dans le bloc de commandes du README.
+3. **La panne CI Neon est diagnostiquée, et sa cause est mesurée.** Le pas `Create Neon Branch`
+   échouait en quelques secondes en annonçant seulement `AxiosError: status code 422`. Le pas
+   `Inventaire des branches Neon` (posé **avant** la tentative, en `continue-on-error` : il informe,
+   il ne décide pas du vert) interroge l'API en lecture seule et publie son constat en **annotation
+   de check** — lisible dans l'onglet Checks, alors que le journal du job, lui, ne l'était pas.
+   Verdict au premier passage : **`HTTP 200 - 10 branches dont 8 preview/*`** — le projet est pile
+   au plafond du plan gratuit (10 branches), d'où le 422 de la création. Le geste tient donc à une
+   suppression de branches orphelines côté Neon (tableau « cause → geste » dans
+   `docs/NEON-MIGRATION.md`), pas à une ligne de ce dépôt. L'inventaire est aussi une commande :
+   `npm run db:branches:neon`.
+
+   Le nettoyage, lui, est à portée de clic : le workflow **« Neon — nettoyage des branches de PR »**
+   (`workflow_dispatch`, **mode annonce par défaut**) liste les `preview/pr-<n>-…` dont la PR est
+   fermée, puis s'arrête ; une seconde exécution avec `dry_run` décoché supprime. Trois garde-fous,
+   vérifiés au banc avec un `curl` de test — donc pas seulement relus : jamais la branche par défaut
+   du projet, jamais une branche hors du motif `preview/pr-N-…`, **jamais dans le doute** (une PR
+   dont l'état est illisible est conservée). Un verrou de `src/phase5Reliability.test.js` refuse tout
+   déclencheur automatique sur ce workflow : il ne peut pas partir tout seul.
+
+   Piège rencontré et corrigé dans le même lot : le premier jet de ce pas appelait
+   `node scripts/neon-branches.mjs` — or il tourne **avant le checkout**, donc le fichier n'existe
+   pas encore sur le runner. `continue-on-error` masquait l'échec (étape rapportée « success »,
+   aucune annotation, et un diagnostic muet qui *paraissait* marcher). Le pas interroge maintenant
+   l'API en shell ; `scripts/neon-branches.mjs` reste l'outil local.
+
+Portes après ces trois points : `npm test` 1173/1173 (316 suites), build + check-bundle « aucun
+secret », crawl jsdom 24 pages / 0 erreur, `p3DocsAging` + `p3ServerHygiene` verts.

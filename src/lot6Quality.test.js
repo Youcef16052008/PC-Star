@@ -23,7 +23,8 @@ import { JSDOM } from 'jsdom'
 //  6.6 (Q6)  les listes d'options du Builder filtraient autrement que
 //            `socketsMatch` (P17) → un seul prédicat.
 //  6.7 (Q7)  `s-${Date.now()}` comme id de recherche sauvée → collisions dans la
-//            même milliseconde.
+//            même milliseconde. (LOT P25 : la fonctionnalité a été retirée, le
+//            verrou est parti avec elle.)
 //  6.8 (Q8)  trois écritures des en-têtes CORS, dont une posant un
 //            `Allow-Origin` vide → `corsHeaders()` unique.
 //  6.9 (Q9)  le smoke e2e n'assertait que « pas de texte d'erreur » → il vérifie
@@ -379,88 +380,11 @@ describe('6.6 (Q6) — le Builder filtre avec le même prédicat qu’il affiche
 })
 
 /* ------------------------------------------------------------- 6.7 (Q7) */
-
-describe('6.7 (Q7) — les recherches sauvées ont des ids uniques', () => {
-  const KEY = 'pcstar-saved-searches'
-
-  it('deux sauvegardes dans la même milliseconde → deux ids distincts', async () => {
-    window.localStorage.removeItem(KEY)
-    const m = await mount(
-      React.createElement(SearchPage, {
-        t,
-        products: PRODUCTS,
-        lines: PART_LINES,
-        panels: [],
-        lang: 'fr',
-        liveStock: () => 5,
-        onAdd: () => {},
-        onOpen: () => {}
-      })
-    )
-
-    const saveBtn = m.byText('button', t('saveSearch'))
-    assert.ok(saveBtn, 'bouton « Enregistrer la recherche » introuvable')
-
-    // Date.now figé : les deux clics tombent dans la MÊME milliseconde, ce qui
-    // est exactement le cas réel d'un double-clic (et ce que `s-${Date.now()}`
-    // ne savait pas gérer).
-    const realNow = Date.now
-    Date.now = () => 1760000000000
-    try {
-      await act(async () => {
-        saveBtn.dispatchEvent(new window.MouseEvent('click', { bubbles: true }))
-        saveBtn.dispatchEvent(new window.MouseEvent('click', { bubbles: true }))
-      })
-    } finally {
-      Date.now = realNow
-    }
-    await settle(60)
-
-    const stored = JSON.parse(window.localStorage.getItem(KEY) || '[]')
-    assert.equal(stored.length, 2, 'deux recherches doivent être enregistrées')
-    assert.notEqual(stored[0].id, stored[1].id, 'les ids doivent différer même dans la même milliseconde')
-    assert.equal(new Set(stored.map((s) => s.id)).size, 2)
-
-    // Les deux sont rendues (des `key` React dupliqués en auraient fusionné une).
-    const rendered = [...m.host.querySelectorAll('button')].filter((b) => clean(b) === stored[0].title)
-    assert.equal(rendered.length, 2, 'les deux recherches doivent apparaître dans la liste')
-    await m.unmount()
-  })
-
-  it('la borne à 10 tient toujours (P10 conservé)', async () => {
-    window.localStorage.removeItem(KEY)
-    const m = await mount(
-      React.createElement(SearchPage, {
-        t,
-        products: PRODUCTS,
-        lines: PART_LINES,
-        panels: [],
-        lang: 'fr',
-        liveStock: () => 5,
-        onAdd: () => {},
-        onOpen: () => {}
-      })
-    )
-    const saveBtn = m.byText('button', t('saveSearch'))
-    const realNow = Date.now
-    let n = 0
-    Date.now = () => 1760000000000 + n++ // ids distincts garantis
-    try {
-      for (let i = 0; i < 13; i += 1) {
-        await act(async () => {
-          saveBtn.dispatchEvent(new window.MouseEvent('click', { bubbles: true }))
-        })
-      }
-    } finally {
-      Date.now = realNow
-    }
-    await settle(60)
-    const stored = JSON.parse(window.localStorage.getItem(KEY) || '[]')
-    assert.equal(stored.length, 10, 'la liste reste bornée à 10')
-    assert.equal(new Set(stored.map((s) => s.id)).size, 10, '10 ids distincts')
-    await m.unmount()
-  })
-})
+// LOT P25 (S6) : le bloc « les recherches sauvées ont des ids uniques » est parti
+// avec la fonctionnalité, sur demande du client (« sauver la sauvegarde n'est pas
+// utile »). Le défaut qu'il décrivait (`s-${Date.now()}` collisionnant dans la même
+// milliseconde) n'a plus d'objet : il n'y a plus d'id de recherche sauvée à
+// fabriquer. Le verrou de non-retour vit dans `src/p6SearchSurface.test.js`.
 
 /* ------------------------------------------------------------- 6.8 (Q8) */
 

@@ -51,6 +51,28 @@ html[data-theme='dark'] {
   --brand-blue: #6d8bff;
   --brand-red: #ff4d55;
 
+  /* Empilement — l'ORDRE vit ici, plus recopié dans trois fichiers.
+     Mesuré le 21/09 : barre Bootstrap 1020 < FAB contact 1040 < toast 1100
+     < feuille de menu 1110 < barre remontée avec la feuille 1120
+     < lien d'évitement clavier 2000. Deux nombres qui doivent rester dans cet
+     ordre mais vivent chacun dans un fichier différent finissent par diverger :
+     c'est arrivé (les boutons de compte passaient sous la pastille).
+
+     Toute la colonne est nommée, du fond vers l'avant. La seule valeur laissée
+     dehors est celle de Bootstrap (`.sticky-top` = 1020), qui n'est pas à nous :
+     `--z-sticky` reste donc SOUS elle. Un test vérifie que cette liste est
+     strictement croissante — l'ordre se relit ici, pas dans cinq fichiers. */
+  --z-behind: -1;             /* décor, derrière le contenu */
+  --z-sticky: 1010;           /* carte de filtres collante (sous Bootstrap 1020) */
+  --z-bar-mobile: 1030;       /* barre d'action collée en bas, sur téléphone */
+  --z-fab: 1040;              /* bouton de contact flottant */
+  --z-status: 1050;           /* pastille d'état de l'API */
+  --z-dropdown: 1070;         /* menus déroulants (navigation, contact) */
+  --z-toast: 1100;            /* notification d'ajout au panier */
+  --z-sheet: 1110;            /* feuille de menu ouverte */
+  --z-sheet-nav: 1120;        /* barre remontée avec la feuille (contexte d'empilement) */
+  --z-skip: 2000;             /* lien d'évitement clavier, toujours au premier plan */
+
   /* Dégradés / ombres */
   --hero-from: #101a33;
   --hero-to: #0a1020;

@@ -1,4 +1,4 @@
-function x(id, sku, name, brand, kind, category, price, stock, short, compat = {}) {
+function x(id, sku, name, brand, kind, category, price, stock, short, compat = {}, extra = {}) {
   return {
     id,
     sku,
@@ -14,7 +14,8 @@ function x(id, sku, name, brand, kind, category, price, stock, short, compat = {
     photos: [],
     short,
     needsKey: 'needsExtra',
-    compat
+    compat,
+    ...extra
   }
 }
 
@@ -104,9 +105,12 @@ export const EXTRA = [
   x('hs-blackshark', 'RZ04-03240100-R3M1', 'Razer BlackShark V2 X', 'Razer', 'accessory', 'accessories', 9900, 10, 'Casque · 3.5 mm', {}),
   x('hs-cloud2', '4P5H3AA', 'HyperX Cloud II', 'HyperX', 'accessory', 'accessories', 14500, 8, 'Casque · USB / 3.5', {}),
   x('pad-qck', '63004', 'SteelSeries QcK Heavy', 'SteelSeries', 'accessory', 'accessories', 4500, 16, 'Cloth XL', {}),
-  x('mon-vg27', '90LM05Q0-B01170', 'ASUS TUF VG27AQ3A 27"', 'ASUS', 'accessory', 'accessories', 49800, 4, '27" 180Hz QHD', {}),
-  x('mon-g27q', '20GG0000EU', 'Gigabyte G27Q 27"', 'Gigabyte', 'accessory', 'accessories', 45200, 5, '27" 144Hz QHD', {}),
-  x('mon-mag274', '9S6-3CC29H-034', 'MSI MAG 274QRF QD', 'MSI', 'accessory', 'accessories', 46800, 4, '27" 180Hz QHD', {}),
+  // LOT P27 : ces trois écrans ont reçu leurs vraies photos au comptoir
+  // (`/photos/sku/<id>-1..3.jpg`, présentes sur le disque) — ils changent
+  // seulement de rayon, ils n'ont pas besoin d'une illustration générée.
+  x('mon-vg27', '90LM05Q0-B01170', 'ASUS TUF VG27AQ3A 27"', 'ASUS', 'accessory', 'monitor', 49800, 4, '27" 180Hz QHD', {}),
+  x('mon-g27q', '20GG0000EU', 'Gigabyte G27Q 27"', 'Gigabyte', 'accessory', 'monitor', 45200, 5, '27" 144Hz QHD', {}),
+  x('mon-mag274', '9S6-3CC29H-034', 'MSI MAG 274QRF QD', 'MSI', 'accessory', 'monitor', 46800, 4, '27" 180Hz QHD', {}),
   x('cam-brio', '960-001105', 'Logitech Brio 4K', 'Logitech', 'accessory', 'accessories', 28900, 4, '4K USB webcam', {}),
   x('wifi-ax3000', 'ARCHER-AX3000', 'TP-Link Archer AX3000', 'TP-Link', 'accessory', 'accessories', 8900, 11, 'Wi-Fi 6 router', {}),
   x('usb-hub', 'UH400', 'TP-Link UH400 4-port USB 3.0', 'TP-Link', 'accessory', 'usb', 2900, 18, 'USB hub', {}),

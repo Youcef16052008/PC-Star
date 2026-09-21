@@ -9,14 +9,16 @@ npm install
 npm run start:api   # :8787 multi-device orders + auth
 npm run dev         # :5173 site (proxies /api)
 npm run build       # vite build, then scans dist/ for secrets — fails if any landed there
-npm test            # 1158 tests (node:test, 80 fichiers) — run `npm run build` first: bundleSecrets scans dist/
+npm test            # suite complète (node:test) — run `npm run build` first: bundleSecrets scans dist/
 npm run check:bundle # re-run only the dist/ secret scan (lot 7.3)
+npm run photos:audit # références qui n'ont pas encore leur propre photo
+npm run photos:wire  # câble les photos livrées (`/photos/pack/<id>.jpg`) dans le catalogue
 npm run master:rotate # new master password, written to .env.local — the value is never printed
 ```
 
-## État mesuré (20/09/2026)
+## État mesuré (21/09/2026)
 
-- `npm test` : **1158 tests, 0 échec** (80 fichiers `src/*.test.js`, tous branchés dans le script — `src/p3ServerHygiene.test.js` le vérifie). Le total peut bouger de ±1 selon le nombre de chunks que `dist/` contient : `src/bundleSecrets.test.js` fabrique un test par artefact scanné, ce n'est pas une régression. La suite scanne le bundle publié
+- `npm test` : **1174 tests, 0 échec** (80 fichiers `src/*.test.js`, tous branchés dans le script — `src/p3ServerHygiene.test.js` le vérifie). Le total peut bouger de ±1 selon le nombre de chunks que `dist/` contient : `src/bundleSecrets.test.js` fabrique un test par artefact scanné, ce n'est pas une régression. La suite scanne le bundle publié
   (`src/bundleSecrets.test.js`) : sans `dist/`, elle échoue en cascade — le build
   est une pré-condition, pas une étape optionnelle.
 - `npm run build:crawl && node scripts/jsdom-crawl.mjs` : 24 pages rendues en
@@ -25,8 +27,8 @@ npm run master:rotate # new master password, written to .env.local — the value
   page React casser au rendu (un import manquant passe `node --check`, le bundle
   et tous les tests `node:test`) ; `src/moduleWiring.test.js` en garde une partie
   en secondes.
-- Catalogue de base : **301 produits, 767 photos**. i18n : **2 langues**
-  (`fr`, `en`) et **646 clés** chacune — la parité est vérifiée à chaque
+- Catalogue de base : **305 produits, 771 photos**. i18n : **2 langues**
+  (`fr`, `en`) et **659 clés** chacune — la parité est vérifiée à chaque
   exécution par `src/i18n.coverage.test.js`, dans les deux sens (aucune clé appelée sans
   traduction, aucune traduction sans appel).
 - Statuts de commande : table **à sens unique** (`new → preparing → ready →
@@ -138,7 +140,8 @@ Photos: keep shipping under `public/photos/sku/` — add pro shots later, push, 
   **seulement** aux lignes qui en ont une. L'aside ne duplique plus rien, et le tiroir mobile non
   plus : la liste des marques qui y vivait encore est partie. Les résultats se **paginent** douze
   par douze — la règle est écrite une fois pour la vitrine et la recherche, dans `src/pager.js`.
-  Quarante-quatre verrous montés à l'écran : `src/p6SearchSurface.test.js`. Le lot S3 a partagé la
+  Cinquante-cinq verrous montés à l'écran : `src/p6SearchSurface.test.js` (quarante-quatre au
+  sortir du lot S5, neuf de plus au lot P25 ci-dessous). Le lot S3 a partagé la
   règle là où elle avait été recopiée : `src/pagerControls.jsx` (pager fenêtré + choix 12/24/48),
   `src/brandSheet.jsx` (la feuille des marques avec son champ, pour les deux écrans),
   `src/filterSheet.js` (Échap). Un pager qui dresse un bouton par page n'a pas réparé le mur de
@@ -157,6 +160,24 @@ Photos: keep shipping under `public/photos/sku/` — add pro shots later, push, 
   directement sur le formulaire. `npm run preview` proxyse aussi `/api` (comme le build
   du crawl : `vite preview` n'heritait pas de `server.proxy`) — sans lui, l'aperçu ne
   pouvait pas tester le compte maître : tout se croyait hors-ligne.
+- **P25 (page Recherche, 21/09/2026)** — trois demandes du client sur ce que la page
+  montre avant les fiches. Les **recherches sauvées** sont **retirées** (« sauver la
+  sauvegarde n'est pas utile »), avec leurs fonctions de stockage
+  (`pcstar-saved-searches`) et leurs trois clés de dictionnaire : une fonctionnalité
+  qu'on ne veut plus ne laisse pas ses morceaux derrière elle. Les **marques et les
+  rayons se retiennent par plusieurs** (trois, cinq, ou moins, ou plus) : les deux
+  feuilles ne se referment plus sur le premier clic, elles portent leur sortie
+  (« Voir les N résultats ») et ce compte suit chaque bascule ; chaque rayon retenu a
+  sa puce, « Tout le catalogue » **vide** la sélection au lieu de s'y ajouter, et la
+  règle qui retire une marque devenue incapable de filtrer juge désormais sur
+  l'**ensemble** des rayons retenus. Le **prix se tape au clavier** — 100 DA …
+  10 000 000 DA : `src/priceRange.js` porte la règle (chiffres seuls, borne corrigée à
+  la sortie du champ, champ vide = pas de borne, `min > max` **annoncé** au lieu
+  d'être échangé en silence) et `src/priceRange.jsx` le **seul** bloc de champs, rendu
+  par l'aside du bureau **et** par le tiroir mobile. Les six tranches de prix
+  (`PRICE_PRESETS`) et le `<select>` du tiroir sont partis avec elles.
+  Cinquante-cinq verrous dans `src/p6SearchSurface.test.js`.
+
 - **Rotation du secret maître** — `npm run master:rotate` (`scripts/rotate-master.mjs`) génère
   un mot de passe de 32 signes, l'écrit dans `.env.local` en `0600`, refuse toute cible que git
   suivrait, et **n'affiche jamais la valeur** : un secret passé à l'écran se retrouve dans

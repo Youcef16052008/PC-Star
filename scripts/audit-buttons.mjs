@@ -42,13 +42,23 @@ async function waitFor(fn, label, timeout = 25000) {
 }
 const buttonByText = (doc, text) =>
   [...doc.querySelectorAll('button')].find((b) => b.textContent.trim() === text)
-// Le libellé d'une entrée de nav peut porter un badge (« Panier (12) ») dès que
-// le panier n'est plus vide : on accepte le préfixe.
+// Deux façons de nommer une entrée de nav, dans cet ordre :
+//
+//  1. son TEXTE, qui peut porter un badge (« Panier (12) » — le compteur est
+//     collé au libellé : « Panier12 ») ;
+//  2. son NOM ACCESSIBLE (`aria-label`), que le 21/09/2026 le bouton du panier
+//     est devenu le seul à porter : le client a demandé une ICÔNE à la place du
+//     mot « Panier ». Le nom accessible n'a pas bougé d'un signe — c'est lui
+//     qu'un lecteur d'écran annonce, et c'est donc lui que ce harnais doit
+//     chercher, sinon la porte déclare « bouton panier introuvable » sur une
+//     interface parfaitement cliquable (mesuré : 8 échecs pour cette seule
+//     raison).
 const navButton = (doc, label) =>
   [...doc.querySelectorAll('.shop-navbar button')].find((b) => {
+    const sansCompteur = (v) => String(v).trim().replace(/[\d\s()]+$/, '')
     const t = b.textContent.trim()
-    // « Panier1 » : le compteur est collé au libellé (sans espace ni parenthèse).
-    return t === label || t.replace(/[\d\s()]+$/, '') === label
+    const nom = b.getAttribute('aria-label') || ''
+    return t === label || sansCompteur(t) === label || nom.trim() === label || sansCompteur(nom) === label
   })
 
 /* ── serveurs (même teardown que jsdom-crawl) ── */
@@ -204,8 +214,7 @@ for (const lang of LANGS) {
       ['profile', userName]
     ]
     for (const [page, label] of pages) {
-      const btn = await waitFor(() => buttonByText(s.doc, label) ||
-        [...s.doc.querySelectorAll('.shop-navbar button')].find((b) => b.textContent.trim() === String(label)), `nav ${page} (${lang})`, 6000).catch(() => null)
+      const btn = await waitFor(() => navButton(s.doc, label) || buttonByText(s.doc, label), `nav ${page} (${lang})`, 6000).catch(() => null)
       if (!btn) { failures.push(`${lang}/${page} : bouton de navigation introuvable`); continue }
       btn.click()
       await sleep(420)
@@ -325,7 +334,7 @@ for (const lang of LANGS) {
     // 1) connexion sans rien saisir
     const profileBtn = [...g.doc.querySelectorAll('.shop-navbar button')]
       .find((b) => /profil|profile|compte|account|connexion|log in|se connecter/i.test(b.textContent))
-    ;(profileBtn || buttonByText(g.doc, d.navCart)).click()
+    ;(profileBtn || navButton(g.doc, d.navCart) || buttonByText(g.doc, d.navCart)).click()
     await sleep(450)
     const loginBtn =
       buttonByText(g.doc, d.authLogin) ||

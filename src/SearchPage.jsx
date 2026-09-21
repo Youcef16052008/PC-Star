@@ -2,9 +2,13 @@ import { useEffect, useMemo, useState } from 'react'
 // LOT P4 (V4) : `PRODUCT_USES`/`usesOf` ne sortent plus de cette page — le
 // filtre « usage » a été retiré sur demande du client (le rayon se choisit dans
 // le catalogue, un usage ne filtre rien que le rayon ne filtre déjà).
-import { PRICE_PRESETS, PRODUCT_CONDITIONS, SOCKETS, STORE, conditionOf, money, starText } from './data'
-import { loadSavedSearches, saveSavedSearches } from './shopStore.js'
+import { PRODUCT_CONDITIONS, SOCKETS, STORE, conditionOf, money, starText } from './data'
 import { stockLabel } from './stockLabel.js'
+// LOT P25 (S6) : le prix se saisit au clavier (100 DA … 10 000 000 DA). Les bornes
+// et le nettoyage de la saisie vivent dans `src/priceRange.js`, le bloc de champs
+// (le même dans l'aside du bureau et dans le tiroir mobile) dans `src/priceRange.jsx`.
+import { bornesPrix, prixRetenu } from './priceRange.js'
+import { PriceRange } from './priceRange.jsx'
 // LOT P6 (S2) : memes pages que la vitrine, meme regle — voir `src/pager.js`.
 // LOT P6 (S3) : le client choisit sa taille de page, et le pager comme la feuille
 // des marques sont des composants PARTAGES — un exemplaire pour les deux ecrans,
@@ -23,31 +27,31 @@ import { discountPercent, hasSale } from './productMeta.js'
 
 const EMPTY = {
   q: '',
-  // La recherche ouvre désormais le catalogue entier : aucun rayon (imprimante,
-  // occasion, laptop…) n'est caché par le choix CPU historique.
-  line: 'all',
+  // LOT P25 (S6) : le catalogue se choisit en PLUSIEURS rayons — trois, cinq, ou
+  // moins, ou plus. La liste vide veut dire « tout le catalogue » ; l'id `all`
+  // n'y entre jamais, sinon « GPU + tout le catalogue » serait un filtre qui se
+  // contredit dans la même phrase.
+  lines: [],
   brands: [],
   socket: 'all',
   condition: 'all',
-  price: 'any',
+  // LOT P25 (S6) : le prix se TAPE. On garde le TEXTE du champ (pas un nombre)
+  // pour que ce que le client lit soit ce qu'il a tapé ; `src/priceRange.js` est
+  // seul juge des bornes (100 DA … 10 000 000 DA) et un champ vide veut dire
+  // « pas de borne de ce côté ».
+  priceMin: '',
+  priceMax: '',
   sort: 'featured'
-}
-
-const PRICE_KEYS = {
-  any: 'price_any',
-  u15: 'price_u15',
-  '15-30': 'price_15_30',
-  '30-50': 'price_30_50',
-  '50-100': 'price_50_100',
-  '100+': 'price_100p'
 }
 
 export default function SearchPage({ t, products, lines, panels, lang, liveStock, onAdd, onOpen }) {
   const [filters, setFilters] = useState(EMPTY)
   const [view, setView] = useState('grid')
-  // P10 (P7-14) : recherches sauvées PERSISTÉES (avant : perdues au rechargement)
-  const [saved, setSaved] = useState(() => loadSavedSearches())
-  const [saveNote, setSaveNote] = useState('')
+  // LOT P25 (S6) : les « recherches sauvées » sont RETIRÉES sur demande du client
+  // (« sauver la sauvegarde n'est pas utile »). Partis avec elles : le bouton, les
+  // puces, l'effet de persistance et les deux fonctions de `shopStore.js` — plus
+  // rien n'écrit `pcstar-saved-searches`, et la clé du dictionnaire est partie
+  // aussi (une clé sans lecteur est une fonctionnalité qu'on croit avoir).
   const [filtersOpen, setFiltersOpen] = useState(false)
   // LOT P6 (S1) — les deux filtres que le client a demandes (marques, catalogue)
   // sont des BOUTONS qui ouvrent leur feuille, au lieu d'un mur de panneaux
@@ -57,6 +61,10 @@ export default function SearchPage({ t, products, lines, panels, lang, liveStock
   // pieces PC — et a un clic).
   const [sheet, setSheet] = useState(null)
   const [groupeOuvert, setGroupeOuvert] = useState(null)
+  // Le groupe deplie par defaut : celui du premier rayon retenu (avec plusieurs
+  // rayons, « le » rayon courant n'existe plus), et a defaut le premier groupe du
+  // catalogue — une feuille qui s'ouvre sur huit en-tetes replies ne propose rien
+  // a choisir.
   // LOT P6 (S2) : la page courante des resultats. La liste est bornee a la lecture
   // (`pageCourante`), donc un filtre qui la reduit pendant qu'on est page 4 ramene
   // page 1 tout seul — mais l'etat se reinitialise quand meme au changement de
@@ -73,36 +81,55 @@ export default function SearchPage({ t, products, lines, panels, lang, liveStock
   const allLines = lines || []
   const allPanels = panels || []
 
-  // LOT 6.7 (Q7) : la persistance suit l'état au lieu d'être appelée à la main
-  // dans le handler — un double-clic écrit donc les DEUX recherches.
-  // P15 (#5) : `undefined` en 1ᵉʳ argument (un `null` explicite écrasait le
-  // stockage par défaut → la recherche n'était JAMAIS retrouvée au rechargement).
-  useEffect(() => {
-    saveSavedSearches(undefined, saved)
-  }, [saved])
-
   const labelDeLigne = (id) => {
     const l = allLines.find((x) => x.id === id)
-    if (!l || id === EMPTY.line) return t('line_all')
+    if (!l || l.id === 'all') return t('line_all')
     return t(`line_${l.id}`) !== `line_${l.id}` ? t(`line_${l.id}`) : l.label
   }
 
+  /** Les rayons retenus, dans l'ordre du catalogue. */
+  const lignesRetenues = (ids) => allLines.filter((l) => l.id !== 'all' && ids.includes(l.id))
+  /** Le nom à porter quand on parle des rayons choisis : « GPU », « 3 rayons ». */
+  const labelDesLignes = (ids) => {
+    const choisies = lignesRetenues(ids)
+    if (!choisies.length) return t('line_all')
+    if (choisies.length === 1) return labelDeLigne(choisies[0].id)
+    return t('linesChosen', { n: choisies.length })
+  }
+  /** Et leurs NOMS quand une phrase doit dire dans quoi une marque ne vend rien. */
+  const nomsDesLignes = (ids) => {
+    const choisies = lignesRetenues(ids)
+    return choisies.length ? choisies.map((l) => labelDeLigne(l.id)).join(', ') : t('line_all')
+  }
+
   function set(key, value) {
-    // LOT P6 (S4) : changer de rayon peut rendre une marque retenue incapable de
-    // filtrer quoi que ce soit. On la retire — mais on le DIT : un etat qui change
-    // sous les yeux du client sans un mot est un defaut poli, pas une faveur.
-    // (La vitrine, elle, gardait la marque et affichait zero fiche : deux ecrans,
-    // deux regles pour le meme geste — c'est `src/filterDrop.js` qui tranche.)
-    if (key === 'line') {
-      const nouvelle = allLines.find((l) => l.id === value)
-      const { gardees, retirees } = filtresRetires(filters.brands, (marque) =>
-        (products || []).some((p) => nouvelle?.match?.(p) && p.brand === marque))
-      setFilters((f) => ({ ...f, line: value, brands: gardees }))
-      setDropNote(noteRetrait(t, retirees, labelDeLigne(value)))
-      return
-    }
     setDropNote('')
     setFilters((f) => ({ ...f, [key]: value }))
+  }
+
+  /**
+   * LOT P25 (S6) — basculer un rayon, avec plusieurs rayons retenus a la fois.
+   *
+   * Deux choses que le mono-selection ne posait pas :
+   *  · « Tout le catalogue » n'est pas un rayon DE PLUS : le choisir vide la
+   *    selection (sinon le filtre dirait « GPU et tout le catalogue ») ;
+   *  · LOT P6 (S4) conserve : retenir un rayon peut rendre une marque incapable
+   *    de filtrer quoi que ce soit — elle est retiree, et on le DIT (la regle est
+   *    partagee, `src/filterDrop.js`). Ce qui change, c'est qu'elle juge sur
+   *    l'ENSEMBLE des rayons retenus : une marque tient des qu'elle vend dans
+   *    l'un d'eux.
+   */
+  function basculerLigne(id) {
+    const lignes = id === 'all'
+      ? []
+      : filters.lines.includes(id)
+        ? filters.lines.filter((x) => x !== id)
+        : [...filters.lines, id]
+    const servies = lignes.length ? lignesRetenues(lignes) : allLines
+    const { gardees, retirees } = filtresRetires(filters.brands, (marque) =>
+      servies.some((l) => (products || []).some((p) => l.match(p) && p.brand === marque)))
+    setFilters((f) => ({ ...f, lines: lignes, brands: gardees }))
+    setDropNote(noteRetrait(t, retirees, nomsDesLignes(lignes)))
   }
 
   function toggleBrand(brand) {
@@ -112,24 +139,55 @@ export default function SearchPage({ t, products, lines, panels, lang, liveStock
     }))
   }
 
-  const line = allLines.find((l) => l.id === filters.line) || allLines[0]
+  /** Les rayons retenus par le client (vide = tout le catalogue). */
+  const lignesChoisies = useMemo(
+    () => lignesRetenues(filters.lines),
+    // `lignesRetenues` est reecrite a chaque rendu mais ne depend que de ces deux
+    // valeurs : la memo compare donc ce qui bouge vraiment.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [filters.lines, allLines]
+  )
+  /**
+   * Les marques que le client peut encore filtrer : celles qui vendent dans AU
+   * MOINS UN des rayons retenus (tous les rayons du catalogue quand il n'en a
+   * retenu aucun). C'est ce qui rend les trois, cinq marques comparables d'un coup.
+   */
   const lineBrands = useMemo(() => {
-    if (!line) return []
-    return [...new Set((products || []).filter(line.match).map((p) => p.brand))].sort((a, b) => a.localeCompare(b))
-  }, [line, products])
-  const preset = PRICE_PRESETS.find((p) => p.id === filters.price) || PRICE_PRESETS[0]
-  const showSocket = line && (line.id === 'cpu' || line.id === 'motherboard' || line.id === 'cooler')
-  const lineLabel = line ? (t(`line_${line.id}`) !== `line_${line.id}` ? t(`line_${line.id}`) : line.label) : ''
+    const servies = lignesChoisies.length ? lignesChoisies : allLines
+    const marques = new Set()
+    for (const l of servies) for (const p of products || []) if (l.match(p)) marques.add(p.brand)
+    return [...marques].sort((a, b) => a.localeCompare(b))
+  }, [lignesChoisies, allLines, products])
+  const bornes = bornesPrix(filters.priceMin, filters.priceMax)
+  /** Le groupe que la feuille catalogue deplie a l'ouverture (voir plus bas). */
+  const groupeParDefaut = lignesChoisies[0]?.group ?? allLines[0]?.group
+  // La compatibilite n'a de sens que si un composant concerne est dans la selection.
+  const showSocket = lignesChoisies.some((l) => l.id === 'cpu' || l.id === 'motherboard' || l.id === 'cooler')
+  const lineLabel = labelDesLignes(filters.lines)
+  /** Le prix retenu, ecrit comme le client l'a tape : une borne, deux, ou rien. */
+  const libellePrix = bornes.min != null && bornes.max != null
+    ? `${money(bornes.min, lang)} – ${money(bornes.max, lang)}`
+    : bornes.min != null
+      ? t('priceFrom', { v: money(bornes.min, lang) })
+      : t('priceUpTo', { v: money(bornes.max, lang) })
+
+  /** Remettre le prix a zero : les deux champs, d'un seul geste. */
+  function effacePrix() {
+    setFilters((f) => ({ ...f, priceMin: '', priceMax: '' }))
+    setDropNote('')
+  }
   const conditionLabel = (id) => {
     if (id === 'all') return t('conditionAny')
     const key = PRODUCT_CONDITIONS.find((condition) => condition.id === id)?.labelKey
     return key ? t(key) : id
   }
   const results = useMemo(() => {
-    if (!line) return []
+    // Aucun rayon retenu = tout le catalogue (le rayon `all` porte deja ce match).
+    const servies = lignesChoisies.length ? lignesChoisies : allLines
+    if (!servies.length) return []
     const q = filters.q.trim().toLowerCase()
     let list = (products || []).filter((p) => {
-      if (!line.match(p)) return false
+      if (!servies.some((l) => l.match(p))) return false
       if (filters.brands.length && !filters.brands.includes(p.brand)) return false
       if (filters.condition !== 'all' && conditionOf(p) !== filters.condition) return false
       if (showSocket && filters.socket !== 'all') {
@@ -137,7 +195,9 @@ export default function SearchPage({ t, products, lines, panels, lang, liveStock
         const ok = Array.isArray(sock) ? sock.includes(filters.socket) : sock === filters.socket
         if (!ok) return false
       }
-      if (p.price < preset.min || p.price > preset.max) return false
+      // LOT P25 (S6) : le prix est celui que le client a TAPE, borne a 100 DA …
+      // 10 000 000 DA par `src/priceRange.js`. Un champ vide ne filtre pas.
+      if (!prixRetenu(p.price, bornes)) return false
       if (q) {
         // Les champs enrichis par le maître font partie de l'index : un mot-clé,
         // une référence fabricant ou une caractéristique doit réellement aider
@@ -155,7 +215,9 @@ export default function SearchPage({ t, products, lines, panels, lang, liveStock
     if (filters.sort === 'name') list = [...list].sort((a, b) => a.name.localeCompare(b.name))
     if (filters.sort === 'rating') list = [...list].sort((a, b) => (b.rating || 0) - (a.rating || 0))
     return list
-  }, [filters, liveStock, preset, line, showSocket, products])
+    // `bornes.min`/`bornes.max` sont les seules valeurs de prix qui entrent ici :
+    // l'objet `bornes` est refait a chaque rendu, ses nombres non.
+  }, [filters, liveStock, bornes.min, bornes.max, lignesChoisies, allLines, showSocket, products])
 
   const pas = tailleSure(taille)
   const pages = pagesPour(results.length, pas)
@@ -181,48 +243,18 @@ export default function SearchPage({ t, products, lines, panels, lang, liveStock
   const activeChips = []
   if (filters.socket !== 'all') activeChips.push({ key: 'socket', label: filters.socket })
   if (filters.condition !== 'all') activeChips.push({ key: 'condition', label: conditionLabel(filters.condition) })
-  if (filters.price !== 'any') activeChips.push({ key: 'price', label: t(PRICE_KEYS[filters.price] || 'price_any') })
+  // LOT P25 (S6) : la puce porte le prix TAPE (« 42 000 – 137 000 DA », « à partir
+  // de 90 000 DA ») — pas le nom d'une tranche que le client n'a pas choisie.
+  if (bornes.actif) activeChips.push({ key: 'price', label: libellePrix })
+  lignesChoisies.forEach((l) => activeChips.push({ key: `line-${l.id}`, label: labelDeLigne(l.id), line: l.id }))
   filters.brands.forEach((b) => activeChips.push({ key: `brand-${b}`, label: b, brand: b }))
 
   function clearChip(chip) {
     if (chip.key === 'socket') set('socket', 'all')
     else if (chip.key === 'condition') set('condition', 'all')
-    else if (chip.key === 'price') set('price', 'any')
+    else if (chip.key === 'price') effacePrix()
+    else if (chip.line) basculerLigne(chip.line)
     else if (chip.brand) toggleBrand(chip.brand)
-  }
-
-  function saveSearch() {
-    // LOT P6 (S3) : le rayon par defaut n'est pas une choice, il n'a rien a faire
-    // dans le nom de la recherche enregistree (« Tout le catalogue · 7800x3d »).
-    const title = [filters.line !== EMPTY.line ? lineLabel : null, filters.q.trim() || null, filters.socket !== 'all' ? filters.socket : null, ...filters.brands]
-      .filter(Boolean)
-      .join(' · ') || t('searchFree')
-    // P10 (P7-14) : bornée à 10 + persistée (localStorage)
-    //
-    // LOT 6.7 (Q7) — deux défauts d'un coup, et ils se déclenchent ensemble :
-    //
-    //  1. `s-${Date.now()}` n'est PAS unique : deux clics dans la même
-    //     milliseconde donnaient deux recherches au même id → `key` React
-    //     dupliqué (liste mal réconciliée) et toute suppression par id en
-    //     emportait une au hasard. `Math.random` n'est pas un identifiant
-    //     cryptographique, c'est un anti-collision local : deux suffixes
-    //     différents dans la même milliseconde suffisent.
-    //  2. `...saved` lisait l'état du rendu en cours : un double-clic batchait
-    //     deux appels partant de la MÊME liste, donc la seconde recherche
-    //     écrasait la première (une seule des deux était enregistrée).
-    //     L'updateur fonctionnel part de l'état précédent réel.
-    setSaved((prev) =>
-      [
-        {
-          id: `s-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-          title,
-          filters: { ...filters, brands: [...filters.brands] }
-        },
-        ...(Array.isArray(prev) ? prev : [])
-      ].slice(0, 10)
-    )
-    setSaveNote(t('searchSaved'))
-    setTimeout(() => setSaveNote(''), 1600)
   }
 
   function panelTitle(panel) {
@@ -273,7 +305,7 @@ export default function SearchPage({ t, products, lines, panels, lang, liveStock
   }
 
   // Un changement de filtre remet la page a 1 (voir la note sur l'etat `page`).
-  const signature = JSON.stringify([filters.line, filters.brands, filters.condition, filters.price, filters.socket, filters.sort, filters.q])
+  const signature = JSON.stringify([filters.lines, filters.brands, filters.condition, filters.priceMin, filters.priceMax, filters.socket, filters.sort, filters.q])
   useEffect(() => {
     setPage(1)
   }, [signature])
@@ -316,7 +348,7 @@ export default function SearchPage({ t, products, lines, panels, lang, liveStock
           </button>
           <button
             type="button"
-            className={`btn btn-sm ${filters.line !== EMPTY.line ? 'btn-success' : 'btn-outline-success'}`}
+            className={`btn btn-sm ${filters.lines.length ? 'btn-success' : 'btn-outline-success'}`}
             onClick={() => setSheet(sheet === 'catalog' ? null : 'catalog')}
             aria-expanded={sheet === 'catalog'}
             aria-controls={sheet === 'catalog' ? 'search-sheet-catalog' : undefined}
@@ -325,14 +357,17 @@ export default function SearchPage({ t, products, lines, panels, lang, liveStock
             {/* LOT P6 (S3) : le bouton reporte la valeur CHOISIE, pas la valeur par
                 defaut. « Filtrer par catalogue · Tout le catalogue » se lisait comme
                 une selection active alors que rien n'etait filtre — et le verrou de
-                S1 avait du s'assouplir a la prefixation pour le tolerer. */}
-            {filters.line !== EMPTY.line ? ` · ${lineLabel}` : ''}
+                S1 avait du s'assouplir a la prefixation pour le tolerer.
+                LOT P25 (S6) : avec trois rayons retenus, il porte leur NOMBRE
+                (« · 3 rayons ») ; les noms, eux, sont dans les puces, juste en
+                dessous, et chacun se retire d'un clic. */}
+            {filters.lines.length ? ` · ${lineLabel}` : ''}
           </button>
           {/* LOT P6 (S3) : le rayon choisi compte comme un filtre actif. Sans lui, le
               client qui avait picked un GPU ne voyait plus « Tout effacer » dans la
               barre — la vitrine, elle, comptait deja sa categorie. Deux regles, une
               seule vue oubliee. */}
-          {(filters.line !== EMPTY.line || filters.brands.length || filters.condition !== 'all' || filters.price !== 'any' || filters.socket !== 'all' || filters.q.trim()) && (
+          {(filters.lines.length || filters.brands.length || filters.condition !== 'all' || bornes.actif || filters.socket !== 'all' || filters.q.trim()) && (
             <button type="button" className="btn btn-sm btn-link" onClick={() => { setFilters({ ...EMPTY }); setDropNote('') }}>
               {t('reset')}
             </button>
@@ -345,9 +380,15 @@ export default function SearchPage({ t, products, lines, panels, lang, liveStock
               t={t}
               marques={lineBrands}
               montreTout={lineBrands.length > 1}
+              // LOT P25 (S6) : trois, cinq marques ou plus, d'un seul passage. La
+              // feuille ne se referme plus sur un clic (c'est le pied qui ferme),
+              // et « Tout » efface la selection sans faire sortir le client.
+              multiple
               estActive={(b) => filters.brands.includes(b)}
-              onChoisir={(b) => { toggleBrand(b); setSheet(null) }}
-              onTout={() => { setFilters((f) => ({ ...f, brands: [] })); setSheet(null) }}
+              onChoisir={toggleBrand}
+              onTout={() => setFilters((f) => ({ ...f, brands: [] }))}
+              piedLabel={t('filterApply', { n: results.length })}
+              onPied={() => setSheet(null)}
             />
           </div>
         )}
@@ -358,7 +399,7 @@ export default function SearchPage({ t, products, lines, panels, lang, liveStock
               {allPanels
                 .filter((panel) => allLines.some((l) => l.group === panel.id))
                 .map((panel) => {
-                  const ouvert = (groupeOuvert ?? line?.group) === panel.id
+                  const ouvert = (groupeOuvert ?? groupeParDefaut) === panel.id
                   return (
                     <button
                       key={panel.id}
@@ -374,23 +415,41 @@ export default function SearchPage({ t, products, lines, panels, lang, liveStock
                 })}
             </div>
             {allPanels
-              .filter((panel) => (groupeOuvert ?? line?.group) === panel.id)
+              .filter((panel) => (groupeOuvert ?? groupeParDefaut) === panel.id)
               .map((panel) => (
                 <div className="filter-sheet-grid" key={`grid-${panel.id}`} id={`search-grid-${panel.id}`}>
                   {allLines
                     .filter((l) => l.group === panel.id)
-                    .map((l) => (
-                      <button
-                        key={l.id}
-                        type="button"
-                        className={`btn btn-sm ${filters.line === l.id ? 'btn-success' : 'btn-outline-secondary'}`}
-                        onClick={() => { set('line', l.id); setSheet(null); setGroupeOuvert(l.group) }}
-                      >
-                        {t(`line_${l.id}`) !== `line_${l.id}` ? t(`line_${l.id}`) : l.label}
-                      </button>
-                    ))}
+                    .map((l) => {
+                      // « Tout le catalogue » est actif quand RIEN n'est retenu : la
+                      // selection vide veut deja dire « tout », et une pastille qui
+                      // s'allume sans rien changer ferait mentir le bouton.
+                      const choisi = l.id === 'all' ? filters.lines.length === 0 : filters.lines.includes(l.id)
+                      return (
+                        <button
+                          key={l.id}
+                          type="button"
+                          className={`btn btn-sm ${choisi ? 'btn-success' : 'btn-outline-secondary'}`}
+                          aria-pressed={choisi}
+                          onClick={() => { basculerLigne(l.id); setGroupeOuvert(l.group) }}
+                        >
+                          {t(`line_${l.id}`) !== `line_${l.id}` ? t(`line_${l.id}`) : l.label}
+                        </button>
+                      )
+                    })}
                 </div>
               ))}
+            {/* LOT P25 (S6) : la feuille ne se ferme plus sur un choix — elle porte
+                sa sortie, et cette sortie dit ce que la selection a donne. Le compte
+                suit chaque bascule : comparer trois rayons sans savoir ce que la
+                liste est devenue, c'etait le defaut de la feuille mono-selection. */}
+            <button
+              type="button"
+              className="btn btn-sm btn-success w-100 mt-2"
+              onClick={() => setSheet(null)}
+            >
+              {t('filterApply', { n: results.length })}
+            </button>
           </div>
         )}
       </div>
@@ -415,7 +474,7 @@ export default function SearchPage({ t, products, lines, panels, lang, liveStock
                 <strong>
                   {lineLabel} · {t('filters')}
                 </strong>
-                <button type="button" className="btn btn-sm btn-link" onClick={() => setFilters({ ...EMPTY, line: filters.line })}>
+                <button type="button" className="btn btn-sm btn-link" onClick={() => setFilters({ ...EMPTY, lines: [...filters.lines] })}>
                   {t('reset')}
                 </button>
               </div>
@@ -424,25 +483,6 @@ export default function SearchPage({ t, products, lines, panels, lang, liveStock
                   boutons au-dessus des resultats porte « Filtrer par catalogue »,
                   a l'ecran comme sur telephone. Deux surfaces pour la meme regle,
                   c'est deux occasions de desaccord. */}
-
-              <button type="button" className="btn btn-outline-success btn-sm w-100 mb-2" onClick={saveSearch}>
-                {t('saveSearch')}
-              </button>
-              {saveNote && <p className="small text-success">{saveNote}</p>}
-              {saved.length > 0 && (
-                <div className="d-flex flex-wrap gap-1 mb-3">
-                  {saved.map((s) => (
-                    <button
-                      key={s.id}
-                      type="button"
-                      className="btn btn-sm btn-outline-secondary"
-                      onClick={() => setFilters({ ...s.filters, brands: [...s.filters.brands] })}
-                    >
-                      {s.title}
-                    </button>
-                  ))}
-                </div>
-              )}
 
               {/* LOT P6 (S1) : les marques non plus ne sont pas un etage de plus
                   dans l'aside — elles se choisissent dans la feuille du bouton
@@ -482,12 +522,18 @@ export default function SearchPage({ t, products, lines, panels, lang, liveStock
 
               <fieldset className="mb-3">
                 <legend className="form-label fw-semibold small">{t('price')}</legend>
-                {PRICE_PRESETS.map((p) => (
-                  <label key={p.id} className="form-check">
-                    <input className="form-check-input" type="radio" name="price" checked={filters.price === p.id} onChange={() => set('price', p.id)} />
-                    <span className="form-check-label small">{t(PRICE_KEYS[p.id] || 'price_any')}</span>
-                  </label>
-                ))}
+                {/* LOT P25 (S6) : six tranches decidees par le magasin sont parties
+                    avec leurs cles ; le client tape ses deux bornes, et le meme
+                    bloc sert au tiroir mobile (`idPrefix` les distingue). */}
+                <PriceRange
+                  t={t}
+                  lang={lang}
+                  min={filters.priceMin}
+                  max={filters.priceMax}
+                  onMin={(v) => set('priceMin', v)}
+                  onMax={(v) => set('priceMax', v)}
+                  idPrefix="prix-bureau"
+                />
               </fieldset>
 
               {/*
@@ -549,7 +595,7 @@ export default function SearchPage({ t, products, lines, panels, lang, liveStock
               <button
                 type="button"
                 className="btn btn-sm btn-outline-success mt-2"
-                onClick={() => setFilters({ ...EMPTY, line: filters.line })}
+                onClick={() => setFilters({ ...EMPTY, lines: [...filters.lines] })}
               >
                 {t('reset')}
               </button>
@@ -631,14 +677,21 @@ export default function SearchPage({ t, products, lines, panels, lang, liveStock
                   <option value="name">{t('sortName')}</option>
                 </select>
               </div>
-              <div className="mb-3">
-                <label className="form-label small">{t('price')}</label>
-                <select className="form-select" value={filters.price} onChange={(e) => set('price', e.target.value)}>
-                  {Object.keys(PRICE_KEYS).map((id) => (
-                    <option key={id} value={id}>{t(PRICE_KEYS[id])}</option>
-                  ))}
-                </select>
-              </div>
+              <fieldset className="mb-3">
+                <legend className="form-label small">{t('price')}</legend>
+                {/* LOT P25 (S6) : le meme composant que l'aside — un `<select>` de six
+                    tranches d'un cote et des cases de l'autre, c'etaient deux regles
+                    de prix pour un seul filtre. */}
+                <PriceRange
+                  t={t}
+                  lang={lang}
+                  min={filters.priceMin}
+                  max={filters.priceMax}
+                  onMin={(v) => set('priceMin', v)}
+                  onMax={(v) => set('priceMax', v)}
+                  idPrefix="prix-mobile"
+                />
+              </fieldset>
               <div className="mb-3">
                 <label className="form-label small">{t('condition')}</label>
                 <select className="form-select" value={filters.condition} onChange={(e) => set('condition', e.target.value)}>

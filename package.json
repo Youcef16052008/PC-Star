@@ -20,10 +20,13 @@
     "db:export:neon": "node scripts/export-neon.mjs",
     "db:restore:neon": "node scripts/restore-neon.mjs",
     "db:doctor": "node scripts/neon-doctor.mjs",
+    "db:branches:neon": "node scripts/neon-branches.mjs",
     "test:neon:concurrency": "node scripts/test-neon-concurrency.mjs",
     "test:neon:backup": "node scripts/test-neon-backup-restore.mjs",
     "photos:check": "node scripts/ingestSkuPhotos.mjs",
     "photos:fix": "node scripts/ingestSkuPhotos.mjs --fix",
+    "photos:audit": "node scripts/audit-photos.mjs",
+    "photos:wire": "node scripts/wirePackshots.mjs",
     "smoke": "node scripts/smoke-e2e.mjs",
     "test:e2e": "playwright test",
     "build:crawl": "vite build --config vite.crawl.config.js && node scripts/fix-crawl-html.mjs"

@@ -49,8 +49,8 @@ Tu peux aussi taper e-mail + mot de passe à la main, ou **Créer un compte**.
 ## Master (magasin)
 
 1. Connexion master.
-2. Menu **Admin** → ajouter un produit, masquer un SKU, gérer clients.
-3. Menu **Liste comptoir** → réservations (code `PS-xxxxxx`, tél, créneau).
+2. Menu **Gestion → Admin** → ajouter un produit, masquer un SKU, gérer clients.
+3. Menu **Gestion → Liste comptoir** → réservations (code `PS-xxxxxx`, tél, créneau).
 4. Multi-device : lance l’API ; un client réserve sur son téléphone → le desk du magasin recharge la liste.
 
 ## Client
@@ -62,7 +62,9 @@ Tu peux aussi taper e-mail + mot de passe à la main, ou **Créer un compte**.
 
 ## Guide (master only)
 
-La page **Guide / Help** n’apparaît et n’est accessible **que** pour le compte master.
+La page **Guide / Help** n’apparaît et n’est accessible **que** pour le compte master : menu
+**Gestion → Guide** (les trois pages du comptoir sont rangées sous « Gestion » depuis le
+21/09/2026, pour que la barre tienne sur une seule ligne).
 
 ## Thème & langues
 
