@@ -140,6 +140,11 @@ function isCatalogDefaultPhoto(path) {
   if (p.startsWith('/photos/sku/')) return true
   if (p.startsWith('/photos/lib/')) return true
   if (p.startsWith('/photos/studio/')) return true
+  // P28 : les deux visuels livrés avec le catalogue élargi (packshot par
+  // référence, illustration de rayon) sont des visuels du catalogue, pas des
+  // photos montées par le maître.
+  if (p.startsWith('/photos/pack/')) return true
+  if (p.startsWith('/catalog/')) return true
   // Legacy static PNGs under /photos/*.png (not uploads/)
   if (/^\/photos\/[^/]+\.(png|jpg|jpeg|webp)$/i.test(p)) return true
   return false
@@ -161,25 +166,34 @@ export function photosForProduct(product) {
   // /photos/sku/ (deux chemins fantômes = 2 × 404 par vignette), ni
   // l'illustration de rayon qui ne parle pas de cette référence-là.
   if (product?.photoMode === 'packshot') return existing.slice(0, 12)
+  // P28 (B) : la galerie choisie par le maître est servie TELLE QUELLE — dans
+  // son ordre, avec ce qu'il a gardé et sans ce qu'il a retiré.
+  //
+  // Avant, la liste du maître n'était qu'une suggestion :
+  //  · une ou deux photos montées sur une fiche du catalogue étaient complétées
+  //    par `/photos/sku/<id>-1|2` — deux vues qu'il n'avait pas choisies, et deux
+  //    404 pour les références qui n'ont pas de trio sur le disque (les écrans
+  //    ajoutés au lot P27) ;
+  //  · sur les 20 fiches « studio », la branche studio passait AVANT : moins de
+  //    trois photos montées et la fiche montrait le visuel d'origine, la photo du
+  //    maître n'apparaissait nulle part ;
+  //  · une photo RETIRÉE du trio revenait, le trio étant recalculé depuis l'id.
+  // `photoMode: 'custom'` est posé par le serveur dès que le maître enregistre une
+  // galerie (`server/catalog.js`, `overrideOf`) et par le mode local
+  // (`buildShopView`). Une liste qui contient une photo du magasin est aussi la
+  // sienne, même sans le drapeau (données antérieures à ce lot).
+  if (product?.photoMode === 'custom' && existing.length) return existing.slice(0, 12)
   const sku = skuPhotoPaths(product.id)
 
   // Master / runtime overrides: keep non-catalog paths (data URLs, /uploads/, http…)
   const custom = existing.filter((p) => !isCatalogDefaultPhoto(p))
-  if (custom.length >= 3) return custom.slice(0, 12)
+  if (custom.length) return existing.slice(0, 12)
 
   // Catalogue cœur : packshot studio en hero + vues réelles normalisées.
   if (STUDIO_IDS.includes(product.id)) {
     const out = [STUDIO(product.id)]
     for (const n of [1, 2, 3]) out.push(`/photos/sku/${product.id}-${n}.jpg`)
     return out
-  }
-  if (custom.length > 0 && sku) {
-    const out = [...custom]
-    for (const p of sku) {
-      if (out.length >= 3) break
-      if (!out.includes(p)) out.push(p)
-    }
-    return out.slice(0, 12)
   }
 
   // Full catalog: prefer exact SKU trio over family pools / legacy PNGs

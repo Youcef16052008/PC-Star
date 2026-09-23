@@ -58,7 +58,7 @@ export const DZ_EXTRA = [
     'Boîtier entrée · ATX', { compat: { form: 'ATX' }, tags: ['budget'] }),
   p('sog-rogue-one', 'SOG-ROGUE1', 'Spirit of Gamer Rogue One', 'Spirit of Gamer', 'part', 'case', 6900, 9,
     'Boîtier compact budget', { compat: { form: 'ATX' }, tags: ['budget'] }),
-  p('sog-demon-seat', 'SOG-DEMON', 'Siège Spirit of Gamer Demon rouge', 'Spirit of Gamer', 'accessory', 'accessories', 38700, 2,
+  p('sog-demon-seat', 'SOG-DEMON', 'Siège Spirit of Gamer Demon rouge', 'Spirit of Gamer', 'accessory', 'furniture', 38700, 2,
     'Fauteuil gamer · rouge', { tags: ['desk'] }),
   p('sog-proh8', 'SOG-PROH8', 'Casque Spirit of Gamer PRO-H8 RGB', 'Spirit of Gamer', 'accessory', 'accessories', 4500, 10,
     'RGB rainbow · filaire', {}),
@@ -92,7 +92,7 @@ export const DZ_EXTRA = [
     'Pack noir', { tags: ['combo'] }),
   p('hav-pb94', 'HAV-PB94', 'Power bank Havit PB94 10000 mAh', 'Havit', 'accessory', 'usb', 2990, 15,
     '10 000 mAh', { tags: ['budget'] }),
-  p('hav-pj221', 'HAV-PJ221', 'Vidéoprojecteur Havit PJ221 Smart 1080p', 'Havit', 'accessory', 'accessories', 14900, 3,
+  p('hav-pj221', 'HAV-PJ221', 'Vidéoprojecteur Havit PJ221 Smart 1080p', 'Havit', 'accessory', 'multimedia', 14900, 3,
     'Smart 1080p', {}),
 
   // ——— Gamemax / Raidmax / Xigmatek / 1st Player ———
@@ -130,11 +130,11 @@ export const DZ_EXTRA = [
     '32 Go RGB DDR5', { compat: { memory: 'DDR5' } }),
 
   // ——— Réseau DZ (Tenda très vendu) ———
-  p('tenda-ac8', 'TENDA-AC8', 'Routeur Tenda AC8 AC1200', 'Tenda', 'accessory', 'accessories', 4500, 12,
+  p('tenda-ac8', 'TENDA-AC8', 'Routeur Tenda AC8 AC1200', 'Tenda', 'accessory', 'network', 4500, 12,
     'AC1200 budget', { tags: ['budget'] }),
   p('tenda-u12', 'TENDA-U12', 'Clé Wi-Fi Tenda U12 AC1300', 'Tenda', 'accessory', 'usb', 2800, 14,
     'USB Wi-Fi AC', { tags: ['budget'] }),
-  p('tpl-archer', 'TPL-AX23', 'TP-Link Archer AX23 Wi-Fi 6', 'TP-Link', 'accessory', 'accessories', 9800, 6,
+  p('tpl-archer', 'TPL-AX23', 'TP-Link Archer AX23 Wi-Fi 6', 'TP-Link', 'accessory', 'network', 9800, 6,
     'AX1800', {}),
 
   // ——— Coolers DeepCool / CM (prix DZ) ———

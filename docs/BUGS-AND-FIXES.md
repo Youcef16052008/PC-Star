@@ -6,7 +6,7 @@
 > section nouvelle. Les sections les plus récentes portent leur date dans leur titre
 > (« LOT P3 — … (audit du 19/09/2026) ») ; celles du haut datent de l'audit du 10/09
 > et décrivent 24 bugs (B1–B24) sur un dépôt qui en a vu d'autres depuis.
-> Pour l'état d'aujourd'hui : [`../../README.md`](../../README.md).
+> Pour l'état d'aujourd'hui : [`../README.md`](../README.md).
 
 Audit **ligne par ligne, fichier par fichier** (`src/*`, `server/*`, `api/*`, `scripts/*`,
 configs) conduit à **24 bugs** (B1–B24). Tous les bugs de code ont été corrigés en
@@ -3899,3 +3899,151 @@ sur une fiche à packshot laissait donc la fiche se déclarer « visuel génér�
 
 Portes après ces trois points : `npm test` 1173/1173 (316 suites), build + check-bundle « aucun
 secret », crawl jsdom 24 pages / 0 erreur, `p3DocsAging` + `p3ServerHygiene` verts.
+
+## LOT P28 — relecture du rapport P26/P27 : huit défauts, un verrou chacun (23/09/2026)
+
+Le rapport de fin de P27 a été relu **contre le code**, affirmation par affirmation, sur `ece036b`
+(PR #10 fusionnée). Les portes étaient vertes (1174 tests, crawl 24 pages, audit 32 contrôles), et
+pourtant huit défauts étaient vrais à l'écran. Aucun n'était couvert : les verrous de P26 testaient
+un calcul et un attribut `disabled`, jamais ce qu'un clic produit ; celui de P27 testait le mode
+`packshot` d'une fiche sans override, jamais une fiche que le maître a touchée. Chaque correctif
+ci-dessous a son verrou, **rouge sur `ece036b` et vert après** (mesuré en rejouant chaque fichier de
+test sur un arbre de travail posé sur `ece036b`).
+
+Décisions client conservées : boîtier et alimentation **requis** (21/09) ; pas de recherches
+sauvées ; prix tapé 100 DA … 10 000 000 DA ; marques et rayons multiples.
+
+### Phase 1 — photos : la galerie du maître est celle que le client voit
+
+**B.** `photosForProduct` traitait la liste du maître comme une suggestion. Mesuré sur la route
+`updateProduct` puis `publicCatalog` → `ensureProductPhotos` :
+
+| Fiche | Le maître enregistre | Le client voyait |
+| --- | --- | --- |
+| `prn-hp-107a` (packshot) | 1 photo | sa photo **+ `/photos/sku/prn-hp-107a-1,-2`** |
+| `mon-samsung-g3-24` (écran P27) | 1 photo | sa photo + **2 × 404** (aucun trio sur le disque) |
+| `mouse` (fiche « studio ») | 1 photo | **le visuel d'origine** — la sienne n'apparaissait nulle part |
+| `gpu-4060` (trio) | le trio moins la 3ᵉ vue | **le trio complet** (la vue retirée revenait) |
+
+Règle : toute galerie enregistrée par le maître prend `photoMode: 'custom'` et est servie **telle
+quelle** (ordre compris). `/photos/pack/` et `/catalog/` rejoignent la liste des visuels du
+catalogue (`isCatalogDefaultPhoto`). Un produit créé par le maître n'est plus complété non plus par
+deux photos de famille (d'autres souris que la sienne, sur sa fiche).
+
+**F.** Vider la galerie d'une fiche à packshot stockait `{ photos: [], photoMode: 'packshot' }` :
+la liste vide masquait celle du catalogue et la fiche tombait sur son repère « PRN » — l'inverse du
+commentaire P27 (« une liste vidée rend au produit son visuel généré d'origine »). La liste vide
+retire maintenant `photos` **et** `photoMode` de l'override (qui disparaît s'il ne porte rien
+d'autre, règle du lot 3.14). Et `withOverride` (`server/catalog.js`), lu par la vitrine **et** par la
+vue master, répare les overrides déjà stockés par P27 : liste vide → fiche du catalogue ; liste non
+vide sans drapeau (données d'avant ce lot) → `custom`.
+
+**En passant** : les vignettes de la galerie produit n'avaient pas d'`onError` — une image qui ne
+charge pas restait une case cassée. Elle sort de la bande ; seule, la bande se retire.
+
+Verrou : `src/p28Photos.test.js` (13 tests ; 10 rouges sur `ece036b` — les 3 autres gardent le
+catalogue statique inchangé, 305/305 fiches identiques). `src/uploadFlow.test.js` ajusté : un upload
+maître est servi seul.
+
+### Phase 2 — configurateur
+
+**C.** Le bouton « Ajouter la config » était `disabled` dès qu'un emplacement requis manquait, que
+les sockets divergeaient ou qu'une alerte rouge existait : le clic n'atteignait jamais `addBuild`, et
+les quatre messages qu'il porte (`toastPickBoard`, `toastNeedCore`, `toastSocket`, `toastHeat`)
+étaient **inatteignables**. P26 écrivait « le toast lit les données » : aucun client ne pouvait le
+voir. Le bouton reste cliquable, s'annonce indisponible (`aria-disabled`, opacité) ; son clic dit ce
+qui manque et **ouvre** le premier emplacement manquant ; la liste est aussi écrite sous le bouton
+(`#builder-missing`, reliée par `aria-describedby`), sans clic.
+
+**D.** `gmx-vista` (« Boîtier Gamemax Vista + alim GE-eco », tag `combo`, 15 900 DA) répond aux
+emplacements boîtier **et** alimentation. Depuis P26, le client qui le prenait en boîtier devait
+encore « choisir une alimentation » — la même boîte ; posé aux deux places, il était compté deux
+fois : **143 800 DA au lieu de 127 900**, deux unités au panier. Désormais :
+
+- choisi dans un emplacement, un produit `combo` remplit les emplacements **vides** auxquels il
+  répond, et le dit (`builderComboFills`) — jamais un emplacement déjà choisi ;
+- `buildParts` compte chaque référence **une fois** : total, panier, copie, partage WhatsApp ; la
+  seconde ligne du récap dit « compris avec Boîtier » au lieu de recompter le prix ;
+- `partsForCompat` : le wattage d'un combo n'entre dans le contrôle que s'il est **dans**
+  l'emplacement Alimentation — plus de faux `compatPsuWeak` (600 W face à une 4070 Super) quand le
+  client a pris une 750 W à côté, plus de puissance affichée pendant que l'emplacement dit « Requis ».
+
+Même règle, par la donnée, pour les packs périphériques marqués `combo` (`sog-mkh500`, `sog-mk3`).
+
+**E.** L'onglet « Accessoires » testait `group === 'accessories'`, un groupe qui n'existe plus
+depuis le 18/09 (`peripherals`) : après un clic, **aucun** onglet n'était actif, et l'emplacement
+« Réseau » (groupe `networking`) n'apparaissait dans aucune barre — seul le récap y menait. L'onglet
+se déduit maintenant de l'emplacement ouvert : `parts`, ou tout le reste.
+
+Verrou : `src/p28Builder.test.js` (14 tests, **14 rouges** sur `ece036b`) — le configurateur y est
+monté avec un vrai état React et rejoué au clic. `BuilderPage.test.js` et `reportP17.test.js` jugent
+désormais ce que le clic ajoute au panier, plus l'attribut `disabled`.
+
+### Phase 3 — Recherche
+
+**G.** Dix références n'étaient dans **aucune** ligne de recherche, sauf « Tout » (et « Occasion »
+pour deux) :
+
+| Référence(s) | Cause | Correctif |
+| --- | --- | --- |
+| `tenda-ac8`, `tpl-archer`, `wifi-ax3000` | routeurs rangés en `accessories` | rayon `network` |
+| `hav-pj221` | vidéoprojecteur en `accessories` | rayon `multimedia` |
+| `sog-demon-seat` | siège gamer en `accessories` | rayon `furniture` |
+| `sog-mkh3`, `hav-combo4m/w/b` | un pack 4-en-1 ne nomme pas ses pièces | ligne « Packs & combos » (tag `combo`) |
+| `con-label-100150` | tag `label`, la ligne papier ne lisait que `paper` | « Papier & rouleaux » lit les deux |
+
+La ligne « Routeurs & Wi‑Fi » lit aussi « Wi-Fi » au trait d'union ordinaire et « router ». Aucune
+référence ne sort d'une ligne où elle était (instantané avant/après des 69 lignes).
+`kindForCategory('monitor')` rendait `'part'` : un écran créé par le maître divergeait des neuf du
+catalogue (`accessory`) — plus aucun `kind` divergent sur les 305 fiches.
+
+**H.** `ProductCard` était déclarée **dans** `SearchPage` : un nouveau type de composant à chaque
+rendu, donc toutes les cartes démontées et remontées. Mesuré : après « Ajouter », le bouton cliqué
+n'existait plus et le focus retombait sur `<body>` (client au clavier renvoyé en haut de page à
+chaque ajout ; vignettes rechargées). Déclarée au niveau du module.
+
+Verrou : `src/p28Search.test.js` (8 tests, **8 rouges** sur `ece036b`).
+
+### Phase 4 — docs
+
+- **15 docs** de `docs/` liaient `../../README.md` — un dossier **au-dessus** du dépôt : la bannière
+  « l'état d'aujourd'hui est ici » menait nulle part. Corrigé en `../README.md`, et verrouillé :
+  `p3DocsAging` suit désormais **tout** lien markdown relatif, journaux datés compris (il ne
+  balayait que les citations `docs/*.md` des docs vivantes).
+- `docs/README.md` annonçait « 77 fichiers » de tests (80 avant ce lot) : le compte ne vit plus
+  qu'au README racine, comme le veut la règle des docs exécutables.
+- Ce journal disait « **13 packshots** » livrés à P27 (§ 2) quand son propre tableau de suivi en
+  compte **18** : c'est le tableau qui est juste (journal append-only : noté ici, pas réécrit).
+
+### Mesures
+
+| Porte | Résultat |
+| --- | --- |
+| `npm test` | **1210 tests / 324 suites / 0 échec** (1174 avant ce lot : +36) |
+| `npm run build` | OK — `index-qcm1iY89.js` 503,69 kB (gzip 151,31), check-bundle « aucun secret » |
+| `npm run build:crawl` + `jsdom-crawl` | 24 pages rendues (2 langues × 12), 0 erreur |
+| `audit-buttons` | 32 vérifications OK |
+
+### Reste ouvert, écrit ici
+
+- **Photos générées contre photos réelles (constat A de la relecture).** Le commit `7295181`
+  (18/09) avait livré un trio de photos réelles `/photos/sku/<id>-1..3` pour les 78 références du
+  catalogue élargi (468 fichiers, 20,5 Mo), jamais affichées : P27 a généré 82 packshots à la place.
+  Quatre générés sont **faux sur un détail visible** — `mb-asrock-b450m` (carte AM4) montre un
+  socket Intel ; `pwr-mustek-1200` et `lapacc-ugreen-65w` ont une prise US ; `phone-car-30w` montre
+  2 × USB-A au lieu d'USB-C + USB-A. Côté réel, quelques photos sont des visuels marchands avec texte
+  incrusté, et `lap-len-v15-1` montre une configuration 16/512 pour une fiche 8/256. Le choix entre
+  les deux sources (réelle quand elle est propre, packshot sinon ; packshot en tête + trio réel en
+  galerie ; ou packshots seuls et 20 Mo en moins) **appartient au client** : non tranché dans ce lot.
+- **Neon.** « Delete Neon Branch » a échoué à la fermeture de la PR #10 (run `35650214116`) : la
+  branche `preview/pr-10-…` est probablement restée, sur un projet déjà au plafond de 10 branches.
+  Le workflow « Neon — nettoyage des branches de PR » n'a jamais été lancé ; le lancer avec `dry_run`
+  décoché libère la place. Un agent ne peut pas le déclencher (l'intégration GitHub reçoit 403 sur
+  `workflow_dispatch`) : c'est un clic dans l'onglet Actions.
+- **Poids publié inutile** (~25 Mo en plus des 20,5 Mo ci-dessus) : racine legacy `/photos/*.png`
+  (17 Mo, encore lue par les fiches cœur via `shots()` — à vérifier avant tout retrait) et ~8,5 Mo de
+  fichiers `/photos/sku/` d'ids supprimés. Non touché : un retrait de fichiers publiés se décide avec
+  le point photos ci-dessus, pas au passage.
+- Toujours aucun rendu dans un vrai moteur depuis ce poste (Playwright ne s'installe pas hors
+  ligne) : le configurateur et la galerie produit ont été rejoués en jsdom, au clic, avec un vrai
+  état React. Le smoke Playwright de la CI (3 moteurs) reste la porte qui les verra.

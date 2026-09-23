@@ -6,7 +6,7 @@
 > elle était fausse.
 > Au fil des lots, plusieurs nombres et commandes ci-dessous ont été
 > dépassés. L'état mesuré d'aujourd'hui est dans
-> [`../../README.md`](../../README.md) (« État mesuré »), la suite des sessions
+> [`../README.md`](../README.md) (« État mesuré »), la suite des sessions
 > dans [`BUGS-AND-FIXES.md`](BUGS-AND-FIXES.md). Les docs **exécutables** (guides,
 > recettes, prompts d'agent, `docs/README.md`) ont, elles, été corrigées — c'est
 > `src/p3DocsAging.test.js` qui verrouille les deux régimes.

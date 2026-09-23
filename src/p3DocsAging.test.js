@@ -165,6 +165,29 @@ describe('P3 — docs : deux régimes, un classement obligatoire', () => {
     assert.ok(vues >= 10, `seulement ${vues} citations balayées : le motif ne voit plus les liens`)
   })
 
+  it('tout lien markdown relatif des docs mène à un fichier du dépôt (journaux datés compris)', () => {
+    // LOT P28 : quinze docs de `docs/` pointaient vers `../../README.md` — le README
+    // d'un dossier AU-DESSUS du dépôt. La bannière qui dit « l'état d'aujourd'hui est
+    // ici » menait nulle part, dans les journaux datés comme dans le journal courant.
+    // Le verrou précédent ne balayait que les citations de `docs/*.md` et exemptait
+    // les journaux datés ; un lien, lui, se suit quel que soit le régime du fichier.
+    const lu = (fichier) => fs.readFileSync(path.join(process.cwd(), fichier), 'utf8')
+    const fichiers = ['README.md', ...tousLesDocs.map((f) => path.join(DOC, f))]
+    const cassés = []
+    let vus = 0
+    for (const f of fichiers) {
+      for (const m of lu(f).matchAll(/\]\(([^)\s]+)\)/g)) {
+        const href = m[1].split('#')[0]
+        if (!href || /^(https?:|mailto:)/.test(href)) continue
+        vus += 1
+        const cible = path.normalize(path.join(path.dirname(f), decodeURI(href)))
+        if (cible.startsWith('..') || !fs.existsSync(path.join(process.cwd(), cible))) cassés.push(`${f} → ${m[1]}`)
+      }
+    }
+    assert.deepEqual(cassés, [], 'des liens de la doc mènent hors du dépôt ou vers un fichier absent')
+    assert.ok(vus >= 50, `seulement ${vus} liens balayés : le motif ne voit plus les liens`)
+  })
+
   it('la doc vivante qui parle de langue annonce le régime réel (FR/EN)', () => {
     for (const f of ['GUIDE-DEMO.md', 'ARCHITECTURE.md', 'PROMPT-AGENT-DEPLOIEMENT.md', 'RECETTE-RESPONSIVE-DIRECTION-03.md']) {
       const s = lire(f)

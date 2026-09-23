@@ -54,7 +54,7 @@ const P = (id) => {
 
 const emptyBuild = () => Object.fromEntries(BUILDER_SLOTS.map((s) => [s.key, null]))
 
-const mount = (build) => {
+const mount = (build, props = {}) => {
   const host = window.document.createElement('div')
   window.document.getElementById('root').appendChild(host)
   const root = createRoot(host)
@@ -69,7 +69,8 @@ const mount = (build) => {
         onAdd: () => {},
         onOpen: () => {},
         onGoCart: () => {},
-        setToast: () => {}
+        setToast: () => {},
+        ...props
       })
     )
   })
@@ -141,10 +142,15 @@ describe('P26 — le boîtier et l’alimentation sont requis, pas optionnels', 
     const board = P('mb-b650')
     const cpu = P('cpu-7800x3d')
     const ram = P('ram-32')
-    const host = mount({ ...emptyBuild(), motherboard: board, cpu, ram })
+    const ajoutes = []
+    const host = mount({ ...emptyBuild(), motherboard: board, cpu, ram }, { onAdd: (p) => ajoutes.push(p.id) })
     const bouton = () => host.querySelector('button.btn.btn-success.w-100')
     assert.ok(bouton(), 'bouton « ajouter la config » introuvable')
-    assert.equal(bouton().disabled, true, 'une config sans boîtier ni alimentation s’ajoute encore')
+    // P28 (C) : le bouton n'est plus `disabled` (son clic doit pouvoir expliquer) ;
+    // il s'annonce indisponible, et un clic n'ajoute rien au panier.
+    assert.equal(bouton().getAttribute('aria-disabled'), 'true', 'une config sans boîtier ni alimentation s’annonce prête')
+    act(() => bouton().dispatchEvent(new window.MouseEvent('click', { bubbles: true })))
+    assert.deepEqual(ajoutes, [], 'une config sans boîtier ni alimentation s’ajoute encore')
     // Le traducteur de ce fichier rend la CLÉ : « need » est « Requis » à l'écran,
     // « optional » est « Optionnel ». Les deux emplacements doivent avoir changé.
     for (const key of ['case', 'psu']) {
@@ -191,10 +197,13 @@ describe('P26 — le boîtier et l’alimentation sont requis, pas optionnels', 
       psu: P('psu-750')
     }
     assert.deepEqual(checkCompatibility(Object.values(build).filter(Boolean)), [], 'fixture : la config complète n’est plus compatible')
-    const host = mount(build)
+    const ajoutes = []
+    const host = mount(build, { onAdd: (p) => ajoutes.push(p.id) })
     const bouton = host.querySelector('button.btn.btn-success.w-100')
     assert.ok(bouton, 'bouton « ajouter la config » introuvable')
-    assert.equal(bouton.disabled, false, 'une config complète (boîtier + alimentation) reste bloquée')
+    assert.equal(bouton.getAttribute('aria-disabled'), 'false', 'une config complète (boîtier + alimentation) reste bloquée')
+    act(() => bouton.dispatchEvent(new window.MouseEvent('click', { bubbles: true })))
+    assert.deepEqual(ajoutes.sort(), ['case-atx', 'cpu-7800x3d', 'mb-b650', 'psu-750', 'ram-32'], 'la config complète n’arrive pas au panier')
     assert.equal((bouton.textContent || '').includes('optional'), false, 'la barre annonce encore un emplacement optionnel')
   })
 })

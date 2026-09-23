@@ -213,7 +213,9 @@ export const PART_LINES = [
   { id: 'pos', label: 'POS & caisse', group: 'printing', match: byCategory('pos') },
   { id: 'toner', label: 'Toners', group: 'printing', match: (p) => p.category === 'consumables' && tagged('toner')(p) },
   { id: 'ink', label: 'Encres & cartouches', group: 'printing', match: (p) => p.category === 'consumables' && tagged('ink')(p) },
-  { id: 'paper', label: 'Papier & rouleaux', group: 'printing', match: (p) => p.category === 'consumables' && tagged('paper')(p) },
+  // P28 (G) : un rouleau d'étiquettes est un rouleau — il n'était dans aucune
+  // ligne (son tag est `label`, et `printer_label` ne regarde que les imprimantes).
+  { id: 'paper', label: 'Papier & rouleaux', group: 'printing', match: (p) => p.category === 'consumables' && (tagged('paper')(p) || tagged('label')(p)) },
 
   // Périphériques et accessoires laptop
   { id: 'keyboard', label: 'Claviers', group: 'peripherals', match: (p) => p.category === 'accessories' && /keyboard|clavier|apex|huntsman|alloy/.test(hay(p)) },
@@ -225,6 +227,10 @@ export const PART_LINES = [
   { id: 'mic', label: 'Microphones', group: 'peripherals', match: (p) => p.category === 'accessories' && /mic|yeti/.test(hay(p)) && !/casque|headset/.test(hay(p)) },
   { id: 'mousepad', label: 'Tapis souris', group: 'peripherals', match: (p) => p.category === 'accessories' && /pad|qck|g640/.test(hay(p)) },
   { id: 'speakers', label: 'Enceintes', group: 'peripherals', match: (p) => p.category === 'accessories' && /speaker/.test(hay(p)) },
+  // P28 (G) : les packs 4-en-1 (clavier, souris, casque, tapis) ne nomment pas
+  // leurs pièces : quatre d'entre eux n'apparaissaient que sous « Tout ». Leur
+  // point commun est une donnée, pas une supposition : le tag `combo`.
+  { id: 'packs', label: 'Packs & combos', group: 'peripherals', match: (p) => p.category === 'accessories' && tagged('combo')(p) },
   { id: 'laptop_accessories', label: 'Accessoires laptop', group: 'peripherals', match: byCategory('laptop_accessories') },
   { id: 'laptop_charger', label: 'Chargeurs laptop', group: 'peripherals', match: (p) => p.category === 'laptop_accessories' && /chargeur/.test(hay(p)) },
   { id: 'laptop_bag', label: 'Sacs & housses', group: 'peripherals', match: (p) => p.category === 'laptop_accessories' && /sac|housse/.test(hay(p)) },
@@ -234,7 +240,9 @@ export const PART_LINES = [
   // `network` reste dans le configurateur comme accessoire facultatif ; son
   // raccourci couvre maintenant le rayon complet au lieu de seulement deux routeurs.
   { id: 'network', label: 'Réseau', group: 'networking', match: byCategory('network') },
-  { id: 'router', label: 'Routeurs & Wi‑Fi', group: 'networking', match: (p) => p.category === 'network' && /routeur|wifi|wi‑fi/.test(hay(p)) },
+  // P28 (G) : « Wi-Fi » s'écrit avec le trait d'union ordinaire comme avec le
+  // trait insécable (U+2011) selon la fiche — les deux, et « router » en anglais.
+  { id: 'router', label: 'Routeurs & Wi‑Fi', group: 'networking', match: (p) => p.category === 'network' && /routeur|router|wi[-\u2011]?fi/.test(hay(p)) },
   { id: 'network_repeater', label: 'Répéteurs & points d’accès', group: 'networking', match: (p) => p.category === 'network' && /répéteur|point d.accès/.test(hay(p)) },
   { id: 'network_switch', label: 'Switchs réseau', group: 'networking', match: (p) => p.category === 'network' && /switch/.test(hay(p)) },
   { id: 'network_adapter', label: 'Adaptateurs réseau', group: 'networking', match: (p) => p.category === 'network' && /adaptateur|carte réseau/.test(hay(p)) },
@@ -328,7 +336,9 @@ export function isKnownKind(value) {
 export function kindForCategory(category) {
   if (category === 'repair') return 'service'
   if (['laptop', 'desktop', 'allinone', 'tablet', 'server', 'ready'].includes(category)) return 'machine'
-  if (['accessories', 'usb', 'console', 'printer', 'scanner', 'pos', 'consumables', 'network', 'power', 'laptop_accessories', 'multimedia', 'furniture', 'phone'].includes(category)) return 'accessory'
+  // P28 : `monitor` (rayon créé au lot P27) manquait — un écran créé par le maître
+  // prenait `kind: 'part'` alors que les neuf écrans du catalogue sont `accessory`.
+  if (['accessories', 'usb', 'console', 'printer', 'scanner', 'pos', 'consumables', 'network', 'power', 'laptop_accessories', 'multimedia', 'furniture', 'phone', 'monitor'].includes(category)) return 'accessory'
   return 'part'
 }
 

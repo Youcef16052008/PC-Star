@@ -78,6 +78,7 @@ export default function ProductPage({ t, lang = 'fr', product, photoIndex, setPh
   // <img> porte une `key` (nœud neuf à chaque produit/photo → événements
   // garantis) et `onError` bascule sur le logo de la pièce (PartThumb).
   const [failed, setFailed] = useState({})
+  const vues = photos.map((src, i) => ({ src, i })).filter(({ i }) => !failed[i])
 
   return (
     <main id="main-content" className="container page py-4" tabIndex={-1}>
@@ -117,9 +118,13 @@ export default function ProductPage({ t, lang = 'fr', product, photoIndex, setPh
           {product.photoMode === 'category' && (
             <p className="small text-secondary mt-2 mb-0">{t('categoryIllustrationNotice')}</p>
           )}
-          {photos.length > 1 && (
+          {/* P28 : une vignette qui ne charge pas sort de la bande au lieu d'y
+              laisser une image cassée — même état `failed` que la grande photo,
+              qui retombe déjà sur le repère de la pièce. La bande ne s'affiche
+              que s'il reste au moins deux vues à choisir. */}
+          {vues.length > 1 && (
             <div className="d-flex flex-wrap gap-2 mt-2">
-              {photos.map((src, i) => (
+              {vues.map(({ src, i }) => (
                 <button
                   key={src + i}
                   type="button"
@@ -128,7 +133,14 @@ export default function ProductPage({ t, lang = 'fr', product, photoIndex, setPh
                   onClick={() => setPhotoIndex(i)}
                   aria-label={`${product.name} ${i + 1}`}
                 >
-                  <img src={src} alt="" className="w-100 h-100" style={{ objectFit: 'contain', background: 'var(--photo-bg)' }} loading="lazy" />
+                  <img
+                    src={src}
+                    alt=""
+                    className="w-100 h-100"
+                    style={{ objectFit: 'contain', background: 'var(--photo-bg)' }}
+                    loading="lazy"
+                    onError={() => setFailed((f) => ({ ...f, [i]: true }))}
+                  />
                 </button>
               ))}
             </div>

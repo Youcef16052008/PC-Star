@@ -16,9 +16,9 @@ npm run photos:wire  # câble les photos livrées (`/photos/pack/<id>.jpg`) dans
 npm run master:rotate # new master password, written to .env.local — the value is never printed
 ```
 
-## État mesuré (21/09/2026)
+## État mesuré (23/09/2026)
 
-- `npm test` : **1174 tests, 0 échec** (80 fichiers `src/*.test.js`, tous branchés dans le script — `src/p3ServerHygiene.test.js` le vérifie). Le total peut bouger de ±1 selon le nombre de chunks que `dist/` contient : `src/bundleSecrets.test.js` fabrique un test par artefact scanné, ce n'est pas une régression. La suite scanne le bundle publié
+- `npm test` : **1210 tests, 0 échec** (83 fichiers `src/*.test.js`, tous branchés dans le script — `src/p3ServerHygiene.test.js` le vérifie). Le total peut bouger de ±1 selon le nombre de chunks que `dist/` contient : `src/bundleSecrets.test.js` fabrique un test par artefact scanné, ce n'est pas une régression. La suite scanne le bundle publié
   (`src/bundleSecrets.test.js`) : sans `dist/`, elle échoue en cascade — le build
   est une pré-condition, pas une étape optionnelle.
 - `npm run build:crawl && node scripts/jsdom-crawl.mjs` : 24 pages rendues en
@@ -28,7 +28,7 @@ npm run master:rotate # new master password, written to .env.local — the value
   et tous les tests `node:test`) ; `src/moduleWiring.test.js` en garde une partie
   en secondes.
 - Catalogue de base : **305 produits, 771 photos**. i18n : **2 langues**
-  (`fr`, `en`) et **659 clés** chacune — la parité est vérifiée à chaque
+  (`fr`, `en`) et **662 clés** chacune — la parité est vérifiée à chaque
   exécution par `src/i18n.coverage.test.js`, dans les deux sens (aucune clé appelée sans
   traduction, aucune traduction sans appel).
 - Statuts de commande : table **à sens unique** (`new → preparing → ready →
@@ -177,6 +177,17 @@ Photos: keep shipping under `public/photos/sku/` — add pro shots later, push, 
   par l'aside du bureau **et** par le tiroir mobile. Les six tranches de prix
   (`PRICE_PRESETS`) et le `<select>` du tiroir sont partis avec elles.
   Cinquante-cinq verrous dans `src/p6SearchSurface.test.js`.
+- **P28 (relecture du rapport P26/P27, 23/09/2026)** — huit défauts vrais à l'écran
+  derrière des portes vertes, un verrou chacun (rouge sur `ece036b`, vert après). La
+  **galerie du maître** est servie telle quelle (`photoMode: 'custom'`) : plus de trio
+  `/photos/sku/` ajouté derrière sa photo, plus de visuel studio qui la cache, et vider
+  la galerie **rend** la fiche du catalogue au lieu du repère de rayon. Le
+  **configurateur** : le bouton d'ajout n'est plus `disabled` — son clic dit ce qui
+  manque et y mène ; un **combo** boîtier + alimentation remplit les deux emplacements
+  et n'est compté qu'une fois ; l'onglet « Accessoires » s'active et porte « Réseau ».
+  La **Recherche** : dix références sans rayon en ont un (dont la ligne « Packs &
+  combos »), et « Ajouter » ne renvoie plus le focus sur `<body>`. Détail et mesures :
+  [`docs/BUGS-AND-FIXES.md`](docs/BUGS-AND-FIXES.md) § LOT P28.
 
 - **Rotation du secret maître** — `npm run master:rotate` (`scripts/rotate-master.mjs`) génère
   un mot de passe de 32 signes, l'écrit dans `.env.local` en `0600`, refuse toute cible que git
