@@ -4103,9 +4103,11 @@ n'est plus comptée indistinctement comme une photographie réelle.
 
 La connexion GitHub fonctionne pour lire le dépôt et pousser cette branche.
 `gh workflow run neon-cleanup.yml --ref main -f dry_run=true` reçoit toutefois
-**403 — Resource not accessible by integration**. Aucun run n'a été créé, aucune
-branche Neon n'a été supprimée ; le nombre actuel de branches Neon n'a donc pas
-été vérifié. Ne pas en déduire qu'une branche PR particulière existe encore.
+**403 — Resource not accessible by integration**. Cette demande n'a créé aucun
+run de nettoyage ni supprimé de branche. Puis l'ouverture de la **PR #11** a
+redéclenché le workflow normal de création : **échec 422**. Son diagnostic a bien
+lu Neon (**HTTP 200, 10 branches dont 8 `preview/*`**), confirmant ce compteur au
+23/09 ; cela ne prouve pas qu'une branche PR particulière existe encore.
 
 Le workflow reste manuel et n'a pas été modifié pour contourner les droits.
 Un utilisateur autorisé doit lancer la simulation depuis Actions, vérifier les
@@ -4123,3 +4125,7 @@ accorder à l'intégration les droits Actions nécessaires, sans partager de sec
   (dont les 20 fiches cœur déjà mixtes avant ce lot), quatre illustrations seules.
 - `npm audit` : aucune vulnérabilité signalée.
 - Build de crawl + `jsdom-crawl` : **24 pages rendues, 0 erreur**.
+- `audit-buttons` : **32 vérifications OK** (jsdom, pas un navigateur visuel).
+- Sur GitHub, le [smoke Playwright de la PR #11](https://github.com/Youcef16052008/PC-Star/actions/runs/35904654092)
+  passe sous Chromium, WebKit et Firefox. Le [workflow Neon](https://github.com/Youcef16052008/PC-Star/actions/runs/35904654315)
+  échoue avant les tests de base de données, lors de la création de branche (422).
