@@ -3,6 +3,7 @@ import { money, starText, STORE, REVIEWS } from './data.js'
 import PartThumb from './PartThumb.jsx'
 import ContactButton from './ContactPicker.jsx'
 import { relatedProducts, specRows } from './media.js'
+import { catalogPhotoKind } from './productPhotos.js'
 import { stockLabel } from './stockLabel.js'
 import { compatLabel, discountPercent, hasSale } from './productMeta.js'
 
@@ -71,14 +72,21 @@ export default function ProductPage({ t, lang = 'fr', product, photoIndex, setPh
   const photos = product.photos || []
   const also = relatedProducts(product, catalog, 4)
   const specs = specRows(product, t)
-  // P11 : le bloc coloré « coincé » à la place de la photo — l'événement `load`
-  // de l'image pouvait être perdu (URL déjà en cache, nœud DOM réutilisé) et la
-  // classe skeleton n'était alors jamais retirée. Désormais : le fond skeleton
-  // est permanent CONTRE le conteneur (il passe derrière l'image chargée), la
-  // <img> porte une `key` (nœud neuf à chaque produit/photo → événements
-  // garantis) et `onError` bascule sur le logo de la pièce (PartThumb).
-  const [failed, setFailed] = useState({})
-  const vues = photos.map((src, i) => ({ src, i })).filter(({ i }) => !failed[i])
+  // P29 : un remplacement par le maître peut raccourcir la galerie pendant la
+  // visite. L'index reçu n'est pas forcément encore valide : choisir une vue
+  // disponible, et rattacher les erreurs aux URL, pas aux positions réutilisées.
+  const identity = JSON.stringify([product.id, ...photos])
+  const [gallery, setGallery] = useState({ identity, failed: {} })
+  if (gallery.identity !== identity) setGallery({ identity, failed: {} })
+  const failed = gallery.identity === identity ? gallery.failed : {}
+  const failPhoto = (src) => setGallery((prev) => ({
+    identity,
+    failed: { ...(prev.identity === identity ? prev.failed : {}), [src]: true }
+  }))
+  const vues = photos.map((src, i) => ({ src, i })).filter(({ src }) => src && !failed[src])
+  const selected = vues.find(({ i }) => i === photoIndex) || vues[0]
+  const photoKind = catalogPhotoKind(selected?.src)
+  const sourceLabel = photoKind === 'generated' ? t('generatedPhotoLabel') : photoKind === 'catalog' ? t('catalogPhotoLabel') : ''
 
   return (
     <main id="main-content" className="container page py-4" tabIndex={-1}>
@@ -93,23 +101,22 @@ export default function ProductPage({ t, lang = 'fr', product, photoIndex, setPh
                 transformait le badge opaque en bloc géant cachant la photo. */}
             <div className="position-relative">
               <div className="ratio ratio-1x1 photo-frame pdp-zoom photo-skeleton">
-                {photos.length > 0 && failed[photoIndex] ? (
-                  <PartThumb product={product} eager />
-                ) : photos.length > 0 ? (
+                {selected ? (
                   <img
-                    key={product.id + '-' + photoIndex}
-                    src={photos[photoIndex]}
-                    alt={product.photoMode === 'category' ? t('categoryIllustrationAlt', { name: product.name }) : product.name}
+                    key={product.id + '-' + selected.src}
+                    src={selected.src}
+                    alt={product.photoMode === 'category' ? t('categoryIllustrationAlt', { name: product.name }) : sourceLabel ? `${product.name} — ${sourceLabel}` : product.name}
                     className="w-100 h-100"
                     style={{ objectFit: 'contain' }}
                     loading="eager"
                     decoding="async"
                     width={800}
                     height={800}
-                    onError={() => setFailed((f) => ({ ...f, [photoIndex]: true }))}
+                    onError={() => failPhoto(selected.src)}
                   />
                 ) : (
-                  <PartThumb product={product} eager />
+                  // Toutes les vues ont échoué : repère, sans retenter le même fichier.
+                  <PartThumb product={{ ...product, photos: [] }} eager />
                 )}
               </div>
               <span className={`badge position-absolute top-0 end-0 m-2 ${badge}`}>{st.text}</span>
@@ -118,20 +125,25 @@ export default function ProductPage({ t, lang = 'fr', product, photoIndex, setPh
           {product.photoMode === 'category' && (
             <p className="small text-secondary mt-2 mb-0">{t('categoryIllustrationNotice')}</p>
           )}
-          {/* P28 : une vignette qui ne charge pas sort de la bande au lieu d'y
-              laisser une image cassée — même état `failed` que la grande photo,
-              qui retombe déjà sur le repère de la pièce. La bande ne s'affiche
-              que s'il reste au moins deux vues à choisir. */}
+          {sourceLabel && (
+            <p className="small text-secondary mt-2 mb-0" role="status" data-photo-source={photoKind}>
+              <strong>{sourceLabel}</strong>{' — '}
+              {photoKind === 'generated' ? t('generatedPhotoNotice') : t('catalogPhotoNotice')}
+            </p>
+          )}
+          {/* Une vignette en erreur sort de la bande. Si c'était la sélection,
+              la première vue valide prend sa place ; aucune URL fantôme. */}
           {vues.length > 1 && (
             <div className="d-flex flex-wrap gap-2 mt-2">
               {vues.map(({ src, i }) => (
                 <button
                   key={src + i}
                   type="button"
-                  className={`btn p-0 border rounded overflow-hidden ${i === photoIndex ? 'border-success border-2' : ''}`}
+                  className={`btn p-0 border rounded overflow-hidden ${i === selected?.i ? 'border-success border-2' : ''}`}
                   style={{ width: 72, height: 56 }}
                   onClick={() => setPhotoIndex(i)}
                   aria-label={`${product.name} ${i + 1}`}
+                  aria-pressed={i === selected?.i}
                 >
                   <img
                     src={src}
@@ -139,7 +151,7 @@ export default function ProductPage({ t, lang = 'fr', product, photoIndex, setPh
                     className="w-100 h-100"
                     style={{ objectFit: 'contain', background: 'var(--photo-bg)' }}
                     loading="lazy"
-                    onError={() => setFailed((f) => ({ ...f, [i]: true }))}
+                    onError={() => failPhoto(src)}
                   />
                 </button>
               ))}

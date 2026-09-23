@@ -150,6 +150,13 @@ function isCatalogDefaultPhoto(path) {
   return false
 }
 
+/** Provenance d'une image livrée : une galerie peut mêler les deux sources. */
+export function catalogPhotoKind(src) {
+  if (/^\/photos\/(pack|studio)\//.test(String(src || ''))) return 'generated'
+  if (/^\/photos\/sku\//.test(String(src || ''))) return 'catalog'
+  return null // une photo du maître ne reçoit jamais de mention « générée »
+}
+
 export function photosForProduct(product) {
   // Rayons ajoutés sans photo fournie par le comptoir : ne jamais inventer une
   // illustration d'une autre référence. PartThumb affichera alors le repère de
@@ -161,10 +168,9 @@ export function photosForProduct(product) {
   // ajouter les trois chemins /photos/sku/ inexistants causerait des 404 et
   // ferait croire que le magasin a fourni trois photos du même article.
   if (product?.photoMode === 'category') return existing.slice(0, 1)
-  // P27 : une fiche peut être livrée avec SA photo (packshot studio par
-  // référence, un seul fichier). On la montre telle quelle — ni le trio
-  // /photos/sku/ (deux chemins fantômes = 2 × 404 par vignette), ni
-  // l'illustration de rayon qui ne parle pas de cette référence-là.
+  // P29 : la galerie du catalogue est déjà explicite : packshot + vues réelles
+  // inventoriées sur disque, ou packshot seul si aucune vue réelle n'est livrée.
+  // Ne rien lui ajouter ici ; les choix du maître restent régis par P28.
   if (product?.photoMode === 'packshot') return existing.slice(0, 12)
   // P28 (B) : la galerie choisie par le maître est servie TELLE QUELLE — dans
   // son ordre, avec ce qu'il a gardé et sans ce qu'il a retiré.
@@ -179,7 +185,7 @@ export function photosForProduct(product) {
   //    maître n'apparaissait nulle part ;
   //  · une photo RETIRÉE du trio revenait, le trio étant recalculé depuis l'id.
   // `photoMode: 'custom'` est posé par le serveur dès que le maître enregistre une
-  // galerie (`server/catalog.js`, `overrideOf`) et par le mode local
+  // galerie (`server/catalog.js`, `withOverride`) et par le mode local
   // (`buildShopView`). Une liste qui contient une photo du magasin est aussi la
   // sienne, même sans le drapeau (données antérieures à ce lot).
   if (product?.photoMode === 'custom' && existing.length) return existing.slice(0, 12)

@@ -4047,3 +4047,79 @@ Verrou : `src/p28Search.test.js` (8 tests, **8 rouges** sur `ece036b`).
 - Toujours aucun rendu dans un vrai moteur depuis ce poste (Playwright ne s'installe pas hors
   ligne) : le configurateur et la galerie produit ont été rejoués en jsdom, au clic, avec un vrai
   état React. Le smoke Playwright de la CI (3 moteurs) reste la porte qui les verra.
+
+## LOT P29 — conserver les deux sources photo (23/09/2026)
+
+Décision du client après P28 : « pour consta A laisse les deux » ; demande de
+retenter aussi le nettoyage Neon. Les fichiers P28 ont été conservés lors de la
+reprise du workspace, puis versionnés et poussés ensemble dans `e35a932`.
+
+### 1. Constat A : packshot + photographies catalogue
+
+Le catalogue élargi garde son packshot en première image, suivi des vues réelles
+**effectivement livrées** pour la même référence :
+
+| Références | Galerie par défaut |
+| --- | --- |
+| 78 références avec trio | 1 packshot + 3 photos catalogue |
+| `mon-samsung-g3-24`, `mon-lg-27-qhd`, `mon-dell-p2723de`, `mon-samsung-s6-32` | packshot seul, aucun trio disponible |
+
+Les 234 photographies et leurs 234 WebP existaient déjà. **Aucune image ajoutée,
+retirée ou retouchée** : on raccorde les fichiers conservés, pas de génération ni
+de promesse de vraies photos pour les quatre écrans qui n'en ont pas.
+
+`src/catalogSkuViews.js` est le manifeste des vues disponibles. Il est généré par
+`npm run photos:wire` à partir des paires JPG/WebP présentes ; `-- --check` vérifie
+sa fraîcheur sans écrire. La galerie est construite uniquement dans les données
+initiales de `catalogExtensions.js` : P28 reste intact, la galerie choisie par le
+maître n'est jamais complétée automatiquement. La vider restaure maintenant les
+deux sources (API et mode local).
+
+La fiche distingue **Illustration générée** et **Photo catalogue**, en FR/EN,
+selon le fichier sélectionné, même dans une galerie `custom` mixte. Un upload ne
+porte pas ces mentions. Les écarts de l'audit (socket, prises, ports, variante de
+portable) restent dans les fichiers conservés : une mention rappelle de vérifier
+les caractéristiques. **Le raccordement ne corrige pas ces erreurs visuelles.**
+
+### 2. Deux états de galerie à réparer pendant ce raccordement
+
+- Galerie raccourcie pendant la visite : un index devenu hors limites produisait
+  une image sans `src`. La première vue encore disponible prend sa place.
+- Les erreurs étaient attachées aux indices et à l'id de la fiche : remplacer
+  l'image du même produit pouvait conserver son ancien état d'échec. La galerie
+  suit maintenant les URL et se réinitialise quand sa liste change ; `PartThumb`
+  réessaie aussi quand la première URL change, pas seulement quand l'id change.
+
+Une image en erreur laisse place à une autre vue valide ; si toutes échouent,
+le repère de catégorie apparaît sans retenter le même fichier en boucle.
+
+`p29Gallery.test.js` : 13 scénarios, dont **11 échouent sur `e35a932`** et deux
+confirment la priorité maître déjà réparée en P28. Le contrat `catalogExpansion`
+vérifie chaque paire sur disque, le manifeste et les quatre écrans sans trio.
+La recette médias et `photos:audit` ont été actualisés : une illustration générée
+n'est plus comptée indistinctement comme une photographie réelle.
+
+### 3. Neon : nouvelle tentative, toujours refusée par GitHub
+
+La connexion GitHub fonctionne pour lire le dépôt et pousser cette branche.
+`gh workflow run neon-cleanup.yml --ref main -f dry_run=true` reçoit toutefois
+**403 — Resource not accessible by integration**. Aucun run n'a été créé, aucune
+branche Neon n'a été supprimée ; le nombre actuel de branches Neon n'a donc pas
+été vérifié. Ne pas en déduire qu'une branche PR particulière existe encore.
+
+Le workflow reste manuel et n'a pas été modifié pour contourner les droits.
+Un utilisateur autorisé doit lancer la simulation depuis Actions, vérifier les
+branches orphelines annoncées, puis relancer avec `dry_run` décoché. Il faut sinon
+accorder à l'intégration les droits Actions nécessaires, sans partager de secret.
+
+### Vérifications locales
+
+- `npm run build` : OK, `index-CpUayRoP.js` 507,11 kB (gzip 152,51), scan du
+  bundle sans secret.
+- `npm test` : **1225 tests / 326 suites / 0 échec / 0 skip**, 84 fichiers branchés.
+- `photos:wire -- --check` : manifeste à jour, aucun fichier modifié.
+- `photos:audit` : 305 références, 1005 images référencées (102 générées, 903 photos
+  catalogue), aucun JPG/WebP absent. Parmi toutes les fiches, 98 galeries mixtes
+  (dont les 20 fiches cœur déjà mixtes avant ce lot), quatre illustrations seules.
+- `npm audit` : aucune vulnérabilité signalée.
+- Build de crawl + `jsdom-crawl` : **24 pages rendues, 0 erreur**.

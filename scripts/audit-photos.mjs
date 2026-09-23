@@ -1,23 +1,30 @@
 #!/usr/bin/env node
-/**
- * Combien de références n'ont PAS leur propre photo ?
- *
- * Une fiche `photoMode: 'category'` montre l'illustration de son rayon : la même
- * image pour dix routeurs, la même pour sept imprimantes. Ce relevé liste les
- * références qui attendent encore leur photo (à générer ou à recevoir du
- * comptoir), et le fichier `/catalog/*.jpg` qu'elles partagent aujourd'hui —
- * c'est le travail restant du chantier photos, pas un état stable.
- *
- * CLI : node scripts/audit-photos.mjs
- */
+/** Inventaire des sources et des fichiers réellement servis par le catalogue. */
+import fs from 'node:fs'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { PRODUCTS } from '../src/data.js'
+import { catalogPhotoKind } from '../src/productPhotos.js'
+import { photoCandidates } from '../src/media.js'
 
-const restants = PRODUCTS.filter((p) => String((p.photos || [])[0] || '').startsWith('/catalog/'))
-const fichiers = new Set(PRODUCTS.flatMap((p) => (p.photos || []).filter((s) => String(s).startsWith('/catalog/'))))
-const parRayon = {}
-for (const p of restants) parRayon[p.category] = (parRayon[p.category] || 0) + 1
-
-console.log(`catalogue : ${PRODUCTS.length} références, ${fichiers.size} illustrations de rayon en service`)
-console.log(`sans photo propre : ${restants.length}`)
-for (const [cat, n] of Object.entries(parRayon).sort((a, b) => b[1] - a[1])) console.log(`  ${String(n).padStart(2)}  ${cat}`)
-for (const p of restants) console.log([p.id, p.category, p.brand, p.name, p.photos[0]].join('\t'))
+const publicDir = fileURLToPath(new URL('../public/', import.meta.url))
+const photos = new Set(PRODUCTS.flatMap((p) => p.photos || []))
+const restants = PRODUCTS.filter((p) => !(p.photos || []).some((src) => catalogPhotoKind(src)))
+const mix = PRODUCTS.filter((p) => p.photos.some((src) => catalogPhotoKind(src) === 'generated') && p.photos.some((src) => catalogPhotoKind(src) === 'catalog'))
+const generatedOnly = PRODUCTS.filter((p) => p.photos.some((src) => catalogPhotoKind(src) === 'generated') && !p.photos.some((src) => catalogPhotoKind(src) === 'catalog'))
+const missing = []
+for (const src of photos) {
+  for (const candidate of photoCandidates(src)) {
+    if (!candidate.startsWith('/photos/') && !candidate.startsWith('/catalog/')) continue
+    if (!fs.existsSync(path.join(publicDir, candidate))) missing.push(candidate)
+  }
+}
+console.log(`catalogue : ${PRODUCTS.length} références, ${photos.size} images référencées`)
+console.log(`sources : ${[...photos].filter((p) => catalogPhotoKind(p) === 'generated').length} illustrations générées, ${[...photos].filter((p) => catalogPhotoKind(p) === 'catalog').length} photos catalogue`)
+console.log(`galeries mixtes : ${mix.length} ; illustrations seules : ${generatedOnly.length}`)
+console.log(`sans visuel par référence : ${restants.length}`)
+for (const p of restants) console.log([p.id, p.category, p.name].join('\t'))
+if (generatedOnly.length) console.log('sans vue réelle livrée :', generatedOnly.map((p) => p.id).join(', '))
+console.log(`fichiers absents (JPG/WebP) : ${missing.length}`)
+for (const file of missing) console.error(`ABSENT ${file}`)
+if (missing.length) process.exitCode = 1

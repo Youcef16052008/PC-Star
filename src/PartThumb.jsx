@@ -84,9 +84,11 @@ export default function PartThumb({ product, alt, eager = false, className = '' 
   // recevait une autre fiche (le composant n'est pas remonte par une cle quand
   // la page produit change de reference sans demontage). Regle React : on
   // recoupe l'etat pendant le rendu quand la prop d'identite change.
-  const [vu, setVu] = useState(product?.id)
-  if (vu !== product?.id) {
-    setVu(product?.id)
+  // P29 : même fiche, NOUVELLE photo du maître → nouvel essai aussi.
+  const identity = JSON.stringify([product?.id, src])
+  const [vu, setVu] = useState(identity)
+  if (vu !== identity) {
+    setVu(identity)
     setAttempt(0)
   }
 

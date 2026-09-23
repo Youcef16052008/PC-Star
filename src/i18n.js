@@ -5,6 +5,10 @@ export const LANGS = [
 
 export const dict = {
   fr: {
+    generatedPhotoLabel: 'Illustration générée',
+    generatedPhotoNotice: 'Les détails visuels peuvent différer (prises, ports, composants). Consultez les caractéristiques de la fiche.',
+    catalogPhotoLabel: 'Photo catalogue',
+    catalogPhotoNotice: 'La configuration et les accessoires vendus sont ceux décrits sur cette fiche, même si le visuel présente une autre variante.',
     brand: 'PC Star',
     navShop: 'Boutique',
     navSearch: 'Recherche',
@@ -713,6 +717,10 @@ export const dict = {
     xReviews: 'sur {n} avis'
   },
   en: {
+    generatedPhotoLabel: 'Generated illustration',
+    generatedPhotoNotice: 'Visual details may differ (plugs, ports, components). Check the specifications on this page.',
+    catalogPhotoLabel: 'Catalog photo',
+    catalogPhotoNotice: 'The configuration and included accessories are those described on this page, even if the image shows another variant.',
     brand: 'PC Star',
     navShop: 'Shop',
     navSearch: 'Search',
