@@ -102,10 +102,13 @@ le journal du job :
 | réseau injoignable | panne côté Neon | réessayer le job |
 | HTTP 422 à l'étape suivante, avec un inventaire à 10 branches | plafond du plan atteint | supprimer les `preview/pr-*` orphelines |
 
-Mesuré sur ce dépôt : l'inventaire annonce **10 branches dont 8 `preview/*`** — le projet est pile
-au plafond du plan gratuit (10 branches), et la création échoue en `422` (l'API Neon répond
-`BRANCH_LIMIT_EXCEEDED` sous ce code). Une branche de PR est supprimée à la fermeture de la PR :
-celles qui restent viennent de PR restées ouvertes, ou d'avant la pose de la date d'expiration.
+Mesuré le 25/09/2026, avant la création de la branche de la PR #11 : **8 branches dont 6 `preview/*`**.
+La création a alors réussi. Le 23/09, le même inventaire annonçait 10 branches dont 8 `preview/*`
+et la création échouait en `422` (`BRANCH_LIMIT_EXCEEDED`) : le plan gratuit s'arrête à 10.
+Le workflow de nettoyage ne retire que les `preview/pr-<n>-…` dont la PR est fermée ; les autres
+`preview/*` se suppriment à la main dans la console Neon, jamais la branche par défaut.
+Après cette création, il ne reste qu'une place : une deuxième PR ouverte en même temps peut
+retomber en 422.
 
 Le même inventaire se lit depuis un poste, sans passer par la CI :
 

@@ -4129,3 +4129,27 @@ accorder à l'intégration les droits Actions nécessaires, sans partager de sec
 - Sur GitHub, le [smoke Playwright de la PR #11](https://github.com/Youcef16052008/PC-Star/actions/runs/35904654092)
   passe sous Chromium, WebKit et Firefox. Le [workflow Neon](https://github.com/Youcef16052008/PC-Star/actions/runs/35904654315)
   échoue avant les tests de base de données, lors de la création de branche (422).
+
+## LOT P29 — vérification après libération Neon (25/09/2026)
+
+Le propriétaire a supprimé à la main les branches que le nettoyage automatique
+ne peut pas toucher. Le robot, lancé 5 fois le 25/09
+([run](https://github.com/Youcef16052008/PC-Star/actions/runs/36145969623)),
+annonçait déjà « aucune branche de PR orpheline ». Il n'a donc rien supprimé :
+les branches en trop ne portaient pas le motif `preview/pr-<n>-…` d'une PR fermée.
+
+Le contrôle du 23/09 ne pouvait pas être relancé (403 sur l'API de relance).
+Le commit vide `80b321e` a redéclenché les workflows de la PR #11.
+
+Inventaire lu **avant** la création : **HTTP 200, 8 branches dont 6 `preview/*`**.
+La création n'est plus en 422.
+
+Sur `80b321e`, tous les contrôles GitHub sont verts :
+
+- [Create Neon Branch](https://github.com/Youcef16052008/PC-Star/actions/runs/36150826606) : **succès, 2 min 54 s**. Migrations, verrou de concurrence, backup/restauration et suite isolée passent. `Delete Neon Branch` reste sauté, normal tant que la PR est ouverte.
+- [E2E smoke](https://github.com/Youcef16052008/PC-Star/actions/runs/36150826712) : **succès, 1 min 43 s**, Chromium, WebKit et Firefox.
+- [UI audit](https://github.com/Youcef16052008/PC-Star/actions/runs/36150826532) : **succès, 7 min 27 s**, crawl et boutons.
+- [Vercel](https://vercel.com/all-intelligence/pc-star/ADVwW34WyvCtt5DNh5UwcCo96FnA) : **succès**. Le badge « deploying » du 23/09 concernait l'ancien commit `ed82b0e` ; le nouveau déploiement est enregistré.
+- La PR est `MERGEABLE` / `CLEAN`. Elle n'est pas fusionnée : `main` reste `ece036b`.
+
+Marge restante : le plan gratuit compte 10 branches. Cette PR en occupe une de plus que l'inventaire d'avant création, donc **une seule place libre**. Une deuxième PR ouverte en parallèle peut encore échouer en 422.
