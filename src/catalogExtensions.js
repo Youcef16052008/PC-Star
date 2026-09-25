@@ -11,6 +11,8 @@
  * référence qui n'a pas encore reçu sa vraie photo : la vignette montre le
  * repère lisible de sa famille jusqu'à l'ajout des photos du magasin.
  */
+import { CATALOG_SKU_VIEWS } from './catalogSkuViews.js'
+
 const PHOTO_GROUP_BY_CATEGORY = {
   printer: 'printer-studio',
   scanner: 'printer-studio',
@@ -39,11 +41,13 @@ const PHOTO_GROUP_BY_CATEGORY = {
 
 function p(id, sku, name, brand, kind, category, price, stock, short, extra = {}) {
   const photoGroup = extra.photoGroup || PHOTO_GROUP_BY_CATEGORY[category]
-  // P27 — quand une photo a été livrée pour CETTE référence (`extra.packshot`,
-  // générée pour le rayon puis rangée dans /photos/pack/), elle prend la place de
-  // l'illustration de famille : le badge « illustration de catégorie » disparaît,
-  // et la fiche montre un visuel qui parle d'elle, pas de son rayon.
-  const photos = extra.packshot ? [extra.packshot] : photoGroup ? [`/catalog/${photoGroup}.jpg`] : []
+  // P29 : le client conserve les deux sources — packshot en tête, puis les vues
+  // réelles déjà livrées. Le manifeste exclut les ids sans fichiers ; cette règle
+  // ne s'applique qu'au catalogue initial, jamais à une galerie du maître (P28).
+  const realPhotos = (CATALOG_SKU_VIEWS[id] || []).map((n) => `/photos/sku/${id}-${n}.jpg`)
+  const photos = extra.packshot
+    ? [extra.packshot, ...realPhotos]
+    : realPhotos.length ? realPhotos : photoGroup ? [`/catalog/${photoGroup}.jpg`] : []
   return {
     id,
     sku,
@@ -56,11 +60,10 @@ function p(id, sku, name, brand, kind, category, price, stock, short, extra = {}
     rating: extra.rating ?? 4.3,
     reviews: extra.reviews ?? 12,
     related: [],
-    // Visuels de rayon générés spécialement pour PC Star. Il s'agit d'une
-    // illustration de famille (pas de la promesse d'une photo exacte du SKU),
-    // remplaçable par les vraies photos reçues au comptoir.
+    // Galerie explicite, remplaçable depuis l'administration. Une vraie photo
+    // sans packshot est aussi servie telle quelle (pas de repli de famille).
     photos,
-    photoMode: extra.packshot ? 'packshot' : photoGroup ? 'category' : 'mark',
+    photoMode: extra.packshot ? 'packshot' : realPhotos.length ? 'custom' : photoGroup ? 'category' : 'mark',
     short,
     condition: extra.condition || 'new',
     uses: extra.uses || [],

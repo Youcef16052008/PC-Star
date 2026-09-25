@@ -1,103 +1,93 @@
-# Recette médias Master — déploiement photos (phase 4 du plan d'audit)
+# Recette médias Master — galerie catalogue et photos du magasin
 
-Cette recette accompagne la mise en production des médias Master. Elle est
-l'« action de déploiement » de la phase 4 du
-[plan de remédiation](./PLAN-REMEDIATION-AUDIT-2026-09-17.md) : le code est
-livré et testé, la validation finale se fait sur Vercel avec le token Blob.
+Cette recette décrit le comportement actuel des galeries. La validation du
+stockage durable se rejoue sur Vercel, avec le stockage Blob configuré.
 
 ## 1. Prérequis
 
-1. `BLOB_READ_WRITE_TOKEN` configuré dans les variables Vercel (Production).
-   Sans ce token, un upload Master répond `upload_storage` : c'est le refus
-   voulu — aucune URL éphémère de `/tmp` n'est enregistrée.
-2. CSP déjà alignée : `img-src` autorise `'self' data: blob:` et
-   `https://*.public.blob.vercel-storage.com`, dans l'API (`server/index.js`)
-   comme dans `vercel.json`. Ne pas élargir à d'autres hôtes.
+- `BLOB_READ_WRITE_TOKEN` configuré dans les variables Vercel (Production).
+  Sans ce token, un upload Master répond `upload_storage` : aucune URL
+  éphémère de `/tmp` n'est enregistrée en production.
+- CSP alignée : `img-src` autorise `'self' data: blob:` et
+  `https://*.public.blob.vercel-storage.com`, dans l'API comme dans
+  `vercel.json`. Ne pas élargir à d'autres hôtes.
 
-## 2. Scénario de recette (à rejouer à chaque montage de photos)
+## 2. Les deux sources du catalogue
 
-1. **Charger** — se connecter en maître, ouvrir une fiche, téléverser 2 à 3
-   photos (data URLs compressées côté client). La galerie reçue est une liste
-   finale : les photos conservées + les nouvelles, bornées à 6.
-2. **Vérifier l'affichage** — la fiche publique montre les photos via le proxy
-   `/api/upload-file/<chemin>` (la base ne stocke jamais d'URL CDN brute).
-3. **Froidir** — redéployer ou attendre un cold start de la fonction, puis
-   recharger la fiche : la résolution Blob repart de `blob.list()` sur le
-   `pathname` exact, l'image doit s'afficher après la 302 vers le CDN.
-4. **Remplacer** — retirer une photo de la galerie et en ajouter une autre :
-   l'ancienne doit disparaître de la fiche ET du stockage Blob (cleanup des
-   uploads non référencés), sans jamais toucher aux visuels statiques
-   (`/catalog/*`, `/photos/*`).
-5. **Bornes** — tenter plus de 6 photos, un prix non fini, un SKU vide ou déjà
-   utilisé : chaque tentative doit être refusée avec une erreur nommée.
+Décision du client : **conserver les packshots et les photos réelles**.
 
-## 3. Visuels de rayon livrés (`public/catalog/*-studio.jpg`)
+- Le packshot généré `/photos/pack/<id>.jpg` reste la première image des
+  références du catalogue élargi.
+- Les vues réelles `/photos/sku/<id>-1.jpg`, `-2.jpg`, `-3.jpg` suivent,
+  uniquement lorsqu'elles sont livrées avec leur WebP. Leur disponibilité est
+  inventoriée dans `src/catalogSkuViews.js` ; aucun chemin n'est inventé pour
+  les écrans qui n'ont pas encore de trio.
+- Les anciens visuels `/catalog/*-studio.jpg` restent sur disque pour le
+  repli des nouvelles références, mais ne sont pas ajoutés à ces galeries.
+- Aucune image n'est supprimée par `photos:wire`. La génération et les
+  photographies d'origine restent des sources distinctes.
 
-Les références du catalogue élargi n'ont pas encore de photo par SKU : elles
-affichent une **illustration de rayon** (`photoMode: 'category'`, mention
-i18n `categoryIllustration*`). Ces visuels sont générés pour PC Star — ils
-assurent une vitrine crédible en attendant le shooting réel (ROADMAP phase 3.1)
-et restent remplaçables par les vraies photos du magasin.
+La fiche produit indique **« Illustration générée »** ou **« Photo catalogue »**
+selon l'image sélectionnée, en français ou en anglais. Cette indication suit
+le fichier : une galerie éditée par le maître peut conserver les deux sources.
+Un upload du magasin n'est jamais étiqueté comme généré.
 
-| Visuel | Rayon couvert |
-|---|---|
-| `motherboard-studio` | Cartes mères |
-| `gpu-studio` | Cartes graphiques |
-| `ssd-studio` | SSD et stockage (occasion) |
-| `components-studio` | Composants génériques (repli nouvelles catégories) |
-| `desktop-studio` | PC de marque (SFF/tour compacte) |
-| `case-studio` | Boîtiers (mATX, mesh, verre trempé) |
-| `mini-pc-studio` | Mini PC |
-| `allinone-studio` | PC tout-en-un |
-| `server-studio` | Serveurs et workstations |
-| `laptop-studio` | Laptops étudiant / polyvalent |
-| `monitor-studio` | Écrans et bras articulés |
-| `laptop-business-studio` | Laptops pro et reconditionnés |
-| `laptop-gaming-studio` | Laptops gaming |
-| `charger-studio` | Chargeurs laptop et USB-C |
-| `ram-studio` | Barrettes SODIMM (upgrade) |
-| `laptop-accessories-studio` | Hubs, sacs, refroidissement |
-| `printer-laser-studio` | Imprimantes laser |
-| `printer-ink-studio` | Multifonctions à réservoir |
-| `printer-ticket-studio` | Tickets thermiques et étiquettes |
-| `printer-studio` | Imprimantes (générique, matricielle) |
-| `scanner-studio` | Scanners à plat et à chargeur |
-| `toner-ink-studio` | Toners et encres |
-| `paper-label-studio` | Papier, rouleaux, étiquettes |
-| `pos-studio` | Point de vente : terminal et tiroir-caisse |
-| `barcode-studio` | Douchettes code-barres |
-| `router-studio` | Routeurs, points d'accès, répéteurs |
-| `network-studio` | Switch, adaptateurs, câblage, CPL |
-| `ups-studio` | Onduleurs et batteries |
-| `surge-studio` | Multiprises parafoudre |
-| `mobile-studio` | Power banks et chargeurs voiture |
-| `audio-studio` | Enceintes 2.1 et écouteurs Bluetooth |
-| `tablet-studio` | Tablettes |
-| `projector-studio` | Vidéoprojecteurs |
-| `multimedia-studio` | Webcams |
-| `creative-studio` | Création : tablette graphique, micro, VR |
-| `chair-studio` | Chaises gamer |
-| `furniture-studio` | Bureaux, supports, coffres |
+Les illustrations ne prouvent pas la connectique ou la configuration vendue.
+L'audit a notamment relevé des prises US, un socket et des ports inexacts dans
+certains packshots, ainsi qu'une photo de portable affichant une autre variante
+RAM/SSD. Les fichiers sont conservés conformément au choix du client ; la fiche
+rappelle de consulter les caractéristiques et de confirmer la variante au
+comptoir. Ajouter des photographies réelles ne corrige pas ces dessins.
 
-Couverture complète : les 78 références du catalogue élargi pointent chacune
-vers son rayon précis (36 visuels ; chaque produit a SA photo de rayon, plus
-aucun visuel générique trompeur).
+## 3. Ajouter des vues au dépôt
 
-## 4. Remplacer une illustration par les vraies photos
+Utiliser **l'id de la fiche**, pas son SKU commercial :
 
-1. **Par SKU** — déposer les photos nommées `<sku>.jpg` (≥ 800 px, idéalement
-   3 angles) dans `public/photos/` puis `npm run photos:check` (ou `--fix`).
-   `photosForProduct()` les expose automatiquement ; mettre à jour la fiche
-   (`photoMode` suit : une vraie photo passe le produit en `custom`).
-2. **Par rayon** — remplacer le fichier `public/catalog/<groupe>-studio.jpg`
-   en conservant le même nom : aucune modification de code nécessaire.
-3. **Depuis l'administration** — les uploads Master priment toujours sur les
-   visuels statiques ; c'est le chemin recommandé en exploitation.
+1. Livrer `public/photos/sku/<id>-1.jpg` à `-3.jpg`, et les `.webp`
+   correspondants. Vérifier visuellement le modèle et la variante avant publication.
+2. `npm run photos:check` vérifie les fichiers existants. `npm run photos:fix`
+   peut les normaliser ; `node scripts/ingestSkuPhotos.mjs --webp` produit les
+   variantes WebP. Ces commandes n'associent pas à elles seules les images à une fiche.
+3. `npm run photos:wire` câble les packshots livrés et actualise le manifeste
+   des vues du catalogue élargi. Une paire JPG/WebP incomplète n'y entre pas.
+4. `npm run photos:wire -- --check` vérifie la synchronisation sans écrire.
+   Versionner les images, le câblage et le manifeste ensemble.
+5. `npm run photos:audit` distingue les deux sources, liste les références
+   sans vue réelle et échoue si un fichier référencé manque.
 
-## 5. Ce que la recette doit prouver
+Une fiche ajoutée par le maître n'a pas de fichiers statiques déduits de son id :
+pour elle, utiliser le panneau d'administration.
 
-- Aucune photo ne disparaît après un redémarrage/cold start (résolution Blob).
-- Aucun objet Blob orphelin après remplacement (cleanup, coût stockage).
-- Aucune fiche invalide ne peut être enregistrée (validations création/patch).
-- Les illustrations de rayon sont honnêtes : badge « illustration » visible et
-  mention PDP, jamais une fausse photo produit.
+## 4. Scénario de recette Master
+
+1. **Charger** — ouvrir la fiche, garder ou retirer les images existantes,
+   ajouter les photos du magasin. La galerie finale est bornée à six images.
+2. **Vérifier** — la fiche publique montre exactement la sélection enregistrée,
+   dans son ordre. Aucun trio ni packshot n'est ajouté derrière un upload.
+   Les nouvelles photos passent par `/api/upload-file/<chemin>`.
+3. **Redémarrer** — redéployer ou attendre un cold start, puis recharger :
+   la résolution Blob retrouve le `pathname` exact avant la redirection CDN.
+4. **Remplacer** — retirer un upload et en ajouter un autre : l'ancien disparaît
+   de la galerie et du stockage Blob s'il n'est plus référencé. Ne jamais
+   supprimer un fichier statique `/photos/sku/`, `/photos/pack/` ou `/catalog/`.
+5. **Réinitialiser une fiche catalogue** — enregistrer une liste vide restaure
+   sa galerie d'origine : packshot et vues réelles disponibles. Une fiche créée
+   par le maître n'a pas cette galerie statique à restaurer.
+6. **Éprouver les limites** — vérifier la limite de sélection et le budget
+   d'upload, puis le refus des prix non finis et des SKU invalides ou en doublon.
+7. **Pendant la visite** — sélectionner la dernière vue, puis raccourcir la
+   galerie depuis le maître : une vue valide reste affichée. Simuler un échec
+   d'image : la galerie passe à la suivante, ou au repère si toutes échouent.
+
+## 5. Contrôles à rejouer
+
+```bash
+npm run photos:wire -- --check
+npm run photos:audit
+npm run build
+npm test
+```
+
+Les compteurs mesurés restent dans [../README.md](../README.md). Les motifs des
+corrections et les limites connues sont dans [BUGS-AND-FIXES.md](BUGS-AND-FIXES.md),
+sections LOT P28 et LOT P29.

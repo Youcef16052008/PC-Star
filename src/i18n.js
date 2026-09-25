@@ -5,6 +5,10 @@ export const LANGS = [
 
 export const dict = {
   fr: {
+    generatedPhotoLabel: 'Illustration générée',
+    generatedPhotoNotice: 'Les détails visuels peuvent différer (prises, ports, composants). Consultez les caractéristiques de la fiche.',
+    catalogPhotoLabel: 'Photo catalogue',
+    catalogPhotoNotice: 'La configuration et les accessoires vendus sont ceux décrits sur cette fiche, même si le visuel présente une autre variante.',
     brand: 'PC Star',
     navShop: 'Boutique',
     navSearch: 'Recherche',
@@ -306,6 +310,10 @@ export const dict = {
     toastSocket: 'Les sockets CPU et carte mère doivent matcher',
     toastHeat: 'Ce mix peut surchauffer. Corrigez les alertes rouges.',
     toastOos: '{name} est en rupture',
+    // P28 (D) : un combo (boîtier + alimentation) remplit les deux emplacements,
+    // et le récap ne recompte pas son prix sur la seconde ligne.
+    builderComboFills: '{name} remplit aussi : {slots}',
+    builderComboIncluded: 'compris avec {slot}',
     remove: 'Retirer',
     close: 'Fermer',
     panelParts: 'Pièces PC',
@@ -335,6 +343,7 @@ export const dict = {
     line_mic: 'Micro',
     line_mousepad: 'Tapis',
     line_speakers: 'Enceintes',
+    line_packs: 'Packs & combos',
     line_network: 'Réseau',
     line_misc: 'Câbles & pâte',
     line_laptop: 'Laptop',
@@ -708,6 +717,10 @@ export const dict = {
     xReviews: 'sur {n} avis'
   },
   en: {
+    generatedPhotoLabel: 'Generated illustration',
+    generatedPhotoNotice: 'Visual details may differ (plugs, ports, components). Check the specifications on this page.',
+    catalogPhotoLabel: 'Catalog photo',
+    catalogPhotoNotice: 'The configuration and included accessories are those described on this page, even if the image shows another variant.',
     brand: 'PC Star',
     navShop: 'Shop',
     navSearch: 'Search',
@@ -986,6 +999,8 @@ export const dict = {
     toastSocket: 'CPU and motherboard sockets must match',
     toastHeat: 'This mix can overheat. Fix the red warnings first.',
     toastOos: '{name} is out of stock',
+    builderComboFills: '{name} also fills: {slots}',
+    builderComboIncluded: 'included with {slot}',
     remove: 'Remove',
     close: 'Close',
     panelParts: 'PC parts',
@@ -1015,6 +1030,7 @@ export const dict = {
     line_mic: 'Microphone',
     line_mousepad: 'Mousepad',
     line_speakers: 'Speakers',
+    line_packs: 'Bundles & combos',
     line_network: 'Network',
     line_misc: 'Cables & paste',
     line_laptop: 'Laptop',

@@ -483,6 +483,61 @@ export function missingRequired(slots, build) {
   return (slots || []).filter((s) => s.required && !build?.[s.key])
 }
 
+/**
+ * P28 (D) — les pièces d'une config, **une fois chacune**.
+ *
+ * Un combo (« Boîtier Gamemax Vista + alim GE-eco », `tags: ['combo']`) répond à
+ * DEUX emplacements : boîtier (`compat.form`) et alimentation (`compat.psuWatts`).
+ * Posé dans les deux, il était compté deux fois — mesuré : 143 800 DA au lieu de
+ * 127 900, et deux unités au panier pour un seul carton. Une config est un
+ * ENSEMBLE de pièces : la même référence dans deux emplacements est la même pièce.
+ */
+export function buildParts(slots, build) {
+  const seen = new Set()
+  const out = []
+  for (const s of slots || []) {
+    const p = build?.[s.key]
+    if (!p || seen.has(p.id)) continue
+    seen.add(p.id)
+    out.push(p)
+  }
+  return out
+}
+
+/**
+ * P28 (D) — les pièces telles que le contrôle de compatibilité doit les voir.
+ *
+ * Une pièce n'alimente la config que si elle est dans l'emplacement
+ * « Alimentation ». Un combo posé seulement en boîtier (le client a pris une
+ * autre alimentation, ou pas encore) gardait son wattage aux yeux du contrôle :
+ * faux blocage `compatPsuWeak` face au GPU alors qu'une 750 W était choisie à
+ * côté, ou puissance affichée dans le récap pendant que l'emplacement disait
+ * « Requis ». Le wattage lui est retiré pour ce contrôle — la fiche elle-même, le
+ * panier et le total ne changent pas.
+ */
+export function partsForCompat(slots, build) {
+  return buildParts(slots, build).map((p) => {
+    if (!p.compat?.psuWatts || build?.psu?.id === p.id) return p
+    const compat = { ...p.compat }
+    delete compat.psuWatts
+    return { ...p, compat }
+  })
+}
+
+/**
+ * P28 (D) — les AUTRES emplacements qu'un combo remplit en même temps.
+ *
+ * Depuis P26, l'alimentation est requise : un client qui prenait le combo en
+ * boîtier devait encore « choisir une alimentation » — la même boîte. Un produit
+ * marqué `combo` que les données placent dans plusieurs emplacements remplit donc
+ * ceux qui sont VIDES ; un emplacement déjà choisi n'est jamais remplacé (le
+ * client a pu prendre une alimentation plus forte exprès).
+ */
+export function comboSlots(slots, product, key, build) {
+  if (!product || !(product.tags || []).includes('combo')) return []
+  return (slots || []).filter((s) => s.key !== key && !build?.[s.key] && s.pick(product))
+}
+
 export function buildPowerRecap(parts) {
   const list = (parts || []).filter(Boolean)
   let tdp = 0

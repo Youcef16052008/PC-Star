@@ -6,7 +6,7 @@
 > section nouvelle. Les sections les plus récentes portent leur date dans leur titre
 > (« LOT P3 — … (audit du 19/09/2026) ») ; celles du haut datent de l'audit du 10/09
 > et décrivent 24 bugs (B1–B24) sur un dépôt qui en a vu d'autres depuis.
-> Pour l'état d'aujourd'hui : [`../../README.md`](../../README.md).
+> Pour l'état d'aujourd'hui : [`../README.md`](../README.md).
 
 Audit **ligne par ligne, fichier par fichier** (`src/*`, `server/*`, `api/*`, `scripts/*`,
 configs) conduit à **24 bugs** (B1–B24). Tous les bugs de code ont été corrigés en
@@ -3899,3 +3899,257 @@ sur une fiche à packshot laissait donc la fiche se déclarer « visuel génér�
 
 Portes après ces trois points : `npm test` 1173/1173 (316 suites), build + check-bundle « aucun
 secret », crawl jsdom 24 pages / 0 erreur, `p3DocsAging` + `p3ServerHygiene` verts.
+
+## LOT P28 — relecture du rapport P26/P27 : huit défauts, un verrou chacun (23/09/2026)
+
+Le rapport de fin de P27 a été relu **contre le code**, affirmation par affirmation, sur `ece036b`
+(PR #10 fusionnée). Les portes étaient vertes (1174 tests, crawl 24 pages, audit 32 contrôles), et
+pourtant huit défauts étaient vrais à l'écran. Aucun n'était couvert : les verrous de P26 testaient
+un calcul et un attribut `disabled`, jamais ce qu'un clic produit ; celui de P27 testait le mode
+`packshot` d'une fiche sans override, jamais une fiche que le maître a touchée. Chaque correctif
+ci-dessous a son verrou, **rouge sur `ece036b` et vert après** (mesuré en rejouant chaque fichier de
+test sur un arbre de travail posé sur `ece036b`).
+
+Décisions client conservées : boîtier et alimentation **requis** (21/09) ; pas de recherches
+sauvées ; prix tapé 100 DA … 10 000 000 DA ; marques et rayons multiples.
+
+### Phase 1 — photos : la galerie du maître est celle que le client voit
+
+**B.** `photosForProduct` traitait la liste du maître comme une suggestion. Mesuré sur la route
+`updateProduct` puis `publicCatalog` → `ensureProductPhotos` :
+
+| Fiche | Le maître enregistre | Le client voyait |
+| --- | --- | --- |
+| `prn-hp-107a` (packshot) | 1 photo | sa photo **+ `/photos/sku/prn-hp-107a-1,-2`** |
+| `mon-samsung-g3-24` (écran P27) | 1 photo | sa photo + **2 × 404** (aucun trio sur le disque) |
+| `mouse` (fiche « studio ») | 1 photo | **le visuel d'origine** — la sienne n'apparaissait nulle part |
+| `gpu-4060` (trio) | le trio moins la 3ᵉ vue | **le trio complet** (la vue retirée revenait) |
+
+Règle : toute galerie enregistrée par le maître prend `photoMode: 'custom'` et est servie **telle
+quelle** (ordre compris). `/photos/pack/` et `/catalog/` rejoignent la liste des visuels du
+catalogue (`isCatalogDefaultPhoto`). Un produit créé par le maître n'est plus complété non plus par
+deux photos de famille (d'autres souris que la sienne, sur sa fiche).
+
+**F.** Vider la galerie d'une fiche à packshot stockait `{ photos: [], photoMode: 'packshot' }` :
+la liste vide masquait celle du catalogue et la fiche tombait sur son repère « PRN » — l'inverse du
+commentaire P27 (« une liste vidée rend au produit son visuel généré d'origine »). La liste vide
+retire maintenant `photos` **et** `photoMode` de l'override (qui disparaît s'il ne porte rien
+d'autre, règle du lot 3.14). Et `withOverride` (`server/catalog.js`), lu par la vitrine **et** par la
+vue master, répare les overrides déjà stockés par P27 : liste vide → fiche du catalogue ; liste non
+vide sans drapeau (données d'avant ce lot) → `custom`.
+
+**En passant** : les vignettes de la galerie produit n'avaient pas d'`onError` — une image qui ne
+charge pas restait une case cassée. Elle sort de la bande ; seule, la bande se retire.
+
+Verrou : `src/p28Photos.test.js` (13 tests ; 10 rouges sur `ece036b` — les 3 autres gardent le
+catalogue statique inchangé, 305/305 fiches identiques). `src/uploadFlow.test.js` ajusté : un upload
+maître est servi seul.
+
+### Phase 2 — configurateur
+
+**C.** Le bouton « Ajouter la config » était `disabled` dès qu'un emplacement requis manquait, que
+les sockets divergeaient ou qu'une alerte rouge existait : le clic n'atteignait jamais `addBuild`, et
+les quatre messages qu'il porte (`toastPickBoard`, `toastNeedCore`, `toastSocket`, `toastHeat`)
+étaient **inatteignables**. P26 écrivait « le toast lit les données » : aucun client ne pouvait le
+voir. Le bouton reste cliquable, s'annonce indisponible (`aria-disabled`, opacité) ; son clic dit ce
+qui manque et **ouvre** le premier emplacement manquant ; la liste est aussi écrite sous le bouton
+(`#builder-missing`, reliée par `aria-describedby`), sans clic.
+
+**D.** `gmx-vista` (« Boîtier Gamemax Vista + alim GE-eco », tag `combo`, 15 900 DA) répond aux
+emplacements boîtier **et** alimentation. Depuis P26, le client qui le prenait en boîtier devait
+encore « choisir une alimentation » — la même boîte ; posé aux deux places, il était compté deux
+fois : **143 800 DA au lieu de 127 900**, deux unités au panier. Désormais :
+
+- choisi dans un emplacement, un produit `combo` remplit les emplacements **vides** auxquels il
+  répond, et le dit (`builderComboFills`) — jamais un emplacement déjà choisi ;
+- `buildParts` compte chaque référence **une fois** : total, panier, copie, partage WhatsApp ; la
+  seconde ligne du récap dit « compris avec Boîtier » au lieu de recompter le prix ;
+- `partsForCompat` : le wattage d'un combo n'entre dans le contrôle que s'il est **dans**
+  l'emplacement Alimentation — plus de faux `compatPsuWeak` (600 W face à une 4070 Super) quand le
+  client a pris une 750 W à côté, plus de puissance affichée pendant que l'emplacement dit « Requis ».
+
+Même règle, par la donnée, pour les packs périphériques marqués `combo` (`sog-mkh500`, `sog-mk3`).
+
+**E.** L'onglet « Accessoires » testait `group === 'accessories'`, un groupe qui n'existe plus
+depuis le 18/09 (`peripherals`) : après un clic, **aucun** onglet n'était actif, et l'emplacement
+« Réseau » (groupe `networking`) n'apparaissait dans aucune barre — seul le récap y menait. L'onglet
+se déduit maintenant de l'emplacement ouvert : `parts`, ou tout le reste.
+
+Verrou : `src/p28Builder.test.js` (14 tests, **14 rouges** sur `ece036b`) — le configurateur y est
+monté avec un vrai état React et rejoué au clic. `BuilderPage.test.js` et `reportP17.test.js` jugent
+désormais ce que le clic ajoute au panier, plus l'attribut `disabled`.
+
+### Phase 3 — Recherche
+
+**G.** Dix références n'étaient dans **aucune** ligne de recherche, sauf « Tout » (et « Occasion »
+pour deux) :
+
+| Référence(s) | Cause | Correctif |
+| --- | --- | --- |
+| `tenda-ac8`, `tpl-archer`, `wifi-ax3000` | routeurs rangés en `accessories` | rayon `network` |
+| `hav-pj221` | vidéoprojecteur en `accessories` | rayon `multimedia` |
+| `sog-demon-seat` | siège gamer en `accessories` | rayon `furniture` |
+| `sog-mkh3`, `hav-combo4m/w/b` | un pack 4-en-1 ne nomme pas ses pièces | ligne « Packs & combos » (tag `combo`) |
+| `con-label-100150` | tag `label`, la ligne papier ne lisait que `paper` | « Papier & rouleaux » lit les deux |
+
+La ligne « Routeurs & Wi‑Fi » lit aussi « Wi-Fi » au trait d'union ordinaire et « router ». Aucune
+référence ne sort d'une ligne où elle était (instantané avant/après des 69 lignes).
+`kindForCategory('monitor')` rendait `'part'` : un écran créé par le maître divergeait des neuf du
+catalogue (`accessory`) — plus aucun `kind` divergent sur les 305 fiches.
+
+**H.** `ProductCard` était déclarée **dans** `SearchPage` : un nouveau type de composant à chaque
+rendu, donc toutes les cartes démontées et remontées. Mesuré : après « Ajouter », le bouton cliqué
+n'existait plus et le focus retombait sur `<body>` (client au clavier renvoyé en haut de page à
+chaque ajout ; vignettes rechargées). Déclarée au niveau du module.
+
+Verrou : `src/p28Search.test.js` (8 tests, **8 rouges** sur `ece036b`).
+
+### Phase 4 — docs
+
+- **15 docs** de `docs/` liaient `../../README.md` — un dossier **au-dessus** du dépôt : la bannière
+  « l'état d'aujourd'hui est ici » menait nulle part. Corrigé en `../README.md`, et verrouillé :
+  `p3DocsAging` suit désormais **tout** lien markdown relatif, journaux datés compris (il ne
+  balayait que les citations `docs/*.md` des docs vivantes).
+- `docs/README.md` annonçait « 77 fichiers » de tests (80 avant ce lot) : le compte ne vit plus
+  qu'au README racine, comme le veut la règle des docs exécutables.
+- Ce journal disait « **13 packshots** » livrés à P27 (§ 2) quand son propre tableau de suivi en
+  compte **18** : c'est le tableau qui est juste (journal append-only : noté ici, pas réécrit).
+
+### Mesures
+
+| Porte | Résultat |
+| --- | --- |
+| `npm test` | **1210 tests / 324 suites / 0 échec** (1174 avant ce lot : +36) |
+| `npm run build` | OK — `index-qcm1iY89.js` 503,69 kB (gzip 151,31), check-bundle « aucun secret » |
+| `npm run build:crawl` + `jsdom-crawl` | 24 pages rendues (2 langues × 12), 0 erreur |
+| `audit-buttons` | 32 vérifications OK |
+
+### Reste ouvert, écrit ici
+
+- **Photos générées contre photos réelles (constat A de la relecture).** Le commit `7295181`
+  (18/09) avait livré un trio de photos réelles `/photos/sku/<id>-1..3` pour les 78 références du
+  catalogue élargi (468 fichiers, 20,5 Mo), jamais affichées : P27 a généré 82 packshots à la place.
+  Quatre générés sont **faux sur un détail visible** — `mb-asrock-b450m` (carte AM4) montre un
+  socket Intel ; `pwr-mustek-1200` et `lapacc-ugreen-65w` ont une prise US ; `phone-car-30w` montre
+  2 × USB-A au lieu d'USB-C + USB-A. Côté réel, quelques photos sont des visuels marchands avec texte
+  incrusté, et `lap-len-v15-1` montre une configuration 16/512 pour une fiche 8/256. Le choix entre
+  les deux sources (réelle quand elle est propre, packshot sinon ; packshot en tête + trio réel en
+  galerie ; ou packshots seuls et 20 Mo en moins) **appartient au client** : non tranché dans ce lot.
+- **Neon.** « Delete Neon Branch » a échoué à la fermeture de la PR #10 (run `35650214116`) : la
+  branche `preview/pr-10-…` est probablement restée, sur un projet déjà au plafond de 10 branches.
+  Le workflow « Neon — nettoyage des branches de PR » n'a jamais été lancé ; le lancer avec `dry_run`
+  décoché libère la place. Un agent ne peut pas le déclencher (l'intégration GitHub reçoit 403 sur
+  `workflow_dispatch`) : c'est un clic dans l'onglet Actions.
+- **Poids publié inutile** (~25 Mo en plus des 20,5 Mo ci-dessus) : racine legacy `/photos/*.png`
+  (17 Mo, encore lue par les fiches cœur via `shots()` — à vérifier avant tout retrait) et ~8,5 Mo de
+  fichiers `/photos/sku/` d'ids supprimés. Non touché : un retrait de fichiers publiés se décide avec
+  le point photos ci-dessus, pas au passage.
+- Toujours aucun rendu dans un vrai moteur depuis ce poste (Playwright ne s'installe pas hors
+  ligne) : le configurateur et la galerie produit ont été rejoués en jsdom, au clic, avec un vrai
+  état React. Le smoke Playwright de la CI (3 moteurs) reste la porte qui les verra.
+
+## LOT P29 — conserver les deux sources photo (23/09/2026)
+
+Décision du client après P28 : « pour consta A laisse les deux » ; demande de
+retenter aussi le nettoyage Neon. Les fichiers P28 ont été conservés lors de la
+reprise du workspace, puis versionnés et poussés ensemble dans `e35a932`.
+
+### 1. Constat A : packshot + photographies catalogue
+
+Le catalogue élargi garde son packshot en première image, suivi des vues réelles
+**effectivement livrées** pour la même référence :
+
+| Références | Galerie par défaut |
+| --- | --- |
+| 78 références avec trio | 1 packshot + 3 photos catalogue |
+| `mon-samsung-g3-24`, `mon-lg-27-qhd`, `mon-dell-p2723de`, `mon-samsung-s6-32` | packshot seul, aucun trio disponible |
+
+Les 234 photographies et leurs 234 WebP existaient déjà. **Aucune image ajoutée,
+retirée ou retouchée** : on raccorde les fichiers conservés, pas de génération ni
+de promesse de vraies photos pour les quatre écrans qui n'en ont pas.
+
+`src/catalogSkuViews.js` est le manifeste des vues disponibles. Il est généré par
+`npm run photos:wire` à partir des paires JPG/WebP présentes ; `-- --check` vérifie
+sa fraîcheur sans écrire. La galerie est construite uniquement dans les données
+initiales de `catalogExtensions.js` : P28 reste intact, la galerie choisie par le
+maître n'est jamais complétée automatiquement. La vider restaure maintenant les
+deux sources (API et mode local).
+
+La fiche distingue **Illustration générée** et **Photo catalogue**, en FR/EN,
+selon le fichier sélectionné, même dans une galerie `custom` mixte. Un upload ne
+porte pas ces mentions. Les écarts de l'audit (socket, prises, ports, variante de
+portable) restent dans les fichiers conservés : une mention rappelle de vérifier
+les caractéristiques. **Le raccordement ne corrige pas ces erreurs visuelles.**
+
+### 2. Deux états de galerie à réparer pendant ce raccordement
+
+- Galerie raccourcie pendant la visite : un index devenu hors limites produisait
+  une image sans `src`. La première vue encore disponible prend sa place.
+- Les erreurs étaient attachées aux indices et à l'id de la fiche : remplacer
+  l'image du même produit pouvait conserver son ancien état d'échec. La galerie
+  suit maintenant les URL et se réinitialise quand sa liste change ; `PartThumb`
+  réessaie aussi quand la première URL change, pas seulement quand l'id change.
+
+Une image en erreur laisse place à une autre vue valide ; si toutes échouent,
+le repère de catégorie apparaît sans retenter le même fichier en boucle.
+
+`p29Gallery.test.js` : 13 scénarios, dont **11 échouent sur `e35a932`** et deux
+confirment la priorité maître déjà réparée en P28. Le contrat `catalogExpansion`
+vérifie chaque paire sur disque, le manifeste et les quatre écrans sans trio.
+La recette médias et `photos:audit` ont été actualisés : une illustration générée
+n'est plus comptée indistinctement comme une photographie réelle.
+
+### 3. Neon : nouvelle tentative, toujours refusée par GitHub
+
+La connexion GitHub fonctionne pour lire le dépôt et pousser cette branche.
+`gh workflow run neon-cleanup.yml --ref main -f dry_run=true` reçoit toutefois
+**403 — Resource not accessible by integration**. Cette demande n'a créé aucun
+run de nettoyage ni supprimé de branche. Puis l'ouverture de la **PR #11** a
+redéclenché le workflow normal de création : **échec 422**. Son diagnostic a bien
+lu Neon (**HTTP 200, 10 branches dont 8 `preview/*`**), confirmant ce compteur au
+23/09 ; cela ne prouve pas qu'une branche PR particulière existe encore.
+
+Le workflow reste manuel et n'a pas été modifié pour contourner les droits.
+Un utilisateur autorisé doit lancer la simulation depuis Actions, vérifier les
+branches orphelines annoncées, puis relancer avec `dry_run` décoché. Il faut sinon
+accorder à l'intégration les droits Actions nécessaires, sans partager de secret.
+
+### Vérifications locales
+
+- `npm run build` : OK, `index-CpUayRoP.js` 507,11 kB (gzip 152,51), scan du
+  bundle sans secret.
+- `npm test` : **1225 tests / 326 suites / 0 échec / 0 skip**, 84 fichiers branchés.
+- `photos:wire -- --check` : manifeste à jour, aucun fichier modifié.
+- `photos:audit` : 305 références, 1005 images référencées (102 générées, 903 photos
+  catalogue), aucun JPG/WebP absent. Parmi toutes les fiches, 98 galeries mixtes
+  (dont les 20 fiches cœur déjà mixtes avant ce lot), quatre illustrations seules.
+- `npm audit` : aucune vulnérabilité signalée.
+- Build de crawl + `jsdom-crawl` : **24 pages rendues, 0 erreur**.
+- `audit-buttons` : **32 vérifications OK** (jsdom, pas un navigateur visuel).
+- Sur GitHub, le [smoke Playwright de la PR #11](https://github.com/Youcef16052008/PC-Star/actions/runs/35904654092)
+  passe sous Chromium, WebKit et Firefox. Le [workflow Neon](https://github.com/Youcef16052008/PC-Star/actions/runs/35904654315)
+  échoue avant les tests de base de données, lors de la création de branche (422).
+
+## LOT P29 — vérification après libération Neon (25/09/2026)
+
+Le propriétaire a supprimé à la main les branches que le nettoyage automatique
+ne peut pas toucher. Le robot, lancé 5 fois le 25/09
+([run](https://github.com/Youcef16052008/PC-Star/actions/runs/36145969623)),
+annonçait déjà « aucune branche de PR orpheline ». Il n'a donc rien supprimé :
+les branches en trop ne portaient pas le motif `preview/pr-<n>-…` d'une PR fermée.
+
+Le contrôle du 23/09 ne pouvait pas être relancé (403 sur l'API de relance).
+Le commit vide `80b321e` a redéclenché les workflows de la PR #11.
+
+Inventaire lu **avant** la création : **HTTP 200, 8 branches dont 6 `preview/*`**.
+La création n'est plus en 422.
+
+Sur `80b321e`, tous les contrôles GitHub sont verts :
+
+- [Create Neon Branch](https://github.com/Youcef16052008/PC-Star/actions/runs/36150826606) : **succès, 2 min 54 s**. Migrations, verrou de concurrence, backup/restauration et suite isolée passent. `Delete Neon Branch` reste sauté, normal tant que la PR est ouverte.
+- [E2E smoke](https://github.com/Youcef16052008/PC-Star/actions/runs/36150826712) : **succès, 1 min 43 s**, Chromium, WebKit et Firefox.
+- [UI audit](https://github.com/Youcef16052008/PC-Star/actions/runs/36150826532) : **succès, 7 min 27 s**, crawl et boutons.
+- [Vercel](https://vercel.com/all-intelligence/pc-star/ADVwW34WyvCtt5DNh5UwcCo96FnA) : **succès**. Le badge « deploying » du 23/09 concernait l'ancien commit `ed82b0e` ; le nouveau déploiement est enregistré.
+- La PR est `MERGEABLE` / `CLEAN`. Elle n'est pas fusionnée : `main` reste `ece036b`.
+
+Marge restante : le plan gratuit compte 10 branches. Cette PR en occupe une de plus que l'inventaire d'avant création, donc **une seule place libre**. Une deuxième PR ouverte en parallèle peut encore échouer en 422.

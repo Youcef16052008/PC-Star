@@ -78,6 +78,36 @@ export function ensureStock(db) {
   return db
 }
 
+/**
+ * P28 — une fiche du catalogue de base vue à travers l'override du maître.
+ *
+ * Le catalogue public et la vue master appliquaient chacun `{ ...p, ...o }` : la
+ * galerie du maître écrasait bien celle de la fiche, mais rien ne disait au
+ * client que cette liste était un CHOIX. `photosForProduct` la recomplétait donc
+ * avec le trio `/photos/sku/<id>-N` (B), et une liste vidée masquait le visuel
+ * de la fiche au lieu de le rendre (F). Deux règles, à la lecture, pour les deux
+ * vues :
+ *  · une galerie non vide enregistrée par le maître est `custom` — servie telle
+ *    quelle, y compris celles enregistrées avant ce lot sans le drapeau (seul le
+ *    maître écrit `productOverrides[id].photos`) ;
+ *  · une galerie vide rend la fiche du catalogue (photos ET mode d'origine) —
+ *    c'est ce que P27 promettait, et ce que l'écriture fait désormais
+ *    (`updateProduct`) ; la lecture répare les overrides déjà stockés.
+ */
+export function withOverride(product, override) {
+  const o = override && typeof override === 'object' ? override : {}
+  const out = { ...product, ...o }
+  if (Array.isArray(o.photos)) {
+    if (o.photos.length) out.photoMode = 'custom'
+    else {
+      out.photos = product.photos
+      if (product.photoMode == null) delete out.photoMode
+      else out.photoMode = product.photoMode
+    }
+  }
+  return out
+}
+
 /** Live stock for a product id (base + override, never below 0). */
 export function liveStockOf(db, productId) {
   ensureStock(db)
@@ -621,14 +651,10 @@ export function publicCatalog(db) {
   ensureStock(db)
   const hidden = new Set(db.meta?.hiddenProductIds || [])
   const overrides = db.meta?.productOverrides || {}
-  const base = PRODUCTS.filter((p) => !hidden.has(p.id)).map((p) => {
-    const o = overrides[p.id] || {}
-    return {
-      ...p,
-      ...o,
-      stock: liveStockOf(db, p.id)
-    }
-  })
+  const base = PRODUCTS.filter((p) => !hidden.has(p.id)).map((p) => ({
+    ...withOverride(p, overrides[p.id]),
+    stock: liveStockOf(db, p.id)
+  }))
   const extras = (db.meta?.extraProducts || [])
     .filter((p) => !hidden.has(p.id))
     .map((p) => ({

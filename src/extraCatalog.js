@@ -112,7 +112,7 @@ export const EXTRA = [
   x('mon-g27q', '20GG0000EU', 'Gigabyte G27Q 27"', 'Gigabyte', 'accessory', 'monitor', 45200, 5, '27" 144Hz QHD', {}),
   x('mon-mag274', '9S6-3CC29H-034', 'MSI MAG 274QRF QD', 'MSI', 'accessory', 'monitor', 46800, 4, '27" 180Hz QHD', {}),
   x('cam-brio', '960-001105', 'Logitech Brio 4K', 'Logitech', 'accessory', 'accessories', 28900, 4, '4K USB webcam', {}),
-  x('wifi-ax3000', 'ARCHER-AX3000', 'TP-Link Archer AX3000', 'TP-Link', 'accessory', 'accessories', 8900, 11, 'Wi-Fi 6 router', {}),
+  x('wifi-ax3000', 'ARCHER-AX3000', 'TP-Link Archer AX3000', 'TP-Link', 'accessory', 'network', 8900, 11, 'Wi-Fi 6 router', {}),
   x('usb-hub', 'UH400', 'TP-Link UH400 4-port USB 3.0', 'TP-Link', 'accessory', 'usb', 2900, 18, 'USB hub', {}),
   x('past-nt-h2', 'NT-H2-3.5', 'Noctua NT-H2 3.5 g', 'Noctua', 'part', 'case', 1900, 20, 'Thermal paste', {}),
   x('cable-mod', 'PP-892', 'Corsair Premium PSU cables', 'Corsair', 'part', 'case', 8900, 6, 'Sleeved ATX kit', {}),

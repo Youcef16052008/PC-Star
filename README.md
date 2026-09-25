@@ -11,14 +11,14 @@ npm run dev         # :5173 site (proxies /api)
 npm run build       # vite build, then scans dist/ for secrets — fails if any landed there
 npm test            # suite complète (node:test) — run `npm run build` first: bundleSecrets scans dist/
 npm run check:bundle # re-run only the dist/ secret scan (lot 7.3)
-npm run photos:audit # références qui n'ont pas encore leur propre photo
-npm run photos:wire  # câble les photos livrées (`/photos/pack/<id>.jpg`) dans le catalogue
+npm run photos:audit # inventaire des sources et contrôle des fichiers JPG/WebP
+npm run photos:wire  # câble les packshots et inventorie les vues réelles livrées
 npm run master:rotate # new master password, written to .env.local — the value is never printed
 ```
 
-## État mesuré (21/09/2026)
+## État mesuré (23/09/2026)
 
-- `npm test` : **1174 tests, 0 échec** (80 fichiers `src/*.test.js`, tous branchés dans le script — `src/p3ServerHygiene.test.js` le vérifie). Le total peut bouger de ±1 selon le nombre de chunks que `dist/` contient : `src/bundleSecrets.test.js` fabrique un test par artefact scanné, ce n'est pas une régression. La suite scanne le bundle publié
+- `npm test` : **1225 tests, 0 échec** (84 fichiers `src/*.test.js`, tous branchés dans le script — `src/p3ServerHygiene.test.js` le vérifie). Le total peut bouger de ±1 selon le nombre de chunks que `dist/` contient : `src/bundleSecrets.test.js` fabrique un test par artefact scanné, ce n'est pas une régression. La suite scanne le bundle publié
   (`src/bundleSecrets.test.js`) : sans `dist/`, elle échoue en cascade — le build
   est une pré-condition, pas une étape optionnelle.
 - `npm run build:crawl && node scripts/jsdom-crawl.mjs` : 24 pages rendues en
@@ -27,8 +27,8 @@ npm run master:rotate # new master password, written to .env.local — the value
   page React casser au rendu (un import manquant passe `node --check`, le bundle
   et tous les tests `node:test`) ; `src/moduleWiring.test.js` en garde une partie
   en secondes.
-- Catalogue de base : **305 produits, 771 photos**. i18n : **2 langues**
-  (`fr`, `en`) et **659 clés** chacune — la parité est vérifiée à chaque
+- Catalogue de base : **305 produits, 1005 images référencées**. i18n : **2 langues**
+  (`fr`, `en`) et **666 clés** chacune — la parité est vérifiée à chaque
   exécution par `src/i18n.coverage.test.js`, dans les deux sens (aucune clé appelée sans
   traduction, aucune traduction sans appel).
 - Statuts de commande : table **à sens unique** (`new → preparing → ready →
@@ -177,6 +177,26 @@ Photos: keep shipping under `public/photos/sku/` — add pro shots later, push, 
   par l'aside du bureau **et** par le tiroir mobile. Les six tranches de prix
   (`PRICE_PRESETS`) et le `<select>` du tiroir sont partis avec elles.
   Cinquante-cinq verrous dans `src/p6SearchSurface.test.js`.
+- **P28 (relecture du rapport P26/P27, 23/09/2026)** — huit défauts vrais à l'écran
+  derrière des portes vertes, un verrou chacun (rouge sur `ece036b`, vert après). La
+  **galerie du maître** est servie telle quelle (`photoMode: 'custom'`) : plus de trio
+  `/photos/sku/` ajouté derrière sa photo, plus de visuel studio qui la cache, et vider
+  la galerie **rend** la fiche du catalogue au lieu du repère de rayon. Le
+  **configurateur** : le bouton d'ajout n'est plus `disabled` — son clic dit ce qui
+  manque et y mène ; un **combo** boîtier + alimentation remplit les deux emplacements
+  et n'est compté qu'une fois ; l'onglet « Accessoires » s'active et porte « Réseau ».
+  La **Recherche** : dix références sans rayon en ont un (dont la ligne « Packs &
+  combos »), et « Ajouter » ne renvoie plus le focus sur `<body>`. Détail et mesures :
+  [`docs/BUGS-AND-FIXES.md`](docs/BUGS-AND-FIXES.md) § LOT P28.
+- **P29 (galeries, 23/09/2026)** — choix du client : **conserver les deux sources**.
+  Le catalogue élargi affiche le packshot puis les vues réelles livrées, sans ajouter
+  de fichiers : 78 galeries ont leur trio ; quatre écrans restent au packshot seul.
+  La fiche distingue illustration générée et photo catalogue. Les erreurs visuelles
+  connues ne sont pas retouchées : consulter les caractéristiques de la fiche.
+  `photos:wire -- --check` contrôle le manifeste sans écrire ; `photos:audit`
+  distingue les sources et échoue si un fichier référencé manque. Les choix du
+  maître restent prioritaires ; une galerie raccourcie ou une photo remplacée en
+  direct ne reste plus bloquée sur un ancien index ou une ancienne erreur.
 
 - **Rotation du secret maître** — `npm run master:rotate` (`scripts/rotate-master.mjs`) génère
   un mot de passe de 32 signes, l'écrit dans `.env.local` en `0600`, refuse toute cible que git

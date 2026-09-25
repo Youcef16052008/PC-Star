@@ -6,7 +6,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { newId } from './db.js'
-import { ensureStock, setStock, liveStockOf } from './catalog.js'
+import { ensureStock, setStock, liveStockOf, withOverride } from './catalog.js'
 import { PRODUCTS, isKnownCategory, isKnownCondition, isKnownKind, isKnownUse, kindForCategory } from '../src/data.js'
 import {
   BARCODE_LIMIT,
@@ -100,8 +100,7 @@ export function listMasterProducts(db) {
   // valeurs obsolètes (et le panneau photos écrase les uploads).
   const overrides = db.meta?.productOverrides || {}
   const base = PRODUCTS.map((p) => ({
-    ...p,
-    ...(overrides[p.id] || {}),
+    ...withOverride(p, overrides[p.id]),
     stock: liveStockOf(db, p.id),
     hidden: hidden.has(p.id),
     source: 'catalog'
@@ -122,7 +121,10 @@ export function currentProductPhotos(db, id) {
   const base = PRODUCTS.find((product) => product.id === id)
   if (!base) return null
   const overridden = db?.meta?.productOverrides?.[id]?.photos
-  return Array.isArray(overridden) ? [...overridden] : Array.isArray(base.photos) ? [...base.photos] : []
+  // P28 (F) : une galerie vide stockée avant ce lot ne cache plus la fiche — la
+  // galerie « en cours » est celle que le client voit (`withOverride`).
+  if (Array.isArray(overridden) && overridden.length) return [...overridden]
+  return Array.isArray(base.photos) ? [...base.photos] : []
 }
 
 /**
@@ -452,11 +454,13 @@ export function updateProduct(db, id, rawPatch) {
     }
     if (patch.photos != null && Array.isArray(patch.photos)) {
       cur.photos = patch.photos.slice(0, MAX_PHOTOS)
-      // LOT P27 : deux visuels générés existent désormais — l'illustration de rayon
-      // (`category`) et le packshot livré par référence (`packshot`). Une photo
-      // montée par le maître remplace les deux : la fiche repasse en `custom`,
-      // sinon elle continuerait de se déclarer « visuel généré » avec une vraie photo.
-      if ((cur.photoMode === 'category' || cur.photoMode === 'packshot') && cur.photos.length) cur.photoMode = 'custom'
+      // LOT P27 : une photo montée par le maître remplace le visuel généré
+      // (`category`, `packshot`) — la fiche ne se déclare plus « visuel généré ».
+      // P28 (B) : la règle vaut pour TOUTE galerie enregistrée par le maître.
+      // `custom` dit à `photosForProduct` de servir la liste telle quelle : ni
+      // photos de famille ajoutées derrière, ni vue retirée qui revient.
+      if (cur.photos.length) cur.photoMode = 'custom'
+      else if (cur.photoMode === 'custom') delete cur.photoMode
     }
     // LOT 2.6 (F10), second volet : `needs` n'était repris que dans la branche
     // « override du catalogue de base » ci-dessous. Pour un produit CRÉÉ par le
@@ -494,10 +498,25 @@ export function updateProduct(db, id, rawPatch) {
   }
   const effectivePrice = Number(next.price ?? base.price)
   if (Number(next.compareAtPrice) > 0 && Number(next.compareAtPrice) < effectivePrice) return { ok: false, error: 'compare_at_price' }
-  if (patch.photos != null && (base.photoMode === 'category' || base.photoMode === 'packshot')) {
-    // Même règle que pour un produit créé par le maître : une vraie photo prend le
-    // statut `custom` ; une liste vidée rend au produit son visuel généré d'origine.
-    next.photoMode = patch.photos.length ? 'custom' : base.photoMode
+  if (patch.photos != null) {
+    // P28 (B) : une galerie enregistrée par le maître est servie telle quelle
+    // (`custom`), quelle que soit la fiche — packshot, trio par référence ou
+    // fiche « studio ». Avant, seules les fiches `category`/`packshot` prenaient
+    // le statut : ailleurs, `photosForProduct` recomplétait la liste avec le trio
+    // `/photos/sku/<id>-N` — une vue retirée revenait, et deux photos que le
+    // maître n'avait pas choisies s'ajoutaient derrière la sienne.
+    //
+    // P28 (F) : une liste VIDÉE rend la fiche du catalogue. P27 visait déjà ce
+    // résultat, mais stockait `{ photos: [], photoMode: 'packshot' }` : la liste
+    // vide de l'override masquait celle du catalogue, et la fiche tombait sur son
+    // repère de rayon au lieu de retrouver son packshot. On retire donc les deux
+    // clés — l'override vide disparaît plus bas (lot 3.14), la fiche redevient
+    // celle de `src/data.js`.
+    if (patch.photos.length) next.photoMode = 'custom'
+    else {
+      delete next.photos
+      delete next.photoMode
+    }
   }
   if (patch.stock != null) {
     setStock(db, id, Math.max(0, Math.floor(Number(patch.stock) || 0)))

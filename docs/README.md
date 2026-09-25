@@ -62,7 +62,7 @@ dans trois fichiers est faux dans deux d'entre eux dès la session suivante :
 npm install
 npm run start:api   # API :8787 (comptes, commandes, stock)
 npm run dev         # site :5173 (proxy /api)
-npm test            # la suite entière (node:test, 77 fichiers)
+npm test            # la suite entière (node:test) — `npm run build` d'abord
 ```
 
 Comptes démo : [GUIDE-DEMO.md](GUIDE-DEMO.md) (menu **Gestion → Guide** dans le site, master only).

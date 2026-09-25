@@ -213,7 +213,11 @@ describe('P17 (#5) — la garde socket tolère les sockets multiples', () => {
     const psu = { id: 'psu-test', name: 'Alim 650 W', category: 'case', price: 100, stock: 5, compat: { psuWatts: 650 } }
     const noop = () => {}
 
-    const addButtonFor = (cpu) => {
+    // LOT P28 (C) : le bouton n'est plus `disabled` — son clic doit pouvoir dire
+    // pourquoi la config ne part pas. Le verrou juge donc ce qui compte : ce que
+    // le clic ajoute au panier, et l'état annoncé (`aria-disabled`).
+    const clickAddFor = (cpu) => {
+      const panier = []
       const host = mount(
         React.createElement(BuilderPage, {
           t,
@@ -221,7 +225,7 @@ describe('P17 (#5) — la garde socket tolère les sockets multiples', () => {
           build: { ...Object.fromEntries(BUILDER_SLOTS.map((s) => [s.key, null])), motherboard: board, cpu, ram, case: box, psu },
           setBuild: noop,
           liveStock: () => 5,
-          onAdd: noop,
+          onAdd: (p) => panier.push(p.id),
           onOpen: noop,
           onGoCart: noop,
           setToast: noop
@@ -230,16 +234,19 @@ describe('P17 (#5) — la garde socket tolère les sockets multiples', () => {
       // Le bouton « ajouter la config » est le seul `btn-success w-100`
       // (les boutons d'onglet sont `btn-sm`, ceux des cartes aussi).
       const btn = host.querySelector('button.btn.btn-success.w-100')
-      return btn
+      if (btn) act(() => btn.dispatchEvent(new window.MouseEvent('click', { bubbles: true })))
+      return { btn, panier }
     }
 
-    const okBtn = addButtonFor(cpuMulti)
-    assert.ok(okBtn, 'bouton d’ajout introuvable (cas multi-socket)')
-    assert.equal(okBtn.disabled, false, 'un CPU multi-socket compatible a été refusé')
+    const ok = clickAddFor(cpuMulti)
+    assert.ok(ok.btn, 'bouton d’ajout introuvable (cas multi-socket)')
+    assert.equal(ok.btn.getAttribute('aria-disabled'), 'false', 'un CPU multi-socket compatible a été refusé')
+    assert.ok(ok.panier.includes('cpu-multi'), 'un CPU multi-socket compatible n’arrive pas au panier')
 
-    const koBtn = addButtonFor(cpuOther)
-    assert.ok(koBtn, 'bouton d’ajout introuvable (cas incompatible)')
-    assert.equal(koBtn.disabled, true, 'un couple CPU/carte incompatible a été accepté')
+    const ko = clickAddFor(cpuOther)
+    assert.ok(ko.btn, 'bouton d’ajout introuvable (cas incompatible)')
+    assert.equal(ko.btn.getAttribute('aria-disabled'), 'true', 'un couple CPU/carte incompatible s’annonce prêt')
+    assert.deepEqual(ko.panier, [], 'un couple CPU/carte incompatible a été accepté')
   })
 })
 

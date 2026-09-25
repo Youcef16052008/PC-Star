@@ -3,6 +3,8 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { execFileSync } from 'node:child_process'
+import { CATALOG_SKU_VIEWS } from './catalogSkuViews.js'
 import { CATALOG_EXTENSIONS } from './catalogExtensions.js'
 import { photosForProduct } from './productPhotos.js'
 import { CATEGORIES, PART_LINES, PRODUCTS, conditionOf, usesOf } from './data.js'
@@ -49,34 +51,40 @@ test('catalogue étendu : occasion et usages sont des métadonnées filtrables',
   assert.ok(PRODUCTS.some(pos.match), 'un raccourci POS retourne des produits')
 })
 
-test('catalogue étendu : chaque référence a son illustration de rayon, ou sa photo livrée', () => {
+test('P29 : packshot en tête et vues réelles livrées, sans chemin inventé', () => {
   const publicDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../public')
-  const groups = new Set()
-  let packshots = 0
+  const ids = new Set(CATALOG_EXTENSIONS.map((p) => p.id))
+  for (const id of Object.keys(CATALOG_SKU_VIEWS)) assert.ok(ids.has(id), `${id} : entrée de manifeste orpheline`)
   for (const product of CATALOG_EXTENSIONS) {
-    assert.equal(product.photos.length, 1, `${product.id} garde un seul visuel — pas de trio fantôme`)
-    const src = product.photos[0]
-    // P27 : deux formes honnêtes, et rien d'autre. Soit la référence a reçu sa
-    // propre photo studio (`/photos/pack/<id>.jpg`, générée pour le rayon), soit
-    // elle garde l'illustration de famille et le dit (`photoMode: 'category'`).
-    if (product.photoMode === 'packshot') {
-      packshots++
-      assert.match(src, /^\/photos\/pack\/[a-z0-9-]+\.jpg$/, `${product.id} : chemin de packshot inattendu (${src})`)
-      assert.deepEqual(photosForProduct(product), [src], `${product.id} ne déclenche pas les variantes /photos/sku`)
-      const file = src.slice(1) // '/photos/pack/<id>.jpg' → 'photos/pack/<id>.jpg'
-      assert.ok(fs.existsSync(path.join(publicDir, file)), `photo livrée absente : ${src}`)
-      // Le webp est sondé en premier par `photoCandidates` : sans lui, chaque
-      // vignette ferait un 404 avant de retomber sur le jpg.
-      assert.ok(fs.existsSync(path.join(publicDir, file.replace(/\.jpg$/, '.webp'))), `webp absent pour ${src}`)
-      continue
+    const pack = `/photos/pack/${product.id}.jpg`
+    const actualViews = [1, 2, 3].filter((n) => fs.existsSync(path.join(publicDir, `photos/sku/${product.id}-${n}.jpg`)))
+    assert.deepEqual(CATALOG_SKU_VIEWS[product.id] || [], actualViews, `${product.id} : une vue livrée est oubliée, ou une vue absente est déclarée`)
+    const expected = [pack, ...actualViews.map((n) => `/photos/sku/${product.id}-${n}.jpg`)]
+    assert.equal(product.photoMode, 'packshot')
+    assert.deepEqual(product.photos, expected, `${product.id} : conserver les deux sources, dans cet ordre`)
+    assert.deepEqual(photosForProduct(product), expected, `${product.id} : le normaliseur ne doit pas modifier la galerie`)
+    assert.equal(new Set(expected).size, expected.length)
+    for (const src of expected) {
+      assert.ok(fs.existsSync(path.join(publicDir, src)), `JPG absent : ${src}`)
+      assert.ok(fs.existsSync(path.join(publicDir, src.replace(/\.jpg$/, '.webp'))), `WebP absent : ${src}`)
     }
-    assert.equal(product.photoMode, 'category', `${product.id} déclare une illustration de catégorie`)
-    assert.match(src, /^\/catalog\/[a-z-]+\.jpg$/, `${product.id} ne demande pas un faux chemin SKU`)
-    assert.deepEqual(photosForProduct(product), [src], `${product.id} ne déclenche pas les variantes /photos/sku`)
-    groups.add(src.slice('/catalog/'.length))
   }
-  for (const file of groups) {
-    assert.ok(fs.existsSync(path.join(publicDir, 'catalog', file)), `visuel généré livré : ${file}`)
+})
+
+test('P29 : les quatre écrans sans trio gardent uniquement leur packshot', () => {
+  for (const id of ['mon-samsung-g3-24', 'mon-lg-27-qhd', 'mon-dell-p2723de', 'mon-samsung-s6-32']) {
+    const p = CATALOG_EXTENSIONS.find((p) => p.id === id)
+    assert.ok(p)
+    assert.deepEqual(p.photos, [`/photos/pack/${id}.jpg`])
+    assert.equal(CATALOG_SKU_VIEWS[id], undefined)
   }
-  assert.ok(packshots >= 2, `les référence qui ont reçu leur photo la déclarent (${packshots} aujourd'hui)`)
+})
+
+test('P29 : photos:wire --check est en lecture seule et le manifeste est à jour', () => {
+  const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
+  const files = ['src/catalogExtensions.js', 'src/catalogSkuViews.js']
+  const before = files.map((f) => fs.readFileSync(path.join(root, f), 'utf8'))
+  const output = execFileSync(process.execPath, ['scripts/wirePackshots.mjs', '--check'], { cwd: root, encoding: 'utf8' })
+  assert.match(output, /"cables":0/)
+  assert.deepEqual(files.map((f) => fs.readFileSync(path.join(root, f), 'utf8')), before)
 })

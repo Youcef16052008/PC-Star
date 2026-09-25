@@ -223,7 +223,10 @@ describe('P15 (#7) — photosForProduct : plus de trio SKU fantôme', () => {
     }
   })
 
-  it('un upload master reste prioritaire (complété par la famille, jamais par le SKU)', async () => {
+  it('un upload master est servi seul (ni trio SKU, ni photos de famille derrière)', async () => {
+    // P28 (B) : la galerie enregistrée par le maître est celle que le client voit.
+    // Avant, une ou deux photos montées étaient complétées par deux photos de
+    // famille (`/photos/lib/*`) — d'autres souris que la sienne, sur sa fiche.
     const { photosForProduct } = await import('./productPhotos.js')
     const master = {
       id: 'sku-mabc123-xy',
@@ -232,8 +235,7 @@ describe('P15 (#7) — photosForProduct : plus de trio SKU fantôme', () => {
       photos: ['/api/upload-file?name=sku-mabc123-xy-1.jpg']
     }
     const photos = photosForProduct(master)
-    assert.equal(photos[0], '/api/upload-file?name=sku-mabc123-xy-1.jpg')
-    assert.ok(photos.every((p) => !p.startsWith('/photos/sku/')))
+    assert.deepEqual(photos, ['/api/upload-file?name=sku-mabc123-xy-1.jpg'])
   })
 
   it('produit du catalogue → packshot studio + trio SKU, présents sur disque', async () => {

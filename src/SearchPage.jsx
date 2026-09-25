@@ -44,6 +44,58 @@ const EMPTY = {
   sort: 'featured'
 }
 
+/**
+ * LOT P28 (H) — la carte produit de la grille, déclarée AU NIVEAU DU MODULE.
+ *
+ * Elle vivait dans le corps de `SearchPage` : chaque rendu de la page créait une
+ * NOUVELLE fonction `ProductCard`, que React prend pour un nouveau type de
+ * composant — il démontait donc toutes les cartes et les remontait à neuf. Effet
+ * mesuré : après « Ajouter », le rendu suivant (le compteur du panier bouge)
+ * remplaçait le bouton cliqué par un autre nœud, et le focus clavier retombait
+ * sur `<body>` — le client au clavier ou au lecteur d'écran repartait du haut de
+ * la page à chaque ajout. Toutes les vignettes rechargeaient aussi leur `<img>`.
+ * Ce qui venait de la fermeture passe désormais en props.
+ */
+function ProductCard({ p, t, lang, left, conditionLabel, onAdd, onOpen }) {
+  const st = stockLabel(left, t)
+  return (
+    <div className="card h-100 shadow-sm product-bs-card">
+      <button type="button" className="btn p-0 border-0 position-relative" onClick={() => onOpen(p.id)} aria-label={p.name}>
+        <div className="ratio ratio-1x1 photo-frame overflow-hidden">
+          <PartThumb product={p} />
+        </div>
+        <span className={`badge position-absolute top-0 end-0 m-2 ${st.cls}`}>{st.text}</span>
+        {p.photoMode === 'category' && <span className="badge text-bg-light border position-absolute top-0 start-0 m-2">{t('categoryIllustrationBadge')}</span>}
+      </button>
+      <div className="card-body d-flex flex-column">
+        <div className="small text-secondary">
+          {p.sku} · {p.brand}
+        </div>
+        <div className="d-flex flex-wrap gap-1 mt-1 mb-1">
+          <span className="badge text-bg-light border">{conditionLabel(conditionOf(p))}</span>
+          {Number(p.warrantyMonths) > 0 && <span className="badge text-bg-light border">{t('warrantyMonths', { n: p.warrantyMonths })}</span>}
+        </div>
+        <h3 className="h6 card-title">{p.name}</h3>
+        {p.rating ? (
+          <div className="small mb-1">
+            {starText(p.rating)} <span className="text-secondary">({p.reviews})</span>
+          </div>
+        ) : null}
+        <p className="small text-secondary flex-grow-1">{p.short}</p>
+        <div className="d-flex justify-content-between align-items-center gap-2 mt-auto">
+          <span className="d-flex flex-column">
+            <span className="fw-bold text-success">{money(p.price, lang)}</span>
+            {hasSale(p) && <small className="text-danger"><del>{money(p.compareAtPrice, lang)}</del> · −{discountPercent(p)}%</small>}
+          </span>
+          <button type="button" className="btn btn-sm btn-success" disabled={left <= 0} onClick={() => onAdd(p)}>
+            {left <= 0 ? t('soldOut') : t('add')}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function SearchPage({ t, products, lines, panels, lang, liveStock, onAdd, onOpen }) {
   const [filters, setFilters] = useState(EMPTY)
   const [view, setView] = useState('grid')
@@ -261,47 +313,6 @@ export default function SearchPage({ t, products, lines, panels, lang, liveStock
     if (panel.titles) return panel.titles[lang] || panel.titles.en || panel.id
     if (panel.titleKey) return t(panel.titleKey)
     return panel.id
-  }
-
-  function ProductCard({ p }) {
-    const left = liveStock(p)
-    const st = stockLabel(left, t)
-    return (
-      <div className="card h-100 shadow-sm product-bs-card">
-        <button type="button" className="btn p-0 border-0 position-relative" onClick={() => onOpen(p.id)} aria-label={p.name}>
-          <div className="ratio ratio-1x1 photo-frame overflow-hidden">
-            <PartThumb product={p} />
-          </div>
-          <span className={`badge position-absolute top-0 end-0 m-2 ${st.cls}`}>{st.text}</span>
-          {p.photoMode === 'category' && <span className="badge text-bg-light border position-absolute top-0 start-0 m-2">{t('categoryIllustrationBadge')}</span>}
-        </button>
-        <div className="card-body d-flex flex-column">
-          <div className="small text-secondary">
-            {p.sku} · {p.brand}
-          </div>
-          <div className="d-flex flex-wrap gap-1 mt-1 mb-1">
-            <span className="badge text-bg-light border">{conditionLabel(conditionOf(p))}</span>
-            {Number(p.warrantyMonths) > 0 && <span className="badge text-bg-light border">{t('warrantyMonths', { n: p.warrantyMonths })}</span>}
-          </div>
-          <h3 className="h6 card-title">{p.name}</h3>
-          {p.rating ? (
-            <div className="small mb-1">
-              {starText(p.rating)} <span className="text-secondary">({p.reviews})</span>
-            </div>
-          ) : null}
-          <p className="small text-secondary flex-grow-1">{p.short}</p>
-          <div className="d-flex justify-content-between align-items-center gap-2 mt-auto">
-            <span className="d-flex flex-column">
-              <span className="fw-bold text-success">{money(p.price, lang)}</span>
-              {hasSale(p) && <small className="text-danger"><del>{money(p.compareAtPrice, lang)}</del> · −{discountPercent(p)}%</small>}
-            </span>
-            <button type="button" className="btn btn-sm btn-success" disabled={left <= 0} onClick={() => onAdd(p)}>
-              {left <= 0 ? t('soldOut') : t('add')}
-            </button>
-          </div>
-        </div>
-      </div>
-    )
   }
 
   // Un changement de filtre remet la page a 1 (voir la note sur l'etat `page`).
@@ -604,7 +615,7 @@ export default function SearchPage({ t, products, lines, panels, lang, liveStock
             <div className="row g-3">
               {vus.map((p) => (
                 <div className="col-6 col-md-4" key={p.id}>
-                  <ProductCard p={p} />
+                  <ProductCard p={p} t={t} lang={lang} left={liveStock(p)} conditionLabel={conditionLabel} onAdd={onAdd} onOpen={onOpen} />
                 </div>
               ))}
             </div>
