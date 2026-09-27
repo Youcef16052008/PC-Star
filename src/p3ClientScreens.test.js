@@ -28,10 +28,17 @@ process.env.PCSTAR_DATA_DIR = dir
 // réponde `demo_locked` — c'est-à-dire aucun `DEMO_PASSWORD` posé.
 delete process.env.DEMO_PASSWORD
 
-const { AUTH_ERRORS } = await import('./AuthPanel.jsx')
+const { AUTH_ERRORS, authErrorKey } = await import('./AuthPanel.jsx')
 const { default: ProfilePage } = await import('./ProfilePage.jsx')
 const APP = fs
   .readFileSync(path.join(process.cwd(), 'src/App.jsx'), 'utf8')
+  .replace(/\/\*[\s\S]*?\*\//g, ' ')
+  .replace(/(^|[^:\w])\/\/[^\n]*/g, '$1')
+
+// Incident 2026-09-27 : même lecture sans les commentaires, pour extraire les
+// codes d'erreur réellement émis par les routes d'authentification.
+const SERVER = fs
+  .readFileSync(path.join(process.cwd(), 'server/index.js'), 'utf8')
   .replace(/\/\*[\s\S]*?\*\//g, ' ')
   .replace(/(^|[^:\w])\/\/[^\n]*/g, '$1')
 
@@ -52,6 +59,43 @@ describe('P3/B8 — la table des codes d’authentification est complète', () =
       }
     }
     assert.equal(AUTH_ERRORS.demo_locked, 'authErrorDemoLocked')
+    // Incident 2026-09-27 : le 500 attrape-tout (`error:'server'`) et le 503
+    // des routes auth doivent être mappés — c'est `server` qui s'affichait
+    // brut en production, base Neon injoignable.
+    assert.equal(AUTH_ERRORS.server, 'authErrorServer')
+    assert.equal(AUTH_ERRORS.db_unavailable, 'authErrorDb')
+  })
+
+  it(' TOUT code émis par les routes login/register a une entrée dans la table', () => {
+    const loginStart = SERVER.indexOf("pathname === '/api/auth/register'")
+    const authBlock = SERVER.slice(loginStart, SERVER.indexOf("pathname === '/api/auth/logout'"))
+    const emitted = new Set([...authBlock.matchAll(/error: '([a-z_]+)'/g)].map((m) => m[1]))
+    // Le 500 vient du catch GLOBAL du handler : il peut frapper n'importe
+    // quelle route, y compris login/register — il fait partie du contrat.
+    assert.ok(SERVER.includes("error: 'server'"), 'le catch global a changé — revoir ce contrat')
+    emitted.add('server')
+    assert.ok(emitted.has('db_unavailable'), 'les routes auth doivent nommer la base injoignable')
+    for (const code of emitted) {
+      assert.ok(authErrorKey(code) !== 'authErrorServer' || code === 'server', `code serveur non mappé : ${code}`)
+    }
+  })
+
+  it(' authErrorKey — un code inconnu ou absent ne s’affiche plus JAMAIS brut', () => {
+    // Troisième trou de la table (LOT 1.9, B8, 2026-09-27) : le repli n'est
+    // plus l'affichage du code, c'est un message générique. On simule un code
+    // d'une version FUTURE du serveur que le client ne connaît pas encore.
+    assert.equal(authErrorKey('code_invente_du_futur'), 'authErrorServer')
+    assert.equal(authErrorKey(undefined), 'authErrorServer')
+    assert.equal(authErrorKey(''), 'authErrorServer')
+    // Les codes connus gardent leur message précis.
+    assert.equal(authErrorKey('auth'), 'authErrorAuth')
+    assert.equal(authErrorKey('db_unavailable'), 'authErrorDb')
+    // Et le repli lui-même est une vraie phrase, dans les deux langues.
+    for (const l of LANGS) {
+      const v = dict[l.id][authErrorKey('nimporte_quoi')]
+      assert.ok(typeof v === 'string' && v.trim().length > 8, `${l.id} : repli introuvable`)
+      assert.ok(!/^[a-z_]+$/.test(v.trim()), `${l.id} : le repli ressemble à un code brut`)
+    }
   })
 
   it('le serveur répond bien demo_locked (la table ne sert pas à rien)', async () => {

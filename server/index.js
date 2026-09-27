@@ -523,35 +523,43 @@ export async function handler(req, res) {
       // bloquaient le thread principal ~770 ms. Le rate-limit seul ne suffisait
       // pas — chaque requête acceptée restait un blocage.
       const passwordHash = await hashPassAsync(password)
-      await updateDbAsync((db) => {
-        if (db.users.some((u) => u.email === email)) {
-          exists = true
+      // Incident 2026-09-27 : une base injoignable levait ici → `500 server`
+      // opaque (cf. login). L'inscription reste une ÉCRITURE stricte — aucun
+      // compte fantôme, aucun jeton non persisté — mais la cause est nommée.
+      try {
+        await updateDbAsync((db) => {
+          if (db.users.some((u) => u.email === email)) {
+            exists = true
+            return db
+          }
+          user = {
+            id: newId('u'),
+            role: 'customer',
+            email,
+            passwordHash,
+            name: regName || email.split('@')[0].trim(),
+            phone: body.phone ? normalizePhone(body.phone) : '',
+            avatar: 'chip',
+            accent: 'green',
+            provider: 'email',
+            links: { google: null, meta: null },
+            // LOT 1.9 : comme `PUT /api/me` (P10), la wilaya d'inscription doit
+            // appartenir à la liste connue — avant, n'importe quelle chaîne
+            // libre était stockée puis réinjectée dans les commandes du compte.
+            wilaya: (() => {
+              const w = String(body.wilaya || '').trim()
+              return WILAYAS_NEAR.includes(w) ? w : 'Oran'
+            })()
+          }
+          db.users.push(user)
+          // `createSession` génère le jeton et n'en stocke que l'empreinte.
+          token = createSession(db, user.id)
           return db
-        }
-        user = {
-          id: newId('u'),
-          role: 'customer',
-          email,
-          passwordHash,
-          name: regName || email.split('@')[0].trim(),
-          phone: body.phone ? normalizePhone(body.phone) : '',
-          avatar: 'chip',
-          accent: 'green',
-          provider: 'email',
-          links: { google: null, meta: null },
-          // LOT 1.9 : comme `PUT /api/me` (P10), la wilaya d'inscription doit
-          // appartenir à la liste connue — avant, n'importe quelle chaîne
-          // libre était stockée puis réinjectée dans les commandes du compte.
-          wilaya: (() => {
-            const w = String(body.wilaya || '').trim()
-            return WILAYAS_NEAR.includes(w) ? w : 'Oran'
-          })()
-        }
-        db.users.push(user)
-        // `createSession` génère le jeton et n'en stocke que l'empreinte.
-        token = createSession(db, user.id)
-        return db
-      })
+        })
+      } catch (err) {
+        console.error('[pcstar-auth] écriture base échouée (register) :', String((err && err.message) || err))
+        return send(res, 503, { ok: false, error: 'db_unavailable' })
+      }
       if (exists) return send(res, 409, { ok: false, error: 'exists' })
       return send(res, 201, { ok: true, token, user: publicUser(user) })
     }
@@ -564,7 +572,24 @@ export async function handler(req, res) {
         .trim()
         .toLowerCase()
       const password = String(body.password || '')
-      const db = await readDbAsync()
+      // Incident 2026-09-27 : `readDbAsync()` LEVAIT sur une base injoignable
+      // (compute Neon suspendu, `DATABASE_URL` sur l'endpoint direct au lieu
+      // du `-pooler`, branche supprimée…) → le catch global répondait
+      // `500 {error:'server'}`, indistinguable d'un bug applicatif, et le
+      // client affichait le code BRUT (« server »), faute d'entrée dans sa
+      // table d'erreurs. `503 db_unavailable` : la lecture d'authentification
+      // reste strictement fiable — on ne connecte JAMAIS sur un état incertain —
+      // mais la réponse dit désormais ce qui est en panne et vaut une nouvelle
+      // tentative, au lieu de singer une erreur d'identifiants.
+      let db
+      try {
+        db = await readDbAsync()
+      } catch (err) {
+        // Journalisé comme le faisait le catch global : le client reçoit un
+        // code, la cause lisible reste dans les logs de la fonction.
+        console.error('[pcstar-auth] lecture base échouée (login) :', String((err && err.message) || err))
+        return send(res, 503, { ok: false, error: 'db_unavailable' })
+      }
       const user = db.users.find((u) => u.email === email)
       if (!user || !verifyPass(password, user.passwordHash)) {
         // LOT 1.19 : un compte de démonstration **verrouillé** (aucun
@@ -585,27 +610,36 @@ export async function handler(req, res) {
       // calculé avant, et seulement quand la migration est réellement utile.
       const needsRehash = !String(user.passwordHash || '').startsWith('scrypt$')
       const migratedHash = needsRehash ? await hashPassAsync(password) : null
-      await updateDbAsync((d) => {
-        putSession(d, token, user.id)
-        // P22 (item 1) — migration transparente du hash de mot de passe.
-        //
-        // Les comptes seedés (master + 3 démos) sont créés avec
-        // `hashPassLegacy` : un sha256 non salé de `pcstar:<mot de passe>`.
-        // `verifyPass` sait le lire, mais rien ne le remplaçait : un compte
-        // seedé restait non salé indéfiniment, y compris après des mois
-        // d'usage. Un dump de store.json (ou d'un backup — voir
-        // server/data/backups/) exposait alors des hashes cassables par table
-        // précalculée.
-        //
-        // On profite de l'instant où le mot de passe en clair est en main —
-        // la connexion vient de réussir — pour le re-saler en scrypt. Aucun
-        // changement visible pour l'utilisateur.
-        const u = d.users.find((x) => x.id === user.id)
-        if (u && migratedHash && !String(u.passwordHash || '').startsWith('scrypt$')) {
-          u.passwordHash = migratedHash
-        }
-        return d
-      })
+      // Même régime que la lecture (incident 2026-09-27) : si la base meurt
+      // entre le SELECT et l'UPDATE, renvoyer le jeton serait un FAUX succès —
+      // `/api/me` le rejetterait à la première requête suivante et l'utilisateur
+      // se croirait connecté. 503 explicite plutôt qu'un 500 opaque.
+      try {
+        await updateDbAsync((d) => {
+          putSession(d, token, user.id)
+          // P22 (item 1) — migration transparente du hash de mot de passe.
+          //
+          // Les comptes seedés (master + 3 démos) sont créés avec
+          // `hashPassLegacy` : un sha256 non salé de `pcstar:<mot de passe>`.
+          // `verifyPass` sait le lire, mais rien ne le remplaçait : un compte
+          // seedé restait non salé indéfiniment, y compris après des mois
+          // d'usage. Un dump de store.json (ou d'un backup — voir
+          // server/data/backups/) exposait alors des hashes cassables par table
+          // précalculée.
+          //
+          // On profite de l'instant où le mot de passe en clair est en main —
+          // la connexion vient de réussir — pour le re-saler en scrypt. Aucun
+          // changement visible pour l'utilisateur.
+          const u = d.users.find((x) => x.id === user.id)
+          if (u && migratedHash && !String(u.passwordHash || '').startsWith('scrypt$')) {
+            u.passwordHash = migratedHash
+          }
+          return d
+        })
+      } catch (err) {
+        console.error('[pcstar-auth] persistance session échouée (login) :', String((err && err.message) || err))
+        return send(res, 503, { ok: false, error: 'db_unavailable' })
+      }
       return send(res, 200, { ok: true, token, user: publicUser(user) })
     }
 

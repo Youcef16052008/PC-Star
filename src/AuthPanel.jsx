@@ -26,7 +26,34 @@ export const AUTH_ERRORS = {
   // faisait `t('demo_locked')` : la CLÉ BRUTE à l'écran, en français comme en
   // anglais — exactement le défaut que le LOT 1.9 avait corrigé pour
   // `name_too_long`.
-  demo_locked: 'authErrorDemoLocked'
+  demo_locked: 'authErrorDemoLocked',
+  // Incident 2026-09-27 : le catch global de `server/index.js` répond
+  // `500 {error:'server'}` — code absent de cette table, donc « server »
+  // affiché TEL QUEL dans l'alerte rouge (reproduit en production, base Neon
+  // injoignable). Troisième occurrence du même trou (LOT 1.9, B8, celui-ci) :
+  // la garde `authErrorKey()` ci-dessous rend désormais TOUT code inconnu
+  // inoffensif, et cette entrée couvre les 500 restants (routes non auth).
+  server: 'authErrorServer',
+  // 503 dédié des routes auth (login + register) quand la base est
+  // injoignable : message exact au lieu d'un « identifiants incorrects » qui
+  // ferait retaper un mot de passe pour rien.
+  db_unavailable: 'authErrorDb'
+}
+
+/**
+ * Résout un code d'erreur (serveur ou store local) vers sa clé i18n.
+ *
+ * Un code INCONNU n'est plus jamais affiché brut : trois trous successifs de
+ * la table (LOT 1.9 `name_too_long`, B8 `demo_locked`, incident 2026-09-27
+ * `server`) ont montré que la table finit toujours par rater le code suivant.
+ * Le repli est donc un message de panne générique, pas `authErrorAuth`
+ * (« identifiants incorrects ») : mieux vaut un message flou qu'un message
+ * FAUX qui ferait retaper le mot de passe.
+ *
+ * Exportée (même régime que la table) pour `p3ClientScreens.test.js`.
+ */
+export function authErrorKey(code) {
+  return Object.prototype.hasOwnProperty.call(AUTH_ERRORS, code) ? AUTH_ERRORS[code] : 'authErrorServer'
 }
 
 /**
@@ -75,7 +102,9 @@ export default function AuthPanel({ t, users, onUsers, onSession, onClose, setTo
   }, [])
 
   function fail(code) {
-    setError(t(AUTH_ERRORS[code] || code))
+    // `authErrorKey`, jamais `t(code)` directement : un code non mappé
+    // s'affichait brut à l'écran (incident 2026-09-27, « server »).
+    setError(t(authErrorKey(code)))
   }
 
   function succeedLocal(user, nextUsers, msgKey) {
