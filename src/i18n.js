@@ -130,6 +130,11 @@ export const dict = {
     // code serveur `demo_locked` arrive directement à l'utilisateur.
     authErrorDemoLocked: 'Compte de démonstration verrouillé par le magasin',
     authErrorPhone: 'Mobile DZ invalide (05/06/07)',
+    // Incident 2026-09-27 : `server` (500 attrape-tout) s'affichait brut.
+    // `authErrorServer` sert AUSSI de repli à tout code inconnu
+    // (`AuthPanel.authErrorKey`) — son libellé reste volontairement générique.
+    authErrorServer: 'Service momentanément indisponible — réessayez dans un instant',
+    authErrorDb: 'Base de données injoignable — connexion impossible pour le moment, réessayez dans un instant',
     authOk: 'Connecté',
     sessionExpired: 'Session expirée — reconnectez-vous',
     authRetryFailed: 'Connexion non confirmée par le serveur — rechargez la page ou reconnectez-vous',
@@ -828,6 +833,11 @@ export const dict = {
     authErrorRate: 'Too many attempts, try again in a minute',
     authErrorDemoLocked: 'Demo account locked by the store',
     authErrorPhone: 'Invalid DZ mobile (05/06/07)',
+    // Incident 2026-09-27: `server` (catch-all 500) was shown raw on screen.
+    // `authErrorServer` is ALSO the fallback for any unknown code
+    // (`AuthPanel.authErrorKey`) — the wording stays generic on purpose.
+    authErrorServer: 'Service temporarily unavailable — please try again shortly',
+    authErrorDb: 'Database unreachable — sign-in is impossible right now, please try again shortly',
     authOk: 'Signed in',
     sessionExpired: 'Session expired — please sign in again',
     authRetryFailed: 'Sign-in not confirmed by the server — reload the page or sign in again',

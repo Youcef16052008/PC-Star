@@ -4153,3 +4153,43 @@ Sur `80b321e`, tous les contrôles GitHub sont verts :
 - La PR est `MERGEABLE` / `CLEAN`. Elle n'est pas fusionnée : `main` reste `ece036b`.
 
 Marge restante : le plan gratuit compte 10 branches. Cette PR en occupe une de plus que l'inventaire d'avant création, donc **une seule place libre**. Une deuxième PR ouverte en parallèle peut encore échouer en 422.
+
+## Incident du 27/09/2026 — « server » affiché brut + base injoignable en production
+
+Constaté en production (captures du 26/09) : connexion impossible avec
+« server » en toutes lettres dans l'alerte rouge, bandeau « base de données
+injoignable — catalogue de secours » (source `static`, aucune lecture aboutie
+depuis le démarrage), toast « serveur momentanément indisponible » à la
+commande. Badge « serveur connecté » vert : l'API répondait, seule la **base**
+était morte.
+
+**Deux bugs de code (corrigés) :**
+
+1. `server/index.js` — `/api/auth/login` et `/api/auth/register` laissaient
+   lever la panne DB jusqu'au catch global → `500 {error:'server'}`. Désormais
+   `503 {error:'db_unavailable'}` (lecture ET persistance de session pour
+   login — un jeton renvoyé sans être persisté aurait été un faux succès),
+   erreur journalisée côté fonction. Statu quo volontaire sur les écritures :
+   strictes, jamais de compte ni de commande fantôme.
+2. `src/AuthPanel.jsx` — troisième trou de la table d'erreurs après LOT 1.9
+   (`name_too_long`) et B8 (`demo_locked`) : `server` y manquait → affichage
+   brut. Entrées `server` + `db_unavailable` ajoutées, i18n fr/en, et surtout
+   `authErrorKey()` : tout code inconnu retombe sur un message générique au
+   lieu de s'afficher — la table n'a plus le droit d'être complète pour que
+   l'écran reste propre.
+
+**Tests :** `apiDegraded.test.js` (login + register sous Neon mort → 503
+`db_unavailable`) ; `p3ClientScreens.test.js` (audit statique : tout code
+émis par les routes auth + le catch global est présent dans `AUTH_ERRORS` ;
+repli `authErrorKey` non affichable comme code). Suite complète verte.
+
+**Cause racine hors code (à traiter côté Vercel/Neon) :** `DATABASE_URL`
+configurée mais lectures en échec depuis le démarrage. Suspects dans
+l'ordre : endpoint **non `-pooler`** (le driver HTTP `neon()` ne parle qu'au
+pooler), branche supprimée (le nettoyage du 25/09 a tourné la veille des
+captures — vérifier que l'URL de production ne pointe pas sur une branche
+`preview/*`), compute suspendu, mot de passe régénéré. Diagnostic :
+`npm run db:doctor` (non nul si une sonde échoue), sonde master
+`GET /api/db/status`, et `GET /api/health` (`db.pooler: false` = endpoint
+direct). Après correction de la variable : **redeploy** (les fonctions ne
+voient les nouvelles variables qu'au prochain déploiement).

@@ -147,3 +147,24 @@ describe('API en mode dégradé (B25)', () => {
     assert.equal(r.data.ok, false)
   })
 })
+
+describe('Auth en mode dégradé (incident 2026-09-27)', () => {
+  it('POST /api/auth/login : 503 db_unavailable — plus un 500 opaque (« server » affiché brut)', async () => {
+    const r = await call('POST', '/api/auth/login', {
+      body: { email: 'karim.oran@demo.dz', password: 'importe' }
+    })
+    assert.equal(r.status, 503, JSON.stringify(r.data))
+    assert.equal(r.data.ok, false)
+    assert.equal(r.data.error, 'db_unavailable', 'la lecture d’authentification nomme la panne')
+    assert.notEqual(r.data.error, 'server', 'le catch global ne doit plus attraper la lecture d’auth')
+  })
+
+  it('POST /api/auth/register : 503 db_unavailable — l’écriture reste stricte, la cause est nommée', async () => {
+    const r = await call('POST', '/api/auth/register', {
+      body: { email: 'nouveau@client.dz', password: 'secret6', name: 'Nouveau' }
+    })
+    assert.equal(r.status, 503, JSON.stringify(r.data))
+    assert.equal(r.data.ok, false)
+    assert.equal(r.data.error, 'db_unavailable')
+  })
+})
