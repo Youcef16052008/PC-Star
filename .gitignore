@@ -209,3 +209,6 @@ docs/ZZ-sonde-interdit.md
 
 # Sonde jetable de la relecture P5 : jamais dans le depot (les fichiers .tmp-*.mjs ne sont ni des tests ni des outils).
 .tmp-*.mjs
+
+# Artefact de lien CLI Vercel (vercel link) — jamais dans le depot.
+.vercel/
