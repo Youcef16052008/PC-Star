@@ -4193,3 +4193,38 @@ captures — vérifier que l'URL de production ne pointe pas sur une branche
 `GET /api/db/status`, et `GET /api/health` (`db.pooler: false` = endpoint
 direct). Après correction de la variable : **redeploy** (les fonctions ne
 voient les nouvelles variables qu'au prochain déploiement).
+
+## Rectificatif du 27/09/2026 (soir) — cause racine trouvée : « E », hors liste
+
+La section précédente énumérait quatre suspects (endpoint non `-pooler`, branche
+supprimée, compute suspendu, mot de passe périmé). **Aucun n'était le bon.** La
+réparation menée ce jour (runbook appliqué par l'agent Antigravity) a établi la
+cause réelle : le **chemin de base** de `DATABASE_URL` pointait vers une base
+vide (`…/new_db_d870acf3`, `relation "pcstar_state" does not exist`) au lieu de
+`…/neondb` — **même endpoint pooled, même branche, même mot de passe**. Forme et
+connexion étaient parfaites ; la base nommée était la mauvaise. Leçon corrigée :
+`pooler: true` + `reachable: false` ne signifie pas « Neon mort », ça signifie
+« Neon répond, mais pas ce qu'on attend » — le doctor sonde le CHEMIN, pas
+seulement l'hôte.
+
+Faits rapportés (preuves dans la session de réparation, non reproductibles ici —
+le sandbox n'a d'accès sortant que vers GitHub) : `db:doctor` sortait 1
+(connectivité OK, `pcstar_state` absente) sur l'ancien chemin, 0 sur `/neondb`
+(299 produits publics, 4 utilisateurs, 1 commande, `updated_at` 13/09) ;
+`DATABASE_URL` de Production remplacée (`/neondb`, host `-pooler` inchangé),
+redéploiement, alias `pc-star.vercel.app` repointée (elle était épinglée sur un
+vieil build) ; vérifications : `health.pooler: true`, catalogue `count=303,
+degraded=false, source=db`, login → `401 auth` (la base répond). Aucune donnée
+perdue côté base — cette PR (#12) n'était donc pas une condition du retour, elle
+reste le garde-fou d'affichage pour la prochaine panne.
+
+Restes à traiter par l'exploitant (hors dépôt) : rotation du mot de passe Neon
+(exposé dans un terminal/chat pendant la réparation) puis mise à jour de
+`DATABASE_URL` Production ; poser `MASTER_EMAIL`/`MASTER_PASSWORD` dans Vercel —
+sans elles, vérifié dans `server/db.js` (`masterAccountOrNull()` + LOT 1.1), le
+maître n'est NI re-seedé NI rotatif : la prod ne doit son comptoir qu'à la ligne
+d'état existante ; `npm run db:migrate:neon` une fois (tables `pcstar_archived_
+orders`, `pcstar_backups` signalées absentes par le doctor) ; aligner Preview et
+`DATABASE_URL_UNPOOLED` ; vérifier auprès du magasin qu'aucune commande réelle
+n'a été tentée entre le 13 et le 26/09 — `updated_at` = 13/09 prouve qu'aucune
+écriture n'a abouti dans cette fenêtre.
