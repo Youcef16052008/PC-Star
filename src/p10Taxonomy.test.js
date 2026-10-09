@@ -267,3 +267,125 @@ test('P10 — le mode local applique les mêmes règles que l’API', async () =
   assert.equal(cd.meta.extraCategories.length, 1)
   assert.ok(cd.meta.hiddenCategories.includes(BASE_WITH_BRAND.category))
 })
+
+// ─── UI : les deux onglets existent, la suppression est ouverte à toutes les
+// fiches (l'ancien contrat grisait le bouton sur le catalogue de base) ───
+
+test('P10 — UI : onglets Marques/Catalogue et bouton supprimer actif partout', async () => {
+  const { JSDOM } = await import('jsdom')
+  const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', {
+    url: 'http://127.0.0.1:5173/',
+    pretendToBeVisual: true
+  })
+  const { window } = dom
+  window.matchMedia = window.matchMedia || ((q) => ({ matches: false, media: q, addEventListener() {}, removeEventListener() {} }))
+  for (const k of ['window', 'document', 'navigator', 'localStorage', 'HTMLElement', 'Element', 'Node', 'Event', 'CustomEvent', 'getComputedStyle']) {
+    Object.defineProperty(globalThis, k, { value: window[k], writable: true, configurable: true })
+  }
+  globalThis.requestAnimationFrame = (cb) => setTimeout(cb, 0)
+  globalThis.cancelAnimationFrame = clearTimeout
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true
+
+  const React = (await import('react')).default
+  const { act } = await import('react')
+  const { createRoot } = await import('react-dom/client')
+  const { default: MasterPage } = await import('./MasterPage.jsx')
+  const { dict } = await import('./i18n.js')
+  const t = (key, vars) => {
+    const raw = dict.fr[key]
+    if (raw == null) return key
+    return Object.entries(vars || {}).reduce((s, [k, v]) => s.replaceAll(`{${k}}`, String(v)), raw)
+  }
+  const { buildShopView } = await import('./shopStore.js')
+  const { PART_LINES } = await import('./data.js')
+
+  const meta = {
+    extraProducts: [],
+    hiddenProductIds: [],
+    deletedProductIds: [],
+    extraBrands: ['Marque Ajoutée'],
+    hiddenBrands: [],
+    extraCategories: [{ id: 'rayon-test', labels: { fr: 'Rayon Test', en: 'Test Shelf' } }],
+    hiddenCategories: [],
+    extraPanels: [],
+    hiddenPanelIds: [],
+    photoOverrides: {},
+    productOverrides: {}
+  }
+  const BASE_PANELS = [{ id: 'parts', titleKey: 'panelParts' }]
+  const shopView = buildShopView(PRODUCTS, PART_LINES, BASE_PANELS, meta)
+
+  const host = window.document.createElement('div')
+  window.document.getElementById('root').appendChild(host)
+  const root = createRoot(host)
+  const noop = () => {}
+  await act(async () => {
+    root.render(
+      React.createElement(MasterPage, {
+        t,
+        lang: 'fr',
+        user: { id: 'master-pcstar', role: 'master', name: 'PC Star Desk' },
+        users: [],
+        onUsers: noop,
+        products: shopView.products,
+        masterCatalog: shopView.products,
+        meta,
+        onMeta: noop,
+        basePanels: BASE_PANELS,
+        setToast: noop,
+        onBack: noop,
+        apiOnline: false
+      })
+    )
+  })
+  await act(async () => {
+    await new Promise((r) => setTimeout(r, 120))
+  })
+
+  const clean = (n) => (n.textContent || '').replace(/\s+/g, ' ').trim()
+
+  // Les six onglets sont là, y compris les deux nouveaux.
+  const tabs = [...host.querySelectorAll('.nav-link')].map(clean)
+  assert.ok(tabs.includes('Marques'), 'onglet Marques présent')
+  assert.ok(tabs.includes('Catalogue'), 'onglet Catalogue présent')
+  assert.ok(tabs.includes('Produits'), 'onglet Produits toujours là')
+
+  // Le bouton supprimer d'une fiche du catalogue de base n'est plus grisé :
+  // c'est le contrat P10 (avant : `disabled` + message « se masque »).
+  const baseProduct = shopView.products.find((p) => !(meta.extraProducts || []).some((e) => e.id === p.id))
+  assert.ok(baseProduct, 'une fiche de base est affichée')
+  const delBtn = [...host.querySelectorAll('button.btn-outline-danger')].find((b) => clean(b) === '🗑')
+  assert.ok(delBtn, 'bouton supprimer trouvé')
+  assert.equal(delBtn.disabled, false, 'la suppression est ouverte aux fiches de base')
+  assert.equal(delBtn.title, 'Supprimer')
+
+  // L'onglet Marques affiche la marque ajoutée et son formulaire.
+  const brandsTab = [...host.querySelectorAll('.nav-link')].find((n) => clean(n) === 'Marques')
+  await act(async () => {
+    brandsTab.click()
+  })
+  await act(async () => {
+    await new Promise((r) => setTimeout(r, 60))
+  })
+  const text1 = clean(host)
+  assert.ok(text1.includes('Marque Ajoutée'), 'la marque ajoutée est listée')
+  assert.ok(host.querySelector('#master-brand-name'), 'formulaire d’ajout de marque présent')
+  assert.ok(text1.includes('ajouté'), 'badge « ajouté » sur la marque créée par le maître')
+
+  // L'onglet Catalogue liste les rayons du code ET celui du maître.
+  const catsTab = [...host.querySelectorAll('.nav-link')].find((n) => clean(n) === 'Catalogue')
+  await act(async () => {
+    catsTab.click()
+  })
+  await act(async () => {
+    await new Promise((r) => setTimeout(r, 60))
+  })
+  const text2 = clean(host)
+  assert.ok(text2.includes('Rayon Test'), 'le rayon ajouté est listé')
+  assert.ok(host.querySelector('#master-cat-id'), 'formulaire d’ajout de rayon présent')
+  assert.ok(host.querySelector('#master-cat-fr') && host.querySelector('#master-cat-en'), 'libellés FR et EN demandés')
+
+  await act(async () => {
+    root.unmount()
+  })
+})
