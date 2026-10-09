@@ -753,8 +753,12 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, ma
       </ul>
 
       {tab === 'products' && (
+        // 4 + 8 = 12 : la grille Bootstrap n'en tolère pas plus. L'ancien
+        // 5 + 8 = 13 faisait passer le tableau SOUS le formulaire quel que
+        // soit la largeur — l'écran de gestion vivait en deux blocs
+        // empilés, sans jamais voir liste et formulaire côte à côte.
         <div className="row g-4">
-          <div className="col-lg-5">
+          <div className="col-lg-4">
             <form className="card shadow-sm border-0 master-product-form" onSubmit={submitProduct}>
               <div className="card-body">
                 <div className="d-flex align-items-start justify-content-between gap-3 mb-3">
