@@ -278,7 +278,7 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, ma
   const masterPageSure = pageCourante(masterPage, masterPages)
   const masterTranche = tranche(masterTries, masterPageSure, masterTaille)
   // « 1 fiches » se remarque sur l'écran de celui qui vit dans ce tableau.
-  const masterCompteFiches = masterTries.length === 1 ? t('masterFiche') : t('masterFichesCount', { n: masterTries.length })
+  const masterCompteFiches = masterTries.length === 1 ? t('masterFiche', { n: masterTries.length }) : t('masterFichesCount', { n: masterTries.length })
 
   function masterResetFiltres() {
     setMasterQ('')
