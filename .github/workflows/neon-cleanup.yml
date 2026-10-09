@@ -1,0 +1,138 @@
+name: Neon — nettoyage des branches de PR
+
+# P27 — la CI Neon tombait en `422` : le projet était pile au plafond du plan
+# gratuit (10 branches, dont 8 `preview/*`). Les branches de PR sont supprimées
+# à la FERMETURE de la PR (`neon_workflow.yml`) ; celles qui restent viennent de
+# PR restées ouvertes ou d'avant la pose de la date d'expiration.
+#
+# Ce workflow est MANUEL et démarre en mode ANNONCE : il liste ce qu'il
+# supprimerait, sans rien supprimer. On relance avec `dry_run = false` pour agir.
+#
+# Ce qu'il ne fait jamais :
+#   · supprimer une branche qui ne s'appelle pas `preview/pr-<numéro>-…` ;
+#   · toucher à la branche par défaut du projet (`.default`) ;
+#   · supprimer quoi que ce soit quand l'état de la PR n'a pas pu être lu.
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Annoncer seulement (laisser coché) ou supprimer réellement"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  cleanup:
+    name: Branches de PR orphelines
+    runs-on: ubuntu-latest
+    steps:
+      - name: Vérifier la configuration
+        env:
+          NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+          NEON_PROJECT_ID: ${{ vars.NEON_PROJECT_ID }}
+        run: |
+          # Ici on ÉCHOUE (contrairement au pas de diagnostic de neon_workflow.yml,
+          # qui informe) : ce workflow n'a rien à faire s'il ne peut pas agir.
+          if [ -z "$NEON_API_KEY" ]; then
+            echo "::error title=Neon::NEON_API_KEY absente des secrets du dépôt."
+            exit 1
+          fi
+          if [ -z "$NEON_PROJECT_ID" ]; then
+            echo "::error title=Neon::NEON_PROJECT_ID absente des variables du dépôt."
+            exit 1
+          fi
+
+      - name: Inventaire des branches
+        env:
+          NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+          NEON_PROJECT_ID: ${{ vars.NEON_PROJECT_ID }}
+        run: |
+          code=$(curl -sS -o /tmp/branches.json -w '%{http_code}' \
+            -H "Authorization: Bearer $NEON_API_KEY" \
+            -H 'Accept: application/json' \
+            "https://console.neon.tech/api/v2/projects/$NEON_PROJECT_ID/branches?limit=100")
+          echo "HTTP $code"
+          if [ "$code" != "200" ]; then
+            echo "::error title=Neon::HTTP $code sur l API — 401 clé révoquée, 404 projet introuvable, 422 plafond."
+            head -c 400 /tmp/branches.json || true
+            exit 1
+          fi
+          total=$(jq '.branches | length' /tmp/branches.json)
+          preview=$(jq '[.branches[] | select(.name | startswith("preview/"))] | length' /tmp/branches.json)
+          echo "branches : $total (dont $preview preview/*)"
+          jq -r '.branches[] | "  - \(.name) [default=\(.default)]"' /tmp/branches.json
+
+      - name: Décider quelles branches sont orphelines
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          # Une branche `preview/pr-<n>-…` est orpheline quand la PR n° <n> est
+          # FERMÉE (ou introuvable). Le doute ne supprime jamais : si la réponse
+          # de l'API GitHub n'est pas 200 ou 404, la branche est conservée.
+          : > /tmp/orphelines.txt
+          jq -r '.branches[] | select(.default | not) | .name' /tmp/branches.json | while read -r nom; do
+            n=$(printf '%s' "$nom" | sed -n 's|^preview/pr-\([0-9]\{1,\}\)-.*|\1|p')
+            if [ -z "$n" ]; then
+              echo "  garde (hors motif preview/pr-N-…) : $nom"
+              continue
+            fi
+            etat=$(curl -sS -o /tmp/pr.json -w '%{http_code}' \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H 'Accept: application/vnd.github+json' \
+              "https://api.github.com/repos/$REPO/pulls/$n")
+            if [ "$etat" = "200" ]; then
+              state=$(jq -r '.state' /tmp/pr.json)
+              if [ "$state" = "closed" ]; then
+                echo "  orpheline (PR #$n fermée) : $nom"
+                printf '%s\n' "$nom" >> /tmp/orphelines.txt
+              else
+                echo "  garde (PR #$n $state) : $nom"
+              fi
+            elif [ "$etat" = "404" ]; then
+              echo "  orpheline (PR #$n introuvable) : $nom"
+              printf '%s\n' "$nom" >> /tmp/orphelines.txt
+            else
+              echo "  garde (état de la PR #$n illisible : HTTP $etat) : $nom"
+            fi
+          done
+          orphelines=$(wc -l < /tmp/orphelines.txt | tr -d ' ')
+          echo "orphelines : $orphelines"
+          sed 's/^/  - /' /tmp/orphelines.txt || true
+
+      - name: Supprimer, ou annoncer
+        env:
+          NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+          NEON_PROJECT_ID: ${{ vars.NEON_PROJECT_ID }}
+        run: |
+          if [ ! -s /tmp/orphelines.txt ]; then
+            echo "::notice title=Neon::aucune branche de PR orpheline — rien à faire."
+            exit 0
+          fi
+          nombre=$(wc -l < /tmp/orphelines.txt | tr -d ' ')
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            echo "::notice title=Neon::mode annonce — $nombre branche(s) seraient supprimées : $(tr '\n' ' ' < /tmp/orphelines.txt)"
+            exit 0
+          fi
+          restantes=0
+          while read -r nom; do
+            id=$(jq -r --arg n "$nom" '.branches[] | select(.name == $n) | .id' /tmp/branches.json)
+            if [ -z "$id" ] || [ "$id" = "null" ]; then
+              echo "  ignorée (identifiant introuvable) : $nom"
+              continue
+            fi
+            code=$(curl -sS -o /dev/null -w '%{http_code}' -X DELETE \
+              -H "Authorization: Bearer $NEON_API_KEY" \
+              -H 'Accept: application/json' \
+              "https://console.neon.tech/api/v2/projects/$NEON_PROJECT_ID/branches/$id")
+            echo "  supprimée : $nom → HTTP $code"
+            [ "$code" = "200" ] || restantes=$((restantes + 1))
+          done < /tmp/orphelines.txt
+          if [ "$restantes" -gt 0 ]; then
+            echo "::warning title=Neon::$restantes suppression(s) refusée(s) par l API — voir le détail ci-dessus."
+          else
+            echo "::notice title=Neon::$nombre branche(s) de PR supprimée(s)."
+          fi

@@ -106,7 +106,7 @@ async function gotoAbout(host) {
 }
 
 describe('P22 bug E — le bouton profil est nommé pour un lecteur d’écran', () => {
-  for (const lang of ['ar', 'fr', 'en']) {
+  for (const lang of ['fr', 'en']) {
     it(`[${lang}] aria-label = fonction + nom visible, title = fonction`, async () => {
       const { host, root } = await renderIn(lang)
       try {
@@ -150,8 +150,8 @@ describe('P22 bug F — le sous-titre Google Maps est traduit', () => {
     assert.equal(maps.subKey, 'storeMapSub')
   })
 
-  for (const lang of ['ar', 'fr', 'en']) {
-    it(`[${lang}] le bouton Maps affiche ${JSON.stringify(dict.ar.storeMapSub)} et non du français`, async () => {
+  for (const lang of ['fr', 'en']) {
+    it(`[${lang}] le bouton Maps affiche ${JSON.stringify(dict[lang].storeMapSub)}`, async () => {
       const { host, root } = await renderIn(lang)
       try {
         await gotoAbout(host)
@@ -166,19 +166,6 @@ describe('P22 bug F — le sous-titre Google Maps est traduit', () => {
     })
   }
 
-  it('l’arabe n’affiche plus la chaîne française en dur', async () => {
-    const { host, root } = await renderIn('ar')
-    try {
-      await gotoAbout(host)
-      const link = [...host.querySelectorAll('a.social-maps')][0]
-      const sub = (link.querySelector('span') || {}).textContent || ''
-      assert.notEqual(sub, 'Les Castors, Oran')
-      assert.ok(/[\u0600-\u06FF]/.test(sub), `le sous-titre est bien en arabe : ${sub}`)
-    } finally {
-      root.unmount()
-      await settle(30)
-    }
-  })
 })
 
 describe('P22 bug G — une seule table de transitions, client et serveur d’accord', () => {
@@ -196,9 +183,20 @@ describe('P22 bug G — une seule table de transitions, client et serveur d’ac
     }
   })
 
-  it('les retours en arrière que le serveur autorisait sont maintenant alignés', () => {
-    assert.equal(canTransition('preparing', 'new'), true, 'le serveur l’accepte (mesuré HTTP 200)')
-    assert.equal(canTransition('ready', 'preparing'), true, 'le serveur l’accepte')
+  // LOT P2 (B6) — ce test verrouillait le CHOIX fait au P22 : aligner le client
+  // sur le serveur, qui autorisait alors les deux arrières (« mesuré HTTP 200 »).
+  // Le rapport #4 a montré que la table était en cause, pas l'accord des deux
+  // côtés : aucun bouton du comptoir ne propose un recul (`DeskPage.jsx:250-285`),
+  // donc seul un appelant désynchronisé les atteint — et il recule la commande
+  // sans rien rendre ni annuler. Les deux arrières sont fermés des DEUX côtés,
+  // et l'accord client / serveur reste vérifié intégralement juste après.
+  it('les arrières retirés de la table sont fermés du côté client comme du serveur', () => {
+    for (const [from, to] of [['preparing', 'new'], ['ready', 'preparing']]) {
+      assert.equal(canTransition(from, to), false, `${from} → ${to} encore accepté par le client`)
+      const db = { orders: [{ code: 'X', status: from, items: [] }], stock: {} }
+      assert.equal(setOrderStatus(db, 'X', to).ok, false, `${from} → ${to} encore appliqué par le serveur`)
+      assert.equal(db.orders[0].status, from, 'le refus a écrit quand même')
+    }
   })
 
   it('les états terminaux restent verrouillés', () => {

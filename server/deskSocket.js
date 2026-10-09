@@ -50,6 +50,25 @@ export const WS_CLOSE = {
 let wss = null
 let heartbeatId = null
 let pending = 0
+/**
+ * LOT P5 — l'ecoute `upgrade` appartient a l'attache qui l'a installee.
+ *
+ * Deux defauts mesures dans l'ancienne forme, tous deux mortels pour le
+ * processus et non pour la requete :
+ *  · l'ecouteur lisait la variable de MODULE `wss`, que `closeDeskSocket()` met
+ *    a `null`. Un `upgrade` arrive-t-il apres une fermeture (rechargement a chaud
+ *    en dev, redemarrage gracele) que le handler levait `TypeError: Cannot read
+ *    properties of null` DANS l'evenement — une exception synchrone d'un
+ *    emetteur `EventEmitter` n'est rattrapee par aucun `try/catch` d'appelant :
+ *    le serveur tombe.
+ *  · rappeler `attachDeskSocket` sur le meme serveur empilait deux ecouteurs
+ *    sur `upgrade` : `handleUpgrade` etait appele deux fois sur la meme socket,
+ *    et la premiere reponse de la table d'attente 429 partait sur un socket deja
+ *    ameliore.
+ * Chaque attache est donc enregistree (serveur, ecouteur, instance) et retiree a
+ * la fermeture ; une re-attache sur le meme serveur remplace l'ancienne.
+ */
+const attaches = new Map() // http.Server -> { wss, onUpgrade, ferme }
 
 /**
  * LOT 3.10 (B15) : un cycle de heartbeat.
@@ -113,7 +132,20 @@ function safeClose(ws, code, reason) {
  * @param {(token: string) => Promise<boolean>} isMasterToken
  */
 export function attachDeskSocket(server, isMasterToken) {
+  const precedente = attaches.get(server)
+  if (precedente) {
+    server.removeListener('upgrade', precedente.onUpgrade)
+    precedente.ferme = true
+    try {
+      precedente.wss.close()
+    } catch {
+      /* deja fermee */
+    }
+  }
+
+  const etat = { wss: null, onUpgrade: null, ferme: false }
   wss = new WebSocketServer({ noServer: true })
+  etat.wss = wss
 
   wss.on('connection', (ws, req) => {
     ws.isAlive = true
@@ -213,7 +245,17 @@ export function attachDeskSocket(server, isMasterToken) {
     })
   })
 
-  server.on('upgrade', (req, socket, head) => {
+  etat.onUpgrade = (req, socket, head) => {
+    // La garde n'est pas decoratif : c'est ce qui empeche un `upgrade` recu
+    // apres `closeDeskSocket()` de jeter dans l'emetteur et de tuer le process.
+    if (etat.ferme || !etat.wss) {
+      try {
+        socket.destroy()
+      } catch {
+        /* deja mort */
+      }
+      return
+    }
     const url = new URL(req.url, 'http://localhost')
     if (url.pathname !== '/api/desk-stream') {
       socket.destroy()
@@ -228,8 +270,11 @@ export function attachDeskSocket(server, isMasterToken) {
       socket.destroy()
       return
     }
-    wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req))
-  })
+    const monWss = etat.wss
+    monWss.handleUpgrade(req, socket, head, (ws) => monWss.emit('connection', ws, req))
+  }
+  server.on('upgrade', etat.onUpgrade)
+  attaches.set(server, etat)
 
   // LOT 3.10 (B15) : heartbeat. Un socket qui n'a pas répondu au ping précédent
   // est considéré mort et terminé — il sort du registre de diffusion, donc
@@ -253,6 +298,7 @@ export function deskPendingCount() {
 
 /** Accès interne pour les tests (heartbeat, sockets en attente). */
 export const __deskSocketInternals = {
+  attaches,
   heartbeatOnce,
   get wss() {
     return wss
@@ -269,6 +315,17 @@ export function closeDeskSocket() {
     clearInterval(heartbeatId)
     heartbeatId = null
   }
+  // LOT P5 : toute attache enregistree est demontee (ecouteur ote du serveur),
+  // sinon l'ecouteur orphelin survit a la fermeture et voit un `wss` null.
+  for (const [serveur, etat] of attaches) {
+    try {
+      serveur.removeListener('upgrade', etat.onUpgrade)
+    } catch {
+      /* serveur deja detruit */
+    }
+    etat.ferme = true
+  }
+  attaches.clear()
   if (wss) {
     for (const c of wss.clients) {
       try {

@@ -208,7 +208,14 @@ describe('LOT 7.3 — le contrôle est branché, pas seulement écrit', () => {
 
   it('le vrai build, s’il est présent, est propre', (t) => {
     const dist = path.join(ROOT, 'dist')
-    if (!fs.existsSync(dist)) return t.skip('dist/ absent : `npm run build` n’a pas été lancé ici')
+    // P3 : le skip silencieux masquait le scan quand `dist/` manquait. En CI le
+    // workflow Neon ne construit pas le front (le bundle y est scanné par le
+    // workflow « UI audit » via `npm run build`), donc on y garde le skip —
+    // mais hors CI, un `dist/` absent est un oubli du développeur : on échoue.
+    if (!fs.existsSync(dist)) {
+      if (!process.env.CI) assert.fail('dist/ absent : lancez `npm run build` avant la suite (hors CI)')
+      return t.skip('dist/ absent en CI (le workflow Neon ne construit pas le front)')
+    }
     const hits = scanBundle(dist)
     assert.deepEqual(hits, [], 'secrets dans le bundle construit :\n  ' + hits.join('\n  '))
   })

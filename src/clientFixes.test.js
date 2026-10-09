@@ -191,15 +191,14 @@ describe('LOT 1.3 — le mode local est annoncé comme mode démonstration', () 
     }
   })
 
-  it('les clés demoMode* existent dans les trois langues', async () => {
-    for (const lang of ['ar', 'fr', 'en']) {
+  it('les clés demoMode* existent dans les deux langues du site', async () => {
+    for (const lang of ['fr', 'en']) {
       for (const key of ['demoModeTitle', 'demoModeNote']) {
         const v = dict[lang]?.[key]
         assert.ok(typeof v === 'string' && v.length > 3, `[${lang}] ${key} traduit : ${JSON.stringify(v)}`)
       }
     }
-    // Trois langues, trois textes distincts (pas de copier-coller du français).
-    assert.notEqual(dict.ar.demoModeNote, dict.fr.demoModeNote)
+    // Deux langues, deux textes distincts (pas de copier-coller du français).
     assert.notEqual(dict.en.demoModeNote, dict.fr.demoModeNote)
   })
 })
@@ -395,8 +394,8 @@ describe('LOT 1.4 — le changement de mot de passe envoie le mot de passe actue
     }
   })
 
-  it('les clés 1.4/1.5/1.9 existent dans les trois langues', () => {
-    for (const lang of ['ar', 'fr', 'en']) {
+  it('les clés 1.4/1.5/1.9 existent dans les deux langues du site', () => {
+    for (const lang of ['fr', 'en']) {
       for (const key of ['currentPassword', 'authErrorCurrentPassword', 'passwordRevokedSessions', 'authErrorName']) {
         const v = dict[lang]?.[key]
         assert.ok(typeof v === 'string' && v.length > 3, `[${lang}] ${key} traduit : ${JSON.stringify(v)}`)

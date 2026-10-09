@@ -2,8 +2,12 @@ import { useEffect, useMemo, useState } from 'react'
 // LOT 2.5 (F9) : `PRODUCTS` est le catalogue de base COMPLET — non filtré par
 // stock ni par masquage. C'est la seule source qui contient les SKU des
 // références en rupture ou masquées.
-import { CATEGORIES, PRODUCTS, money } from './data.js'
-import { addPanel, addProduct, deleteCustomer, hideProduct, setProductPhotos, togglePanel } from './shopStore.js'
+import { CATEGORIES, PRODUCTS, PRODUCT_CONDITIONS, PRODUCT_USES, money } from './data.js'
+import { addPanel, addProduct, deleteCustomer, hideProduct, removePanel, setProductPhotos, togglePanel } from './shopStore.js'
+// LOT P4 (V1) : le bornage de la vitrine est la fonction meme du serveur
+// (`src/vitrine.js`, partage) — le formulaire ne peut pas accepter ce que
+// l'API refuserait, ni l'inverse.
+import { VITRINE_LIMITS, clampVitrine } from './vitrine.js'
 import PartThumb from './PartThumb.jsx'
 import * as api from './api.js'
 import { compressDataUrl } from './photoCompress.js'
@@ -11,7 +15,21 @@ import { compressDataUrl } from './photoCompress.js'
 // partagé — les mêmes valeurs bornent la compression client, cette garde
 // d'envoi, la borne du corps côté serveur et le refus par photo.
 import { MAX_INPUT_BYTES, MAX_PHOTOS, MAX_UPLOAD_BODY_BYTES, payloadOverBudget, toMb } from './limits.js'
+// LOT P1 (B5) : mappages du formulaire produit extraits et testables hors React.
+import { emptyProductForm, productFormFromProduct, productPayloadFromForm } from './masterForm.js'
 import { labelOr } from './i18n.js'
+import {
+  BRAND_LIMIT,
+  COMPAT_FORMS,
+  COMPAT_MEMORY,
+  COMPAT_SOCKETS,
+  CONDITION_NOTE_LIMIT,
+  DESCRIPTION_LIMIT,
+  NAME_LIMIT,
+  SHORT_LIMIT,
+  compatValues,
+  isValidBarcode,
+} from './productMeta.js'
 
 /**
  * Traduit une réponse d'API en message utilisateur.
@@ -97,22 +115,58 @@ function readFilesAsDataUrls(fileList) {
 // qu'elle applique (`payloadOverBudget`) — la même fonction est testable hors
 // React, et client comme documentation parlent d'une seule borne.
 
+/**
+ * LOT P1 (B11) — groupe de cases a cocher pour un champ de compatibilite.
+ *
+ * Un `<select>` ne pouvait designer qu'une seule valeur alors que le champ est
+ * une liste partout ailleurs (catalogue, configurateur, recherche, `socketsMatch`).
+ * Les cases a cocher rendent la forme reelle visible : un ventirad qui supporte
+ * AM4, AM5 et LGA1700 se saisit desormais en une operation, et une fiche deja
+ * enregistree avec trois supports se re-enregistre sans les perdre.
+ */
+function CompatPicker({ id, label, allowed, selected, onToggle }) {
+  const list = compatValues(selected)
+  return (
+    <fieldset className="master-compat-group" id={id}>
+      <legend className="form-label small">{label}</legend>
+      <div className="d-flex flex-wrap gap-2">
+        {allowed.map((value) => (
+          <div className="form-check form-check-inline mb-0" key={value}>
+            <input
+              className="form-check-input"
+              type="checkbox"
+              id={`${id}-${value}`}
+              checked={list.includes(value)}
+              onChange={() => onToggle(value)}
+            />
+            <label className="form-check-label small" htmlFor={`${id}-${value}`}>{value}</label>
+          </div>
+        ))}
+      </div>
+    </fieldset>
+  )
+}
+
 export default function MasterPage({ t, lang, user, users, onUsers, products, masterCatalog, meta, onMeta, basePanels, setToast, onBack, apiOnline, onStockRefresh }) {
   const [tab, setTab] = useState('products')
-  const [form, setForm] = useState({
-    name: '',
-    price: '',
-    stock: '1',
-    category: 'accessories',
-    brand: 'PC Star',
-    short: '',
-    sku: '',
-    photos: []
-  })
+  const [form, setForm] = useState(() => emptyProductForm())
   const [panelTitle, setPanelTitle] = useState({ ar: '', fr: '', en: '' })
   const [panelCat, setPanelCat] = useState('accessories')
+  // LOT P4 (V1) — la tuile de la page d'accueil, ecrite par le maitre. Deux
+  // champs : le libelle et le nombre de reparations. Le troisieme compteur
+  // (« commandes ») n'a pas de champ, volontairement : il est la consequence de
+  // ce que le comptoir fait (une commande passee a « prete »), pas une valeur
+  // qu'on s'attribue au clavier.
+  const vitrine = clampVitrine(meta.vitrine)
+  const [vitrineForm, setVitrineForm] = useState({ label: vitrine.repairsLabel, count: String(vitrine.repairsDone) })
+  const [vitrineBusy, setVitrineBusy] = useState(false)
   const [editId, setEditId] = useState(null)
   const [editPhotos, setEditPhotos] = useState([])
+  // LOT P1 (audit 19/09/2026, B5) — identifiant de la fiche en cours de
+  // modification dans le formulaire de droite. `editId` ne pilote que les
+  // photos : avant ce lot, c'était LE seul champ modifiable d'une fiche
+  // existante (nom, prix et stock ne s'écrivaient qu'à la création).
+  const [editFormId, setEditFormId] = useState(null)
   const [apiCustomers, setApiCustomers] = useState([])
   const [apiProducts, setApiProducts] = useState([])
   const [apiTick, setApiTick] = useState(0)
@@ -133,19 +187,46 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, ma
   // P6 : la vue master API = /api/master/products — TOUS les produits
   // (masqués et rupture inclus, avec le drapeau `hidden`), contrairement au
   // catalogue public filtré. Re-chargée après chaque mutation (apiTick).
+  //
+  // LOT P3 (B4) : `productsFetch` est le drapeau qui manque. La charge était
+  // déduite de `apiProducts.length === 0`, c'est-à-dire du résultat : un
+  // `masterProducts()` qui ÉCHOUE laisse la liste vide, donc « en cours », donc
+  // trois points de suspension pour le reste de la session — sans bouton, sans
+  // message, sans nouvelle tentative possible. Le rapport d'audit appelait ça
+  // un « » … « infini » ; il avait tort sur le scénario (il le disait
+  // déclenché par un rechargement pendant le chargement — le `cancelled` y
+  // répond déjà), raison sur le mécanisme : une attente doit dire qu'elle a
+  // échoué.
+  const [productsFetch, setProductsFetch] = useState({ loaded: false, failed: false })
   useEffect(() => {
     if (!apiOnline) return undefined
     let cancelled = false
-    api.masterProducts().then((r) => {
-      if (!cancelled && r.ok && Array.isArray(r.data?.products)) setApiProducts(r.data.products)
-    })
+    // Remet l'horloge à zéro à chaque tentative (dont le « Réessayer » ci-dessous).
+    setProductsFetch({ loaded: false, failed: false })
+    api
+      .masterProducts()
+      .then((r) => {
+        if (cancelled) return
+        const produits = r.ok && Array.isArray(r.data?.products) ? r.data.products : null
+        if (produits) setApiProducts(produits)
+        setProductsFetch({ loaded: true, failed: !produits })
+      })
+      .catch(() => {
+        // `api.masterProducts()` rejette rarement (l'enveloppe renvoie
+        // `{ok:false}`), mais un `fetch` coupé au milieu le fait : sans ce
+        // `catch`, on retombe exactement dans le muet qu'on vient de fermer.
+        if (!cancelled) setProductsFetch({ loaded: true, failed: true })
+      })
     return () => {
       cancelled = true
     }
   }, [apiOnline, apiTick])
 
-  const productsLoading = apiOnline && apiProducts.length === 0
+  const productsLoading = apiOnline && !productsFetch.loaded && apiProducts.length === 0
   const productsShown = apiOnline ? apiProducts : (masterCatalog || products || [])
+
+  // La fiche en cours de modification, pour l'en-tete du formulaire.
+  const editingProduct = editFormId ? (productsShown || []).find((p) => p.id === editFormId) || null : null
 
   // LOT 2.5 (F9) : liste de référence pour le contrôle de SKU en mode local.
   //
@@ -198,8 +279,70 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, ma
     e.target.value = ''
   }
 
+  function toggleUse(useId) {
+    setForm((current) => ({
+      ...current,
+      uses: current.uses.includes(useId)
+        ? current.uses.filter((id) => id !== useId)
+        : [...current.uses, useId]
+    }))
+  }
+
+  // Une valeur de compatibilite se coche et se decoche ; le reste du champ est
+  // laisse intact (LOT P1, B11).
+  function toggleCompat(key, value) {
+    setForm((current) => {
+      const list = compatValues(current.compat?.[key])
+      return {
+        ...current,
+        compat: {
+          ...current.compat,
+          [key]: list.includes(value) ? list.filter((v) => v !== value) : [...list, value]
+        }
+      }
+    })
+  }
+
+  function updateDetail(index, key, value) {
+    setForm((current) => ({
+      ...current,
+      details: current.details.map((detail, i) => i === index ? { ...detail, [key]: value } : detail)
+    }))
+  }
+
   async function submitProduct(e) {
     e.preventDefault()
+    const payload = productPayloadFromForm(form)
+    if (!isValidBarcode(payload.barcode)) {
+      setToast(t('masterBarcodeInvalid'))
+      return
+    }
+    if (Number(payload.compareAtPrice) > 0 && Number(payload.compareAtPrice) < Number(payload.price)) {
+      setToast(t('masterComparePriceInvalid'))
+      return
+    }
+    if (apiOnline && editFormId) {
+      // LOT P1 (B5) : enregistrement d'une fiche existante. Le serveur applique
+      // ces champs aux produits du catalogue de base via
+      // `meta.productOverrides` et directement aux produits créés ; le
+      // formulaire ne fait que les lui transmettre (mêmes règles qu'à la
+      // création, mêmes messages d'erreur).
+      const r = await api.masterUpdateProduct(editFormId, payload)
+      if (!r.ok) {
+        const code = r.data?.error
+        if (code === 'sku_taken') setToast(t('masterSkuTaken'))
+        else if (code === 'price') setToast(t('masterPriceRequired'))
+        else if (code === 'compare_at_price') setToast(t('masterComparePriceInvalid'))
+        else errToast(setToast, t, r, 'masterUpdateFail')
+        return
+      }
+      setEditFormId(null)
+      setForm(emptyProductForm(form.category))
+      setToast(t('masterProductUpdated'))
+      setApiTick((x) => x + 1)
+      onStockRefresh?.()
+      return
+    }
     if (apiOnline) {
       // LOT 8.5 (A5) : refus AVANT l'envoi si le corps dépasserait le budget.
       const over = payloadOverBudget(form.photos)
@@ -207,16 +350,7 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, ma
         setToast(t('masterPhotosTooHeavy', { size: toMb(over), limit: toMb(MAX_UPLOAD_BODY_BYTES) }))
         return
       }
-      const r = await api.masterCreateProduct({
-        name: form.name,
-        price: Number(form.price),
-        stock: Number(form.stock),
-        category: form.category,
-        brand: form.brand,
-        short: form.short,
-        sku: form.sku || undefined,
-        photoDataUrls: form.photos
-      })
+      const r = await api.masterCreateProduct({ ...payload, photoDataUrls: form.photos })
       if (!r.ok) {
         // P22 (bug H) : le serveur répond `sku_taken` quand le SKU saisi existe
         // déjà — un message dédié plutôt que « échec de création ».
@@ -224,7 +358,7 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, ma
         else errToast(setToast, t, r, 'masterCreateFail')
         return
       }
-      setForm({ name: '', price: '', stock: '1', category: form.category, brand: 'PC Star', short: '', sku: '', photos: [] })
+      setForm(emptyProductForm(form.category))
       setToast(t('masterAdded'))
       setApiTick((x) => x + 1)
       onStockRefresh?.()
@@ -232,16 +366,7 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, ma
     }
     const res = addProduct(
       meta,
-      {
-        name: form.name,
-        price: Number(form.price),
-        stock: Number(form.stock),
-        category: form.category,
-        brand: form.brand,
-        short: form.short,
-        sku: form.sku || undefined,
-        photos: form.photos
-      },
+      { ...payload, photos: form.photos },
       // P22 (bug H) : le catalogue de base compte aussi — un SKU saisi ne doit
       // pas doubler une référence existante.
       // LOT 2.5 (F9) : catalogue COMPLET (base non filtrée + master + extra),
@@ -267,8 +392,19 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, ma
       return
     }
     onMeta(res.meta)
-    setForm({ name: '', price: '', stock: '1', category: form.category, brand: 'PC Star', short: '', sku: '', photos: [] })
+      setForm(emptyProductForm(form.category))
     setToast(t('masterAdded'))
+  }
+
+  function startEditProduct(p) {
+    if (!p) return
+    setEditFormId(p.id)
+    setForm(productFormFromProduct(p))
+  }
+
+  function cancelEditProduct() {
+    setEditFormId(null)
+    setForm(emptyProductForm())
   }
 
   function openEdit(p) {
@@ -290,7 +426,7 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, ma
           setToast(t('masterPhotosTooHeavy', { size: toMb(over), limit: toMb(MAX_UPLOAD_BODY_BYTES) }))
           return
         }
-        const up = await api.masterPhotos(editId, dataUrls)
+        const up = await api.masterPhotos(editId, dataUrls, paths)
         if (!up.ok) {
           errToast(setToast, t, up, 'masterActionFail')
           return
@@ -341,7 +477,42 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, ma
     setToast(isHidden ? t('masterShown') : t('masterHidden'))
   }
 
-  function doDeleteCustomer(id) {
+  // Phase suivante — suppression DÉFINITIVE d'un produit créé par le maître.
+  // Un produit du catalogue de base ne se supprime pas : il se masque (le
+  // serveur répond `base`), on l'explique au lieu d'échouer en silence.
+  async function doDeleteProduct(id) {
+    if (!window.confirm(t('confirmDeleteProduct'))) return
+    if (apiOnline) {
+      const r = await api.masterDeleteProduct(id)
+      if (!r.ok) {
+        setToast(r.data?.error === 'base' ? t('masterDeleteBase') : t('masterActionFail'))
+        return
+      }
+      setApiProducts((prev) => prev.filter((p) => p.id !== id))
+      setToast(t('masterDeleted'))
+      onStockRefresh?.()
+      return
+    }
+    const extras = meta.extraProducts || []
+    const known = extras.some((p) => p.id === id)
+    if (!known) {
+      setToast(t('masterDeleteBase'))
+      return
+    }
+    onMeta({ ...meta, extraProducts: extras.filter((p) => p.id !== id) })
+    setToast(t('masterDeleted'))
+  }
+
+  function doDeleteCustomer(c) {
+    // LOT P3 (B33) : la suppression d'un compte est la seule action
+    // IRRÉVERSIBLE du maître qui partait sans un mot — le produit, lui, est
+    // confirmé (`confirmDeleteProduct`), et le comptoir aussi (`DeskPage.jsx`,
+    // `confirmDeleteOrder`). Ici l'effet est double : le compte disparaît, ses
+    // sessions sont purgées et ses commandes EN COURS sont annulées avec retour
+    // du stock. Un clic de souris ne vaut pas une décision comme celle-là.
+    const id = c?.id
+    if (!id) return
+    if (!window.confirm(t('confirmDeleteCustomer', { name: c.name || c.email || id }))) return
     if (apiOnline) {
       // Suppression côté serveur (sessions purgées, commandes détachées).
       api.deleteCustomer(id).then((r) => {
@@ -413,10 +584,58 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, ma
       onMeta(res.meta)
     }
     setPanelTitle({ ar: '', fr: '', en: '' })
-    setToast(t('masterAdded'))
+    setToast(t('masterPanelAdded'))
+  }
+
+  // LOT P3 (B32) : supprimer un panneau que le maître a créé lui-même (les
+  // panneaux de base ne se suppriment pas, ils se masquent).
+  async function doDeletePanel(id) {
+    if (!window.confirm(t('confirmDeletePanel'))) return
+    const next = removePanel(meta, id)
+    if (apiOnline) {
+      const r = await api.putPanels({ extraPanels: next.extraPanels || [] })
+      if (!r.ok) {
+        errToast(setToast, t, r, 'masterActionFail')
+        return
+      }
+      // Meme regle que `doTogglePanel` / `submitPanel` : c'est la réponse du
+      // serveur qui fait foi, pas le calcul local.
+      onMeta({ ...meta, extraPanels: next.extraPanels, ...(r.data?.meta || {}) })
+      setToast(t('masterPanelGone'))
+      return
+    }
+    onMeta(next)
+    setToast(t('masterPanelGone'))
   }
 
   const hidden = new Set(meta.hiddenPanelIds || [])
+
+  async function submitVitrine(e) {
+    e.preventDefault()
+    if (vitrineBusy) return
+    setVitrineBusy(true)
+    try {
+      if (apiOnline) {
+        const r = await api.putVitrine({ repairsLabel: vitrineForm.label, repairsDone: Number(vitrineForm.count) })
+        if (!r.ok) {
+          setToast(r.data?.error === 'vitrine_count' ? t('masterVitrineBadCount') : t('masterUpdateFail'))
+          return
+        }
+        // Regle des panneaux : c'est la reponse du serveur qui s'applique, lui
+        // seul connait le bornage et le compteur de commandes qu'il tient.
+        onMeta({ ...meta, vitrine: r.data?.vitrine || clampVitrine({ ...vitrineForm, repairsDone: Number(vitrineForm.count) }) })
+        setToast(t('masterVitrineSaved'))
+        return
+      }
+      // Mode local : la tuile est persistee dans le meme `meta` que les panneaux,
+      // donc elle survit au rechargement — et le compteur de commandes, lui,
+      // n'existe pas sans serveur : il reste a ce que la base dit (zero).
+      onMeta({ ...meta, vitrine: { ...clampVitrine({ repairsLabel: vitrineForm.label, repairsDone: Number(vitrineForm.count) }), readyTally: vitrine.readyTally } })
+      setToast(t('masterVitrineSaved'))
+    } finally {
+      setVitrineBusy(false)
+    }
+  }
 
   return (
     <main id="main-content" className="container page py-4" tabIndex={-1}>
@@ -440,10 +659,16 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, ma
       </div>
 
       <ul className="nav nav-pills gap-2 mb-4">
-        {['products', 'customers', 'panels'].map((id) => (
+        {['products', 'customers', 'panels', 'vitrine'].map((id) => (
           <li className="nav-item" key={id}>
             <button type="button" className={`nav-link ${tab === id ? 'active' : ''}`} onClick={() => setTab(id)}>
-              {id === 'products' ? t('masterProducts') : id === 'customers' ? t('masterCustomers') : t('masterPanels')}
+              {id === 'products'
+                ? t('masterProducts')
+                : id === 'customers'
+                  ? t('masterCustomers')
+                  : id === 'panels'
+                    ? t('masterPanels')
+                    : t('masterVitrine')}
             </button>
           </li>
         ))}
@@ -451,69 +676,195 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, ma
 
       {tab === 'products' && (
         <div className="row g-4">
-          <div className="col-lg-4">
-            <form className="card shadow-sm border-0" onSubmit={submitProduct}>
+          <div className="col-lg-5">
+            <form className="card shadow-sm border-0 master-product-form" onSubmit={submitProduct}>
               <div className="card-body">
-                <h2 className="h5 mb-3">{t('masterAddProduct')}</h2>
-                <div className="mb-2">
-                  <label className="form-label small">{t('masterName')}</label>
-                  <input className="form-control" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required />
-                </div>
-                <div className="mb-2">
-                  <label className="form-label small">{t('masterSku')}</label>
-                  <input className="form-control" value={form.sku} placeholder={t('masterSkuPh')} onChange={(e) => setForm({ ...form, sku: e.target.value })} />
-                </div>
-                <div className="row g-2 mb-2">
-                  <div className="col-6">
-                    <label className="form-label small">{t('masterPrice')}</label>
-                    <input className="form-control" type="number" min="0" value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value })} required />
+                <div className="d-flex align-items-start justify-content-between gap-3 mb-3">
+                  <div>
+                    <h2 className="h5 mb-1">{editFormId ? t('masterEditProduct') : t('masterAddProduct')}</h2>
+                    <p className="small text-secondary mb-0">
+                      {editFormId
+                        ? t('masterEditingIntro', { name: editingProduct?.name || editFormId })
+                        : t('masterProductFormIntro')}
+                    </p>
                   </div>
-                  <div className="col-6">
-                    <label className="form-label small">{t('masterStock')}</label>
-                    <input className="form-control" type="number" min="0" value={form.stock} onChange={(e) => setForm({ ...form, stock: e.target.value })} />
+                  {editFormId ? (
+                    <button type="button" className="btn btn-sm btn-outline-secondary" onClick={cancelEditProduct}>
+                      {t('masterCancelEdit')}
+                    </button>
+                  ) : (
+                    <span className="badge text-bg-light border">{t('masterRequiredFields')}</span>
+                  )}
+                </div>
+
+                <fieldset className="master-form-section">
+                  <legend>{t('masterIdentity')}</legend>
+                  <div className="mb-2">
+                    <label className="form-label small" htmlFor="master-product-name">{t('masterName')}</label>
+                    <input id="master-product-name" className="form-control" maxLength={NAME_LIMIT} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required />
                   </div>
-                </div>
-                <div className="mb-2">
-                  <label className="form-label small">{t('masterCategory')}</label>
-                  <select className="form-select" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })}>
-                    {CATEGORIES.filter((c) => c.id !== 'all').map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {labelOr(t, `cat_${c.id}`, c.label || c.id)}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="mb-2">
-                  <label className="form-label small">{t('masterBrand')}</label>
-                  <input className="form-control" value={form.brand} onChange={(e) => setForm({ ...form, brand: e.target.value })} />
-                </div>
-                <div className="mb-2">
-                  <label className="form-label small">{t('masterShort')}</label>
-                  <input className="form-control" value={form.short} onChange={(e) => setForm({ ...form, short: e.target.value })} />
-                </div>
-                <div className="mb-2">
-                  <label className="form-label small">{t('masterPhotos')}</label>
+                  <div className="row g-2">
+                    <div className="col-md-6">
+                      <label className="form-label small" htmlFor="master-product-sku">{t('masterSku')}</label>
+                      <input id="master-product-sku" className="form-control" value={form.sku} placeholder={t('masterSkuPh')} onChange={(e) => setForm({ ...form, sku: e.target.value })} />
+                    </div>
+                    <div className="col-md-6">
+                      <label className="form-label small" htmlFor="master-product-model">{t('masterModel')}</label>
+                      <input id="master-product-model" className="form-control" value={form.model} placeholder={t('masterModelPh')} onChange={(e) => setForm({ ...form, model: e.target.value })} />
+                    </div>
+                    <div className="col-12">
+                      <label className="form-label small" htmlFor="master-product-barcode">{t('masterBarcode')}</label>
+                      <input id="master-product-barcode" className="form-control" value={form.barcode} placeholder={t('masterBarcodePh')} inputMode="numeric" onChange={(e) => setForm({ ...form, barcode: e.target.value })} />
+                    </div>
+                  </div>
+                </fieldset>
+
+                <fieldset className="master-form-section">
+                  <legend>{t('masterCommercial')}</legend>
+                  <div className="row g-2 mb-2">
+                    <div className="col-md-6">
+                      <label className="form-label small" htmlFor="master-product-price">{t('masterPrice')}</label>
+                      {/* LOT P1 (B5) : `min=1` et non `min=0` — le serveur refuse
+                          déjà un prix à 0 DA (LOT 1.12) parce qu'il rend la ligne
+                          incommandable, le formulaire l'annonce maintenant avant
+                          l'envoi. */}
+                      <input id="master-product-price" className="form-control" type="number" min="1" title={t('masterPriceRequired')} value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value })} required />
+                    </div>
+                    <div className="col-md-6">
+                      <label className="form-label small" htmlFor="master-product-compare">{t('masterCompareAtPrice')}</label>
+                      <input id="master-product-compare" className="form-control" type="number" min="0" value={form.compareAtPrice} onChange={(e) => setForm({ ...form, compareAtPrice: e.target.value })} />
+                    </div>
+                    <div className="col-md-6">
+                      <label className="form-label small" htmlFor="master-product-stock">{t('masterStock')}</label>
+                      <input id="master-product-stock" className="form-control" type="number" min="0" value={form.stock} onChange={(e) => setForm({ ...form, stock: e.target.value })} />
+                    </div>
+                    <div className="col-md-6">
+                      <label className="form-label small" htmlFor="master-product-low-stock">{t('masterLowStockAt')}</label>
+                      <input id="master-product-low-stock" className="form-control" type="number" min="0" max="9999" value={form.lowStockAt} onChange={(e) => setForm({ ...form, lowStockAt: e.target.value })} />
+                    </div>
+                  </div>
+                  <div className="row g-2">
+                    <div className="col-md-6">
+                      <label className="form-label small" htmlFor="master-product-condition">{t('masterCondition')}</label>
+                      <select id="master-product-condition" className="form-select" value={form.condition} onChange={(e) => setForm({ ...form, condition: e.target.value })}>
+                        {PRODUCT_CONDITIONS.map((condition) => <option key={condition.id} value={condition.id}>{t(condition.labelKey)}</option>)}
+                      </select>
+                    </div>
+                    <div className="col-md-6">
+                      <label className="form-label small" htmlFor="master-product-warranty">{t('masterWarranty')}</label>
+                      <input id="master-product-warranty" className="form-control" type="number" min="0" max="60" value={form.warrantyMonths} onChange={(e) => setForm({ ...form, warrantyMonths: e.target.value })} />
+                    </div>
+                  </div>
+                </fieldset>
+
+                <fieldset className="master-form-section">
+                  <legend>{t('masterCatalogDetails')}</legend>
+                  <div className="mb-2">
+                    <label className="form-label small" htmlFor="master-product-category">{t('masterCategory')}</label>
+                    <select id="master-product-category" className="form-select" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })}>
+                      {CATEGORIES.filter((c) => c.id !== 'all').map((c) => (
+                        <option key={c.id} value={c.id}>{labelOr(t, `cat_${c.id}`, c.label || c.id)}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="mb-2">
+                    <label className="form-label small" htmlFor="master-product-brand">{t('masterBrand')}</label>
+                    <input id="master-product-brand" className="form-control" maxLength={BRAND_LIMIT} value={form.brand} onChange={(e) => setForm({ ...form, brand: e.target.value })} />
+                  </div>
+                  <div className="mb-2">
+                    <label className="form-label small" htmlFor="master-product-short">{t('masterShort')}</label>
+                    <input id="master-product-short" className="form-control" maxLength={SHORT_LIMIT} value={form.short} onChange={(e) => setForm({ ...form, short: e.target.value })} />
+                  </div>
+                  <div className="mb-2">
+                    <label className="form-label small" htmlFor="master-product-description">{t('masterDescription')}</label>
+                    <textarea id="master-product-description" className="form-control" rows="4" maxLength={DESCRIPTION_LIMIT} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
+                    <div className="form-text">{t('masterDescriptionHint')}</div>
+                  </div>
+                  <div className="mb-2">
+                    <label className="form-label small" htmlFor="master-product-condition-note">{t('masterConditionNote')}</label>
+                    <textarea id="master-product-condition-note" className="form-control" rows="2" maxLength={CONDITION_NOTE_LIMIT} value={form.conditionNote} onChange={(e) => setForm({ ...form, conditionNote: e.target.value })} />
+                  </div>
+                  <div className="mb-2">
+                    <label className="form-label small" htmlFor="master-product-tags">{t('masterTags')}</label>
+                    <input id="master-product-tags" className="form-control" value={form.tagsText} placeholder={t('masterTagsPh')} onChange={(e) => setForm({ ...form, tagsText: e.target.value })} />
+                    <div className="form-text">{t('masterTagsHint')}</div>
+                  </div>
+                  <div>
+                    <span className="form-label small d-block mb-1">{t('masterUses')}</span>
+                    <div className="d-flex flex-wrap gap-2">
+                      {PRODUCT_USES.map((use) => (
+                        <div className="form-check form-check-inline me-0" key={use.id}>
+                          <input className="form-check-input" id={`master-use-${use.id}`} type="checkbox" checked={form.uses.includes(use.id)} onChange={() => toggleUse(use.id)} />
+                          <label className="form-check-label small" htmlFor={`master-use-${use.id}`}>{t(use.labelKey)}</label>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </fieldset>
+
+                <fieldset className="master-form-section">
+                  <legend>{t('masterTechnicalDetails')}</legend>
+                  <p className="small text-secondary mb-2">{t('masterTechnicalDetailsHint')}</p>
+                  {form.details.map((detail, index) => (
+                    <div className="row g-2 align-items-end mb-2" key={index}>
+                      <div className="col-5">
+                        <label className="visually-hidden" htmlFor={`detail-label-${index}`}>{t('masterDetailLabel')}</label>
+                        <input id={`detail-label-${index}`} className="form-control form-control-sm" value={detail.label} placeholder={t('masterDetailLabel')} onChange={(e) => updateDetail(index, 'label', e.target.value)} />
+                      </div>
+                      <div className="col-6">
+                        <label className="visually-hidden" htmlFor={`detail-value-${index}`}>{t('masterDetailValue')}</label>
+                        <input id={`detail-value-${index}`} className="form-control form-control-sm" value={detail.value} placeholder={t('masterDetailValue')} onChange={(e) => updateDetail(index, 'value', e.target.value)} />
+                      </div>
+                      <div className="col-1 d-grid">
+                        <button className="btn btn-sm btn-outline-secondary" type="button" disabled={form.details.length === 1} onClick={() => setForm((current) => ({ ...current, details: current.details.filter((_, i) => i !== index) }))} aria-label={t('remove')}>×</button>
+                      </div>
+                    </div>
+                  ))}
+                  <button className="btn btn-sm btn-outline-secondary" type="button" disabled={form.details.length >= 12} onClick={() => setForm((current) => ({ ...current, details: [...current.details, { label: '', value: '' }] }))}>
+                    + {t('masterAddDetail')}
+                  </button>
+                </fieldset>
+
+                <fieldset className="master-form-section">
+                  <legend>{t('masterCompatibility')}</legend>
+                  <p className="small text-secondary mb-2">{t('masterCompatMultiHint')}</p>
+                  <div className="row g-2">
+                    <div className="col-md-6">
+                      <CompatPicker id="master-compat-socket" label={t('masterSocket')} allowed={COMPAT_SOCKETS} selected={form.compat.socket} onToggle={(value) => toggleCompat('socket', value)} />
+                    </div>
+                    <div className="col-md-6">
+                      <CompatPicker id="master-compat-memory" label={t('masterMemory')} allowed={COMPAT_MEMORY} selected={form.compat.memory} onToggle={(value) => toggleCompat('memory', value)} />
+                    </div>
+                    <div className="col-md-6">
+                      <CompatPicker id="master-compat-form" label={t('masterFormFactor')} allowed={COMPAT_FORMS} selected={form.compat.form} onToggle={(value) => toggleCompat('form', value)} />
+                    </div>
+                    <div className="col-md-3">
+                      <label className="form-label small" htmlFor="master-compat-watts">{t('masterPsuWatts')}</label>
+                      <input id="master-compat-watts" className="form-control form-control-sm" type="number" min="100" max="2500" value={form.compat.psuWatts} onChange={(e) => setForm({ ...form, compat: { ...form.compat, psuWatts: e.target.value } })} />
+                    </div>
+                    <div className="col-md-3">
+                      <label className="form-label small" htmlFor="master-compat-min">{t('masterPsuMin')}</label>
+                      <input id="master-compat-min" className="form-control form-control-sm" type="number" min="100" max="2500" value={form.compat.psuMin} onChange={(e) => setForm({ ...form, compat: { ...form.compat, psuMin: e.target.value } })} />
+                    </div>
+                  </div>
+                </fieldset>
+
+                <fieldset className="master-form-section mb-3">
+                  <legend>{t('masterPhotos')}</legend>
                   <input className="form-control" type="file" accept="image/*" multiple onChange={onFormPhotos} />
                   <div className="form-text">{t('masterPhotosHint')}</div>
-                </div>
-                {form.photos.length > 0 && (
-                  <div className="d-flex flex-wrap gap-2 mb-3">
-                    {form.photos.map((src, i) => (
-                      <button
-                        key={i}
-                        type="button"
-                        className="btn p-0 border rounded overflow-hidden"
-                        style={{ width: 56, height: 56 }}
-                        onClick={() => setForm((f) => ({ ...f, photos: f.photos.filter((_, j) => j !== i) }))}
-                        title={t('remove')}
-                      >
-                        <img src={src} alt="" className="w-100 h-100" style={{ objectFit: 'cover' }} />
-                      </button>
-                    ))}
-                  </div>
-                )}
+                  {form.photos.length > 0 && (
+                    <div className="d-flex flex-wrap gap-2 mt-2">
+                      {form.photos.map((src, i) => (
+                        <button key={i} type="button" className="btn p-0 border rounded overflow-hidden" style={{ width: 56, height: 56 }} onClick={() => setForm((f) => ({ ...f, photos: f.photos.filter((_, j) => j !== i) }))} title={t('remove')}>
+                          <img src={src} alt="" className="w-100 h-100" style={{ objectFit: 'cover' }} />
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </fieldset>
                 <button className="btn btn-success w-100" type="submit">
-                  {t('masterAddProduct')}
+                  {editFormId ? t('masterSaveProduct') : t('masterAddProduct')}
                 </button>
               </div>
             </form>
@@ -522,6 +873,14 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, ma
           <div className="col-lg-8">
             {productsLoading ? (
               <p className="text-secondary">…</p>
+            ) : productsFetch.failed && apiProducts.length === 0 ? (
+              /* LOT P3 (B4) : l'échec se dit, et se rattrape. */
+              <div className="alert alert-warning d-flex flex-wrap align-items-center gap-2">
+                <span className="me-auto">{t('masterProductsLoadFail')}</span>
+                <button type="button" className="btn btn-sm btn-outline-secondary" onClick={() => setApiTick((n) => n + 1)}>
+                  {t('retry')}
+                </button>
+              </div>
             ) : (
             <div className="d-flex flex-column gap-2">
               {productsShown.map((p) => (
@@ -542,6 +901,18 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, ma
                         </div>
                       </div>
                       <div className="d-flex gap-2">
+                        <button
+                          type="button"
+                          className="btn btn-sm btn-outline-secondary"
+                          disabled={!apiOnline}
+                          title={!apiOnline ? t('masterEditApiOnly') : undefined}
+                          onClick={() => startEditProduct(p)}
+                        >
+                          {/* LOT P1 (B5) : le maitre pouvait deja masquer une fiche
+                              et changer ses photos, pas corriger un prix ou un
+                              stock erronés — ni même le nom. */}
+                          ✏️ {editFormId === p.id ? t('masterEditProductActive') : t('masterEditProduct')}
+                        </button>
                         <button type="button" className="btn btn-sm btn-outline-secondary" onClick={() => openEdit(p)}>
                           {t('masterEditPhotos')}
                         </button>
@@ -551,6 +922,15 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, ma
                           onClick={() => doToggleHidden(p.id, Boolean(p.hidden))}
                         >
                           {p.hidden ? t('masterShow') : t('masterHide')}
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-sm btn-outline-danger"
+                          disabled={p.source !== 'extra'}
+                          title={p.source !== 'extra' ? t('masterDeleteBase') : t('masterDelete')}
+                          onClick={() => doDeleteProduct(p.id)}
+                        >
+                          🗑 {t('masterDelete')}
                         </button>
                       </div>
                     </div>
@@ -618,7 +998,7 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, ma
                         {c.email || '—'} · {c.phone || '—'}
                       </div>
                     </div>
-                    <button type="button" className="btn btn-sm btn-outline-danger" onClick={() => doDeleteCustomer(c.id)}>
+                    <button type="button" className="btn btn-sm btn-outline-danger" onClick={() => doDeleteCustomer(c)}>
                       {t('masterDelete')}
                     </button>
                   </div>
@@ -626,6 +1006,63 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, ma
               </div>
             ))
           )}
+        </div>
+      )}
+
+      {tab === 'vitrine' && (
+        <div className="row g-4">
+          <div className="col-lg-6">
+            <form className="card shadow-sm border-0" onSubmit={submitVitrine}>
+              <div className="card-body">
+                <h2 className="h5 mb-1">{t('masterVitrine')}</h2>
+                <p className="small text-secondary mb-3">{t('masterVitrineBody')}</p>
+                <div className="mb-2">
+                  <label className="form-label small" htmlFor="master-vitrine-label">
+                    {t('masterRepairsLabel')}
+                  </label>
+                  <input
+                    id="master-vitrine-label"
+                    className="form-control"
+                    maxLength={VITRINE_LIMITS.label}
+                    value={vitrineForm.label}
+                    onChange={(e) => setVitrineForm({ ...vitrineForm, label: e.target.value })}
+                    placeholder={t('roRepairs')}
+                  />
+                  <div className="form-text">{t('masterRepairsLabelHint')}</div>
+                </div>
+                <div className="mb-3">
+                  <label className="form-label small" htmlFor="master-vitrine-count">
+                    {t('masterRepairsCount')}
+                  </label>
+                  <input
+                    id="master-vitrine-count"
+                    className="form-control"
+                    type="number"
+                    min="0"
+                    max={VITRINE_LIMITS.count}
+                    step="1"
+                    value={vitrineForm.count}
+                    onChange={(e) => setVitrineForm({ ...vitrineForm, count: e.target.value })}
+                    required
+                  />
+                </div>
+                <button className="btn btn-success" type="submit" disabled={vitrineBusy}>
+                  {t('masterVitrineSave')}
+                </button>
+              </div>
+            </form>
+          </div>
+          <div className="col-lg-6">
+            <div className="card shadow-sm border-0">
+              <div className="card-body">
+                <h3 className="h6 mb-1">{t('masterVitrineReady')}</h3>
+                <p className="small text-secondary mb-2">{t('masterVitrineReadyBody')}</p>
+                <p className="h3 mb-0" data-testid="vitrine-ready-tally">
+                  {vitrine.readyTally}
+                </p>
+              </div>
+            </div>
+          </div>
         </div>
       )}
 
@@ -659,7 +1096,9 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, ma
                   </select>
                 </div>
                 <button className="btn btn-success w-100" type="submit">
-                  {t('masterAddProduct')}
+                  {/* LOT P3 (B32) : le formulaire crée un PANNEAU ; le bouton
+                      héritait de l'étiquette « Ajouter le produit ». */}
+                  {t('masterAddPanel')}
                 </button>
               </div>
             </form>
@@ -682,16 +1121,40 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, ma
                   </div>
                 )
               })}
-              {(meta.extraPanels || []).map((p) => (
-                <div className="col-md-6" key={p.id}>
-                  <div className="card shadow-sm">
-                    <div className="card-body">
-                      <strong>{p.titles?.[lang] || p.titles?.en || p.id}</strong>
-                      <div className="small text-secondary">{(p.categories || []).join(', ')}</div>
+              {/* LOT P3 (B32) : un panneau ajouté se masque et se supprime
+                  comme un panneau de base ; il n'était que décoratif. */}
+              {(meta.extraPanels || []).map((p) => {
+                const on = !hidden.has(p.id)
+                return (
+                  <div className="col-md-6" key={p.id}>
+                    <div className="card shadow-sm">
+                      <div className="card-body d-flex justify-content-between align-items-center gap-2">
+                        <div>
+                          <strong>{p.titles?.[lang] || p.titles?.en || p.id}</strong>
+                          <div className="small text-secondary">{(p.categories || []).join(', ')}</div>
+                        </div>
+                        <div className="d-flex gap-1">
+                          <button
+                            type="button"
+                            className={`btn btn-sm ${on ? 'btn-success' : 'btn-outline-secondary'}`}
+                            onClick={() => doTogglePanel(p.id, !on)}
+                          >
+                            {on ? 'ON' : 'OFF'}
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-sm btn-outline-danger"
+                            title={t('masterDelete')}
+                            onClick={() => doDeletePanel(p.id)}
+                          >
+                            ×
+                          </button>
+                        </div>
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
+                )
+              })}
             </div>
           </div>
         </div>

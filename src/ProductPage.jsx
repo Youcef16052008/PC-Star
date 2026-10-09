@@ -3,7 +3,9 @@ import { money, starText, STORE, REVIEWS } from './data.js'
 import PartThumb from './PartThumb.jsx'
 import ContactButton from './ContactPicker.jsx'
 import { relatedProducts, specRows } from './media.js'
+import { catalogPhotoKind } from './productPhotos.js'
 import { stockLabel } from './stockLabel.js'
+import { compatLabel, discountPercent, hasSale } from './productMeta.js'
 
 /**
  * LOT 2.6 (F10) — texte du bloc « besoins » d'une fiche produit.
@@ -43,10 +45,11 @@ function Stars({ product, t }) {
 function SpecBadges({ product, t }) {
   const c = product.compat || {}
   const badges = []
-  if (c.socket && !Array.isArray(c.socket)) badges.push({ k: 'socket', v: c.socket })
-  if (Array.isArray(c.socket)) badges.push({ k: 'socket', v: c.socket.join('/') })
-  if (c.memory) badges.push({ k: 'memory', v: c.memory })
-  if (c.form) badges.push({ k: 'form', v: c.form })
+  // LOT P1 (B11) : socket, memoire et format peuvent etre des listes ; le rendu
+  // passe par `compatLabel` au lieu de supposer une chaine.
+  if (c.socket) badges.push({ k: 'socket', v: compatLabel(c.socket, '/') })
+  if (c.memory) badges.push({ k: 'memory', v: compatLabel(c.memory, '/') })
+  if (c.form) badges.push({ k: 'form', v: compatLabel(c.form, '/') })
   if (c.psuWatts) badges.push({ k: 'psu', v: `${c.psuWatts}W` })
   if (c.psuMin) badges.push({ k: 'psuMin', v: `≥${c.psuMin}W` })
   if (!badges.length) return null
@@ -69,13 +72,21 @@ export default function ProductPage({ t, lang = 'fr', product, photoIndex, setPh
   const photos = product.photos || []
   const also = relatedProducts(product, catalog, 4)
   const specs = specRows(product, t)
-  // P11 : le bloc coloré « coincé » à la place de la photo — l'événement `load`
-  // de l'image pouvait être perdu (URL déjà en cache, nœud DOM réutilisé) et la
-  // classe skeleton n'était alors jamais retirée. Désormais : le fond skeleton
-  // est permanent CONTRE le conteneur (il passe derrière l'image chargée), la
-  // <img> porte une `key` (nœud neuf à chaque produit/photo → événements
-  // garantis) et `onError` bascule sur le logo de la pièce (PartThumb).
-  const [failed, setFailed] = useState({})
+  // P29 : un remplacement par le maître peut raccourcir la galerie pendant la
+  // visite. L'index reçu n'est pas forcément encore valide : choisir une vue
+  // disponible, et rattacher les erreurs aux URL, pas aux positions réutilisées.
+  const identity = JSON.stringify([product.id, ...photos])
+  const [gallery, setGallery] = useState({ identity, failed: {} })
+  if (gallery.identity !== identity) setGallery({ identity, failed: {} })
+  const failed = gallery.identity === identity ? gallery.failed : {}
+  const failPhoto = (src) => setGallery((prev) => ({
+    identity,
+    failed: { ...(prev.identity === identity ? prev.failed : {}), [src]: true }
+  }))
+  const vues = photos.map((src, i) => ({ src, i })).filter(({ src }) => src && !failed[src])
+  const selected = vues.find(({ i }) => i === photoIndex) || vues[0]
+  const photoKind = catalogPhotoKind(selected?.src)
+  const sourceLabel = photoKind === 'generated' ? t('generatedPhotoLabel') : photoKind === 'catalog' ? t('catalogPhotoLabel') : ''
 
   return (
     <main id="main-content" className="container page py-4" tabIndex={-1}>
@@ -90,40 +101,58 @@ export default function ProductPage({ t, lang = 'fr', product, photoIndex, setPh
                 transformait le badge opaque en bloc géant cachant la photo. */}
             <div className="position-relative">
               <div className="ratio ratio-1x1 photo-frame pdp-zoom photo-skeleton">
-                {photos.length > 0 && failed[photoIndex] ? (
-                  <PartThumb product={product} eager />
-                ) : photos.length > 0 ? (
+                {selected ? (
                   <img
-                    key={product.id + '-' + photoIndex}
-                    src={photos[photoIndex]}
-                    alt={product.name}
+                    key={product.id + '-' + selected.src}
+                    src={selected.src}
+                    alt={product.photoMode === 'category' ? t('categoryIllustrationAlt', { name: product.name }) : sourceLabel ? `${product.name} — ${sourceLabel}` : product.name}
                     className="w-100 h-100"
                     style={{ objectFit: 'contain' }}
                     loading="eager"
                     decoding="async"
                     width={800}
                     height={800}
-                    onError={() => setFailed((f) => ({ ...f, [photoIndex]: true }))}
+                    onError={() => failPhoto(selected.src)}
                   />
                 ) : (
-                  <PartThumb product={product} eager />
+                  // Toutes les vues ont échoué : repère, sans retenter le même fichier.
+                  <PartThumb product={{ ...product, photos: [] }} eager />
                 )}
               </div>
               <span className={`badge position-absolute top-0 end-0 m-2 ${badge}`}>{st.text}</span>
             </div>
           </div>
-          {photos.length > 1 && (
+          {product.photoMode === 'category' && (
+            <p className="small text-secondary mt-2 mb-0">{t('categoryIllustrationNotice')}</p>
+          )}
+          {sourceLabel && (
+            <p className="small text-secondary mt-2 mb-0" role="status" data-photo-source={photoKind}>
+              <strong>{sourceLabel}</strong>{' — '}
+              {photoKind === 'generated' ? t('generatedPhotoNotice') : t('catalogPhotoNotice')}
+            </p>
+          )}
+          {/* Une vignette en erreur sort de la bande. Si c'était la sélection,
+              la première vue valide prend sa place ; aucune URL fantôme. */}
+          {vues.length > 1 && (
             <div className="d-flex flex-wrap gap-2 mt-2">
-              {photos.map((src, i) => (
+              {vues.map(({ src, i }) => (
                 <button
                   key={src + i}
                   type="button"
-                  className={`btn p-0 border rounded overflow-hidden ${i === photoIndex ? 'border-success border-2' : ''}`}
+                  className={`btn p-0 border rounded overflow-hidden ${i === selected?.i ? 'border-success border-2' : ''}`}
                   style={{ width: 72, height: 56 }}
                   onClick={() => setPhotoIndex(i)}
                   aria-label={`${product.name} ${i + 1}`}
+                  aria-pressed={i === selected?.i}
                 >
-                  <img src={src} alt="" className="w-100 h-100" style={{ objectFit: 'contain', background: 'var(--photo-bg)' }} loading="lazy" />
+                  <img
+                    src={src}
+                    alt=""
+                    className="w-100 h-100"
+                    style={{ objectFit: 'contain', background: 'var(--photo-bg)' }}
+                    loading="lazy"
+                    onError={() => failPhoto(src)}
+                  />
                 </button>
               ))}
             </div>
@@ -136,7 +165,16 @@ export default function ProductPage({ t, lang = 'fr', product, photoIndex, setPh
           <h1 className="h3 mb-2">{product.name}</h1>
           <Stars product={product} t={t} />
           <p className="text-secondary">{product.short}</p>
-          <div className="fs-4 fw-bold text-success mb-2">{money(product.price, lang)}</div>
+          {product.description && <p className="mb-3 product-description">{product.description}</p>}
+          <div className="d-flex align-items-center flex-wrap gap-2 mb-2">
+            <div className="fs-4 fw-bold text-success">{money(product.price, lang)}</div>
+            {hasSale(product) && (
+              <>
+                <del className="small text-secondary">{money(product.compareAtPrice, lang)}</del>
+                <span className="badge text-bg-danger">−{discountPercent(product)}%</span>
+              </>
+            )}
+          </div>
           <SpecBadges product={product} t={t} />
           {specs.length > 0 && (
             <div className="table-responsive mb-3">
@@ -150,6 +188,11 @@ export default function ProductPage({ t, lang = 'fr', product, photoIndex, setPh
                   ))}
                 </tbody>
               </table>
+            </div>
+          )}
+          {product.conditionNote && (
+            <div className="alert alert-info py-2 small mb-2">
+              <strong>{t('masterConditionNote')} : </strong>{product.conditionNote}
             </div>
           )}
           {(product.needsKey || needsText(product.needs)) && (

@@ -1,6 +1,9 @@
 import fs from 'fs'
 import path from 'path'
-import { execSync } from 'child_process'
+// Phase 7 : plus aucun appel shell — les noms de fichiers viennent du disque
+// et des arguments CLI ; `execSync` avec interpolation laissait une injection
+// ($(…) dans un nom de fichier s'exécutait dans les guillemets doubles).
+import { execFileSync } from 'child_process'
 
 const ROOT = process.cwd()
 const SRC = path.join(ROOT, 'image-search')
@@ -35,10 +38,7 @@ for (const [id, prefix] of Object.entries(map)) {
       continue
     }
     try {
-      execSync(
-        `convert ${JSON.stringify(path.join(SRC, f))} -auto-orient -resize '900x900>' -strip -quality 82 ${JSON.stringify(out)}`,
-        { stdio: 'pipe' }
-      )
+      execFileSync('convert', [path.join(SRC, f), '-auto-orient', '-resize', '900x900>', '-strip', '-quality', String(82), out], { stdio: 'pipe' })
       if (!fs.existsSync(out) || fs.statSync(out).size < 1500) {
         if (fs.existsSync(out)) fs.unlinkSync(out)
         continue

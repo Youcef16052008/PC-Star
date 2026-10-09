@@ -23,8 +23,10 @@
 const KEY_USERS = 'pcstar-users'
 const KEY_META = 'pcstar-catalog'
 const KEY_SESSION = 'pcstar-session'
-const KEY_SAVED_SEARCHES = 'pcstar-saved-searches'
-const MAX_SAVED_SEARCHES = 10
+// LOT P25 (S6) : `KEY_SAVED_SEARCHES` / `MAX_SAVED_SEARCHES` sont partis avec les
+// « recherches sauvées » — le client a demandé leur retrait (« sauver la sauvegarde
+// n'est pas utile »). Rien n'écrit plus `pcstar-saved-searches` : une clé de stockage
+// sans lecteur, c'est une fonctionnalité qu'on croit encore avoir.
 
 // LOT 3.1 (F7 + F8) : accès au stockage qui ne lève jamais + repli mémoire.
 // `loadUsers` / `loadSession` / `loadMeta` étaient appelés dans les
@@ -32,6 +34,8 @@ const MAX_SAVED_SEARCHES = 10
 // (cookies tiers refusés, navigation privée, quota dépassé), ils levaient un
 // `SecurityError` pendant le rendu.
 import { asSafeStorage, safeStorage } from './safeStorage.js'
+import { clampVitrine } from './vitrine.js'
+import { clipChars, excedeChars } from './textClip.js'
 
 export function hashPass(password) {
   let h = 2166136261
@@ -72,7 +76,21 @@ export { normalizePhone, isDzPhone, phoneCarrier }
 // (une ternaire inline) mais ne validait PAS la catégorie : hors ligne, un
 // produit `category: "SSD"` était enregistré et disparaissait de tous les
 // filtres, exactement comme avant le correctif côté API.
-import { isKnownCategory, kindForCategory } from './data.js'
+import { isKnownCategory, isKnownCondition, isKnownUse, kindForCategory } from './data.js'
+import {
+  BARCODE_LIMIT,
+  BRAND_LIMIT,
+  CONDITION_NOTE_LIMIT,
+  DESCRIPTION_LIMIT,
+  MODEL_LIMIT,
+  NAME_LIMIT,
+  SHORT_LIMIT,
+  cleanProductText,
+  isValidBarcode,
+  normalizeProductCompat,
+  normalizeProductDetails,
+  normalizeProductTags
+} from './productMeta.js'
 
 export function createMemoryStorage(seed = {}) {
   const map = { ...seed }
@@ -99,7 +117,12 @@ function emptyMeta() {
     hiddenProductIds: [],
     extraPanels: [],
     hiddenPanelIds: [],
-    photoOverrides: {}
+    photoOverrides: {},
+    // LOT P4 (V1) — la vitrine est stockee comme les panneaux : meme cle, meme
+    // chargement, meme persistance. C'est ce qui fait qu'en mode local (sans
+    // API) la tuile saisie par le maitre survit au rechargement, et qu'en mode
+    // API la valeur du serveur la remplace, sans etat parallele a resynchroniser.
+    vitrine: clampVitrine({})
   }
 }
 
@@ -197,27 +220,6 @@ export function saveUsers(storage = safeStorage, users) {
   asSafeStorage(storage).setItem(KEY_USERS, JSON.stringify(users))
 }
 
-/** P10 (P7-14) : recherches sauvées persistées (bornées à 10). */
-export function loadSavedSearches(storage = safeStorage) {
-  try {
-    const raw = asSafeStorage(storage).getItem(KEY_SAVED_SEARCHES)
-    if (!raw) return []
-    const list = JSON.parse(raw)
-    return Array.isArray(list) ? list.slice(0, MAX_SAVED_SEARCHES) : []
-  } catch {
-    return []
-  }
-}
-
-export function saveSavedSearches(storage = safeStorage, list = []) {
-  // P15 (#5) : `null` explicite (c'était l'appel de SearchPage) écrasait le
-  // paramètre par défaut → AUCUNE persistance, toute la feature P7-14 était
-  // inopérante. On retombe sur localStorage quand aucun storage n'est fourni.
-  // `asSafeStorage` couvre le quota et le stockage bloqué : les recherches sauvées
-  // restent en mémoire pour la page, sans `try/catch` local.
-  asSafeStorage(storage).setItem(KEY_SAVED_SEARCHES, JSON.stringify((list || []).slice(0, MAX_SAVED_SEARCHES)))
-}
-
 export function loadSession(storage = safeStorage) {
   const raw = asSafeStorage(storage).getItem(KEY_SESSION)
   if (!raw) return null
@@ -252,6 +254,10 @@ export function saveMeta(storage = safeStorage, meta) {
 export function registerEmail(users, { email, password, name, phone } = {}) {
   const mail = String(email || '').trim().toLowerCase()
   if (!isEmail(mail)) return { ok: false, error: 'email' }
+  // LOT P5 : memes plafonds qu'a la porte (`POST /api/auth/register`) — un profil
+  // rempli hors ligne doit fusionner sans refus surprise.
+  if (excedeChars(mail, 254)) return { ok: false, error: 'email' }
+  if (name != null && excedeChars(String(name).trim(), 64)) return { ok: false, error: 'name_too_long' }
   if (String(password || '').length < 6) return { ok: false, error: 'password' }
   if (users.some((u) => u.email === mail)) return { ok: false, error: 'exists' }
   const user = {
@@ -279,14 +285,21 @@ export function updateUser(users, id, patch) {
   const idx = users.findIndex((u) => u.id === id)
   if (idx < 0) return { ok: false, error: 'missing' }
   const allowed = {}
-  if (patch.name != null) allowed.name = String(patch.name).trim() || users[idx].name
+  // LOT P5 : le mode local ne doit rien laisser passer que l'API refuserait au
+  // merge — `PUT /api/me` borne le nom a 64 caracteres (et le refus est le meme),
+  // et la « wilaya » se coupe en caracteres, pas en unites UTF-16.
+  if (patch.name != null) {
+    const nom = String(patch.name).trim()
+    if (nom && excedeChars(nom, 64)) return { ok: false, error: 'name_too_long' }
+    allowed.name = nom || users[idx].name
+  }
   if (patch.phone != null) {
     const p = String(patch.phone).trim()
     allowed.phone = p ? normalizePhone(p) : ''
   }
   // P16 : longueur bornée — une « wilaya » de 100 000 caractères partait en
   // base et ressortait dans chaque export CSV du comptoir.
-  if (patch.wilaya != null) allowed.wilaya = String(patch.wilaya).trim().slice(0, 40) || users[idx].wilaya || 'Oran'
+  if (patch.wilaya != null) allowed.wilaya = clipChars(String(patch.wilaya).trim(), 40) || users[idx].wilaya || 'Oran'
 
   const user = { ...users[idx], ...allowed }
   const next = users.slice()
@@ -358,10 +371,22 @@ function skuSlug(title) {
  *   liste, un SKU saisi à la main pouvait doubler une référence existante
  *   (le serveur refuse désormais aussi, voir server/masterApi.js).
  */
-export function addProduct(meta, { name, price, category, brand, stock, short, photos, sku } = {}, knownSkus = []) {
+export function addProduct(meta, { name, price, category, brand, stock, short, photos, sku, condition, uses, warrantyMonths, model, barcode, description, conditionNote, compareAtPrice, lowStockAt, details, tags, compat } = {}, knownSkus = []) {
   const title = String(name || '').trim()
   const n = Number(price)
-  if (!title || !Number.isFinite(n) || n < 0) return { ok: false, error: 'product' }
+  if (!title || !Number.isFinite(n)) return { ok: false, error: 'product' }
+  // LOT P2 (B12) : la règle locale doit être LA règle de l'API, sinon le mode
+  // local enregistre une fiche que le serveur refuserait dès qu'on la rejoue en
+  // `POST` — et deux bornes manquaient ici : `price` à 0 DA (le catalogue
+  // public vend alors à 0, bug corrigé côté patch au LOT 1.12 mais pas ici) et
+  // le nom non mesuré.
+  if (n <= 0) return { ok: false, error: 'price' }
+  // LOT P5 : une mesure en CARACTÈRES (points de code), pas en unités UTF-16 —
+  // un nom de 60 emoji (120 unités, 60 caractères) était refusé ici alors que
+  // l'API l'accepte : le même texte, deux verdicts selon le mode. `excedeChars`
+  // plutôt qu'un compte intégral : la borne se teste avant écriture, sur une
+  // saisie que l'appelant choisit — elle ne doit pas la parcourir pour dire non.
+  if (excedeChars(title, NAME_LIMIT)) return { ok: false, error: 'name_too_long' }
   // Absent → repli `accessories` ; présent mais hors liste (chaîne vide
   // comprise) → refus, comme à l'API : la même règle des deux côtés.
   const cat = category == null ? 'accessories' : String(category)
@@ -369,6 +394,27 @@ export function addProduct(meta, { name, price, category, brand, stock, short, p
   // `CATEGORIES` (hors `all`). Sans cela, le mode local enregistrait un produit
   // invisible dans tous les filtres de la vitrine et dans le Builder.
   if (!isKnownCategory(cat)) return { ok: false, error: 'category' }
+  const productCondition = condition == null ? 'new' : String(condition)
+  if (!isKnownCondition(productCondition)) return { ok: false, error: 'condition' }
+  const productUses = uses == null ? [] : Array.isArray(uses) ? [...new Set(uses.map((use) => String(use)))] : null
+  if (!productUses || productUses.length > 6 || productUses.some((use) => !isKnownUse(use))) return { ok: false, error: 'uses' }
+  const months = warrantyMonths == null ? 0 : Number(warrantyMonths)
+  if (!Number.isFinite(months) || months < 0 || months > 60) return { ok: false, error: 'warranty' }
+  const productModel = cleanProductText(model, MODEL_LIMIT)
+  const productBarcode = cleanProductText(barcode, BARCODE_LIMIT)
+  if (!isValidBarcode(productBarcode)) return { ok: false, error: 'barcode' }
+  const productDescription = cleanProductText(description, DESCRIPTION_LIMIT)
+  const productConditionNote = cleanProductText(conditionNote, CONDITION_NOTE_LIMIT)
+  const productCompareAtPrice = compareAtPrice == null || compareAtPrice === '' ? 0 : Number(compareAtPrice)
+  if (!Number.isFinite(productCompareAtPrice) || productCompareAtPrice < 0 || (productCompareAtPrice > 0 && productCompareAtPrice < n)) return { ok: false, error: 'compare_at_price' }
+  const productLowStockAt = lowStockAt == null || lowStockAt === '' ? 0 : Number(lowStockAt)
+  if (!Number.isFinite(productLowStockAt) || productLowStockAt < 0 || productLowStockAt > 9999) return { ok: false, error: 'low_stock' }
+  const productDetails = normalizeProductDetails(details)
+  if (productDetails == null) return { ok: false, error: 'details' }
+  const productTags = normalizeProductTags(tags)
+  if (productTags == null) return { ok: false, error: 'tags' }
+  const productCompat = normalizeProductCompat(compat)
+  if (productCompat == null) return { ok: false, error: 'compat' }
   // P22 (bug H) : un SKU saisi doit être libre — dans les produits du master
   // comme dans le catalogue de base.
   const manualSku = String(sku || '').trim()
@@ -389,9 +435,23 @@ export function addProduct(meta, { name, price, category, brand, stock, short, p
     // ces caractères et on retombe sur un suffixe horodaté — jamais « PS- » seul.
     sku: manualSku || uniqueSku(`PS-${skuSlug(title)}`, [...(meta.extraProducts || []), ...knownSkus]),
     name: title,
-    short: String(short || title),
-    brand: String(brand || 'PC Star'),
+    // LOT P2 (B12) : mêmes bornes qu'au serveur (le repli sur le titre reste
+    // sous `SHORT_LIMIT`, puisque `NAME_LIMIT` est plus petit).
+    short: cleanProductText(short || title, SHORT_LIMIT),
+    brand: cleanProductText(brand || 'PC Star', BRAND_LIMIT),
     category: cat,
+    condition: productCondition,
+    uses: productUses,
+    warrantyMonths: Math.floor(months),
+    model: productModel,
+    barcode: productBarcode,
+    description: productDescription,
+    conditionNote: productConditionNote,
+    compareAtPrice: Math.round(productCompareAtPrice),
+    lowStockAt: Math.floor(productLowStockAt),
+    details: productDetails,
+    tags: productTags,
+    compat: productCompat,
     // LOT 8.10 (A10) : la règle inline (repair→service, laptop/ready→machine,
     // accessories→accessory, sinon part) est maintenant partagée avec le
     // serveur via `kindForCategory` — un produit créé via l'API et le même créé
@@ -459,11 +519,28 @@ export function togglePanel(meta, id, on) {
   return { ...meta, hiddenPanelIds: [...hidden] }
 }
 
+/**
+ * LOT P3 (B32) : retirer un panneau AJOUTÉ. Les panneaux de base se masquent,
+ * ils ne se suppriment pas (ils portent le rayon du catalogue) ; un panneau
+ * créé par le maître, lui, doit pouvoir disparaître — avant, `extraPanels` ne
+ * s'agrandissait jamais, et la troncature serveur à 12 rendait le 13ᵉ
+ * inatteignable : impossible de faire de la place.
+ */
+export function removePanel(meta, id) {
+  const extraPanels = (meta.extraPanels || []).filter((p) => p.id !== id)
+  const hidden = new Set(meta.hiddenPanelIds || [])
+  hidden.delete(id) // une id supprimée ne doit pas rester dans les masques
+  return { ...meta, extraPanels, hiddenPanelIds: [...hidden] }
+}
+
 export function buildShopView(baseProducts, baseLines, basePanels, meta) {
   const hiddenIds = new Set(meta.hiddenProductIds || [])
   const overrides = meta.photoOverrides || {}
   const withPhotos = (p) => {
-    if (overrides[p.id]?.length) return { ...p, photos: overrides[p.id] }
+    // Une photo importée par le maître devient la photo de référence : on ne
+    // garde pas l'avertissement « illustration de catégorie » après son
+    // remplacement par un visuel réellement fourni par le magasin.
+    if (overrides[p.id]?.length) return { ...p, photos: overrides[p.id], photoMode: 'custom' }
     return p
   }
   const products = [
@@ -471,7 +548,12 @@ export function buildShopView(baseProducts, baseLines, basePanels, meta) {
     ...(meta.extraProducts || []).filter((p) => !hiddenIds.has(p.id)).map(withPhotos)
   ]
   const hiddenPanels = new Set(meta.hiddenPanelIds || [])
-  const extraLines = (meta.extraPanels || []).flatMap((panel) =>
+  // LOT P3 (B32) : un panneau ajouté masqué doit disparaître du rayonnage
+  // COMME ses lignes. Avant, `hiddenPanelIds` n'était opposé qu'aux panneaux
+  // de base : le maître pouvait cliquer « OFF » sur un panneau ajouté (le
+  // bouton n'existait d'ailleurs pas), la vitrine continuait de l'afficher.
+  const visibles = (meta.extraPanels || []).filter((panel) => !hiddenPanels.has(panel.id))
+  const extraLines = visibles.flatMap((panel) =>
     panel.categories.map((cat) => ({
       id: `${panel.id}-${cat}`,
       label: cat,
@@ -479,7 +561,7 @@ export function buildShopView(baseProducts, baseLines, basePanels, meta) {
       match: (p) => p.category === cat
     }))
   )
-  const extraPanels = (meta.extraPanels || []).map((panel) => ({
+  const extraPanels = visibles.map((panel) => ({
     id: panel.id,
     titleKey: null,
     titles: panel.titles,

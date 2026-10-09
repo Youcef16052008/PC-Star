@@ -10,9 +10,24 @@ const MARK = {
   cooling: 'COOL',
   accessories: 'ACC',
   laptop: 'LAP',
+  desktop: 'PC',
+  allinone: 'AIO',
+  tablet: 'TAB',
+  server: 'SRV',
   ready: 'PC',
+  printer: 'PRN',
+  scanner: 'SCN',
+  pos: 'POS',
+  consumables: 'INK',
+  network: 'NET',
+  power: 'UPS',
+  laptop_accessories: 'LAP',
+  multimedia: 'MEDIA',
+  furniture: 'DESK',
+  phone: 'MOB',
   usb: 'USB',
   console: 'PAD',
+  monitor: 'MON',
   repair: 'FIX'
 }
 
@@ -55,10 +70,27 @@ function CategoryMark({ product, label }) {
  * affiche un badge lisible au lieu d'une image cassée/invisible.
  */
 export default function PartThumb({ product, alt, eager = false, className = '' }) {
-  const label = alt ?? product?.name ?? ''
+  // Les visuels IA des nouveaux rayons restent explicitement des illustrations
+  // de famille dans l'alternative aussi : ne pas les annoncer comme le packshot
+  // exact de la référence à un utilisateur de lecteur d'écran.
+  const label = alt ?? (product?.photoMode === 'category'
+    ? `Illustration de catégorie — ${product?.name || ''}`
+    : product?.name ?? '')
   const src = product?.photos && product.photos[0]
   const cands = src ? photoCandidates(src) : []
   const [attempt, setAttempt] = useState(0)
+  // LOT P3 (B14) : `attempt` etait l'etat d'une INSTALLATION, pas d'un produit.
+  // Une vignette deja tombee au badge de categorie y restait si le meme noeud
+  // recevait une autre fiche (le composant n'est pas remonte par une cle quand
+  // la page produit change de reference sans demontage). Regle React : on
+  // recoupe l'etat pendant le rendu quand la prop d'identite change.
+  // P29 : même fiche, NOUVELLE photo du maître → nouvel essai aussi.
+  const identity = JSON.stringify([product?.id, src])
+  const [vu, setVu] = useState(identity)
+  if (vu !== identity) {
+    setVu(identity)
+    setAttempt(0)
+  }
 
   if (!cands.length || attempt >= cands.length) return <CategoryMark product={product} label={label} />
 

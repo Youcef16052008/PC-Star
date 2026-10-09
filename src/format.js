@@ -23,9 +23,11 @@
  * conventions.
  *
  * **Décision assumée** : la locale **suit la langue de l'interface**, pour les
- * dates comme pour les prix — et le suffixe monétaire aussi (`DA` en français
- * et en anglais, `دج` en arabe), pour rester cohérent avec les libellés i18n
- * existants. Le **français reste la valeur par défaut** (langue absente ou
+ * dates comme pour les prix — et le suffixe monétaire aussi. Deux langues ont
+ * une entrée dans `CURRENCY` (`DA` en français comme en anglais) : l'arabe a été
+ * retiré de l'interface (LOT 6.x) et `normalizeLang` le fait retomber sur le
+ * français ; la table ne promet donc aucun `دج`, et `src/i18n.js` n'a plus de clé
+ * arabe à aligner. Le **français reste la valeur par défaut** (langue absente ou
  * inconnue) : c'est le format historique du magasin, et les chemins sans
  * interface — WhatsApp au maître, exports CSV, scripts — n'ont pas de langue à
  * choisir. L'incohérence était le défaut, pas le choix : désormais il n'y a
@@ -35,43 +37,42 @@
 /** Langue par défaut : français (format historique du magasin). */
 export const DEFAULT_LANG = 'fr'
 
-/** Table des locales — la seule du dépôt. */
+/** Table des locales — la seule du dépôt. Une entrée par langue de `LANGS`. */
 export const LOCALES = {
   fr: 'fr-DZ',
-  ar: 'ar-DZ',
   en: 'en-GB'
 }
 
-/** Suffixe monétaire par langue, aligné sur les libellés i18n. */
+/** Suffixe monétaire par langue, aligné sur les libellés i18n (les deux langues
+ *  de l'interface écrivent `DA` — voir la note du bloc d'en-tête). */
 export const CURRENCY = {
   fr: 'DA',
   en: 'DA',
-  ar: 'دج'
 }
 
 /**
- * Ramène une entrée de langue à l'identifiant court (`fr`, `ar`, `en`).
+ * Ramène une entrée de langue à l'identifiant court (`fr`, `en`; un ancien choix `ar` retombe sur le français).
  *
  * Accepte `fr`, `fr-DZ`, `FR`, `undefined` — l'UI passe l'identifiant de
  * `LANGS`, mais un réglage navigateur ou une préférence ancienne peut arriver
  * sous forme longue.
  *
  * @param {string} [lang]
- * @returns {'fr'|'ar'|'en'} une langue connue, `DEFAULT_LANG` sinon
+ * @returns {'fr'|'en'} une langue connue, `DEFAULT_LANG` sinon
  */
 export function normalizeLang(lang) {
   const short = String(lang || '')
     .trim()
     .toLowerCase()
     .split(/[-_]/)[0]
-  return short === 'ar' || short === 'en' || short === 'fr' ? short : DEFAULT_LANG
+  return short === 'en' || short === 'fr' ? short : DEFAULT_LANG
 }
 
 /**
  * Locale à utiliser pour une langue.
  *
  * @param {string} [lang]
- * @returns {string} par exemple `ar-DZ`
+ * @returns {string} par exemple `fr-DZ`
  */
 export function localeFor(lang) {
   return LOCALES[normalizeLang(lang)]
@@ -96,7 +97,7 @@ export function currencyFor(lang) {
  *
  * @param {number|string} n
  * @param {string} [lang] langue de l'interface (`fr` par défaut)
- * @returns {string} par exemple `97 000 DA`, `97.000 دج`, `97,000 DA`
+ * @returns {string} par exemple `97 000 DA` en français, `97,000 DA` en anglais
  */
 export function money(n, lang = DEFAULT_LANG) {
   const v = Number(n)
@@ -122,6 +123,21 @@ export function money(n, lang = DEFAULT_LANG) {
  * @param {string} [lang]
  * @returns {string}
  */
+/**
+ * Formate une date SANS heure (`YYYY-MM-DD`) pour la langue — utilisée pour
+ * la date de retrait. Le découpage explicite évite le piège de `new
+ * Date('YYYY-MM-DD')`, qui part en UTC et décale la date affichée d'un jour.
+ */
+export function formatDay(day, lang = DEFAULT_LANG) {
+  const s = String(day || '')
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/)
+  if (!m) return s
+  const local = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]))
+  return Number.isNaN(local.getTime())
+    ? s
+    : local.toLocaleDateString(localeFor(lang), { weekday: 'short', day: 'numeric', month: 'short' })
+}
+
 export function formatDateTime(value, lang = DEFAULT_LANG) {
   if (value === null || value === undefined || value === '') return ''
   const d = value instanceof Date ? value : new Date(value)

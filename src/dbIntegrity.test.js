@@ -134,3 +134,47 @@ describe('purge des entrées expirées (B11)', () => {
     assert.equal(fs.readFileSync(dbFile, 'utf8').includes(rawToken), false, 'jeton brut encore sur le disque')
   })
 })
+
+describe('P5 — borner à la lecture une adresse électronique héritée', () => {
+  /*
+   * La règle du lot P5 : le REFUS est pour la saisie, la BORNE est pour la
+   * lecture. Une base écrite avant le plafond d'inscription peut porter une
+   * adresse démesurée ; la refuser à la lecture enfermerait le comptoir sur un
+   * fichier qu'il ne peut plus ouvrir. `normalizeDb` borne donc — et, comme
+   * toute réparation de ce module, la borne est persistée à la prochaine
+   * écriture, pas seulement en mémoire.
+   */
+  it('une adresse hors norme est ramenée à 254 signes, une adresse valide est laissée telle quelle', () => {
+    const valide = 'juste.assez.long@exemple.dz'
+    const db2 = {
+      users: [
+        { id: 'u-big', role: 'customer', email: 'a'.repeat(900) + '@x.dz', passwordHash: 'h' },
+        { id: 'u-ok', role: 'customer', email: valide, passwordHash: 'h' }
+      ],
+      orders: [],
+      stock: {},
+      sessions: {},
+      meta: {}
+    }
+    // `normalizeDb` mute SUR PLACE et renvoie `changed` : c'est ce booléen qui
+    // décide si la réparation sera repersistée — le vérifier fait partie du contrat,
+    // une borne silencieuse se perd au premier redémarrage.
+    const change = db.normalizeDb(db2)
+    assert.equal(change, true, 'la réparation n’est pas signalée : elle ne sera jamais écrite en base')
+    // L'environnement de test injecte aussi un compte maître : on retrouve les
+    // lignes par id, jamais par index, sinon le verrou dépend de l'ordre des
+    // réparations du module.
+    const big = db2.users.find((u) => u.id === 'u-big')
+    const ok = db2.users.find((u) => u.id === 'u-ok')
+    assert.equal([...big.email].length, 254, 'l’adresse héritée n’est pas bornée à 254 signes')
+    const dernier = big.email.charCodeAt(big.email.length - 1)
+    assert.equal(dernier >= 0xd800 && dernier <= 0xdbff, false, 'la borne a laissé une moitié de paire en fin d’adresse')
+    assert.equal(ok.email, valide, 'une adresse normale ne doit pas être touchée')
+    // Et la borne ne reste pas en mémoire : apres ecriture, plus personne ne relit
+    // l'adresse de 900 signes.
+    db.writeDb(db2)
+    const brut = fs.readFileSync(dbFile, 'utf8')
+    assert.equal(brut.includes('a'.repeat(900)), false, 'la réparation n’a pas été persistée')
+    assert.deepEqual(JSON.parse(brut).users.find((u) => u.id === 'u-ok').email, valide)
+  })
+})

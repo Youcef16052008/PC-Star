@@ -22,9 +22,9 @@ delete process.env.VERCEL
 const DB_FILE = path.join(dir, 'store.json')
 
 const { handler } = await import('../server/index.js')
-const { safeReturnUrl } = await import('../server/oauth.js')
+const { completeDemo, safeReturnUrl } = await import('../server/oauth.js')
 const { clientKey, clientIp, trustProxy, __rateLimitInternals } = await import('../server/rateLimit.js')
-const { readDb } = await import('../server/db.js')
+const { readDb, updateDbAsync } = await import('../server/db.js')
 
 let server
 let base
@@ -135,6 +135,76 @@ describe('S1 (#2) — OAuth ne peut plus ouvrir une session master', () => {
     assert.equal(r.status, 200)
     const me = await call('GET', '/api/me', { token: r.data.token })
     assert.equal(me.data.user.role, 'master')
+  })
+})
+
+describe('AUDIT-2026-09-17 / P0 — OAuth démo réellement absent en production', () => {
+  it('OAUTH_DEMO=0 : un state réel ne peut ni être soumis au endpoint démo ni clôturé par completeDemo', async () => {
+    const keys = ['OAUTH_DEMO', 'GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'META_APP_ID', 'META_APP_SECRET']
+    const saved = Object.fromEntries(keys.map((key) => [key, process.env[key]]))
+    const victimEmail = `p0-oauth-victim-${Date.now()}@test.dz`
+    let victimId = null
+    let state = null
+    try {
+      // Ce sont des identifiants factices : startOAuth construit seulement
+      // l'URL d'autorisation, sans joindre Google dans ce test.
+      process.env.OAUTH_DEMO = '0'
+      process.env.GOOGLE_CLIENT_ID = 'p0-test-google-client'
+      process.env.GOOGLE_CLIENT_SECRET = 'p0-test-google-secret'
+      delete process.env.META_APP_ID
+      delete process.env.META_APP_SECRET
+
+      const victim = await call('POST', '/api/auth/register', {
+        body: { email: victimEmail, password: 'p0-victim-password', name: 'Victime P0' }
+      })
+      assert.equal(victim.status, 201, JSON.stringify(victim.data))
+      victimId = victim.data.user.id
+
+      // Ancien exploit : cet état, créé pour Google réel, était accepté par
+      // POST /demo avec l'e-mail de la victime et émettait sa session.
+      const start = await call('POST', '/api/oauth/start', {
+        body: { provider: 'google', intent: 'login', returnUrl: '/' }
+      })
+      assert.equal(start.status, 200, JSON.stringify(start.data))
+      assert.equal(start.data.demo, false)
+      assert.match(start.data.authorizeUrl, /^https:\/\/accounts\.google\.com\//)
+      state = new URL(start.data.authorizeUrl).searchParams.get('state')
+      assert.ok(state, 'state réel créé')
+
+      const viaHttp = await call('POST', '/api/oauth/google/demo', {
+        body: { state, email: victimEmail, name: 'Attaquant' }
+      })
+      assert.equal(viaHttp.status, 404, `endpoint démo exposé : ${viaHttp.status} ${viaHttp.text}`)
+      assert.deepEqual(viaHttp.data, { ok: false, error: 'not_found' })
+
+      // Défense en profondeur : une future route qui appellerait directement
+      // le helper ne doit pas pouvoir réintroduire la prise de compte.
+      const direct = await completeDemo('google', state, { email: victimEmail, name: 'Attaquant' })
+      assert.deepEqual(direct, { ok: false, error: 'demo_disabled' })
+
+      const before = Object.keys(readStore().oauthPending || {}).length
+      const unavailable = await call('POST', '/api/oauth/start', {
+        body: { provider: 'meta', intent: 'login', returnUrl: '/' }
+      })
+      assert.equal(unavailable.status, 400)
+      assert.equal(unavailable.data?.error, 'provider_not_configured')
+      assert.equal(Object.keys(readStore().oauthPending || {}).length, before, 'aucun état mort pour un fournisseur absent')
+    } finally {
+      await updateDbAsync((db) => {
+        if (state && db.oauthPending) delete db.oauthPending[state]
+        if (victimId) {
+          db.users = (db.users || []).filter((user) => user.id !== victimId)
+          for (const [key, session] of Object.entries(db.sessions || {})) {
+            if (session?.userId === victimId) delete db.sessions[key]
+          }
+        }
+        return db
+      })
+      for (const key of keys) {
+        if (saved[key] === undefined) delete process.env[key]
+        else process.env[key] = saved[key]
+      }
+    }
   })
 })
 

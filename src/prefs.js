@@ -23,8 +23,10 @@ const KEY_ORDERS = 'pcstar-orders'
 
 export function loadLang(storage = safeStorage) {
   const v = asSafeStorage(storage).getItem(KEY_LANG)
-  if (v === 'ar' || v === 'fr' || v === 'en') return v
-  return 'ar'
+  if (v === 'fr' || v === 'en') return v
+  // L'arabe a été retiré de l'interface : un ancien choix `ar` retombe
+  // proprement sur le français, qui est aussi la valeur par défaut.
+  return 'fr'
 }
 
 export function saveLang(storage = safeStorage, lang) {

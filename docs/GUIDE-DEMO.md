@@ -49,8 +49,8 @@ Tu peux aussi taper e-mail + mot de passe à la main, ou **Créer un compte**.
 ## Master (magasin)
 
 1. Connexion master.
-2. Menu **Admin** → ajouter un produit, masquer un SKU, gérer clients.
-3. Menu **Liste comptoir** → réservations (code `PS-xxxxxx`, tél, créneau).
+2. Menu **Gestion → Admin** → ajouter un produit, masquer un SKU, gérer clients.
+3. Menu **Gestion → Liste comptoir** → réservations (code `PS-xxxxxx`, tél, créneau).
 4. Multi-device : lance l’API ; un client réserve sur son téléphone → le desk du magasin recharge la liste.
 
 ## Client
@@ -62,18 +62,27 @@ Tu peux aussi taper e-mail + mot de passe à la main, ou **Créer un compte**.
 
 ## Guide (master only)
 
-La page **Guide / Help** n’apparaît et n’est accessible **que** pour le compte master.
+La page **Guide / Help** n’apparaît et n’est accessible **que** pour le compte master : menu
+**Gestion → Guide** (les trois pages du comptoir sont rangées sous « Gestion » depuis le
+21/09/2026, pour que la barre tienne sur une seule ligne).
 
 ## Thème & langues
 
-- **☀ / ☾ / ◐** : clair / sombre / système.
-- **ع / FR / EN** : arabe (RTL), français, anglais.
+- **Langues : FR et EN**, deux boutons dans la barre supérieure (`src/i18n.js`,
+  646 clés chacune). **La vitrine ne sert plus l'arabe**, retiré à la demande du
+  client : `docs/GUIDE-DEMO-AR.md` reste un document en arabe qui décrit un site
+  bilingue, il n'y a plus de bascule RTL à montrer.
+- **Thème : clair uniquement.** Le sélecteur ☀ / ☾ / ◐ a été supprimé sur la même
+  demande (« site blanc ») : il n'y a rien à cocher dans une démo sur ce point.
+
+*(Deux lignes de ce guide décrivaient des boutons qui n'existent plus ; elles
+étaient le genre de détail qui fait perdre du temps au comptoir le matin.)*
 
 ## OAuth Google / Meta (livré — mode démo par défaut)
 
 - Boutons **« Continuer avec Google / Meta »** dans le login (`src/AuthPanel.jsx`).
 - Par défaut `OAUTH_DEMO=1` : écran de consent **simulé** par l’API, qui crée un **vrai** lien de compte + vraie session (rien à configurer).
-- En prod réel : `OAUTH_DEMO=0` + clés (`GOOGLE_CLIENT_ID/SECRET`, `META_APP_ID/SECRET`) + `OAUTH_REDIRECT_BASE` — l’UI ne change pas.
+- Le flux OAuth réel est disponible avec `OAUTH_DEMO=0`, les clés serveur Google/Meta et les URI `https://<api>/api/oauth/google/callback` et `https://<api>/api/oauth/meta/callback` enregistrées chez les fournisseurs. Sans ces prérequis, garder `OAUTH_DEMO=1`. Les détails de déploiement sont dans le [plan de remédiation](PLAN-REMEDIATION-AUDIT-2026-09-17.md).
 - Déconnexion du provider : **Profil → unlink** (`POST /api/oauth/unlink`).
 
 ## Ce qui a été retiré (volontairement)

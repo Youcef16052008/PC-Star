@@ -126,6 +126,22 @@ describe('hashToken / putSession / findSession / deleteSession', () => {
     assert.equal(db.findSession(null, tok), null)
   })
 
+  it('findSession refuse immédiatement les sessions expirées ou malformées', () => {
+    const d = { sessions: {} }
+    const expired = db.newToken()
+    const malformed = db.newToken()
+    const fresh = db.newToken()
+    d.sessions[db.hashToken(expired)] = { userId: 'old', at: Date.now() - db.SESSION_TTL_MS - 1 }
+    d.sessions[db.hashToken(malformed)] = { userId: 'bad', at: 'hier' }
+    d.sessions[db.hashToken(fresh)] = { userId: 'fresh', at: Date.now() }
+
+    // Ce contrôle ne dépend pas de purgeExpired()/d'une écriture : c'est ce qui
+    // protège les lectures JSONB de Neon entre deux mutations.
+    assert.equal(db.findSession(d, expired), null)
+    assert.equal(db.findSession(d, malformed), null)
+    assert.equal(db.findSession(d, fresh)?.userId, 'fresh')
+  })
+
   it('createSession renvoie un jeton utilisable et stocke son empreinte', () => {
     const d = {}
     const tok = db.createSession(d, 'u2')

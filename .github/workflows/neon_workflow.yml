@@ -37,9 +37,56 @@ jobs:
       || github.event.action == 'opened'
       || github.event.action == 'reopened')
     runs-on: ubuntu-latest
+    # Identifiants de fixture, valables seulement dans la branche Neon éphémère
+    # créée ci-dessous. Ils ne sont ni les secrets Vercel ni un accès production.
+    env:
+      MASTER_EMAIL: master-ci@test.pcstar.local
+      MASTER_PASSWORD: ci-master-password-not-for-production
+      DEMO_PASSWORD: ci-demo-password-not-for-production
     steps:
       - name: Get branch expiration date as an env variable (2 weeks from now)
         run: echo "EXPIRES_AT=$(date -u --date '+14 days' +'%Y-%m-%dT%H:%M:%SZ')" >> "$GITHUB_ENV"
+      # P27 — le diagnostic qui manquait. Quand la creation echoue en quelques
+      # secondes, le journal ne dit pas POURQUOI : cle refusee, variable de
+      # projet disparue, ou plafond de branches du plan atteint ? Ce pas
+      # interroge l'API Neon et imprime la reponse AVANT la tentative.
+      # `continue-on-error` : il informe, il ne decide jamais du vert ni du rouge.
+      - name: Inventaire des branches Neon (diagnostic)
+        continue-on-error: true
+        env:
+          NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+          NEON_PROJECT_ID: ${{ vars.NEON_PROJECT_ID }}
+        run: |
+          # Ce pas tourne AVANT le checkout : il ne peut compter que sur l'image du
+          # runner (curl et jq y sont preinstalles). Le meme inventaire, depuis un
+          # poste, se lit avec `node scripts/neon-branches.mjs`.
+          if [ -z "$NEON_API_KEY" ]; then
+            echo "::warning title=Inventaire Neon::NEON_API_KEY absente des secrets du depot."
+            exit 0
+          fi
+          if [ -z "$NEON_PROJECT_ID" ]; then
+            echo "::warning title=Inventaire Neon::NEON_PROJECT_ID absente des variables du depot."
+            exit 0
+          fi
+          code=$(curl -sS -o /tmp/neon-branches.json -w '%{http_code}' \
+            -H "Authorization: Bearer $NEON_API_KEY" \
+            -H 'Accept: application/json' \
+            "https://console.neon.tech/api/v2/projects/$NEON_PROJECT_ID/branches?limit=100" || echo 000)
+          echo "HTTP $code"
+          if [ "$code" != "200" ]; then
+            echo "::warning title=Inventaire Neon::HTTP $code sur l API Neon — 401 cle revoquee, 404 projet introuvable, 422 plafond de branches atteint."
+            head -c 400 /tmp/neon-branches.json 2>/dev/null || true
+            exit 0
+          fi
+          total=$(jq '.branches | length' /tmp/neon-branches.json)
+          preview=$(jq '[.branches[] | select(.name | startswith("preview/"))] | length' /tmp/neon-branches.json)
+          echo "branches : $total (dont $preview preview/*)"
+          jq -r '.branches[].name' /tmp/neon-branches.json | sed 's/^/  - /'
+          if [ "$preview" -ge 9 ]; then
+            echo "::warning title=Inventaire Neon::HTTP 200 - $total branches dont $preview preview/* : la limite du plan (10) est proche ou atteinte. Supprimer les preview/pr-* dont la PR est fermee."
+          else
+            echo "::notice title=Inventaire Neon::HTTP 200 - $total branches dont $preview preview/*."
+          fi
       - name: Create Neon Branch
         id: create_neon_branch
         uses: neondatabase/create-branch-action@v6
@@ -74,14 +121,22 @@ jobs:
       - name: Verify Neon concurrent reservation protection
         env:
           DATABASE_URL: ${{ steps.create_neon_branch.outputs.db_url_pooled }}
+          PCSTAR_NEON_TEST_ISOLATED: '1'
         run: npm run test:neon:concurrency
-      - name: Reset Neon state before full suite
+      - name: Verify Neon backup and restoration
+        env:
+          DATABASE_URL: ${{ steps.create_neon_branch.outputs.db_url_pooled }}
+          PCSTAR_NEON_TEST_ISOLATED: '1'
+        run: npm run test:neon:backup
+      - name: Reset isolated Neon state before full suite
         env:
           DATABASE_URL: ${{ steps.create_neon_branch.outputs.db_url_pooled }}
         run: npm run db:migrate:neon:reset
-      - name: Run full test suite against Neon
-        env:
-          DATABASE_URL: ${{ steps.create_neon_branch.outputs.db_url_pooled }}
+      - name: Run full isolated regression suite
+        # `scripts/test-env.mjs` intentionally pins DATABASE_URL empty: unit and
+        # HTTP tests keep their filesystem fixture isolation. The two preceding
+        # steps are the real Neon integration gates and fail this workflow on a
+        # migration, transaction, backup or restore failure.
         run: npm test
 
   delete_neon_branch:

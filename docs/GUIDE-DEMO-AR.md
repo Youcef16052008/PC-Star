@@ -1,5 +1,12 @@
 # دليل PC Star (عربي)
 
+> **ملاحظة :** هذا الدليل مكتوب بالعربية، لكن **الواجهة نفسها لا تعرض إلا الفرنسية
+> والإنجليزية** — أُزيلت العربية (وRTL) من المتجر بطلب من الزبون. لا تبحث أثناء
+> العرض عن زر تغيير اللغة إلى العربية.
+>
+> *Note : le document est en arabe, la vitrine ne se sert qu'en **FR/EN** — arabe et
+> RTL retirés sur demande du client. Ce guide n'a donc plus de bascule de langue à montrer.*
+
 ## الدخول بحساب تجريبي
 
 1. زر **دخول**

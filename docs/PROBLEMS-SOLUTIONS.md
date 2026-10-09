@@ -32,11 +32,11 @@ Légende des domaines : **D** données & multi-appareils · **S** sécurité & a
 
 **Problème.** L'API tournait en mémoire : un `Ctrl+C` (ou un reboot du PC du magasin) = commandes du jour disparues.
 
-**Solution.** Persistance JSON (`store.json`) + **backup automatique** au boot, toutes les **6 h**, via `npm run backup`, et bouton « Backup » dans l'UI master (copie horodatée dans `server/data/backups/`). Cap de 500 commandes (rotation).
+**Solution.** Persistance JSON (`store.json`) en local, ou **Neon** en production dès que `DATABASE_URL` est configurée. Le backup automatique au boot/toutes les **6 h**, `npm run backup` et le bouton Master créent une copie fichier en local ou un snapshot transactionnel Neon (`pcstar_backups`) en production. Un export CLI hors Neon complète ces snapshots pour la reprise après incident fournisseur.
 
-**Code.** `server/db.js` (`readDb`/`updateDb`) · `server/index.js` (`setInterval` 6 h, `/api/master/backup`) · `scripts/backupDb.mjs`.
+**Code.** `server/db.js` (`readDbAsync`/`updateDbAsync`) · `server/neonStore.js` (verrou + snapshots) · `server/index.js` (`setInterval` 6 h, `/api/master/backup`) · `scripts/backupDb.mjs`.
 
-**Résultat.** Redémarrage = zéro perte de commandes ; historique récupérable même si le fichier principal est corrompu.
+**Résultat.** Redémarrage = zéro perte de commandes avec Neon ; rollback opérateur par snapshot et export indépendant restaurable. Le mode sans `DATABASE_URL` reste seulement un mode local éphémère sur Vercel.
 
 ### 4. Le master touchait au code pour gérer le catalogue *(D)*
 
@@ -106,11 +106,11 @@ Légende des domaines : **D** données & multi-appareils · **S** sécurité & a
 
 **Problème.** Un shop Oran n'a pas de Google Cloud Console ni d'app Meta. Sans clé, l'OAuth = bouton mort ; avec clé, le flow demandait un callback HTTPS.
 
-**Solution.** **Mode démo par défaut** (`OAUTH_DEMO=1`) : écran de **consent simulé** par l'API, mais qui crée de **vrais** liens `user.links[provider]` + vraie session. **Bascula réel** avec `OAUTH_DEMO=0` + `GOOGLE_CLIENT_ID/SECRET`, `META_APP_ID/SECRET` — sans toucher à l'UI (boutons Google/Meta dans le login, unlink dans le profil).
+**État actuel.** **Mode démo explicite** (`OAUTH_DEMO=1`) : écran de **consent simulé** par l’API, qui crée de vrais liens `user.links[provider]` et une session de démonstration. Avec `OAUTH_DEMO=0`, les routes démo sont fermées et les callbacks réels échangent le code serveur-à-serveur avec Google ou Meta avant de créer une session.
 
-**Code.** `server/oauth.js` (192 L) · `server/index.js` (`/api/oauth/start`, `/demo`, `/unlink`, callbacks) · `src/AuthPanel.jsx`, `src/ProfilePage.jsx`.
+**Code.** `server/oauth.js` · `server/index.js` (`/api/oauth/start`, `/callback`, `/demo`, `/unlink`) · `src/AuthPanel.jsx`, `src/ProfilePage.jsx`.
 
-**Résultat.** Démo OAuth fonctionnelle **immédiatement** ; passage réel = config env uniquement.
+**Résultat.** Démo OAuth fonctionnelle **immédiatement** ; passage réel = clés env et URI HTTPS enregistrées chez les fournisseurs.
 
 ### 11. Flow OAuth sans protection CSRF/state *(S)*
 
@@ -118,7 +118,7 @@ Légende des domaines : **D** données & multi-appareils · **S** sécurité & a
 
 **Solution.** `state` aléatoire (crypto) généré au `start`, stocké dans `oauthPending` avec `intent` (`login` | `link`), `userId`, `returnUrl`, horodatage ; validé et **supprimé** au retour. `OAUTH_REDIRECT_BASE` dérivée de `VERCEL_URL` sur Vercel.
 
-**Code.** `server/oauth.js` (`startOAuth`, `completeDemo`, `finishIdentity`) · `.env.example`.
+**Code.** `server/oauth.js` (`startOAuth`, `completeOAuthCallback`, `completeDemo`, `finishIdentity`) · `server/index.js` · `.env.example`.
 
 **Résultat.** Flow conforme (state + redirect dédié), lien déconnectable depuis le profil.
 

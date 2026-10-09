@@ -620,3 +620,102 @@ describe('LOT 3.10 (B15) — heartbeat : plus de sockets fantômes', () => {
     assert.equal(deskClientCount(), before - 1, 'la fermeture retire le client du registre')
   })
 })
+
+// ---------------------------------------------------------------------------
+// LOT P5 — démontage du socket Desk : une ecoute `upgrade` ne doit jamais
+// survivre a son WebSocketServer, ni s'empiler.
+//
+// Deux defauts de l'ancienne forme, l'un mortel, l'autre sournois : le handler
+// `upgrade` lisait la variable de MODULE `wss`, que `closeDeskSocket()` met a
+// `null` — un `upgrade` recu apres une fermeture levait donc un `TypeError` synchrone
+// DANS l'emetteur `EventEmitter`, qu'aucun `try/catch` d'appelant ne rattrape :
+// le serveur tombait (et `after()` de ce fichier appelait exactement cette
+// fermeture). Et rappeler `attachDeskSocket` sur le meme serveur empilait un second
+// ecouteur : `handleUpgrade` appele deux fois sur la meme socket.
+// ---------------------------------------------------------------------------
+describe('P5 — le socket Desk se demonte sans emporter le serveur', () => {
+  const socketFactice = () => {
+    const s = {
+      detruit: false,
+      ecrits: [],
+      destroy() { this.detruit = true },
+      write(b) { this.ecrits.push(String(b)) },
+      end() { this.detruit = true },
+      on() { return this },
+      once() { return this },
+      off() { return this },
+      removeAllListeners() { return this },
+      setTimeout() { return this },
+      setNoDelay() { return this },
+      setKeepAlive() { return this },
+      cork() {},
+      uncork() {}
+    }
+    return s
+  }
+
+  it('une re-attache sur le meme serveur remplace l ecouteur au lieu de l empiler', () => {
+    const srv = http.createServer()
+    const { attaches } = __deskSocketInternals
+    const avant = attaches.get(srv)
+    try {
+      attachDeskSocket(srv, async () => false)
+      assert.equal(srv.listenerCount('upgrade'), 1, 'deux ecouteurs `upgrade` sur le meme serveur : la meme socket est amelioree deux fois')
+      attachDeskSocket(srv, async () => false)
+      assert.equal(srv.listenerCount('upgrade'), 1, 'la re-attache a empile un second ecouteur')
+      assert.notEqual(attaches.get(srv), avant, 'l attache precedente n a pas ete remplacee')
+    } finally {
+      // Demontage local : l'etat du module est global, et le `after()` du fichier
+      // compte son propre socket vivant.
+      const etat = attaches.get(srv)
+      if (etat) {
+        srv.removeListener('upgrade', etat.onUpgrade)
+        attaches.delete(srv)
+        try { etat.wss.close() } catch { /* deja fermee */ }
+      }
+    }
+  })
+
+  it('une `upgrade` recue apres demontage detruit la socket sans jeter', () => {
+    const srv = http.createServer()
+    const { attaches } = __deskSocketInternals
+    attachDeskSocket(srv, async () => false)
+    try {
+      const etat = attaches.get(srv)
+      assert.ok(etat, 'l attache n est pas enregistree : la garde ne pourrait pas etre testee')
+      const ecouteur = srv.listeners('upgrade')[0]
+      // Etat « ferme » : c'est ce que laisse `closeDeskSocket()`, a ceci pres que
+      // la fermeture du module est globale et emporterait le socket du fixture.
+      etat.ferme = true
+      for (const chemin of ['/api/desk-stream', '/autre']) {
+        const socket = socketFactice()
+        let leve = null
+        try {
+          ecouteur({ url: chemin, headers: {} }, socket, Buffer.alloc(0))
+        } catch (e) {
+          leve = e
+        }
+        assert.equal(leve, null, `un \`upgrade\` apres fermeture jette encore (${chemin}) : ${leve && leve.message} — un throw synchrone dans un EventEmitter tue le serveur`)
+        assert.equal(socket.detruit, true, `la socket ${chemin} n a pas ete detruite`)
+      }
+      // Avant le refus d'authentification, le chemin doit quand meme etre filtre :
+      // une `upgrade` sur un autre chemin ne consomme pas la file d attente.
+      assert.equal(deskPendingCount(), 0, 'des sockets rejetees ont ete comptees comme en attente d authentification')
+    } finally {
+      const etat = attaches.get(srv)
+      if (etat) {
+        srv.removeListener('upgrade', etat.onUpgrade)
+        attaches.delete(srv)
+        try { etat.wss.close() } catch { /* deja fermee */ }
+      }
+    }
+  })
+
+  it('la garde est dans le code, pas seulement dans le test', () => {
+    const source = fs.readFileSync(path.join(process.cwd(), 'server/deskSocket.js'), 'utf8')
+    const code = source.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:\w])\/\/[^\n]*/g, '$1')
+    assert.match(code, /removeListener\('upgrade'/, 'closeDeskSocket ne demonte plus son ecouteur')
+    assert.match(code, /etat\.ferme \|\| !etat\.wss/, 'le handler ne garde plus la reference a son instance')
+    assert.equal(/^\s*const url = new URL\(req\.url, 'http:\/\/localhost'\)\n\s*if \(url\.pathname/m.test(code), true, 'le filtre de chemin n est plus en tete du handler')
+  })
+})

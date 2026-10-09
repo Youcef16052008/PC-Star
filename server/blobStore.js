@@ -6,9 +6,10 @@
  *     (`/api/upload-file?name=…`), même quand le contenu part sur le CDN Blob —
  *     la route fait un 302 vers l'URL CDN. Avant, la base et la réponse API
  *     contenaient l'URL CDN brute (`https://….public.blob.vercel-storage.com/…`),
- *     ce qui (a) exposait l'infrastructure de stockage, (b) dépendait d'une
- *     origine tierce dans `img-src` et (c) rendait les photos impossibles à
- *     ré-héberger sans réécrire toute la base.
+ *     ce qui (a) exposait l'infrastructure de stockage dans les données de
+ *     l'application et (b) rendait les photos impossibles à ré-héberger sans
+ *     réécrire toute la base. La CSP autorise néanmoins l'hôte CDN Blob étroit,
+ *     car le navigateur contrôle aussi la destination du 302 du proxy image.
  * Local / serverless-fallback : writes to the filesystem (public/photos/uploads
  *     localement, /tmp/pcstar-uploads sous Vercel) et servi via /api/upload-file.
  */
@@ -41,6 +42,31 @@ export const UPLOAD_PUBLIC_PREFIX = IS_SERVERLESS ? '/api/upload-file' : '/photo
 
 const HAS_BLOB_TOKEN = Boolean(process.env.BLOB_READ_WRITE_TOKEN)
 const BLOB_PREFIX = 'pcstar-uploads/'
+// La base ne stocke volontairement qu'un chemin relatif. Ce cache évite une
+// recherche Blob sur les lectures qui suivent immédiatement un upload dans la
+// même instance; après un cold start, `resolveBlobUrl` retrouve l'URL via list.
+const blobUrlByName = new Map()
+
+function blobPathname(name) {
+  return `${BLOB_PREFIX}${name}`
+}
+
+function managedUploadName(publicUrl) {
+  const raw = String(publicUrl || '')
+  try {
+    const parsed = new URL(raw, 'http://pcstar.local')
+    let candidate = null
+    if (parsed.pathname === '/api/upload-file') candidate = parsed.searchParams.get('name')
+    else if (parsed.pathname.startsWith('/photos/uploads/')) candidate = parsed.pathname.slice('/photos/uploads/'.length)
+    if (!candidate) return null
+    const safe = safeUploadName(candidate)
+    // `safeUploadName` sert à construire un nom à l'upload; à la lecture il ne
+    // faut pas transformer une entrée hostile (../../x → x), il faut la refuser.
+    return safe && candidate === safe ? safe : null
+  } catch {
+    return null
+  }
+}
 
 let blobLib = null
 let blobLoadAttempted = false
@@ -92,7 +118,7 @@ export async function uploadBlob(name, buffer, contentType = 'image/jpeg') {
   if (!safe) throw new Error('unsafe upload name')
   const blob = await loadBlob()
   if (blob) {
-    await blob.put(`${BLOB_PREFIX}${safe}`, buffer, {
+    const stored = await blob.put(blobPathname(safe), buffer, {
       contentType,
       access: 'public',
       // LOT 4.1 (F14) : explicite plutôt qu'implicite. Tout le contrat de
@@ -103,6 +129,7 @@ export async function uploadBlob(name, buffer, contentType = 'image/jpeg') {
       // chaque photo uploadée pointerait vers une clé inexistante.
       addRandomSuffix: false
     })
+    if (typeof stored?.url === 'string' && stored.url) blobUrlByName.set(safe, stored.url)
     // LOT 1.11 : on retourne le chemin RELATIF (même forme que la branche
     // filesystem serverless), pas `put.url` (CDN). La route /api/upload-file
     // sert le fichier depuis /tmp si présent, sinon 302 vers
@@ -144,16 +171,27 @@ export function isBlobUrl(url) {
 }
 
 /**
- * Resolve a filesystem upload name to its Vercel Blob CDN URL (for the
+ * Resolve an upload name to its public Vercel Blob URL (for the
  * /api/upload-file redirect when a photo was uploaded to Blob, not /tmp).
- * Returns null when Blob is unavailable or the download URL can't be built.
+ *
+ * `getDownloadUrl` cannot construct a URL from a pathname: it only decorates
+ * an already absolute Blob URL. Looking up the exact pathname is therefore
+ * necessary after a cold start (the result of `put()` is only in memory).
  */
 export async function resolveBlobUrl(name) {
-  if (!HAS_BLOB_TOKEN || !name) return null
+  const safe = safeUploadName(name)
+  if (!HAS_BLOB_TOKEN || !safe || safe !== name) return null
+  const cached = blobUrlByName.get(safe)
+  if (cached) return cached
   const blob = await loadBlob()
-  if (!blob || typeof blob.getDownloadUrl !== 'function') return null
+  if (!blob || typeof blob.list !== 'function') return null
   try {
-    return blob.getDownloadUrl(`${BLOB_PREFIX}${name}`, { access: 'public' })
+    const pathname = blobPathname(safe)
+    const listed = await blob.list({ prefix: pathname, limit: 10 })
+    const found = (listed?.blobs || []).find((item) => item?.pathname === pathname && typeof item.url === 'string')
+    if (!found) return null
+    blobUrlByName.set(safe, found.url)
+    return found.url
   } catch {
     return null
   }
@@ -161,8 +199,8 @@ export async function resolveBlobUrl(name) {
 
 /**
  * Delete a previously uploaded photo.
- * Supports both Blob CDN URLs and filesystem paths (/api/upload-file?name=…
- * or /photos/uploads/…). Never throws — best effort.
+ * Supports both legacy Blob CDN URLs and managed filesystem/proxy paths
+ * (/api/upload-file?name=… or /photos/uploads/…). Never throws — best effort.
  */
 export async function deleteBlob(publicUrl) {
   if (!publicUrl) return false
@@ -177,17 +215,14 @@ export async function deleteBlob(publicUrl) {
       return false
     }
   }
-  const name = raw.includes('name=')
-    ? decodeURIComponent(raw.split('name=')[1])
-    : raw.split('/').pop()
-  if (!name || name.includes('..') || name.includes('/') || name.length > 200) return false
+  const name = managedUploadName(raw)
+  if (!name) return false
   if (blob) {
-    // LOT 1.11 : le chemin relatif `/api/upload-file?name=…` désigne AUSSI un
-    // objet Blob depuis que `uploadBlob` ne stocke plus l'URL CDN. Sans cette
-    // branche, la suppression tombait dans le repli filesystem, ratait
-    // l'objet, et le laissait orphelin sur le stockage.
+    // Le SDK accepte aussi le pathname. Cela ne lui transmet ni une Promise ni
+    // une URL de téléchargement fabriquée à partir d'un simple nom de fichier.
     try {
-      await blob.del(resolveBlobUrl(name))
+      await blob.del(blobPathname(name))
+      blobUrlByName.delete(name)
       return true
     } catch {
       return false
@@ -200,4 +235,9 @@ export async function deleteBlob(publicUrl) {
   } catch {
     return false
   }
+}
+
+/** Vrai uniquement pour un chemin dont ce service gère réellement le fichier. */
+export function isManagedUploadUrl(value) {
+  return Boolean(managedUploadName(value)) || /^https?:\/\/[^/]+\.vercel-storage\.com\//i.test(String(value || ''))
 }

@@ -32,7 +32,7 @@
 
 ## OAuth (livré, mode démo)
 
-- Boutons **Google / Meta** dans le login — consent simulé par défaut (`OAUTH_DEMO=1`), réel avec clés.
+- Boutons **Google / Meta** dans le login — consent simulé par défaut (`OAUTH_DEMO=1`). Le flux réel est disponible avec `OAUTH_DEMO=0`, les clés serveur et les URI de callback enregistrées chez Google et Meta.
 
 ## Lancer
 
@@ -41,7 +41,7 @@ npm run start:api
 npm run dev
 ```
 
-Page **Guide** dans le menu du site = même contenu.
+Page **Guide** dans le menu du site (menu **Gestion → Guide**, master only) = même contenu.
 
 > **Comptes de démonstration (clients) :** leur mot de passe n'est plus publié
 > ici non plus (lot 1.19). Côté serveur il vient de la variable d'environnement

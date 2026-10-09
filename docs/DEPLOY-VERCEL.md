@@ -272,11 +272,52 @@ OAuth, devenu un vrai client) n'est jamais réaligné.
 > `DEMO_PASSWORD`, ni les réutiliser ailleurs. Ne pas choisir `demo-local` non
 > plus (valeur du mode local, présente dans le bundle).
 
+## 8 ter. Rotation du mot de passe maître (`npm run master:rotate`)
+
+Le dépôt ne **contient** aucun identifiant maître : `server/db.js` refuse de démarrer
+sans `MASTER_EMAIL` / `MASTER_PASSWORD`, et `scripts/check-bundle.mjs` fait échouer le
+build si un secret file dans le bundle. Personne ne peut donc « donner » le mot de
+passé en usage — on peut seulement en poser un neuf, et c'est ce qu'il faut faire dès
+qu'un secret a pu être vu (chat, capture, ancien poste, collaborateur parti).
+
+```bash
+npm run master:rotate                                # 32 signes, écrit dans .env.local
+npm run master:rotate -- --email=boutique@exemple.dz # change aussi l'e-mail
+npm run master:rotate -- --length=48 --dry-run        # vérifie sans rien écrire
+```
+
+Le script **n'affiche jamais la valeur** — c'est son objet : un secret passé à l'écran
+se retrouve dans l'historique du shell, dans la capture d'écran et dans le fil de
+discussion. Il écrit dans `.env.local` (ignoré par git, en `0600`) et refuse toute
+cible que git suivrait ; il refuse aussi une longueur sous le plancher de la §7.
+
+Ensuite, sur le poste :
+
+```bash
+grep '^MASTER_PASSWORD=' .env.local | cut -d= -f2- | tr -d '
+' | pbcopy   # macOS
+grep '^MASTER_PASSWORD=' .env.local | cut -d= -f2- | tr -d '
+' | wl-copy  # Linux (Wayland)
+
+vercel env rm  MASTER_PASSWORD production
+vercel env add MASTER_PASSWORD production      # coller la valeur, la marquer « Sensitive »
+vercel --prod
+```
+
+Rien d'autre à faire : au premier appel, `server/db.js` compare le secret configuré à
+l'empreinte stockée, remplace l'empreinte et **révoque les sessions maître ouvertes** —
+une rotation ne laisse pas un ancien navigateur privilégié connecté. Aucun mot de
+passe n'est écrit en base, seulement son empreinte (`scrypt`).
+
+- [ ] `npm run master:rotate` joué, valeur collée en environnement **Sensitive**,
+      redéploiement fait, et login maître **réussi avec la valeur neuve** (l'ancienne
+      doit répondre 401) — voir le verrou dans `src/p5RotateMaster.test.js`.
+
 ## 9. Checklist post-deploy
 
 - [ ] `https://TON.app` charge le shop  
 - [ ] `https://TON.app/api/health` → `{ ok: true }`  
-- [ ] Login master avec les valeurs posées dans `MASTER_EMAIL` / `MASTER_PASSWORD`  
+- [ ] Login master avec les valeurs posées dans `MASTER_EMAIL` / `MASTER_PASSWORD` (rotation : § 8 ter)  
 - [ ] Comptes de démonstration : soit `DEMO_PASSWORD` posé (et le login client
       fonctionne avec cette valeur), soit **absent** et le login répond
       `401 demo_locked` — les deux états sont voulus (lot 1.19), mais il faut

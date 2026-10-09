@@ -1,5 +1,10 @@
 // P3 — Couverture i18n : toute clé appelée par t('...') (statique ou dynamique
-// tag_*/line_*/cat_*) doit exister en ar, fr et en.
+// tag_*/line_*/cat_*) doit exister dans les DEUX langues du site (`fr`, `en`) :
+// la troisième (arabe) a été retirée de la vitrine, la phrase ci-dessus
+// datait d'avant. La PARITÉ des deux dictionnaires est vérifiée à chaque
+// exécution — et aucun nombre de clés n'est écrit ici : il change à chaque lot,
+// et le « 633 » de cette ligne était déjà faux (l'audit 19/09 en a fait un
+// point, B25 : un commentaire périmé se lit comme une preuve).
 //
 // LOT 8.9 (A9) — et le sens INVERSE, qui manquait : toute clé du dictionnaire
 // doit être **référencée** par le corpus, ou appartenir à une famille dynamique
@@ -26,8 +31,23 @@ const staticKeys = new Set()
 const tagPrefix = new Set()
 const tagValues = new Set()
 
+/**
+ * Les commentaires sont retirés AVANT extraction des appels : une prose qui
+ * cite `t('une_clé')` pour expliquer un historique n'est pas un appel. Sans
+ * cela, un commentaire documentant un code d'erreur absent du dictionnaire
+ * faisait échouer ce test pour un faux motif (constaté au LOT P3 en écrivant la
+ * note sur `demo_locked` dans `AuthPanel.jsx`). Le balayage INVERSE, lui, garde
+ * les commentaires : une clé qui n'apparaît que dans une note n'est pas pour
+ * autant référencée par le code, mais ce test-ci ne juge que les appels.
+ */
+function sansCommentaires(src) {
+  return src
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .replace(/(^|[^:\w])\/\/[^\n]*/g, '$1')
+}
+
 for (const f of files) {
-  const src = readFileSync(join(SRC, f), 'utf8')
+  const src = sansCommentaires(readFileSync(join(SRC, f), 'utf8'))
   for (const m of src.matchAll(/(?<![A-Za-z0-9_$.])t\(\s*'([^']+)'/g)) staticKeys.add(m[1])
   for (const m of src.matchAll(/(?<![A-Za-z0-9_$.])t\(\s*"([^"]+)"/g)) staticKeys.add(m[1])
   for (const m of src.matchAll(/(?<![A-Za-z0-9_$.])t\(\s*`((?:tag|line|cat)_)\$\{/g)) tagPrefix.add(m[1])
@@ -48,7 +68,7 @@ PRODUCTS.forEach((p) => (p.tags || []).forEach((v) => tagValues.add(v)))
 
 const allKeys = new Set([...staticKeys, ...dynamicKeys])
 
-test(`i18n: ${allKeys.size} clés statiques + dynamiques toutes présentes en ar/fr/en`, () => {
+test(`i18n: ${allKeys.size} clés statiques + dynamiques toutes présentes en ${LANGS.map((l) => l.id).join('/')}`, () => {
   const missing = []
   for (const key of allKeys) {
     for (const { id } of LANGS) {
@@ -59,7 +79,7 @@ test(`i18n: ${allKeys.size} clés statiques + dynamiques toutes présentes en ar
   assert.equal(missing.length, 0, 'clés manquantes → ' + missing.join(', '))
 })
 
-test('i18n: les 3 langues ont le même nombre de clés (pas de bloc déséquilibré)', () => {
+test('i18n: les 2 langues ont le même nombre de clés (pas de bloc déséquilibré)', () => {
   const counts = LANGS.map((l) => Object.keys(dict[l.id]).length)
   assert.equal(new Set(counts).size, 1, `compte inégal: ${LANGS.map((l, i) => `${l.id}=${counts[i]}`).join(' ')}`)
 })
@@ -198,7 +218,22 @@ test('A9 — les fonctionnalités retirées ne laissent plus de clés derrière 
     'comparateur de produits (hors-scope volontaire, ROADMAP-10)': ['inCompare', 'compareUpTo', 'addToCompare', 'compareTitle', 'clearAll', 'compareNeed', 'compareN'],
     'paiement 3× / CCP / BaridiMob (cash uniquement)': ['pay3xBadge', 'or3x', 'pay3xDesk', 'payCcp', 'payBaridi'],
     'thème clair/sombre (code supprimé au lot 6.3)': ['themeLight', 'themeDark', 'themeSystem'],
-    'avatars et couleurs d’accent profil (retirés)': ['profileAvatar', 'profileAccent']
+    'avatars et couleurs d’accent profil (retirés)': ['profileAvatar', 'profileAccent'],
+    // LOT P25 (S6) — deux retraits demandés par le client sur la page Recherche :
+    // les « recherches sauvées » (bouton, puces, persistance) et les six tranches
+    // de prix, remplacées par deux bornes tapées au clavier.
+    'recherches sauvées (retirées au lot P25)': ['saveSearch', 'searchSaved', 'searchFree'],
+    // LOT P26 — le récap de config disait « Obligatoire » / « Passer » là où les
+    // vignettes disaient « Requis » / « Optionnel » : un seul vocabulaire reste.
+    'second mot pour l’emplacement optionnel du configurateur (lot P26)': ['skip'],
+    'tranches de prix du filtre (remplacées par le prix tapé, lot P25)': [
+      'price_any',
+      'price_u15',
+      'price_15_30',
+      'price_30_50',
+      'price_50_100',
+      'price_100p'
+    ]
   }
   for (const [groupe, clés] of Object.entries(groupesRetirés)) {
     for (const key of clés) {

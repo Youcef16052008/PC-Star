@@ -1,5 +1,7 @@
 import { describe, it, before, after } from 'node:test'
 import assert from 'node:assert/strict'
+import fs from 'node:fs'
+import path from 'node:path'
 import { JSDOM } from 'jsdom'
 
 // P17 — vérification du rapport d'analyse du 13/09.
@@ -117,11 +119,78 @@ describe('P17 (#2) — le SKU généré ne dégénère jamais en « PS- »', () 
   })
 })
 
-describe('P17 (#3) — le filtre « En stock » explique ce qu’il fait', () => {
-  it('la clé inStoreOnlyHint existe dans les 3 langues', () => {
-    for (const lang of ['ar', 'fr', 'en']) {
-      const v = dict?.[lang]?.inStoreOnlyHint
-      assert.ok(typeof v === 'string' && v.length > 10, `${lang} : inStoreOnlyHint manquant`)
+describe('P17 (#3) — le filtre « En stock » : documenté hier, retiré aujourd’hui', () => {
+  /*
+   * Le P17 avait mesuré le problème : en mode API, `publicCatalog` ne contient
+   * que du stock > 0, donc « En magasin seulement » ne retirait jamais rien —
+   * d'où le tooltip qui l'expliquait. Le LOT P4 (V4) a tranché autrement, sur
+   * demande du client : le filtre est supprimé, la place prise par le rayon du
+   * catalogue. Ce verrou n'est pas supprimé avec le filtre, il est RETOURNÉ :
+   * il interdit désormais que la clé revienne sans que personne ne lise l'état
+   * du stock, ce qui était le défaut d'origine.
+   */
+  const sansCommentaires = (fichier) =>
+    fs
+      .readFileSync(path.join(process.cwd(), fichier), 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, ' ')
+      .replace(/(^|[^:\w])\/\/[^\n]*/g, '$1')
+
+  it('les clés sont absentes des deux langues, et la page ne les lit plus', () => {
+    for (const lang of ['fr', 'en']) {
+      for (const cle of ['inStoreOnly', 'inStoreOnlyHint']) {
+        assert.equal(cle in (dict?.[lang] || {}), false, `${lang} : la cle ${cle} est revenue, sans lecteur pour l'afficher`)
+      }
+    }
+    for (const fichier of ['src/SearchPage.jsx', 'src/App.jsx']) {
+      const code = sansCommentaires(fichier)
+      for (const motif of ['inStoreOnly', 'in-stock-hint', 'm-stock']) {
+        assert.equal(code.includes(motif), false, `${fichier} lit encore « ${motif} » : le filtre fantome est revenu`)
+      }
+    }
+  })
+
+  it('le retrait est cohérent : la case à cocher n’est plus rendue à l’écran', async () => {
+    await import('jsdom')
+    const { default: SearchPage } = await import('./SearchPage.jsx')
+    const React = (await import('react')).default
+    const { act } = await import('react')
+    const { createRoot } = await import('react-dom/client')
+    const { PART_LINES } = await import('./data.js')
+    const t = (k) => dict.fr[k] ?? k
+    const hote = window.document.createElement('div')
+    window.document.body.appendChild(hote)
+    const racine = createRoot(hote)
+    try {
+      await act(async () => {
+        racine.render(
+          React.createElement(SearchPage, {
+            t,
+            products: [{ id: 'gpu-x', name: 'Carte X', brand: 'Asus', category: 'gpu', price: 1000, stock: 1 }],
+            lines: PART_LINES,
+            // LOT P6 (S1) : la feuille « catalogue » groupe les rayons par panneau,
+            // comme a l'ecran. Une liste vide ne prouvait plus rien ici.
+            panels: [{ id: 'catalog', titleKey: 'panelCatalog' }, { id: 'parts', titleKey: 'panelParts' }],
+            lang: 'fr',
+            liveStock: () => 1,
+            onAdd: () => {},
+            onOpen: () => {}
+          })
+        )
+      })
+      await act(async () => new Promise((r) => setTimeout(r, 40)))
+      const champs = [...window.document.querySelectorAll('input[type="checkbox"]')].map((i) => i.id)
+      assert.equal(champs.includes('m-stock'), false, `case mobile encore rendue : ${champs.join(',')}`)
+      assert.equal(/En magasin seulement/.test(hote.textContent), false, 'le filtre retire est affiche')
+      // LOT P6 (S1) : ce qui avait remplace le filtre « En stock » n'est plus une
+      // legende de l'aside, c'est la feuille d'un bouton. Le verrou suit la forme —
+      // et il la verifie vraiment : un clic, puis le rayon est la.
+      const boutonCatalogue = [...hote.querySelectorAll('button')].find((b) => b.textContent.trim().startsWith(t('filterCatalog')))
+      assert.ok(boutonCatalogue, 'plus de bouton « filtrer par catalogue » : le remplacement a saute')
+      await act(async () => boutonCatalogue.dispatchEvent(new window.MouseEvent('click', { bubbles: true })))
+      assert.match(hote.textContent.replace(/\s+/g, ' '), /Tout le catalogue|GPU/, 'le rayon du catalogue n’est pas atteignable depuis le bouton')
+    } finally {
+      act(() => racine.unmount())
+      hote.remove()
     }
   })
 })
@@ -137,17 +206,26 @@ describe('P17 (#5) — la garde socket tolère les sockets multiples', () => {
     // La RAM est un slot REQUIS : sans elle le bouton reste désactivé pour une
     // tout autre raison (requiredReady) et le test ne prouverait rien.
     const ram = { id: 'ram-test', name: '16 Go DDR5', category: 'memory', price: 100, stock: 5, compat: { memory: 'DDR5' } }
+    // LOT P26 : le boîtier et l'alimentation sont REQUIS (demande client du
+    // 21/09/2026) — sans eux, le bouton d'ajout resterait grisé pour une raison
+    // qui n'a rien à voir avec le socket, et ce verrou ne prouverait rien.
+    const box = { id: 'case-test', name: 'Boîtier ATX', category: 'case', price: 100, stock: 5, compat: { form: 'ATX' } }
+    const psu = { id: 'psu-test', name: 'Alim 650 W', category: 'case', price: 100, stock: 5, compat: { psuWatts: 650 } }
     const noop = () => {}
 
-    const addButtonFor = (cpu) => {
+    // LOT P28 (C) : le bouton n'est plus `disabled` — son clic doit pouvoir dire
+    // pourquoi la config ne part pas. Le verrou juge donc ce qui compte : ce que
+    // le clic ajoute au panier, et l'état annoncé (`aria-disabled`).
+    const clickAddFor = (cpu) => {
+      const panier = []
       const host = mount(
         React.createElement(BuilderPage, {
           t,
-          products: [board, cpu, cpuMulti, cpuOther, ram],
-          build: { ...Object.fromEntries(BUILDER_SLOTS.map((s) => [s.key, null])), motherboard: board, cpu, ram },
+          products: [board, cpu, cpuMulti, cpuOther, ram, box, psu],
+          build: { ...Object.fromEntries(BUILDER_SLOTS.map((s) => [s.key, null])), motherboard: board, cpu, ram, case: box, psu },
           setBuild: noop,
           liveStock: () => 5,
-          onAdd: noop,
+          onAdd: (p) => panier.push(p.id),
           onOpen: noop,
           onGoCart: noop,
           setToast: noop
@@ -156,16 +234,19 @@ describe('P17 (#5) — la garde socket tolère les sockets multiples', () => {
       // Le bouton « ajouter la config » est le seul `btn-success w-100`
       // (les boutons d'onglet sont `btn-sm`, ceux des cartes aussi).
       const btn = host.querySelector('button.btn.btn-success.w-100')
-      return btn
+      if (btn) act(() => btn.dispatchEvent(new window.MouseEvent('click', { bubbles: true })))
+      return { btn, panier }
     }
 
-    const okBtn = addButtonFor(cpuMulti)
-    assert.ok(okBtn, 'bouton d’ajout introuvable (cas multi-socket)')
-    assert.equal(okBtn.disabled, false, 'un CPU multi-socket compatible a été refusé')
+    const ok = clickAddFor(cpuMulti)
+    assert.ok(ok.btn, 'bouton d’ajout introuvable (cas multi-socket)')
+    assert.equal(ok.btn.getAttribute('aria-disabled'), 'false', 'un CPU multi-socket compatible a été refusé')
+    assert.ok(ok.panier.includes('cpu-multi'), 'un CPU multi-socket compatible n’arrive pas au panier')
 
-    const koBtn = addButtonFor(cpuOther)
-    assert.ok(koBtn, 'bouton d’ajout introuvable (cas incompatible)')
-    assert.equal(koBtn.disabled, true, 'un couple CPU/carte incompatible a été accepté')
+    const ko = clickAddFor(cpuOther)
+    assert.ok(ko.btn, 'bouton d’ajout introuvable (cas incompatible)')
+    assert.equal(ko.btn.getAttribute('aria-disabled'), 'true', 'un couple CPU/carte incompatible s’annonce prêt')
+    assert.deepEqual(ko.panier, [], 'un couple CPU/carte incompatible a été accepté')
   })
 })
 

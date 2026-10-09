@@ -3,7 +3,14 @@ import { Modal } from 'bootstrap'
 import { isDzPhone, loginEmail, registerEmail } from './shopStore.js'
 import * as api from './api.js'
 
-const ERR = {
+/**
+ * Table des codes d'erreur serveur vers clés i18n. Exportée (LOT P3, B8) pour
+ * que `src/p3ClientScreens.test.js` vérifie la complétude de la table au lieu
+ * de la re-déclarer : B8 était précisément un TROU de cette table
+ * (`demo_locked` absent, donc la clé brute à l'écran), et une copie dans le
+ * test n'aurait rien vu.
+ */
+export const AUTH_ERRORS = {
   email: 'authErrorEmail',
   password: 'authErrorPassword',
   // LOT 1.9 : sans cette entrée, `fail(code)` affichait la clé brute
@@ -12,11 +19,53 @@ const ERR = {
   exists: 'authErrorExists',
   auth: 'authErrorAuth',
   phone: 'authErrorPhone',
-  rate: 'authErrorRate'
+  rate: 'authErrorRate',
+  // LOT P3 (B8) : `POST /api/auth/login` répond `401 demo_locked` quand le
+  // compte de démonstration existe mais n'a **aucun** mot de passe (aucun
+  // `DEMO_PASSWORD` posé, `server/index.js:555`). Sans entrée ici, `fail(code)`
+  // faisait `t('demo_locked')` : la CLÉ BRUTE à l'écran, en français comme en
+  // anglais — exactement le défaut que le LOT 1.9 avait corrigé pour
+  // `name_too_long`.
+  demo_locked: 'authErrorDemoLocked',
+  // Incident 2026-09-27 : le catch global de `server/index.js` répond
+  // `500 {error:'server'}` — code absent de cette table, donc « server »
+  // affiché TEL QUEL dans l'alerte rouge (reproduit en production, base Neon
+  // injoignable). Troisième occurrence du même trou (LOT 1.9, B8, celui-ci) :
+  // la garde `authErrorKey()` ci-dessous rend désormais TOUT code inconnu
+  // inoffensif, et cette entrée couvre les 500 restants (routes non auth).
+  server: 'authErrorServer',
+  // 503 dédié des routes auth (login + register) quand la base est
+  // injoignable : message exact au lieu d'un « identifiants incorrects » qui
+  // ferait retaper un mot de passe pour rien.
+  db_unavailable: 'authErrorDb'
 }
 
-export default function AuthPanel({ t, users, onUsers, onSession, onClose, setToast, apiOnline, onApiUser }) {
-  const [tab, setTab] = useState('login')
+/**
+ * Résout un code d'erreur (serveur ou store local) vers sa clé i18n.
+ *
+ * Un code INCONNU n'est plus jamais affiché brut : trois trous successifs de
+ * la table (LOT 1.9 `name_too_long`, B8 `demo_locked`, incident 2026-09-27
+ * `server`) ont montré que la table finit toujours par rater le code suivant.
+ * Le repli est donc un message de panne générique, pas `authErrorAuth`
+ * (« identifiants incorrects ») : mieux vaut un message flou qu'un message
+ * FAUX qui ferait retaper le mot de passe.
+ *
+ * Exportée (même régime que la table) pour `p3ClientScreens.test.js`.
+ */
+export function authErrorKey(code) {
+  return Object.prototype.hasOwnProperty.call(AUTH_ERRORS, code) ? AUTH_ERRORS[code] : 'authErrorServer'
+}
+
+/**
+ * LOT P6 (S6) — `tabInitial` : le menu ouvre la porte du bon cote. « Se connecter »
+ * et « Créer un compte » sont deux intentions differentes ; les confondre en un seul
+ * bouton, c'est envoyer le nouveau client remplir un formulaire de connexion avant
+ * de comprendre qu'il doit d'abord s'inscrire.
+ *
+ * @param {'login'|'register'} [props.tabInitial]
+ */
+export default function AuthPanel({ t, users, onUsers, onSession, onClose, setToast, apiOnline, onApiUser, tabInitial = 'login' }) {
+  const [tab, setTab] = useState(tabInitial === 'register' ? 'register' : 'login')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [name, setName] = useState('')
@@ -53,7 +102,9 @@ export default function AuthPanel({ t, users, onUsers, onSession, onClose, setTo
   }, [])
 
   function fail(code) {
-    setError(t(ERR[code] || code))
+    // `authErrorKey`, jamais `t(code)` directement : un code non mappé
+    // s'affichait brut à l'écran (incident 2026-09-27, « server »).
+    setError(t(authErrorKey(code)))
   }
 
   function succeedLocal(user, nextUsers, msgKey) {
@@ -141,7 +192,16 @@ export default function AuthPanel({ t, users, onUsers, onSession, onClose, setTo
 
   return (
     <div className="modal fade" ref={modalElRef} tabIndex={-1} aria-labelledby="authModalLabel" aria-hidden="true">
-      <div className="modal-dialog modal-dialog-centered">
+      {/*
+        * LOT P4 (V5) — la connexion prend toute la page. Une fenetre de 500 px
+        * sur un telephone d'occasion (le parc du comptoir), c'est le clavier
+        * numerique qui mangeait le formulaire : on se connectait a moitie, puis
+        * on refermait pour relire ce qu'on avait tape. `modal-fullscreen` est la
+        * classe de Bootstrap, pas une invention locale ; le corps reste dans une
+        * colonne lisible (`.auth-sheet-body`) pour que le texte ne s'etale pas
+        * sur 1 400 px sur l'ecran du comptoir.
+        */}
+      <div className="modal-dialog modal-dialog-centered modal-fullscreen">
         <div className="modal-content border-0 shadow">
           <div className="modal-header">
             <h2 className="modal-title h5 mb-0" id="authModalLabel">
@@ -150,6 +210,7 @@ export default function AuthPanel({ t, users, onUsers, onSession, onClose, setTo
             <button type="button" className="btn-close" data-bs-dismiss="modal" aria-label={t('close')} />
           </div>
           <div className="modal-body">
+            <div className="auth-sheet-body">
             <p className="small text-secondary">{t('authSimpleNote')}</p>
             <span className={`badge mb-3 ${apiOnline ? 'text-bg-success' : 'text-bg-secondary'}`}>
               {apiOnline ? t('backendOnline') : t('backendOffline')}
@@ -302,6 +363,7 @@ export default function AuthPanel({ t, users, onUsers, onSession, onClose, setTo
                 </button>
               </form>
             )}
+            </div>
           </div>
         </div>
       </div>

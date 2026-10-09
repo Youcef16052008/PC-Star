@@ -17,9 +17,18 @@ import { publicCatalog } from '../server/catalog.js'
 
 neonConfig.webSocketConstructor = ws
 
+// LOT P3 (B30) : le diagnostic doit servir de PORTE. Un `✗` qui sort 0
+// traverse un `npm run db:doctor && vercel deploy` comme un succès : la vitrine
+// vide était diagnostiquée, puis déployée. Le `✗` lève donc un drapeau et le
+// script sort 1 — sauf le cas « DATABASE_URL absente », état normal en dev, qui
+// sort 0 avant d'ici.
+let souci = 0
 const ok = (m) => console.log(`  \x1b[32m✓\x1b[0m ${m}`)
 const warn = (m) => console.log(`  \x1b[33m▲\x1b[0m ${m}`)
-const bad = (m) => console.log(`  \x1b[31m✗\x1b[0m ${m}`)
+const bad = (m) => {
+  souci = 1
+  console.log(`  \x1b[31m✗\x1b[0m ${m}`)
+}
 const info = (m) => console.log(`  · ${m}`)
 
 const url = dbUrlDiagnostics()
@@ -90,13 +99,16 @@ if (!readsOk) {
 }
 
 console.log('\n3) Schéma')
-const tables = await sql`SELECT to_regclass('public.pcstar_state') AS state, to_regclass('public.pcstar_archived_orders') AS archive`
+const tables = await sql`SELECT to_regclass('public.pcstar_state') AS state, to_regclass('public.pcstar_archived_orders') AS archive, to_regclass('public.pcstar_backups') AS backups`
 const hasState = Boolean(tables[0]?.state)
 const hasArchive = Boolean(tables[0]?.archive)
+const hasBackups = Boolean(tables[0]?.backups)
 if (hasState) ok('table pcstar_state présente')
 else bad('table pcstar_state ABSENTE → lancer : npm run db:migrate:neon')
 if (hasArchive) ok('table pcstar_archived_orders présente')
 else warn('table pcstar_archived_orders absente → lancer : npm run db:migrate:neon')
+if (hasBackups) ok('table pcstar_backups présente')
+else warn('table pcstar_backups absente → lancer : npm run db:migrate:neon')
 
 if (!hasState) {
   console.log('')
@@ -144,7 +156,9 @@ if (publicProducts.length > 0) {
 }
 
 const archived = await sql`SELECT count(*)::int AS n FROM pcstar_archived_orders`.catch(() => [{ n: 0 }])
+const backups = await sql`SELECT count(*)::int AS n, max(created_at) AS newest FROM pcstar_backups`.catch(() => [{ n: 0, newest: null }])
 info(`commandes archivées : ${archived[0]?.n ?? 0}`)
+info(`snapshots Neon     : ${backups[0]?.n ?? 0}${backups[0]?.newest ? ` (dernier : ${new Date(backups[0].newest).toISOString()})` : ''}`)
 
 console.log('')
-process.exit(0)
+process.exit(souci ? 1 : 0)

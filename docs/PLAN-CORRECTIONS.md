@@ -1,5 +1,17 @@
 # Plan de correction consolidé — tous les bugs, de A à Z
 
+> **Journal daté — ses chiffres sont ceux du jour, pas l'état du dépôt.** Ce
+> document est une trace : on ne le réécrit pas quand il est contredit plus tard,
+> parce qu'effacer une conclusion fausse efface aussi la raison pour laquelle
+> elle était fausse.
+> Au fil des lots, plusieurs nombres et commandes ci-dessous ont été
+> dépassés. L'état mesuré d'aujourd'hui est dans
+> [`../README.md`](../README.md) (« État mesuré »), la suite des sessions
+> dans [`BUGS-AND-FIXES.md`](BUGS-AND-FIXES.md). Les docs **exécutables** (guides,
+> recettes, prompts d'agent, `docs/README.md`) ont, elles, été corrigées — c'est
+> `src/p3DocsAging.test.js` qui verrouille les deux régimes.
+
+
 **Date :** 15/09/2026 · **Base :** `fdbd778` · **Branche :** `arena/01a0a55c-pc-star`
 **Sources :** rapport d'audit « deux passes », rapport « consolidé final », et
 leurs vérifications (`docs/VERIFICATION-RAPPORT-AUDIT.md`,
@@ -503,14 +515,15 @@ volontairement :** `carrier`. Le rapport le listait comme libre, mais la route l
 **recalcule** déjà côté serveur (`phoneCarrier(body.phone)`) et ignore la valeur
 envoyée — le champ client n'atteint jamais la base.
 
-**1.11 — plus d'URL CDN en base (R7, option b).** `uploadBlob` renvoie le chemin
-relatif `/api/upload-file?name=…` **même quand le contenu part sur Vercel Blob**
-(la route fait déjà un 302 vers `resolveBlobUrl(name)`). Les deux branches
-renvoient la même forme d'URL, `img-src 'self'` suffit (un 302 ne fait pas
-partie des sources soumises à CSP), et `deleteBlob` résout le chemin relatif en
-objet Blob avant le repli filesystem — sinon la compensation d'erreur de
-`savePhotoDataUrls` (P18) aurait laissé des objets orphelins. Les URL CDN déjà
-stockées restent supprimables.
+**1.11 — URL CDN non stockée en base (R7, option b renforcée).** `uploadBlob`
+renvoie le chemin relatif `/api/upload-file?name=…` **même quand le contenu part
+sur Vercel Blob**. Après un cold start, `resolveBlobUrl` recherche le pathname
+exact via `blob.list()` et redirige vers son URL publique; `deleteBlob` supprime
+ce même pathname sans transmettre de Promise au SDK. La destination d'une
+redirection image reste soumise à la politique navigateur : les CSP API et
+Vercel autorisent donc exclusivement `https://*.public.blob.vercel-storage.com`
+en plus de `'self'`, `data:` et `blob:`. Les URL CDN historiques restent
+supprimables.
 
 **1.12 — `price ≤ 0` refusé au patch (R11).** `sanitizeProductPatch` exige
 `price > 0`, comme `createProduct` : l'asymétrie permettait de mettre une
