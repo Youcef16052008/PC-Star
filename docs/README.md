@@ -47,6 +47,7 @@ dans trois fichiers est faux dans deux d'entre eux dès la session suivante :
 | [AUDIT-BOUTONS-PHOTOS-2026-09-18.md](AUDIT-BOUTONS-PHOTOS-2026-09-18.md) | 18/09 | Porte `audit-buttons`, photos master, gonds de la CI |
 | [AUDIT-REPO.md](AUDIT-REPO.md) | 11/09 | Audit ligne par ligne du dépôt (21 fichiers front, API, scripts) |
 | [BILAN-SESSION-2026-09-17-CI-NEON.md](BILAN-SESSION-2026-09-17-CI-NEON.md) | 17/09 | Chantier CI Neon (LOT 1.20) : migration, verrou de concurrence |
+| [HANDOFF-SESSION-SUIVANTE.md](HANDOFF-SESSION-SUIVANTE.md) | 17/09 | Passation de session (v3) : état final après PR #7, conventions `[vérifié]`/`[rapporté]`, reprise |
 | [PLAN-CORRECTIONS.md](PLAN-CORRECTIONS.md) | 15/09 | Plan consolidé de tous les bugs connus, de A à Z |
 | [PLAN-DESIGN-TERMINAL-CYBER.md](PLAN-DESIGN-TERMINAL-CYBER.md) | 16/09 | Direction 03 « Terminal Cyber », lots L0 → L7 |
 | [PLAN-REMEDIATION-AUDIT-2026-09-17.md](PLAN-REMEDIATION-AUDIT-2026-09-17.md) | 17/09 | Remédiation de l'audit : P0 → P3, avec ce qui a été refusé |

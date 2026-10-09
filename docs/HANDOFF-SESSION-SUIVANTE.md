@@ -1,4 +1,10 @@
 # Handoff — session suivante (PC-Star)
+> **Journal daté — ses chiffres sont ceux du jour, pas l'état du dépôt.** Ce
+> document est une trace : on ne le réécrit pas quand il est contredit plus tard,
+> parce qu'effacer une conclusion fausse efface aussi la raison pour laquelle
+> elle était fausse. L'état mesuré d'aujourd'hui est dans `../README.md` §
+> « État mesuré ».
+>
 > **Version 3 — 17/09/2026, fin de session.** État final après fusion de la PR #7.
 >
 > Changements depuis la v2 : la PR #7 est **fusionnée** (lot 1.20 + CI Neon verte +

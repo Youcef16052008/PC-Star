@@ -18,6 +18,8 @@ import { MAX_INPUT_BYTES, MAX_PHOTOS, MAX_UPLOAD_BODY_BYTES, payloadOverBudget, 
 // LOT P1 (B5) : mappages du formulaire produit extraits et testables hors React.
 import { emptyProductForm, productFormFromProduct, productPayloadFromForm } from './masterForm.js'
 import { labelOr } from './i18n.js'
+import { PAGE_TAILLE, pageCourante, pagesPour, tranche } from './pager.js'
+import { ChoixTaille, Pager } from './pagerControls.jsx'
 import {
   BRAND_LIMIT,
   COMPAT_FORMS,
@@ -225,8 +227,82 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, ma
   const productsLoading = apiOnline && !productsFetch.loaded && apiProducts.length === 0
   const productsShown = apiOnline ? apiProducts : (masterCatalog || products || [])
 
+  // ─── Outillage de la liste : recherche, filtres, tri, pagination ───
+  // La liste master porte TOUT le catalogue (masqués et ruptures inclus) : à
+  // 300 fiches, des cartes empilées ne se parcourent plus — on cherchait une
+  // référence au kilo. Un tableau dense, cherchable, filtrable, triable et
+  // paginé est la forme qu'attend un écran de gestion ; la vitrine, elle,
+  // garde ses cartes (c'est un écran d'achat, pas de gestion).
+  const [masterQ, setMasterQ] = useState('')
+  const [masterCat, setMasterCat] = useState('all')
+  const [masterStatus, setMasterStatus] = useState('all')
+  const [masterSortKey, setMasterSortKey] = useState('name')
+  const [masterSortDir, setMasterSortDir] = useState('asc')
+  const [masterPage, setMasterPage] = useState(1)
+  const [masterTaille, setMasterTaille] = useState(PAGE_TAILLE)
+
+  const masterFiltres = masterQ.trim() !== '' || masterCat !== 'all' || masterStatus !== 'all'
+  const masterFiltresActifs = useMemo(() => {
+    const q = masterQ.trim().toLowerCase()
+    return (productsShown || []).filter((p) => {
+      if (masterCat !== 'all' && p.category !== masterCat) return false
+      if (masterStatus === 'visible' && p.hidden) return false
+      if (masterStatus === 'hidden' && !p.hidden) return false
+      if (!q) return true
+      return (
+        String(p.name || '').toLowerCase().includes(q) ||
+        String(p.sku || '').toLowerCase().includes(q) ||
+        String(p.brand || '').toLowerCase().includes(q) ||
+        String(p.model || '').toLowerCase().includes(q)
+      )
+    })
+  }, [productsShown, masterQ, masterCat, masterStatus])
+
+  const masterTries = useMemo(() => {
+    const dir = masterSortDir === 'desc' ? -1 : 1
+    const cle = (p) => {
+      if (masterSortKey === 'price') return Number(p.price) || 0
+      if (masterSortKey === 'stock') return Number(p.stock) || 0
+      if (masterSortKey === 'sku') return String(p.sku || '')
+      return String(p.name || '').toLowerCase()
+    }
+    return [...masterFiltresActifs].sort((a, b) => {
+      const va = cle(a)
+      const vb = cle(b)
+      if (typeof va === 'number' && typeof vb === 'number') return (va - vb) * dir
+      return String(va).localeCompare(String(vb), 'fr') * dir
+    })
+  }, [masterFiltresActifs, masterSortKey, masterSortDir])
+
+  const masterPages = pagesPour(masterTries.length, masterTaille)
+  const masterPageSure = pageCourante(masterPage, masterPages)
+  const masterTranche = tranche(masterTries, masterPageSure, masterTaille)
+
+  function masterResetFiltres() {
+    setMasterQ('')
+    setMasterCat('all')
+    setMasterStatus('all')
+    setMasterPage(1)
+  }
+
+  function masterTri(col) {
+    if (masterSortKey === col) {
+      setMasterSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))
+    } else {
+      setMasterSortKey(col)
+      setMasterSortDir(col === 'price' || col === 'stock' ? 'desc' : 'asc')
+    }
+    setMasterPage(1)
+  }
+
+  function masterTriMarque(col) {
+    return masterSortKey === col ? (masterSortDir === 'asc' ? ' ▲' : ' ▼') : ''
+  }
+
   // La fiche en cours de modification, pour l'en-tete du formulaire.
   const editingProduct = editFormId ? (productsShown || []).find((p) => p.id === editFormId) || null : null
+  // La fiche dont les photos sont en cours d'édition (bloc sous le tableau).
+  const editPhotosProduct = editId ? (productsShown || []).find((p) => p.id === editId) || null : null
 
   // LOT 2.5 (F9) : liste de référence pour le contrôle de SKU en mode local.
   //
@@ -828,23 +904,28 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, ma
                 <fieldset className="master-form-section">
                   <legend>{t('masterCompatibility')}</legend>
                   <p className="small text-secondary mb-2">{t('masterCompatMultiHint')}</p>
-                  <div className="row g-2">
-                    <div className="col-md-6">
+                  {/* Grille régulière : les trois pickers tiennent une ligne
+                      entière (4+4+4), les deux puissances la suivante (6+6).
+                      L'ancien 6+6+6+3+3 laissait un picker seul en deuxième
+                      ligne, flanqué des deux champs de puissance — libellés et
+                      saisies qui ne s'alignaient sur rien. */}
+                  <div className="row g-3">
+                    <div className="col-md-4">
                       <CompatPicker id="master-compat-socket" label={t('masterSocket')} allowed={COMPAT_SOCKETS} selected={form.compat.socket} onToggle={(value) => toggleCompat('socket', value)} />
                     </div>
-                    <div className="col-md-6">
+                    <div className="col-md-4">
                       <CompatPicker id="master-compat-memory" label={t('masterMemory')} allowed={COMPAT_MEMORY} selected={form.compat.memory} onToggle={(value) => toggleCompat('memory', value)} />
                     </div>
-                    <div className="col-md-6">
+                    <div className="col-md-4">
                       <CompatPicker id="master-compat-form" label={t('masterFormFactor')} allowed={COMPAT_FORMS} selected={form.compat.form} onToggle={(value) => toggleCompat('form', value)} />
                     </div>
-                    <div className="col-md-3">
+                    <div className="col-md-6">
                       <label className="form-label small" htmlFor="master-compat-watts">{t('masterPsuWatts')}</label>
-                      <input id="master-compat-watts" className="form-control form-control-sm" type="number" min="100" max="2500" value={form.compat.psuWatts} onChange={(e) => setForm({ ...form, compat: { ...form.compat, psuWatts: e.target.value } })} />
+                      <input id="master-compat-watts" className="form-control" type="number" min="100" max="2500" value={form.compat.psuWatts} onChange={(e) => setForm({ ...form, compat: { ...form.compat, psuWatts: e.target.value } })} />
                     </div>
-                    <div className="col-md-3">
+                    <div className="col-md-6">
                       <label className="form-label small" htmlFor="master-compat-min">{t('masterPsuMin')}</label>
-                      <input id="master-compat-min" className="form-control form-control-sm" type="number" min="100" max="2500" value={form.compat.psuMin} onChange={(e) => setForm({ ...form, compat: { ...form.compat, psuMin: e.target.value } })} />
+                      <input id="master-compat-min" className="form-control" type="number" min="100" max="2500" value={form.compat.psuMin} onChange={(e) => setForm({ ...form, compat: { ...form.compat, psuMin: e.target.value } })} />
                     </div>
                   </div>
                 </fieldset>
@@ -882,101 +963,227 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, ma
                 </button>
               </div>
             ) : (
-            <div className="d-flex flex-column gap-2">
-              {productsShown.map((p) => (
-                <div className={`card shadow-sm ${p.hidden ? 'opacity-75' : ''}`} key={p.id}>
-                  <div className="card-body">
-                    <div className="d-flex flex-wrap gap-3 align-items-center">
-                      <div style={{ width: 56, height: 56 }} className="rounded overflow-hidden bg-body-secondary flex-shrink-0">
-                        <PartThumb product={p} />
-                      </div>
-                      <div className="flex-grow-1">
-                        <div className="small text-secondary">
-                          {p.sku}
-                          {p.hidden ? ` · ${t('masterHiddenBadge')}` : ''}
-                        </div>
-                        <strong>{p.name}</strong>
-                        <div className="small text-secondary">
-                          {money(p.price, lang)} · {p.stock} · {labelOr(t, `cat_${p.category}`, p.category)} · {(p.photos || []).length} img
-                        </div>
-                      </div>
-                      <div className="d-flex gap-2">
-                        <button
-                          type="button"
-                          className="btn btn-sm btn-outline-secondary"
-                          disabled={!apiOnline}
-                          title={!apiOnline ? t('masterEditApiOnly') : undefined}
-                          onClick={() => startEditProduct(p)}
-                        >
-                          {/* LOT P1 (B5) : le maitre pouvait deja masquer une fiche
-                              et changer ses photos, pas corriger un prix ou un
-                              stock erronés — ni même le nom. */}
-                          ✏️ {editFormId === p.id ? t('masterEditProductActive') : t('masterEditProduct')}
-                        </button>
-                        <button type="button" className="btn btn-sm btn-outline-secondary" onClick={() => openEdit(p)}>
-                          {t('masterEditPhotos')}
-                        </button>
-                        <button
-                          type="button"
-                          className={`btn btn-sm ${p.hidden ? 'btn-outline-success' : 'btn-outline-danger'}`}
-                          onClick={() => doToggleHidden(p.id, Boolean(p.hidden))}
-                        >
-                          {p.hidden ? t('masterShow') : t('masterHide')}
-                        </button>
-                        <button
-                          type="button"
-                          className="btn btn-sm btn-outline-danger"
-                          disabled={p.source !== 'extra'}
-                          title={p.source !== 'extra' ? t('masterDeleteBase') : t('masterDelete')}
-                          onClick={() => doDeleteProduct(p.id)}
-                        >
-                          🗑 {t('masterDelete')}
-                        </button>
-                      </div>
-                    </div>
-                    {editId === p.id && (
-                      <div className="border-top mt-3 pt-3">
-                        <p className="small text-secondary">{t('masterPhotosHint')}</p>
-                        <input className="form-control form-control-sm mb-2" type="file" accept="image/*" multiple onChange={onEditPhotos} />
-                        <div className="d-flex flex-wrap gap-2 mb-2">
-                          {editPhotos.map((src, i) => (
-                            <button
-                              key={i}
-                              type="button"
-                              className="btn p-0 border rounded overflow-hidden"
-                              style={{ width: 56, height: 56 }}
-                              onClick={() => setEditPhotos((prev) => prev.filter((_, j) => j !== i))}
-                              title={t('remove')}
-                            >
-                              <img src={src} alt="" className="w-100 h-100" style={{ objectFit: 'cover' }} />
+            <div className="master-list">
+              {/* ─── Barre d'outils : chercher, filtrer, compter ─── */}
+              <div className="master-toolbar card border-0 shadow-sm mb-3">
+                <div className="card-body py-2 px-3 d-flex flex-wrap gap-2 align-items-center">
+                  <div className="master-toolbar-search flex-grow-1">
+                    <label className="visually-hidden" htmlFor="master-search">{t('masterSearchPh')}</label>
+                    <input
+                      id="master-search"
+                      type="search"
+                      className="form-control form-control-sm"
+                      placeholder={t('masterSearchPh')}
+                      value={masterQ}
+                      onChange={(e) => { setMasterQ(e.target.value); setMasterPage(1) }}
+                    />
+                  </div>
+                  <div>
+                    <label className="visually-hidden" htmlFor="master-filter-cat">{t('masterFilterCat')}</label>
+                    <select id="master-filter-cat" className="form-select form-select-sm w-auto" value={masterCat} onChange={(e) => { setMasterCat(e.target.value); setMasterPage(1) }}>
+                      <option value="all">{t('masterAllCats')}</option>
+                      {CATEGORIES.filter((c) => c.id !== 'all').map((c) => (
+                        <option key={c.id} value={c.id}>{labelOr(t, `cat_${c.id}`, c.label || c.id)}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="visually-hidden" htmlFor="master-filter-status">{t('masterFilterStatus')}</label>
+                    <select id="master-filter-status" className="form-select form-select-sm w-auto" value={masterStatus} onChange={(e) => { setMasterStatus(e.target.value); setMasterPage(1) }}>
+                      <option value="all">{t('masterAllStatus')}</option>
+                      <option value="visible">{t('masterStatusVisible')}</option>
+                      <option value="hidden">{t('masterHiddenBadge')}</option>
+                    </select>
+                  </div>
+                  {masterFiltres && (
+                    <button type="button" className="btn btn-sm btn-outline-secondary" onClick={masterResetFiltres}>
+                      {t('masterResetFilters')}
+                    </button>
+                  )}
+                  <span className="master-toolbar-count small text-secondary ms-auto">{t('masterFichesCount', { n: masterTries.length })}</span>
+                </div>
+              </div>
+
+              {/* ─── Le tableau : une fiche = une ligne, une action = un bouton ─── */}
+              {masterTries.length === 0 ? (
+                <div className="alert alert-light border d-flex flex-wrap align-items-center gap-2">
+                  <span className="me-auto">{t('masterNoMatch')}</span>
+                  <button type="button" className="btn btn-sm btn-outline-secondary" onClick={masterResetFiltres}>
+                    {t('masterResetFilters')}
+                  </button>
+                </div>
+              ) : (
+                <div className="master-table-wrap card border-0 shadow-sm">
+                  <div className="table-responsive">
+                    <table className="table master-table align-middle mb-0">
+                      <thead>
+                        <tr>
+                          <th scope="col" className="master-col-photo">
+                            <span className="visually-hidden">{t('masterPhotoCol')}</span>
+                          </th>
+                          <th scope="col">
+                            <button type="button" className="master-th-sort" onClick={() => masterTri('sku')} title={t('masterSortBy')}>
+                              {t('masterSku')}{masterTriMarque('sku')}
                             </button>
-                          ))}
-                        </div>
-                        <div className="d-flex gap-2">
-                          <button type="button" className="btn btn-sm btn-success" onClick={saveEditPhotos}>
-                            {/* LOT 5.3 (U3) : le bouton disait « Photos
-                                enregistrées » — au passé, AVANT d'enregistrer.
-                                Un libellé d'action se lit comme une action ;
-                                « Photos enregistrées » reste le toast de
-                                confirmation (`saveEditPhotos`). */}
-                            {t('masterSavePhotos')}
-                          </button>
-                          <button
-                            type="button"
-                            className="btn btn-sm btn-outline-secondary"
-                            onClick={() => {
-                              setEditId(null)
-                              setEditPhotos([])
-                            }}
-                          >
-                            {t('close')}
-                          </button>
-                        </div>
-                      </div>
-                    )}
+                          </th>
+                          <th scope="col">
+                            <button type="button" className="master-th-sort" onClick={() => masterTri('name')} title={t('masterSortBy')}>
+                              {t('masterName')}{masterTriMarque('name')}
+                            </button>
+                          </th>
+                          <th scope="col" className="text-end">
+                            <button type="button" className="master-th-sort" onClick={() => masterTri('price')} title={t('masterSortBy')}>
+                              {t('masterPrice')}{masterTriMarque('price')}
+                            </button>
+                          </th>
+                          <th scope="col" className="text-end">
+                            <button type="button" className="master-th-sort" onClick={() => masterTri('stock')} title={t('masterSortBy')}>
+                              {t('masterStock')}{masterTriMarque('stock')}
+                            </button>
+                          </th>
+                          <th scope="col">{t('masterCategory')}</th>
+                          <th scope="col">{t('masterEditPhotos')}</th>
+                          <th scope="col">{t('masterFilterStatus')}</th>
+                          <th scope="col" className="text-end">{t('masterActionsCol')}</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {masterTranche.map((p) => (
+                          <tr key={p.id} className={p.hidden ? 'master-row-hidden' : ''}>
+                            <td className="master-col-photo">
+                              <div className="master-thumb">
+                                <PartThumb product={p} />
+                              </div>
+                            </td>
+                            <td className="master-cell-sku">{p.sku || '—'}</td>
+                            <td className="master-cell-name">
+                              <strong>{p.name}</strong>
+                              {p.brand ? <div className="small text-secondary">{p.brand}</div> : null}
+                            </td>
+                            <td className="text-end master-num">{money(p.price, lang)}</td>
+                            <td className="text-end">
+                              {Number(p.stock) === 0 ? (
+                                <span className="badge text-bg-danger">{t('outOfStock')}</span>
+                              ) : p.lowStockAt && Number(p.stock) <= Number(p.lowStockAt) ? (
+                                <span className="badge text-bg-warning text-dark">{p.stock}</span>
+                              ) : (
+                                <span className="master-stock-ok">{p.stock}</span>
+                              )}
+                            </td>
+                            <td>{labelOr(t, `cat_${p.category}`, p.category)}</td>
+                            <td className="text-secondary">{(p.photos || []).length}</td>
+                            <td>
+                              {p.hidden
+                                ? <span className="badge text-bg-warning text-dark">{t('masterHiddenBadge')}</span>
+                                : <span className="badge text-bg-light border">{t('masterStatusVisible')}</span>}
+                            </td>
+                            <td className="text-end">
+                              <div className="master-row-actions">
+                                <button
+                                  type="button"
+                                  className={`btn btn-sm ${editFormId === p.id ? 'btn-success' : 'btn-outline-secondary'}`}
+                                  disabled={!apiOnline}
+                                  title={!apiOnline ? t('masterEditApiOnly') : undefined}
+                                  aria-label={editFormId === p.id ? t('masterEditProductActive') : t('masterEditProduct')}
+                                  onClick={() => startEditProduct(p)}
+                                >
+                                  {/* LOT P1 (B5) : le maitre pouvait deja masquer une fiche
+                                      et changer ses photos, pas corriger un prix ou un
+                                      stock erronés — ni même le nom. La ligne chargée
+                                      dans le formulaire se signale en vert : à trente
+                                      lignes, « laquelle j'édite ? » ne se devine plus. */}
+                                  {editFormId === p.id ? '💾' : '✏️'}
+                                </button>
+                                <button
+                                  type="button"
+                                  className="btn btn-sm btn-outline-secondary"
+                                  onClick={() => openEdit(p)}
+                                >
+                                  {t('masterEditPhotos')}
+                                </button>
+                                <button
+                                  type="button"
+                                  className={`btn btn-sm ${p.hidden ? 'btn-outline-success' : 'btn-outline-danger'}`}
+                                  aria-label={p.hidden ? t('masterShow') : t('masterHide')}
+                                  title={p.hidden ? t('masterShow') : t('masterHide')}
+                                  onClick={() => doToggleHidden(p.id, Boolean(p.hidden))}
+                                >
+                                  {p.hidden ? '👁' : '🚫'}
+                                </button>
+                                <button
+                                  type="button"
+                                  className="btn btn-sm btn-outline-danger"
+                                  disabled={p.source !== 'extra'}
+                                  title={p.source !== 'extra' ? t('masterDeleteBase') : t('masterDelete')}
+                                  aria-label={t('masterDelete')}
+                                  onClick={() => doDeleteProduct(p.id)}
+                                >
+                                  🗑
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
                   </div>
                 </div>
-              ))}
+              )}
+
+              {/* ─── Pagination : les commandes du magasin, une seule fois ─── */}
+              <div className="d-flex flex-wrap align-items-center gap-3 mt-3">
+                <ChoixTaille t={t} taille={masterTaille} onTaille={(n) => { setMasterTaille(n); setMasterPage(1) }} />
+                <Pager t={t} page={masterPageSure} pages={masterPages} onPage={setMasterPage} />
+                {masterPages > 1 && (
+                  <span className="small text-secondary ms-auto">{t('masterFichesCount', { n: masterTries.length })}</span>
+                )}
+              </div>
+
+              {/* ─── Éditeur de photos : UN bloc sous le tableau, pour la fiche visée ───
+                  Il vivait dans chaque carte ; à une ligne par fiche, il n'a plus de
+                  carte où se loger, et une seule fiche est éditée à la fois. */}
+              {editId && editPhotosProduct && (
+                <div className="master-photo-editor card border-0 shadow-sm mt-3">
+                  <div className="card-body">
+                    <div className="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
+                      <h2 className="h6 mb-0">📷 {editPhotosProduct.name}</h2>
+                      <button
+                        type="button"
+                        className="btn btn-sm btn-outline-secondary"
+                        onClick={() => { setEditId(null); setEditPhotos([]) }}
+                      >
+                        {t('close')}
+                      </button>
+                    </div>
+                    <p className="small text-secondary">{t('masterPhotosHint')}</p>
+                    <input className="form-control form-control-sm mb-2" type="file" accept="image/*" multiple onChange={onEditPhotos} />
+                    <div className="d-flex flex-wrap gap-2 mb-2">
+                      {editPhotos.map((src, i) => (
+                        <button
+                          key={i}
+                          type="button"
+                          className="btn p-0 border rounded overflow-hidden"
+                          style={{ width: 56, height: 56 }}
+                          onClick={() => setEditPhotos((prev) => prev.filter((_, j) => j !== i))}
+                          title={t('remove')}
+                        >
+                          <img src={src} alt="" className="w-100 h-100" style={{ objectFit: 'cover' }} />
+                        </button>
+                      ))}
+                    </div>
+                    <div className="d-flex gap-2">
+                      <button type="button" className="btn btn-sm btn-success" onClick={saveEditPhotos}>
+                        {/* LOT 5.3 (U3) : le bouton disait « Photos
+                            enregistrées » — au passé, AVANT d'enregistrer.
+                            Un libellé d'action se lit comme une action ;
+                            « Photos enregistrées » reste le toast de
+                            confirmation (`saveEditPhotos`). */}
+                        {t('masterSavePhotos')}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
             )}
           </div>

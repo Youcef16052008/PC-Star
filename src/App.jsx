@@ -2546,17 +2546,22 @@ export default function App() {
         </div>
       </footer>
 
-      {/* FAB WhatsApp unique : au clic, choix du numéro (07 ou 06). */}
-      <ContactButton
-        wrapClass="wa-fab-wrap"
-        btnClass="wa-fab"
-        dropUp
-        label="WhatsApp"
-        choices={[
-          { title: STORE.phone, href: `https://wa.me/${STORE.whatsapp}`, external: true },
-          { title: STORE.phone2, href: `https://wa.me/${STORE.whatsapp2}`, external: true }
-        ]}
-      />
+      {/* FAB WhatsApp unique : au clic, choix du numéro (07 ou 06).
+          Masqué sur les écrans du magasin (comptoir, admin, profil) : le
+          bouton « contacter le shop » n'a rien à faire sur l'écran de celui
+          qui EST le shop — et sa position fixe recouvrait le contenu. */}
+      {!['desk', 'master', 'profile'].includes(page) && (
+        <ContactButton
+          wrapClass="wa-fab-wrap"
+          btnClass="wa-fab"
+          dropUp
+          label="WhatsApp"
+          choices={[
+            { title: STORE.phone, href: `https://wa.me/${STORE.whatsapp}`, external: true },
+            { title: STORE.phone2, href: `https://wa.me/${STORE.whatsapp2}`, external: true }
+          ]}
+        />
+      )}
 
       {/* Cart offcanvas — controlled via Bootstrap Offcanvas API */}
       <div
