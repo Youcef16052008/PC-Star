@@ -84,6 +84,12 @@ import {
   deleteProductMaster,
   hideProductMaster,
   listMasterProducts,
+  addBrand,
+  setBrandHidden,
+  deleteBrand,
+  addCategory,
+  setCategoryHidden,
+  deleteCategory,
   ordersToCsv,
   savePhotoDataUrls,
   unlinkUpload,
@@ -1399,9 +1405,10 @@ export async function handler(req, res) {
       return send(res, 200, { ok: true, product: result.product })
     }
 
-    // DELETE /api/master/products/:id — suppression DÉFINITIVE d'un produit
-    // créé par le maître (les produits de base se masquent, ils ne se
-    // suppriment pas). Les photos gérées sont nettoyées APRÈS le commit.
+    // DELETE /api/master/products/:id — suppression DÉFINITIVE d'une fiche.
+    // Contrat P10 : le maître supprime aussi les produits du catalogue de base
+    // (l'id rejoint `deletedProductIds` dans l'état) ; masquer reste le geste
+    // réversible. Les photos gérées sont nettoyées APRÈS le commit.
     if (req.method === 'DELETE' && pathname.startsWith('/api/master/products/')) {
       const auth = await userFromReq(req)
       if (!auth || auth.user.role !== 'master') return send(res, 403, { ok: false, error: 'forbidden' })
@@ -1413,7 +1420,7 @@ export async function handler(req, res) {
         return db
       })
       if (!result?.ok) {
-        const st = result?.error === 'not_found' ? 404 : result?.error === 'base' ? 409 : 400
+        const st = result?.error === 'not_found' ? 404 : 400
         return send(res, st, { ok: false, error: result?.error })
       }
       // Phase 4 : ne jamais supprimer un chemin qui n'est pas un upload géré.
@@ -1425,7 +1432,7 @@ export async function handler(req, res) {
         }
       }
       broadcastDesk({ type: 'catalog:changed' })
-      return send(res, 200, { ok: true, id: result.id })
+      return send(res, 200, { ok: true, id: result.id, base: result.base })
     }
 
     if (req.method === 'POST' && pathname.startsWith('/api/master/products/') && pathname.endsWith('/photos')) {
@@ -1589,7 +1596,16 @@ export async function handler(req, res) {
         degraded: !ok,
         meta: {
           extraPanels: meta.extraPanels || [],
-          hiddenPanelIds: meta.hiddenPanelIds || []
+          hiddenPanelIds: meta.hiddenPanelIds || [],
+          // Taxonomie du maître : les filtres de la vitrine (marque,
+          // catalogue) doivent refléter ce qu'il ajoute et ce qu'il retire —
+          // sinon masquer une catégorie dans l'admin ne change rien côté
+          // client, et le menu promet une entrée sans fiches derrière.
+          extraBrands: meta.extraBrands || [],
+          hiddenBrands: meta.hiddenBrands || [],
+          extraCategories: meta.extraCategories || [],
+          hiddenCategories: meta.hiddenCategories || [],
+          deletedProductIds: meta.deletedProductIds || []
         },
         // LOT P4 (V1) — les trois compteurs de la vitrine, projetes par
         // `vitrineView` : la page d'accueil n'a besoin que de ca, et surtout pas
@@ -1597,6 +1613,66 @@ export async function handler(req, res) {
         // seed). Un champ ajoute a `meta` ne devient pas public par accident.
         vitrine: vitrineView(db)
       })
+    }
+
+    // PUT /api/master/taxonomy — marques et catégories sous la main du maître.
+    // Même régime que les panneaux : la RÉPONSE du serveur est la source de
+    // vérité (déduplication, bornage), et le client fusionne sans écraser le
+    // reste du meta.
+    if (req.method === 'PUT' && pathname === '/api/master/taxonomy') {
+      const auth = await userFromReq(req)
+      if (!auth || auth.user.role !== 'master') return send(res, 403, { ok: false, error: 'forbidden' })
+      const body = await readBody(req)
+      let error = null
+      let out = null
+      await updateDbAsync((db) => {
+        try {
+          const brand = body.brand || null
+          if (brand) {
+            if (brand.add != null) {
+              const r = addBrand(db, brand.add)
+              if (!r.ok) { error = r.error; return db }
+            }
+            if (brand.hide != null) {
+              const r = setBrandHidden(db, brand.hide.name, brand.hide.hidden)
+              if (!r.ok) { error = r.error; return db }
+            }
+            if (brand.remove != null) {
+              const r = deleteBrand(db, brand.remove)
+              if (!r.ok) { error = r.error; return db }
+            }
+          }
+          const category = body.category || null
+          if (category) {
+            if (category.add != null) {
+              const r = addCategory(db, { id: category.add.id, labels: category.add.labels })
+              if (!r.ok) { error = r.error; return db }
+            }
+            if (category.hide != null) {
+              const r = setCategoryHidden(db, category.hide.id, category.hide.hidden)
+              if (!r.ok) { error = r.error; return db }
+            }
+            if (category.remove != null) {
+              const r = deleteCategory(db, category.remove)
+              if (!r.ok) { error = r.error; return db }
+            }
+          }
+        } catch {
+          error = 'taxonomy'
+        }
+        out = {
+          extraBrands: db.meta?.extraBrands || [],
+          hiddenBrands: db.meta?.hiddenBrands || [],
+          extraCategories: db.meta?.extraCategories || [],
+          hiddenCategories: db.meta?.hiddenCategories || []
+        }
+        return db
+      })
+      if (error) return send(res, 400, { ok: false, error })
+      // Le catalogue bouge (fiches réaffectées, marques retirées) : le comptoir
+      // et la vitrine doivent rafraîchir sans attendre leur poll.
+      broadcastDesk({ type: 'catalog:changed' })
+      return send(res, 200, { ok: true, meta: out })
     }
 
     // P9 (P7-5) : méta complète = master uniquement.

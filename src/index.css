@@ -831,19 +831,20 @@ html[data-theme='light'] .text-secondary {
 }
 
 /* Fiche master — les sections courtes évitent le long formulaire indistinct et
-   rendent visibles les informations commercialement importantes. */
+   rendent visibles les informations commercialement importantes.
+   Densité : la colonne de gauche ne possède plus son propre ascenseur ni son
+   `sticky` — à 376 px de large, un formulaire à ascenseur interne se parcourt
+   mal et donne l'impression d'un panneau qui « prend tout l'espace ». Il
+   respire à la hauteur de son contenu, le tableau garde le sien. */
 .master-product-form {
-  max-height: calc(100vh - 2rem);
-  overflow: auto;
-  position: sticky;
-  top: 1rem;
+  position: static;
 }
 .master-form-section {
   min-inline-size: 0;
   border: 1px solid var(--line);
   border-radius: 0.55rem;
-  padding: 0.75rem;
-  margin: 0 0 0.85rem;
+  padding: 0.5rem 0.6rem;
+  margin: 0 0 0.5rem;
   background: color-mix(in srgb, var(--soft) 48%, transparent);
 }
 .master-form-section legend {
@@ -852,11 +853,30 @@ html[data-theme='light'] .text-secondary {
   padding: 0 0.35rem;
   margin: 0;
   color: var(--ink);
-  font-size: 0.86rem;
+  font-size: 0.8rem;
   font-weight: 700;
 }
 .master-form-section .form-label {
   font-weight: 600;
+}
+/* Champs compacts : une fiche produit se saisit, elle ne se lit pas — la
+   taille normale des contrôles mange la hauteur du formulaire sans rien
+   apporter à la précision de la saisie. */
+.master-product-form .form-control,
+.master-product-form .form-select {
+  font-size: 0.82rem;
+  padding: 0.25rem 0.5rem;
+}
+.master-product-form .form-label {
+  margin-bottom: 0.15rem;
+  font-size: 0.78rem;
+}
+.master-product-form .form-check-label {
+  font-size: 0.8rem;
+}
+.master-product-form .btn {
+  font-size: 0.85rem;
+  padding: 0.3rem 0.75rem;
 }
 /* LOT P1 (B11) — groupes de cases a cocher de la compatibilite : le `fieldset`
    sert de legende accessible, pas de cadre. */
@@ -891,6 +911,7 @@ html[data-theme='light'] .text-secondary {
 }
 .master-table {
   margin: 0;
+  font-size: 0.82rem;
 }
 .master-table thead th {
   position: sticky;
@@ -904,7 +925,7 @@ html[data-theme='light'] .text-secondary {
   letter-spacing: 0.04em;
   color: var(--muted);
   white-space: nowrap;
-  padding: 0.55rem 0.75rem;
+  padding: 0.4rem 0.55rem;
 }
 /* L'en-tête triable est un BOUTON : il garde le focus clavier et l'annonce
    « trier par cette colonne », qu'un `<th onclick>` nu n'aurait pas. */
@@ -925,7 +946,7 @@ html[data-theme='light'] .text-secondary {
   color: var(--ink);
 }
 .master-table tbody td {
-  padding: 0.5rem 0.75rem;
+  padding: 0.35rem 0.55rem;
   border-bottom: 1px solid var(--line);
   vertical-align: middle;
 }
@@ -972,11 +993,35 @@ html[data-theme='light'] .text-secondary {
   padding: 0.15rem 0.4rem;
   line-height: 1.3;
 }
+/* Onglets de l'admin : six entrées maintenant (produits, marques, catalogue,
+   clients, panneaux, vitrine) — les pilules par défaut de Bootstrap sont trop
+   hautes pour une barre d'outils qu'on consulte plus qu'on ne la touche. */
+.master-tabs .nav-link {
+  padding: 0.25rem 0.7rem;
+  font-size: 0.85rem;
+}
+/* Tables de taxonomie (marques, catégories) : même densité que le tableau
+   produits — deux listes courtes, pas deux grilles aérées. */
+.master-taxo .card-body {
+  padding: 0.6rem 0.75rem;
+}
+.master-taxo .form-label {
+  font-size: 0.78rem;
+}
+.master-taxo .form-control {
+  font-size: 0.82rem;
+  padding: 0.25rem 0.5rem;
+}
+.master-taxo .btn {
+  font-size: 0.82rem;
+}
+.master-taxo h2.h6 {
+  font-size: 0.9rem;
+}
+.master-taxo .small {
+  font-size: 0.75rem;
+}
 @media (max-width: 991.98px) {
-  .master-product-form {
-    max-height: none;
-    position: static;
-  }
   .master-table-wrap .table-responsive {
     max-height: none;
   }

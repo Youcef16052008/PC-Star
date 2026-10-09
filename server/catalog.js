@@ -200,6 +200,10 @@ export function placeOrder(db, body, { userId = null } = {}) {
   //   visant son id (reproduit en direct → HTTP 201). Le masquage est une
   //   décision du maître, elle doit valoir aussi à la commande.
   const hidden = new Set(Array.isArray(db.meta?.hiddenProductIds) ? db.meta.hiddenProductIds : [])
+  // Supprimés par le maître : comme les masqués, un produit sorti de l'état
+  // n'est plus commandable — sinon un panier gardé d'avant la suppression
+  // commanderait une fiche qui n'existe plus (A1, même motif).
+  const gone = new Set(Array.isArray(db.meta?.deletedProductIds) ? db.meta.deletedProductIds : [])
   // LOT P1 (audit 19/09/2026, B13) — une ligne connue du catalogue mais SANS
   // prix exploitable est refusée, comme une ligne inconnue.
   //
@@ -239,8 +243,9 @@ export function placeOrder(db, body, { userId = null } = {}) {
       unknown.push({ id, name: line.name })
       continue
     }
-    // Produit retiré de la vente par le maître : pas commandable (A1).
-    if (hidden.has(id)) {
+    // Produit retiré de la vente par le maître (masqué ou supprimé) : pas
+    // commandable (A1).
+    if (hidden.has(id) || gone.has(id)) {
       unavailable.push({ id, name: line.name })
       continue
     }
@@ -650,8 +655,11 @@ export function purgeUser(db, id) {
 export function publicCatalog(db) {
   ensureStock(db)
   const hidden = new Set(db.meta?.hiddenProductIds || [])
+  // Supprimés par le maître : hors de la vitrine, comme les masqués — mais
+  // définitivement (l'id est dans l'état, pas seulement caché).
+  const gone = new Set(db.meta?.deletedProductIds || [])
   const overrides = db.meta?.productOverrides || {}
-  const base = PRODUCTS.filter((p) => !hidden.has(p.id)).map((p) => ({
+  const base = PRODUCTS.filter((p) => !hidden.has(p.id) && !gone.has(p.id)).map((p) => ({
     ...withOverride(p, overrides[p.id]),
     stock: liveStockOf(db, p.id)
   }))

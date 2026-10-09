@@ -557,10 +557,13 @@ export default function App() {
   // Le produit affiché peut sortir du catalogue pendant la visite (rupture /
   // masquage) : on garde la dernière référence pour ne pas vider la PDP.
   // LOT P3 (B25) : ordre de la priorité Algérie, mais uniquement des marques
-  // réellement en rayon (les autres marques du catalogue suivent, triées).
-  // Déclaré ici, après `catalog` : posé plus haut, il lisait une constante en
-  // zone morte de déclaration (TDZ) et faisait tomber tout le montage de `App`.
-  const marquesVendues = useMemo(() => brandsOnSale(catalog, BRANDS_DZ_PRIORITY), [catalog])
+  // réellement en rayon (les autres marques du catalogue suivent, triées) —
+  // et surtout pas celles que le maître a retirées du filtre dans l'admin :
+  // masquer une marque doit la faire disparaître d'ici, pas seulement de sa
+  // propre liste de gestion. Déclaré ici, après `catalog` : posé plus haut,
+  // il lisait une constante en zone morte de déclaration (TDZ) et faisait
+  // tomber tout le montage de `App`.
+  const marquesVendues = useMemo(() => brandsOnSale(catalog, BRANDS_DZ_PRIORITY).filter((b) => !(meta.hiddenBrands || []).includes(b)), [catalog, meta.hiddenBrands])
 
   const selectedFound = catalog.find((p) => p.id === selectedId)
   const selectedRef = useRef(null)
@@ -744,6 +747,14 @@ export default function App() {
             ...loadMeta(storage),
             hiddenPanelIds: Array.isArray(sm.hiddenPanelIds) ? sm.hiddenPanelIds : [],
             extraPanels: Array.isArray(sm.extraPanels) ? sm.extraPanels : [],
+            // Taxonomie du maître : les filtres de la vitrine suivent ce qu'il
+            // ajoute et ce qu'il retire dans l'admin — même source de vérité
+            // que les panneaux, même fraîcheur.
+            extraBrands: Array.isArray(sm.extraBrands) ? sm.extraBrands : [],
+            hiddenBrands: Array.isArray(sm.hiddenBrands) ? sm.hiddenBrands : [],
+            extraCategories: Array.isArray(sm.extraCategories) ? sm.extraCategories : [],
+            hiddenCategories: Array.isArray(sm.hiddenCategories) ? sm.hiddenCategories : [],
+            deletedProductIds: Array.isArray(sm.deletedProductIds) ? sm.deletedProductIds : [],
             // LOT P4 (V1) : le serveur est la source de vérité des trois
             // compteurs comme il l'est des panneaux — la vitrine est la même sur
             // tous les écrans du magasin, pas celle du dernier navigateur ouvert.

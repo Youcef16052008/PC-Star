@@ -187,7 +187,7 @@ describe('Date de retrait — comptoir (PATCH master)', () => {
 })
 
 describe('Suppression produit par le maître', () => {
-  it('créé → supprimé (fiche, stock, override) ; base → refusée ; inconnu → 404', async () => {
+  it('créé → supprimé (fiche, stock, override) ; base → supprimé aussi ; inconnu → 404', async () => {
     const master = await loginMaster()
     const created = await call('POST', '/api/master/products', {
       body: {
@@ -225,8 +225,22 @@ describe('Suppression produit par le maître', () => {
     const delBase = await call('DELETE', `/api/master/products/${encodeURIComponent(PRODUCTS_BASE_ID)}`, {
       token: master
     })
-    assert.equal(delBase.status, 409)
-    assert.equal(delBase.data.error, 'base')
+    // Contrat P10 : le maître supprime AUSSI les produits du catalogue de
+    // base — l'id rejoint `deletedProductIds` dans l'état (il ne revient pas
+    // au redéploiement), la fiche sort de la vitrine et n'est plus commandable.
+    assert.equal(delBase.status, 200, JSON.stringify(delBase.data))
+    assert.equal(delBase.data.base, true)
+    const afterBase = readStore()
+    assert.ok(
+      (afterBase.meta.deletedProductIds || []).includes(PRODUCTS_BASE_ID),
+      'id du produit de base consigné dans deletedProductIds'
+    )
+    const catalog = await call('GET', '/api/catalog')
+    assert.equal(
+      (catalog.data.products || []).some((p) => p.id === PRODUCTS_BASE_ID),
+      false,
+      'produit de base supprimé hors du catalogue public'
+    )
 
     const delUnknown = await call('DELETE', '/api/master/products/produit-inexistant', { token: master })
     assert.equal(delUnknown.status, 404)

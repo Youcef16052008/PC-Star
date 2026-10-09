@@ -4,6 +4,14 @@ import { useEffect, useMemo, useState } from 'react'
 // références en rupture ou masquées.
 import { CATEGORIES, PRODUCTS, PRODUCT_CONDITIONS, PRODUCT_USES, money } from './data.js'
 import { addPanel, addProduct, deleteCustomer, hideProduct, removePanel, setProductPhotos, togglePanel } from './shopStore.js'
+import {
+  addBrand as addBrandLocal,
+  setBrandHidden as setBrandHiddenLocal,
+  deleteBrand as deleteBrandLocal,
+  addCategory as addCategoryLocal,
+  setCategoryHidden as setCategoryHiddenLocal,
+  deleteCategory as deleteCategoryLocal
+} from './shopStore.js'
 // LOT P4 (V1) : le bornage de la vitrine est la fonction meme du serveur
 // (`src/vitrine.js`, partage) — le formulaire ne peut pas accepter ce que
 // l'API refuserait, ni l'inverse.
@@ -172,6 +180,11 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, ma
   const [apiCustomers, setApiCustomers] = useState([])
   const [apiProducts, setApiProducts] = useState([])
   const [apiTick, setApiTick] = useState(0)
+  // Formulaires de taxonomie (onglets Marques / Catalogue).
+  const [brandName, setBrandName] = useState('')
+  const [catId, setCatId] = useState('')
+  const [catFr, setCatFr] = useState('')
+  const [catEn, setCatEn] = useState('')
 
   // Mode API : la liste des clients vient du serveur (les clients créés via
   // l'API n'existent pas dans le store local).
@@ -300,6 +313,57 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, ma
   function masterTriMarque(col) {
     return masterSortKey === col ? (masterSortDir === 'asc' ? ' ▲' : ' ▼') : ''
   }
+
+  // ─── Taxonomie affichée : marques et catégories connues ───
+  // Marques : celles des fiches en rayon (base + master, overrides compris)
+  // plus celles ajoutées à la main, moins celles retirées du filtre.
+  const masterMarques = useMemo(() => {
+    const added = (meta.extraBrands || []).map(String)
+    const hidden = new Set(meta.hiddenBrands || [])
+    const counts = new Map()
+    const bump = (b) => {
+      const v = String(b || '').trim()
+      if (v) counts.set(v, (counts.get(v) || 0) + 1)
+    }
+    for (const p of productsShown || []) bump(p.brand)
+    const names = new Set([...added, ...counts.keys()])
+    return [...names]
+      .sort((a, b) => a.localeCompare(b, 'fr'))
+      .map((name) => ({ name, count: counts.get(name) || 0, hidden: hidden.has(name), added: added.includes(name) }))
+  }, [productsShown, meta.extraBrands, meta.hiddenBrands])
+
+  // Catégories : celles du code + celles du maître, avec le nombre de fiches
+  // qui les utilisent encore — c'est ce que le maître lit avant de supprimer.
+  const masterCategories = useMemo(() => {
+    const hidden = new Set(meta.hiddenCategories || [])
+    const counts = new Map()
+    for (const p of productsShown || []) {
+      const c = String(p.category || '')
+      if (c) counts.set(c, (counts.get(c) || 0) + 1)
+    }
+    const rows = CATEGORIES.filter((c) => c.id !== 'all').map((c) => ({
+      id: c.id,
+      label: labelOr(t, `cat_${c.id}`, c.label || c.id),
+      count: counts.get(c.id) || 0,
+      hidden: hidden.has(c.id),
+      added: false
+    }))
+    for (const c of meta.extraCategories || []) {
+      if (!c?.id || rows.some((r) => r.id === c.id)) continue
+      rows.push({
+        id: c.id,
+        label: c.labels?.[lang] || c.labels?.fr || c.labels?.en || c.id,
+        count: counts.get(c.id) || 0,
+        hidden: hidden.has(c.id),
+        added: true
+      })
+    }
+    return rows
+  }, [productsShown, meta.extraCategories, meta.hiddenCategories, lang, t])
+
+  // Catégories proposées au formulaire produit et au filtre du tableau :
+  // la liste fusionnée, moins celles retirées de la vitrine.
+  const masterCategoriesVisibles = masterCategories.filter((c) => !c.hidden)
 
   // La fiche en cours de modification, pour l'en-tete du formulaire.
   const editingProduct = editFormId ? (productsShown || []).find((p) => p.id === editFormId) || null : null
@@ -555,15 +619,16 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, ma
     setToast(isHidden ? t('masterShown') : t('masterHidden'))
   }
 
-  // Phase suivante — suppression DÉFINITIVE d'un produit créé par le maître.
-  // Un produit du catalogue de base ne se supprime pas : il se masque (le
-  // serveur répond `base`), on l'explique au lieu d'échouer en silence.
+  // Suppression d'une fiche — TOUTES les fiches, pas seulement celles créées
+  // ici. Le serveur retire un produit de base de l'état (`deletedProductIds`),
+  // il ne le fait donc pas « revenir » au prochain déploiement. Masquer reste
+  // le geste réversible ; supprimer est définitif, d'où la confirmation.
   async function doDeleteProduct(id) {
     if (!window.confirm(t('confirmDeleteProduct'))) return
     if (apiOnline) {
       const r = await api.masterDeleteProduct(id)
       if (!r.ok) {
-        setToast(r.data?.error === 'base' ? t('masterDeleteBase') : t('masterActionFail'))
+        errToast(setToast, t, r, 'masterActionFail')
         return
       }
       setApiProducts((prev) => prev.filter((p) => p.id !== id))
@@ -571,14 +636,141 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, ma
       onStockRefresh?.()
       return
     }
-    const extras = meta.extraProducts || []
-    const known = extras.some((p) => p.id === id)
-    if (!known) {
-      setToast(t('masterDeleteBase'))
+    // Mode local : un produit de base rejoint la liste des supprimés, une
+    // fiche créée ici disparaît de extraProducts — même résultat visible.
+    const known = (meta.extraProducts || []).some((p) => p.id === id)
+    const gone = new Set(meta.deletedProductIds || [])
+    gone.add(id)
+    onMeta({
+      ...meta,
+      extraProducts: (meta.extraProducts || []).filter((p) => p.id !== id),
+      deletedProductIds: [...gone]
+    })
+    if (!known) onStockRefresh?.()
+    setToast(t('masterDeleted'))
+  }
+
+  // ─── Taxonomie : marques et catégories ───
+  // Un geste = un appel ; la réponse du serveur (les quatre listes) est
+  // fusionnée dans le meta, sans écraser extraProducts & co.
+
+  function taxonomieSync(next) {
+    onMeta({ ...meta, ...(next || {}) })
+  }
+
+  async function doAddBrand() {
+    const name = brandName.trim()
+    if (!name) return
+    if (apiOnline) {
+      const r = await api.putTaxonomy({ brand: { add: name } })
+      if (!r.ok) {
+        setToast(r.data?.error === 'brand_taken' ? t('masterBrandTaken') : t('masterActionFail'))
+        return
+      }
+      taxonomieSync(r.data?.meta)
+      setBrandName('')
+      setToast(t('masterBrandAdded'))
+      setApiTick((x) => x + 1)
       return
     }
-    onMeta({ ...meta, extraProducts: extras.filter((p) => p.id !== id) })
-    setToast(t('masterDeleted'))
+    const res = addBrandLocal(meta, name)
+    if (!res.ok) {
+      setToast(res.error === 'brand_taken' ? t('masterBrandTaken') : t('masterActionFail'))
+      return
+    }
+    taxonomieSync(res.meta)
+    setBrandName('')
+    setToast(t('masterBrandAdded'))
+  }
+
+  async function doToggleBrand(name, hidden) {
+    if (apiOnline) {
+      const r = await api.putTaxonomy({ brand: { hide: { name, hidden } } })
+      if (!r.ok) {
+        errToast(setToast, t, r, 'masterActionFail')
+        return
+      }
+      taxonomieSync(r.data?.meta)
+      return
+    }
+    taxonomieSync(setBrandHiddenLocal(meta, name, hidden).meta)
+  }
+
+  async function doDeleteBrand(brand) {
+    const n = brand.count || 0
+    if (!window.confirm(t('masterBrandDeleteConfirm', { name: brand.name, n }))) return
+    if (apiOnline) {
+      const r = await api.putTaxonomy({ brand: { remove: brand.name } })
+      if (!r.ok) {
+        errToast(setToast, t, r, 'masterActionFail')
+        return
+      }
+      taxonomieSync(r.data?.meta)
+      setToast(n > 0 ? t('masterBrandDeletedUsed', { n }) : t('masterBrandDeleted'))
+      setApiTick((x) => x + 1)
+      return
+    }
+    taxonomieSync(deleteBrandLocal(meta, brand.name, PRODUCTS).meta)
+    setToast(n > 0 ? t('masterBrandDeletedUsed', { n }) : t('masterBrandDeleted'))
+  }
+
+  async function doAddCategory() {
+    const id = catId.trim()
+    if (!id) return
+    if (apiOnline) {
+      const r = await api.putTaxonomy({ category: { add: { id, labels: { fr: catFr, en: catEn } } } })
+      if (!r.ok) {
+        setToast(r.data?.error === 'category_taken' ? t('masterCategoryTaken') : t('masterActionFail'))
+        return
+      }
+      taxonomieSync(r.data?.meta)
+      setCatId('')
+      setCatFr('')
+      setCatEn('')
+      setToast(t('masterCategoryAdded'))
+      return
+    }
+    const res = addCategoryLocal(meta, { id, labels: { fr: catFr, en: catEn } })
+    if (!res.ok) {
+      setToast(res.error === 'category_taken' ? t('masterCategoryTaken') : t('masterActionFail'))
+      return
+    }
+    taxonomieSync(res.meta)
+    setCatId('')
+    setCatFr('')
+    setCatEn('')
+    setToast(t('masterCategoryAdded'))
+  }
+
+  async function doToggleCategory(id, hidden) {
+    if (apiOnline) {
+      const r = await api.putTaxonomy({ category: { hide: { id, hidden } } })
+      if (!r.ok) {
+        errToast(setToast, t, r, 'masterActionFail')
+        return
+      }
+      taxonomieSync(r.data?.meta)
+      return
+    }
+    taxonomieSync(setCategoryHiddenLocal(meta, id, hidden).meta)
+  }
+
+  async function doDeleteCategory(cat) {
+    const n = cat.count || 0
+    if (!window.confirm(t('masterCategoryDeleteConfirm', { name: cat.label, n }))) return
+    if (apiOnline) {
+      const r = await api.putTaxonomy({ category: { remove: cat.id } })
+      if (!r.ok) {
+        errToast(setToast, t, r, 'masterActionFail')
+        return
+      }
+      taxonomieSync(r.data?.meta)
+      setToast(n > 0 ? t('masterCategoryDeletedUsed', { n }) : t('masterCategoryDeleted'))
+      setApiTick((x) => x + 1)
+      return
+    }
+    taxonomieSync(deleteCategoryLocal(meta, cat.id, PRODUCTS).meta)
+    setToast(n > 0 ? t('masterCategoryDeletedUsed', { n }) : t('masterCategoryDeleted'))
   }
 
   function doDeleteCustomer(c) {
@@ -736,17 +928,18 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, ma
         )}
       </div>
 
-      <ul className="nav nav-pills gap-2 mb-4">
-        {['products', 'customers', 'panels', 'vitrine'].map((id) => (
+      <ul className="nav nav-pills gap-2 mb-4 master-tabs">
+        {[
+          ['products', t('masterProducts')],
+          ['brands', t('masterBrands')],
+          ['categories', t('masterCategories')],
+          ['customers', t('masterCustomers')],
+          ['panels', t('masterPanels')],
+          ['vitrine', t('masterVitrine')]
+        ].map(([id, label]) => (
           <li className="nav-item" key={id}>
             <button type="button" className={`nav-link ${tab === id ? 'active' : ''}`} onClick={() => setTab(id)}>
-              {id === 'products'
-                ? t('masterProducts')
-                : id === 'customers'
-                  ? t('masterCustomers')
-                  : id === 'panels'
-                    ? t('masterPanels')
-                    : t('masterVitrine')}
+              {label}
             </button>
           </li>
         ))}
@@ -843,15 +1036,27 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, ma
                   <legend>{t('masterCatalogDetails')}</legend>
                   <div className="mb-2">
                     <label className="form-label small" htmlFor="master-product-category">{t('masterCategory')}</label>
+                    {/* La liste fusionnée : catégories du code + celles du
+                        maître, moins celles qu'il a retirées de la vitrine.
+                        Ajouter un rayon dans l'onglet Catalogue le rend
+                        immédiatement saisissable ici. */}
                     <select id="master-product-category" className="form-select" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })}>
-                      {CATEGORIES.filter((c) => c.id !== 'all').map((c) => (
-                        <option key={c.id} value={c.id}>{labelOr(t, `cat_${c.id}`, c.label || c.id)}</option>
+                      {masterCategoriesVisibles.map((c) => (
+                        <option key={c.id} value={c.id}>{c.label}</option>
                       ))}
                     </select>
                   </div>
                   <div className="mb-2">
                     <label className="form-label small" htmlFor="master-product-brand">{t('masterBrand')}</label>
-                    <input id="master-product-brand" className="form-control" maxLength={BRAND_LIMIT} value={form.brand} onChange={(e) => setForm({ ...form, brand: e.target.value })} />
+                    {/* Saisie libre + suggestions : le maître garde la main
+                        (une marque hors liste reste valable), sans avoir à
+                        retaper ce qui existe déjà. */}
+                    <input id="master-product-brand" className="form-control" maxLength={BRAND_LIMIT} value={form.brand} list="master-brand-list" onChange={(e) => setForm({ ...form, brand: e.target.value })} />
+                    <datalist id="master-brand-list">
+                      {masterMarques.filter((b) => !b.hidden).map((b) => (
+                        <option key={b.name} value={b.name} />
+                      ))}
+                    </datalist>
                   </div>
                   <div className="mb-2">
                     <label className="form-label small" htmlFor="master-product-short">{t('masterShort')}</label>
@@ -988,8 +1193,8 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, ma
                     <label className="visually-hidden" htmlFor="master-filter-cat">{t('masterFilterCat')}</label>
                     <select id="master-filter-cat" className="form-select form-select-sm w-auto" value={masterCat} onChange={(e) => { setMasterCat(e.target.value); setMasterPage(1) }}>
                       <option value="all">{t('masterAllCats')}</option>
-                      {CATEGORIES.filter((c) => c.id !== 'all').map((c) => (
-                        <option key={c.id} value={c.id}>{labelOr(t, `cat_${c.id}`, c.label || c.id)}</option>
+                      {masterCategoriesVisibles.map((c) => (
+                        <option key={c.id} value={c.id}>{c.label}</option>
                       ))}
                     </select>
                   </div>
@@ -1119,9 +1324,8 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, ma
                                 <button
                                   type="button"
                                   className="btn btn-sm btn-outline-danger"
-                                  disabled={p.source !== 'extra'}
-                                  title={p.source !== 'extra' ? t('masterDeleteBase') : t('masterDelete')}
                                   aria-label={t('masterDelete')}
+                                  title={t('masterDelete')}
                                   onClick={() => doDeleteProduct(p.id)}
                                 >
                                   🗑
@@ -1192,6 +1396,184 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, ma
               )}
             </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {tab === 'brands' && (
+        <div className="master-taxo">
+          <div className="row g-3">
+            <div className="col-lg-4">
+              <form
+                className="card shadow-sm border-0"
+                onSubmit={(e) => {
+                  e.preventDefault()
+                  doAddBrand()
+                }}
+              >
+                <div className="card-body">
+                  <h2 className="h6 mb-1">{t('masterAddBrand')}</h2>
+                  <p className="small text-secondary mb-2">{t('masterAddBrandHint')}</p>
+                  <label className="form-label small" htmlFor="master-brand-name">{t('masterBrandName')}</label>
+                  <input
+                    id="master-brand-name"
+                    className="form-control form-control-sm"
+                    value={brandName}
+                    maxLength={40}
+                    placeholder={t('masterBrandNamePh')}
+                    onChange={(e) => setBrandName(e.target.value)}
+                  />
+                  <button className="btn btn-success btn-sm w-100 mt-2" type="submit" disabled={!brandName.trim()}>
+                    {t('masterAddBrand')}
+                  </button>
+                </div>
+              </form>
+            </div>
+            <div className="col-lg-8">
+              <div className="master-table-wrap card border-0 shadow-sm">
+                <div className="table-responsive">
+                  <table className="table master-table master-table--taxo align-middle mb-0">
+                    <thead>
+                      <tr>
+                        <th scope="col">{t('masterBrandName')}</th>
+                        <th scope="col" className="text-end">{t('masterCount')}</th>
+                        <th scope="col">{t('masterFilterStatus')}</th>
+                        <th scope="col" className="text-end">{t('masterActionsCol')}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {masterMarques.map((b) => (
+                        <tr key={b.name} className={b.hidden ? 'master-row-hidden' : ''}>
+                          <td>
+                            <strong>{b.name}</strong>
+                            {b.added ? <span className="badge text-bg-light border ms-2">{t('masterAddedBadge')}</span> : null}
+                          </td>
+                          <td className="text-end master-num">{b.count}</td>
+                          <td>
+                            {b.hidden
+                              ? <span className="badge text-bg-warning text-dark">{t('masterHiddenBadge')}</span>
+                              : <span className="badge text-bg-light border">{t('masterStatusVisible')}</span>}
+                          </td>
+                          <td className="text-end">
+                            <div className="master-row-actions">
+                              <button
+                                type="button"
+                                className={`btn btn-sm ${b.hidden ? 'btn-outline-success' : 'btn-outline-secondary'}`}
+                                onClick={() => doToggleBrand(b.name, !b.hidden)}
+                              >
+                                {b.hidden ? t('masterShow') : t('masterHide')}
+                              </button>
+                              <button
+                                type="button"
+                                className="btn btn-sm btn-outline-danger"
+                                onClick={() => doDeleteBrand(b)}
+                              >
+                                {t('masterDelete')}
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {tab === 'categories' && (
+        <div className="master-taxo">
+          <div className="row g-3">
+            <div className="col-lg-4">
+              <form
+                className="card shadow-sm border-0"
+                onSubmit={(e) => {
+                  e.preventDefault()
+                  doAddCategory()
+                }}
+              >
+                <div className="card-body">
+                  <h2 className="h6 mb-1">{t('masterAddCategory')}</h2>
+                  <p className="small text-secondary mb-2">{t('masterAddCategoryHint')}</p>
+                  <label className="form-label small" htmlFor="master-cat-id">{t('masterCategoryId')}</label>
+                  <input
+                    id="master-cat-id"
+                    className="form-control form-control-sm"
+                    value={catId}
+                    maxLength={24}
+                    placeholder={t('masterCategoryIdPh')}
+                    onChange={(e) => setCatId(e.target.value)}
+                  />
+                  <div className="row g-2 mt-1">
+                    <div className="col-6">
+                      <label className="form-label small" htmlFor="master-cat-fr">{t('masterCategoryFr')}</label>
+                      <input id="master-cat-fr" className="form-control form-control-sm" value={catFr} maxLength={60} onChange={(e) => setCatFr(e.target.value)} />
+                    </div>
+                    <div className="col-6">
+                      <label className="form-label small" htmlFor="master-cat-en">{t('masterCategoryEn')}</label>
+                      <input id="master-cat-en" className="form-control form-control-sm" value={catEn} maxLength={60} onChange={(e) => setCatEn(e.target.value)} />
+                    </div>
+                  </div>
+                  <button className="btn btn-success btn-sm w-100 mt-2" type="submit" disabled={!catId.trim()}>
+                    {t('masterAddCategory')}
+                  </button>
+                </div>
+              </form>
+            </div>
+            <div className="col-lg-8">
+              <div className="master-table-wrap card border-0 shadow-sm">
+                <div className="table-responsive">
+                  <table className="table master-table master-table--taxo align-middle mb-0">
+                    <thead>
+                      <tr>
+                        <th scope="col">{t('masterCategory')}</th>
+                        <th scope="col">{t('masterCategoryId')}</th>
+                        <th scope="col" className="text-end">{t('masterCount')}</th>
+                        <th scope="col">{t('masterFilterStatus')}</th>
+                        <th scope="col" className="text-end">{t('masterActionsCol')}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {masterCategories.map((c) => (
+                        <tr key={c.id} className={c.hidden ? 'master-row-hidden' : ''}>
+                          <td>
+                            <strong>{c.label}</strong>
+                            {c.added ? <span className="badge text-bg-light border ms-2">{t('masterAddedBadge')}</span> : null}
+                          </td>
+                          <td className="master-cell-sku">{c.id}</td>
+                          <td className="text-end master-num">{c.count}</td>
+                          <td>
+                            {c.hidden
+                              ? <span className="badge text-bg-warning text-dark">{t('masterHiddenBadge')}</span>
+                              : <span className="badge text-bg-light border">{t('masterStatusVisible')}</span>}
+                          </td>
+                          <td className="text-end">
+                            <div className="master-row-actions">
+                              <button
+                                type="button"
+                                className={`btn btn-sm ${c.hidden ? 'btn-outline-success' : 'btn-outline-secondary'}`}
+                                onClick={() => doToggleCategory(c.id, !c.hidden)}
+                              >
+                                {c.hidden ? t('masterShow') : t('masterHide')}
+                              </button>
+                              <button
+                                type="button"
+                                className="btn btn-sm btn-outline-danger"
+                                onClick={() => doDeleteCategory(c)}
+                              >
+                                {t('masterDelete')}
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       )}

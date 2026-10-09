@@ -80,6 +80,12 @@ import { isKnownCategory, isKnownCondition, isKnownUse, kindForCategory } from '
 import {
   BARCODE_LIMIT,
   BRAND_LIMIT,
+  BRAND_NAME_LIMIT,
+  CATEGORY_ID_LIMIT,
+  CATEGORY_LABEL_LIMIT,
+  CATEGORY_FALLBACK,
+  MAX_EXTRA_BRANDS,
+  MAX_EXTRA_CATEGORIES,
   CONDITION_NOTE_LIMIT,
   DESCRIPTION_LIMIT,
   MODEL_LIMIT,
@@ -533,8 +539,128 @@ export function removePanel(meta, id) {
   return { ...meta, extraPanels, hiddenPanelIds: [...hidden] }
 }
 
+// ─── Taxonomie : marques et catégories (mode local) ───
+// Mêmes gestes que la route serveur, en fonctions pures sur `meta` : ajouter,
+// masquer, supprimer. La vitrine (buildShopView) lit ces listes, donc un
+// masquage pris ici se voit immédiatement à l'écran.
+
+export function addBrand(meta, name) {
+  const clean = String(name || '').trim().slice(0, BRAND_NAME_LIMIT)
+  if (!clean) return { ok: false, error: 'brand' }
+  const list = (meta.extraBrands || []).map(String)
+  if (list.includes(clean)) return { ok: false, error: 'brand_taken' }
+  const hidden = (meta.hiddenBrands || []).filter((b) => b !== clean)
+  return { ok: true, meta: { ...meta, extraBrands: [...list, clean], hiddenBrands: hidden } }
+}
+
+export function setBrandHidden(meta, name, hidden) {
+  const clean = String(name || '').trim()
+  if (!clean) return { ok: false, error: 'brand' }
+  const set = new Set(meta.hiddenBrands || [])
+  if (hidden) set.add(clean)
+  else set.delete(clean)
+  return { ok: true, meta: { ...meta, hiddenBrands: [...set] } }
+}
+
+/** Supprime une marque des listes ; les fiches qui la portent la perdent. */
+export function deleteBrand(meta, name, baseProducts = []) {
+  const clean = String(name || '').trim()
+  if (!clean) return { ok: false, error: 'brand' }
+  const overrides = { ...(meta.productOverrides || {}) }
+  let touched = 0
+  for (const p of baseProducts) {
+    const eff = overrides[p.id]?.brand != null ? overrides[p.id].brand : p.brand
+    if (String(eff || '').trim() !== clean) continue
+    overrides[p.id] = { ...(overrides[p.id] || {}), brand: '' }
+    touched += 1
+  }
+  const extraProducts = (meta.extraProducts || []).map((p) => {
+    if (String(p.brand || '').trim() !== clean) return p
+    touched += 1
+    return { ...p, brand: '' }
+  })
+  return {
+    ok: true,
+    touched,
+    meta: {
+      ...meta,
+      extraBrands: (meta.extraBrands || []).filter((b) => String(b) !== clean),
+      hiddenBrands: (meta.hiddenBrands || []).filter((b) => b !== clean),
+      productOverrides: overrides,
+      extraProducts
+    }
+  }
+}
+
+export function addCategory(meta, { id, labels }) {
+  const cleanId = String(id || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, '-')
+    .replace(/-{2,}/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, CATEGORY_ID_LIMIT)
+  if (!cleanId) return { ok: false, error: 'category' }
+  const list = Array.isArray(meta.extraCategories) ? meta.extraCategories : []
+  if (list.some((c) => c?.id === cleanId)) return { ok: false, error: 'category_taken' }
+  const labelsSafe = {
+    fr: String(labels?.fr || '').trim().slice(0, CATEGORY_LABEL_LIMIT) || cleanId,
+    en: String(labels?.en || '').trim().slice(0, CATEGORY_LABEL_LIMIT) || String(labels?.fr || '').trim().slice(0, CATEGORY_LABEL_LIMIT) || cleanId
+  }
+  const hidden = (meta.hiddenCategories || []).filter((c) => c !== cleanId)
+  return { ok: true, meta: { ...meta, extraCategories: [...list, { id: cleanId, labels: labelsSafe }], hiddenCategories: hidden } }
+}
+
+export function setCategoryHidden(meta, id, hidden) {
+  const clean = String(id || '').trim()
+  if (!clean) return { ok: false, error: 'category' }
+  const set = new Set(meta.hiddenCategories || [])
+  if (hidden) set.add(clean)
+  else set.delete(clean)
+  return { ok: true, meta: { ...meta, hiddenCategories: [...set] } }
+}
+
+/** Supprime une catégorie ; ses fiches partent au rayon neutre `accessories`. */
+export function deleteCategory(meta, id, baseProducts = []) {
+  const clean = String(id || '').trim()
+  if (!clean) return { ok: false, error: 'category' }
+  const overrides = { ...(meta.productOverrides || {}) }
+  let touched = 0
+  for (const p of baseProducts) {
+    const eff = overrides[p.id]?.category != null ? overrides[p.id].category : p.category
+    if (String(eff || '') !== clean) continue
+    overrides[p.id] = { ...(overrides[p.id] || {}), category: CATEGORY_FALLBACK }
+    touched += 1
+  }
+  const extraProducts = (meta.extraProducts || []).map((p) => {
+    if (String(p.category || '') !== clean) return p
+    touched += 1
+    return { ...p, category: CATEGORY_FALLBACK }
+  })
+  const hidden = new Set(meta.hiddenCategories || [])
+  hidden.add(clean)
+  return {
+    ok: true,
+    touched,
+    meta: {
+      ...meta,
+      extraCategories: (meta.extraCategories || []).filter((c) => c?.id !== clean),
+      hiddenCategories: [...hidden],
+      productOverrides: overrides,
+      extraProducts
+    }
+  }
+}
+
 export function buildShopView(baseProducts, baseLines, basePanels, meta) {
   const hiddenIds = new Set(meta.hiddenProductIds || [])
+  // Supprimés par le maître : hors de la vitrine, comme les masqués — sauf
+  // que rien ne les fait revenir (l'id est dans l'état, pas juste caché).
+  const goneIds = new Set(meta.deletedProductIds || [])
+  // Catégories retirées de la vitrine : leur entrée disparaît du filtre
+  // « par catalogue ». Les fiches, elles, restent trouvables par la recherche
+  // — masquer un rayon n'est pas retirer des produits de la vente.
+  const hiddenCats = new Set(meta.hiddenCategories || [])
   const overrides = meta.photoOverrides || {}
   const withPhotos = (p) => {
     // Une photo importée par le maître devient la photo de référence : on ne
@@ -544,8 +670,17 @@ export function buildShopView(baseProducts, baseLines, basePanels, meta) {
     return p
   }
   const products = [
-    ...baseProducts.filter((p) => !hiddenIds.has(p.id)).map(withPhotos),
-    ...(meta.extraProducts || []).filter((p) => !hiddenIds.has(p.id)).map(withPhotos)
+    ...baseProducts.filter((p) => !hiddenIds.has(p.id) && !goneIds.has(p.id)).map(withPhotos),
+    ...(meta.extraProducts || []).filter((p) => !hiddenIds.has(p.id) && !goneIds.has(p.id)).map(withPhotos)
+  ]
+  // Produits encore vivants (supprimés exclus) pour décider du sort des
+  // lignes de filtre : une ligne survit si au moins un produit d'une
+  // catégorie VISIBLE la matche. Les ids de `PART_LINES` ne sont pas tous
+  // des catégories (`ram`, `ssd`, `hdd` partagent `memory`), donc on
+  // interroge les fiches, pas les ids.
+  const allLive = [
+    ...baseProducts.filter((p) => !goneIds.has(p.id)),
+    ...(meta.extraProducts || []).filter((p) => !goneIds.has(p.id))
   ]
   const hiddenPanels = new Set(meta.hiddenPanelIds || [])
   // LOT P3 (B32) : un panneau ajouté masqué doit disparaître du rayonnage
@@ -554,13 +689,25 @@ export function buildShopView(baseProducts, baseLines, basePanels, meta) {
   // bouton n'existait d'ailleurs pas), la vitrine continuait de l'afficher.
   const visibles = (meta.extraPanels || []).filter((panel) => !hiddenPanels.has(panel.id))
   const extraLines = visibles.flatMap((panel) =>
-    panel.categories.map((cat) => ({
-      id: `${panel.id}-${cat}`,
-      label: cat,
-      group: panel.id,
-      match: (p) => p.category === cat
-    }))
+    panel.categories
+      .filter((cat) => !hiddenCats.has(cat))
+      .map((cat) => ({
+        id: `${panel.id}-${cat}`,
+        label: cat,
+        group: panel.id,
+        match: (p) => p.category === cat
+      }))
   )
+  // Les rayons ajoutés par le maître deviennent des entrées du filtre
+  // catalogue, au même titre que ceux du code.
+  const extraCatLines = (meta.extraCategories || [])
+    .filter((c) => c?.id && !hiddenCats.has(c.id))
+    .map((c) => ({
+      id: `cat-${c.id}`,
+      label: c.labels?.fr || c.labels?.en || c.id,
+      group: 'catalogue',
+      match: (p) => p.category === c.id
+    }))
   const extraPanels = visibles.map((panel) => ({
     id: panel.id,
     titleKey: null,
@@ -569,7 +716,11 @@ export function buildShopView(baseProducts, baseLines, basePanels, meta) {
   }))
   return {
     products,
-    lines: [...baseLines, ...extraLines],
+    lines: [
+      ...baseLines.filter((l) => allLive.some((p) => !hiddenCats.has(p.category) && l.match(p))),
+      ...extraLines,
+      ...extraCatLines
+    ],
     panels: [...basePanels.filter((p) => !hiddenPanels.has(p.id)), ...extraPanels]
   }
 }

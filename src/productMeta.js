@@ -18,6 +18,20 @@ export const NAME_LIMIT = 120
 export const BRAND_LIMIT = 60
 export const SHORT_LIMIT = 200
 
+// ─── Taxonomie : marques et catégories sous la main du maître ───
+// Même principe que les bornes de fiche : le serveur et le mode local lisent
+// la MÊME constante, sinon l'un accepte ce que l'autre refuse (P2/B12).
+// `BRAND_NAME_LIMIT` est plus court que `BRAND_LIMIT` : un nom de marque est
+// un libellé court qu'on choisit, pas une description qu'on rédige.
+export const BRAND_NAME_LIMIT = 40
+export const MAX_EXTRA_BRANDS = 80
+export const CATEGORY_ID_LIMIT = 24
+export const CATEGORY_LABEL_LIMIT = 60
+export const MAX_EXTRA_CATEGORIES = 40
+// Le rayon neutre où atterrissent les fiches d'une catégorie supprimée : une
+// fiche ne garde jamais une catégorie fantôme.
+export const CATEGORY_FALLBACK = 'accessories'
+
 export const DETAIL_LIMIT = 12
 export const DETAIL_LABEL_LIMIT = 48
 export const DETAIL_VALUE_LIMIT = 160

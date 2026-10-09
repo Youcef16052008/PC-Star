@@ -7,7 +7,15 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { newId } from './db.js'
 import { ensureStock, setStock, liveStockOf, withOverride } from './catalog.js'
-import { PRODUCTS, isKnownCategory, isKnownCondition, isKnownKind, isKnownUse, kindForCategory } from '../src/data.js'
+import { PRODUCTS, CATEGORIES, isKnownCategory, isKnownCondition, isKnownKind, isKnownUse, kindForCategory } from '../src/data.js'
+import {
+  BRAND_NAME_LIMIT,
+  CATEGORY_ID_LIMIT,
+  CATEGORY_LABEL_LIMIT,
+  CATEGORY_FALLBACK,
+  MAX_EXTRA_BRANDS,
+  MAX_EXTRA_CATEGORIES
+} from '../src/productMeta.js'
 import {
   BARCODE_LIMIT,
   BRAND_LIMIT,
@@ -95,11 +103,14 @@ export function listMasterProducts(db) {
   ensureStock(db)
   migrateNeeds(db)
   const hidden = new Set(db.meta?.hiddenProductIds || [])
+  // Supprimés = sortis de l'état pour de bon (le maître a cliqué « supprimer »,
+  // pas « masquer ») : ils ne reviennent pas dans la liste, ni dans la vitrine.
+  const gone = new Set(db.meta?.deletedProductIds || [])
   // P8 (P7-1) : la vue master doit refléter les overrides (prix/nom/stock/
   // photos) exactement comme le catalogue public — sinon le master édite des
   // valeurs obsolètes (et le panneau photos écrase les uploads).
   const overrides = db.meta?.productOverrides || {}
-  const base = PRODUCTS.map((p) => ({
+  const base = PRODUCTS.filter((p) => !gone.has(p?.id)).map((p) => ({
     ...withOverride(p, overrides[p.id]),
     stock: liveStockOf(db, p.id),
     hidden: hidden.has(p.id),
@@ -545,30 +556,251 @@ export function hideProductMaster(db, id, hidden = true) {
 }
 
 /**
- * Suppression DÉFINITIVE d'un produit créé par le maître (extraProducts) et
- * de son override éventuel. Les produits du catalogue de base ne se
- * suppriment pas : ils se masquent (`hideProductMaster`), car le code du
- * configurateur, des lignes de pièces et des tests en dépend structurellement.
+ * Suppression d'un produit par le maître.
+ *
+ * Un produit créé par le maître (extraProducts) disparaît de l'état. Un
+ * produit du catalogue de base est du CODE : on ne peut pas le retirer du
+ * fichier, on le retire donc de l'état — son id rejoint `deletedProductIds`,
+ * qui survit au redéploiement. C'est la différence avec le masquage : masquer
+ * se défait d'un clic, supprimer est définitif tant que le maître ne remet
+ * pas la fiche lui-même.
+ *
  * L'historique des commandes est conservé (prix et libellés y sont figés).
- * @returns {{ ok: true, id, photos: string[] }} — photos renvoyées pour le
- *   cleanup best-effort de la route, APRÈS le commit de la mutation.
+ * @returns {{ ok: true, id, photos: string[], base: boolean }} — photos
+ *   renvoyées pour le cleanup best-effort de la route, APRÈS le commit.
  */
 export function deleteProductMaster(db, id) {
   if (!id || typeof id !== 'string') return { ok: false, error: 'id' }
-  if (PRODUCTS.some((p) => p?.id === id)) return { ok: false, error: 'base' }
-  const photos = currentProductPhotos(db, id)
+  const photos = currentProductPhotos(db, id) || []
+  const isBase = PRODUCTS.some((p) => p?.id === id)
   const extras = db.meta?.extraProducts || []
   const idx = extras.findIndex((p) => p?.id === id)
   const hasOverride =
     db.meta?.productOverrides && Object.prototype.hasOwnProperty.call(db.meta.productOverrides, id)
-  if (idx < 0 && !hasOverride) return { ok: false, error: 'not_found' }
+  if (idx < 0 && !hasOverride && !isBase) return { ok: false, error: 'not_found' }
+  if (!db.meta) db.meta = { extraProducts: [], hiddenProductIds: [], deletedProductIds: [] }
   if (idx >= 0) db.meta.extraProducts = extras.filter((p) => p?.id !== id)
   if (hasOverride) delete db.meta.productOverrides[id]
   if (db.stock && typeof db.stock === 'object') delete db.stock[id]
   if (Array.isArray(db.meta.hiddenProductIds)) {
     db.meta.hiddenProductIds = db.meta.hiddenProductIds.filter((x) => x !== id)
   }
-  return { ok: true, id, photos }
+  if (isBase) {
+    // Une seule inscription, jamais de doublon : la liste est un Set écrit.
+    const gone = new Set(db.meta.deletedProductIds || [])
+    gone.add(id)
+    db.meta.deletedProductIds = [...gone]
+  }
+  return { ok: true, id, photos, base: isBase }
+}
+
+// ─── Taxonomie : marques et catégories sous la main du maître ───
+//
+// Le catalogue de base est du CODE (`PRODUCTS`, `CATEGORIES`) : on ne le
+// réécrit pas à chaque saison. Mais le magasin vit — une marque disparaît,
+// un rayon naît. La taxonomie du maître vit donc dans l'ÉTAT, en surcouche :
+// ce qu'il ajoute (`extraBrands`, `extraCategories`), ce qu'il retire de la
+// vitrine (`hiddenBrands`, `hiddenCategories`). « Retirer de la vitrine » et
+// « supprimer » sont deux gestes différents, comme pour les produits :
+// masquer se défait, supprimer nettoie les fiches qui portaient la valeur.
+
+/** Marque effective d'une fiche (l'override gagne, comme partout ailleurs). */
+function effectiveBrand(product, override) {
+  const raw = override && typeof override === 'object' && override.brand != null ? override.brand : product?.brand
+  return raw ? String(raw).trim().slice(0, BRAND_NAME_LIMIT) : ''
+}
+
+/** Catégorie effective d'une fiche. */
+function effectiveCategory(product, override) {
+  const raw = override && typeof override === 'object' && override.category != null ? override.category : product?.category
+  return raw ? String(raw) : ''
+}
+
+/**
+ * Toutes les marques connues : celles des fiches en rayon (base + master,
+ * overrides compris) et celles que le maître a ajoutées à la main.
+ * `hidden` = retirée du filtre de la vitrine, `added` = créée par le maître.
+ */
+export function listBrands(db) {
+  const added = (db.meta?.extraBrands || []).map((b) => String(b || '').trim()).filter(Boolean)
+  const hidden = new Set(db.meta?.hiddenBrands || [])
+  const overrides = db.meta?.productOverrides || {}
+  const names = new Set(added)
+  for (const p of PRODUCTS) {
+    const b = effectiveBrand(p, overrides[p.id])
+    if (b) names.add(b)
+  }
+  for (const p of db.meta?.extraProducts || []) {
+    const b = effectiveBrand(p)
+    if (b) names.add(b)
+  }
+  return [...names]
+    .sort((a, b) => a.localeCompare(b, 'fr'))
+    .map((name) => ({ name, hidden: hidden.has(name), added: added.includes(name) }))
+}
+
+/**
+ * Catégories connues : celles du code, puis celles du maître. `hidden` et
+ * `added` ont le même sens que pour les marques ; `count` porte le nombre de
+ * fiches qui utilisent encore la catégorie — c'est ce que le maître lit
+ * avant de supprimer.
+ */
+export function listCategories(db) {
+  const added = Array.isArray(db.meta?.extraCategories) ? db.meta.extraCategories : []
+  const hidden = new Set(db.meta?.hiddenCategories || [])
+  const overrides = db.meta?.productOverrides || {}
+  const counts = new Map()
+  const bump = (cat) => {
+    if (!cat) return
+    counts.set(cat, (counts.get(cat) || 0) + 1)
+  }
+  for (const p of PRODUCTS) bump(effectiveCategory(p, overrides[p.id]))
+  for (const p of db.meta?.extraProducts || []) bump(effectiveCategory(p))
+  const rows = []
+  for (const c of CATEGORIES) {
+    if (c.id === 'all') continue
+    rows.push({ id: c.id, hidden: hidden.has(c.id), added: false, count: counts.get(c.id) || 0 })
+  }
+  for (const c of added) {
+    if (!c || typeof c.id !== 'string' || !c.id) continue
+    if (rows.some((r) => r.id === c.id)) continue
+    rows.push({
+      id: c.id,
+      hidden: hidden.has(c.id),
+      added: true,
+      count: counts.get(c.id) || 0,
+      labels: c.labels && typeof c.labels === 'object' ? c.labels : undefined
+    })
+  }
+  return rows
+}
+
+/** Ajoute une marque à la main (elle rejoint le formulaire et le filtre). */
+export function addBrand(db, name) {
+  const clean = String(name || '').trim().slice(0, BRAND_NAME_LIMIT)
+  if (!clean) return { ok: false, error: 'brand' }
+  const list = (db.meta?.extraBrands || []).map((b) => String(b))
+  if (list.includes(clean)) return { ok: false, error: 'brand_taken' }
+  if (list.length >= MAX_EXTRA_BRANDS) return { ok: false, error: 'too_many' }
+  // Une marque masquée redevient visible dès qu'on la repose : le geste
+  // « ajouter » porte l'intention du jour.
+  const hidden = (db.meta?.hiddenBrands || []).filter((b) => b !== clean)
+  db.meta.extraBrands = [...list, clean]
+  db.meta.hiddenBrands = hidden
+  return { ok: true, brand: clean }
+}
+
+/** Affiche/masque une marque dans les filtres de la vitrine. */
+export function setBrandHidden(db, name, hidden) {
+  const clean = String(name || '').trim()
+  if (!clean) return { ok: false, error: 'brand' }
+  const set = new Set(db.meta?.hiddenBrands || [])
+  if (hidden) set.add(clean)
+  else set.delete(clean)
+  db.meta.hiddenBrands = [...set]
+  return { ok: true, brand: clean, hidden: Boolean(hidden) }
+}
+
+/**
+ * Supprime une marque : elle sort des listes ET des fiches qui la portaient
+ * (base via override, master en direct). Une fiche ne garde pas une marque
+ * fantôme — le filtre de la vitrine ne la proposerait plus jamais.
+ */
+export function deleteBrand(db, name) {
+  const clean = String(name || '').trim()
+  if (!clean) return { ok: false, error: 'brand' }
+  // Le dictionnaire d'overrides doit EXISTER avant d'y écrire : lu avec un
+  // `|| {}`, un état qui n'en porte pas encore donnerait un objet détaché,
+  // et les nettoyages ci-dessous seraient perdus en silence.
+  if (!db.meta.productOverrides || typeof db.meta.productOverrides !== 'object') db.meta.productOverrides = {}
+  const overrides = db.meta.productOverrides
+  let touched = 0
+  for (const p of PRODUCTS) {
+    if (effectiveBrand(p, overrides[p.id]) !== clean) continue
+    const o = overrides[p.id] && typeof overrides[p.id] === 'object' ? overrides[p.id] : {}
+    overrides[p.id] = { ...o, brand: '' }
+    touched += 1
+  }
+  for (const p of db.meta?.extraProducts || []) {
+    if (effectiveBrand(p) === clean) {
+      p.brand = ''
+      touched += 1
+    }
+  }
+  db.meta.extraBrands = (db.meta?.extraBrands || []).filter((b) => String(b) !== clean)
+  db.meta.hiddenBrands = (db.meta?.hiddenBrands || []).filter((b) => b !== clean)
+  return { ok: true, brand: clean, touched }
+}
+
+/** Ajoute une catégorie (id + libellés FR/EN) à la main. */
+export function addCategory(db, { id, labels }) {
+  const cleanId = String(id || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, '-') // espaces et caractères exotiques → tirets
+    .replace(/-{2,}/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, CATEGORY_ID_LIMIT)
+  if (!cleanId) return { ok: false, error: 'category' }
+  if (CATEGORIES.some((c) => c.id === cleanId)) return { ok: false, error: 'category_taken' }
+  const list = Array.isArray(db.meta?.extraCategories) ? db.meta.extraCategories : []
+  if (list.some((c) => c?.id === cleanId)) return { ok: false, error: 'category_taken' }
+  if (list.length >= MAX_EXTRA_CATEGORIES) return { ok: false, error: 'too_many' }
+  const labelsSafe = {
+    fr: String(labels?.fr || '').trim().slice(0, CATEGORY_LABEL_LIMIT) || cleanId,
+    en: String(labels?.en || '').trim().slice(0, CATEGORY_LABEL_LIMIT) || String(labels?.fr || '').trim().slice(0, CATEGORY_LABEL_LIMIT) || cleanId
+  }
+  const hidden = (db.meta?.hiddenCategories || []).filter((c) => c !== cleanId)
+  db.meta.extraCategories = [...list, { id: cleanId, labels: labelsSafe }]
+  db.meta.hiddenCategories = hidden
+  return { ok: true, category: { id: cleanId, labels: labelsSafe } }
+}
+
+/** Affiche/masque une catégorie dans les filtres de la vitrine. */
+export function setCategoryHidden(db, id, hidden) {
+  const clean = String(id || '').trim()
+  if (!clean) return { ok: false, error: 'category' }
+  const set = new Set(db.meta?.hiddenCategories || [])
+  if (hidden) set.add(clean)
+  else set.delete(clean)
+  db.meta.hiddenCategories = [...set]
+  return { ok: true, category: clean, hidden: Boolean(hidden) }
+}
+
+/**
+ * Supprime une catégorie. Une catégorie ajoutée par le maître disparaît
+ * purement et simplement. Une catégorie du CODE ne peut pas quitter le
+ * fichier : ses fiches sont réaffectées à `accessoires` (le rayon neutre),
+ * et l'id rejoint les catégories retirées — sinon le filtre de la vitrine
+ * proposerait une entrée sans aucune fiche derrière.
+ * @returns touched — nombre de fiches réaffectées, pour le confirmer à l'écran.
+ */
+export function deleteCategory(db, id) {
+  const clean = String(id || '').trim()
+  if (!clean) return { ok: false, error: 'category' }
+  // Même exigence que `deleteBrand` : le dictionnaire doit exister avant
+  // l'écriture, sinon les réaffectations partent dans un objet détaché.
+  if (!db.meta.productOverrides || typeof db.meta.productOverrides !== 'object') db.meta.productOverrides = {}
+  const overrides = db.meta.productOverrides
+  let touched = 0
+  const FALLBACK = CATEGORY_FALLBACK
+  for (const p of PRODUCTS) {
+    if (effectiveCategory(p, overrides[p.id]) !== clean) continue
+    const o = overrides[p.id] && typeof overrides[p.id] === 'object' ? overrides[p.id] : {}
+    overrides[p.id] = { ...o, category: FALLBACK }
+    touched += 1
+  }
+  for (const p of db.meta?.extraProducts || []) {
+    if (effectiveCategory(p) === clean) {
+      p.category = FALLBACK
+      touched += 1
+    }
+  }
+  db.meta.extraCategories = (db.meta?.extraCategories || []).filter((c) => c?.id !== clean)
+  const hidden = new Set(db.meta?.hiddenCategories || [])
+  hidden.add(clean) // l'id du code reste retiré du filtre, définitivement
+  db.meta.hiddenCategories = [...hidden]
+  return { ok: true, category: clean, touched, fallback: FALLBACK }
 }
 
 export async function savePhotoDataUrls(productId, dataUrls = []) {

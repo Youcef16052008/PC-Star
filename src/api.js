@@ -203,6 +203,13 @@ export async function putPanels(meta) {
   return req('/api/master/panels', { method: 'PUT', body: meta })
 }
 
+// Taxonomie : marques et catégories (ajouter / masquer / supprimer). Un seul
+// appel porte un geste ; la réponse renvoie les quatre listes à jour, que le
+// client fusionne dans son meta sans écraser le reste.
+export async function putTaxonomy(body) {
+  return req('/api/master/taxonomy', { method: 'PUT', body })
+}
+
 // LOT P4 (V1) — le maitre ecrit sa vitrine (libelle + nombre de reparations).
 // Pas de `readyTally` ici : le compteur de commandes se lit, il ne se decree
 // pas — le serveur l'ignore s'il arrive dans le corps (voir applyVitrineEdit).

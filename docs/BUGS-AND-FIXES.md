@@ -4228,3 +4228,53 @@ orders`, `pcstar_backups` signalées absentes par le doctor) ; aligner Preview e
 `DATABASE_URL_UNPOOLED` ; vérifier auprès du magasin qu'aucune commande réelle
 n'a été tentée entre le 13 et le 26/09 — `updated_at` = 13/09 prouve qu'aucune
 écriture n'a abouti dans cette fenêtre.
+
+## LOT P10 (09/10/2026) — le maître a la main sur les produits, les marques et les rayons
+
+Demande du magasin : « l'admin doit pouvoir supprimer les produits, les marques,
+les catalogues, et les ajouter / masquer ; et le design doit être professionnel
+et compact, sans changer les couleurs ». Trois chantiers, un seul lot.
+
+**1. Suppression de TOUTES les fiches.** Le contrat précédent refusait (409) la
+suppression d'un produit du catalogue de base — « il se masque, il ne se
+supprime pas », parce que le code du configurateur en dépendait. Le maître veut
+pouvoir vider un rayon pour de bon. Nouveau contrat : l'id rejoint
+`meta.deletedProductIds` dans l'état. Le catalogue de base reste du CODE (rien
+n'est réécrit), mais la liste des ids retirés survit au redéploiement — la
+différence avec le masquage, qui se défait d'un clic. Trois surfaces filtrées :
+`publicCatalog` (vitrine), `listMasterProducts` (gestion), `placeOrder` (une
+commande visant une fiche supprimée est refusée « indisponible », A1 — sinon un
+panier gardé d'avant commanderait une fiche fantôme). `normalizeDb` initialise
+les nouveaux champs pour les bases existantes.
+
+**2. Taxonomie sous la main du maître** — deux onglets, trois gestes chacun :
+ajouter, masquer (réversible), supprimer (nettoie les fiches qui portaient la
+valeur). État : `extraBrands` / `hiddenBrands` / `extraCategories` /
+`hiddenCategories`. Une route `PUT /api/master/taxonomy` porte un geste ; sa
+réponse renvoie les quatre listes, que le client fusionne dans son meta sans
+écraser le reste. Bornes partagées dans `src/productMeta.js` (P2/B12 : le mode
+local ne doit pas accepter ce que l'API refuse). Supprimer une marque retire la
+valeur des fiches qui la portent (override côté base, direct côté master) ;
+supprimer une catégorie réaffecte ses fiches au rayon neutre `accessories` —
+aucune fiche ne garde une valeur fantôme. La vitrine suit : `GET /api/meta`
+expose la taxonomie, `buildShopView` retire des filtres les lignes sans fiches
+visibles (les ids de `PART_LINES` n'étant pas tous des catégories — `ram`,
+`ssd`, `hdd` partagent `memory` — la survie d'une ligne se décide sur les
+fiches, pas sur les ids), et `marquesVendues` ne propose plus les marques
+retirées.
+
+**3. Design compact, couleurs inchangées.** Le formulaire master perdait son
+ascenseur interne et son `sticky` (à 376 px, un panneau à double ascenseur donne
+l’impression de « prendre tout l'espace ») ; fieldsets, champs et tableaux
+resserrés ; onglets compactes. Aucun token de couleur touché.
+
+Bug trouvé au passage par les tests : `deleteBrand` / `deleteCategory` lisaient
+`db.meta.productOverrides || {}` puis écrivaient dedans — sur un état qui n'en
+portait pas encore, les nettoyages partaient dans un objet détaché, perdus en
+silence. Corrigé : le dictionnaire est créé avant l'écriture.
+
+**Tests :** `src/p10Taxonomy.test.js` (5 tests : marques, catégories, sécurité
+client, fiche supprimée non commandable, parité local/API) ;
+`pickupDate.test.js` mis au nouveau contrat (base → supprimé). Suite complète :
+1229 pass / 5 fail — les 5 sont les artefacts Windows connus (chmod, ESM
+file://), identiques sur la base vierge.

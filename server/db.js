@@ -358,8 +358,18 @@ export function emptyDb() {
     meta: {
       extraProducts: [],
       hiddenProductIds: [],
+      // Produits de base supprimés par le maître : le catalogue de base est
+      // du code, la suppression doit donc survivre au redémarrage — la liste
+      // des ids retirés vit dans l'état, pas dans un fichier qu'on perd.
+      deletedProductIds: [],
       extraPanels: [],
       hiddenPanelIds: [],
+      // Taxonomie gérée par le maître : marques et catégories qu'il ajoute,
+      // et celles qu'il retire de la vitrine.
+      extraBrands: [],
+      hiddenBrands: [],
+      extraCategories: [],
+      hiddenCategories: [],
       // LOT P4 (V1) — la vitrine : deux compteurs que le comptoir lit sur la
       // page d'accueil. `readyTally` est écrit par le SERVEUR (une commande
       // marquée « prête » le fait passer de +1, jamais l'inverse) ;
@@ -528,6 +538,17 @@ export function normalizeDb(db) {
     const next = clampVitrine(db.meta.vitrine)
     if (JSON.stringify(next) !== JSON.stringify(db.meta.vitrine)) {
       db.meta.vitrine = next
+      changed = true
+    }
+  }
+  // P10 — taxonomie et suppressions : une base écrite avant ce lot ne porte
+  // aucun de ces champs. Les lectures serveur sont défensives (`|| []`), donc
+  // rien ne casse ; mais l'état doit avoir une forme prévisible — un champ
+  // « parfois absent » finit toujours par être lu par un chemin qui n'a pas
+  // pensé au `||`, et la vitrine (buildShopView) les traverse sans filet.
+  for (const key of ['deletedProductIds', 'extraBrands', 'hiddenBrands', 'extraCategories', 'hiddenCategories']) {
+    if (!Array.isArray(db.meta[key])) {
+      db.meta[key] = []
       changed = true
     }
   }
