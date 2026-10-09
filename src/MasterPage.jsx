@@ -277,6 +277,8 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, ma
   const masterPages = pagesPour(masterTries.length, masterTaille)
   const masterPageSure = pageCourante(masterPage, masterPages)
   const masterTranche = tranche(masterTries, masterPageSure, masterTaille)
+  // « 1 fiches » se remarque sur l'écran de celui qui vit dans ce tableau.
+  const masterCompteFiches = masterTries.length === 1 ? t('masterFiche') : t('masterFichesCount', { n: masterTries.length })
 
   function masterResetFiltres() {
     setMasterQ('')
@@ -1000,7 +1002,7 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, ma
                       {t('masterResetFilters')}
                     </button>
                   )}
-                  <span className="master-toolbar-count small text-secondary ms-auto">{t('masterFichesCount', { n: masterTries.length })}</span>
+                  <span className="master-toolbar-count small text-secondary ms-auto">{masterCompteFiches}</span>
                 </div>
               </div>
 
@@ -1135,7 +1137,7 @@ export default function MasterPage({ t, lang, user, users, onUsers, products, ma
                 <ChoixTaille t={t} taille={masterTaille} onTaille={(n) => { setMasterTaille(n); setMasterPage(1) }} />
                 <Pager t={t} page={masterPageSure} pages={masterPages} onPage={setMasterPage} />
                 {masterPages > 1 && (
-                  <span className="small text-secondary ms-auto">{t('masterFichesCount', { n: masterTries.length })}</span>
+                  <span className="small text-secondary ms-auto">{masterCompteFiches}</span>
                 )}
               </div>
 
