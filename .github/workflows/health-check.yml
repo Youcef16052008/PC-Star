@@ -1,0 +1,63 @@
+name: Health check (production)
+
+# Surveillance continue de la production — toutes les 15 minutes.
+# Vérifie /api/health (degraded != true) et /api/catalog (200).
+# En cas d'échec, le job échoue → notification GitHub automatique.
+#
+# Ce workflow est la seule ligne qui aurait détecté l'incident du 26/09
+# (12 jours de boutique cassée sans que personne ne s'en aperçoive).
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch:  # permet un déclenchement manuel pour tester
+
+permissions:
+  contents: read
+
+jobs:
+  health:
+    name: Production health check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check /api/health
+        id: health
+        run: |
+          RESPONSE=$(curl -sf -w "\n%{http_code}" https://pc-star.vercel.app/api/health || true)
+          HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+          BODY=$(echo "$RESPONSE" | head -n -1)
+          
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "❌ /api/health → HTTP $HTTP_CODE (attendu 200)"
+            echo "body: $BODY"
+            exit 1
+          fi
+          
+          DEGRADED=$(echo "$BODY" | python3 -c "import sys,json; print(json.load(sys.stdin).get('degraded', False))" 2>/dev/null || echo "unknown")
+          
+          if [ "$DEGRADED" = "True" ]; then
+            echo "❌ /api/health → degraded=true"
+            echo "body: $BODY"
+            exit 1
+          fi
+          
+          echo "✅ /api/health → 200, degraded=false"
+
+      - name: Check /api/catalog
+        id: catalog
+        run: |
+          HTTP_CODE=$(curl -sf -o /dev/null -w "%{http_code}" https://pc-star.vercel.app/api/catalog || echo "000")
+          
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "❌ /api/catalog → HTTP $HTTP_CODE (attendu 200)"
+            exit 1
+          fi
+          
+          echo "✅ /api/catalog → 200"
+
+      - name: Report failure
+        if: failure()
+        run: |
+          echo "🚨 PC Star production health check FAILED"
+          echo "Time: $(date -u)"
+          echo "Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
